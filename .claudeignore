@@ -1,0 +1,32 @@
+# Python environment & cache
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Whisper model cache (~1.5 GB)
+models/
+
+# Pipeline outputs & temp dirs
+*_edited.mp4
+output.mp4
+hebpipe_*/
+tmp/
+
+# Test/sample video files (large binaries)
+input_vids/
+
+# Images (binary, not useful to read)
+img/
+site/img/
+
+# Vercel metadata
+site/.vercel/
+
+# Secrets
+.env
+.envrc

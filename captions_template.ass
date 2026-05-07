@@ -1,0 +1,56 @@
+[Script Info]
+; ------------------------------------------------------------
+;  Hebrew caption template for short-form video (portrait 9:16)
+;  Works out of the box with ffmpeg's libass subtitles filter:
+;
+;    ffmpeg -i in.mp4 -vf "subtitles=captions_template.ass" \
+;      -c:v libx264 -crf 18 -preset slow -c:a copy out.mp4
+;
+;  Colours in ASS are &HAABBGGRR& (alpha-blue-green-red, hex).
+;  Alpha 00 = fully opaque, FF = fully transparent.
+;  PlayResX/PlayResY must match your video's resolution for
+;  font sizes and margins to scale correctly.
+;  Change these two lines for landscape 1080p: 1920 x 1080
+; ------------------------------------------------------------
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+WrapStyle: 2
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+
+; Main caption style: white fill, 4px black outline, soft drop shadow,
+; centered at bottom (Alignment 2), 180px from bottom edge.
+; Encoding 177 = Hebrew (helps on systems with patchy shaping support).
+Style: Default,Rubik,80,&H00FFFFFF,&H000000FF,&H00000000,&HA0000000,-1,0,0,0,100,100,0,0,1,4,2,2,60,60,180,177
+
+; Accent style for highlighted keyword (yellow fill, same outline)
+Style: Accent,Rubik,80,&H0000F0FF,&H000000FF,&H00000000,&HA0000000,-1,0,0,0,100,100,0,0,1,4,2,2,60,60,180,177
+
+; Smaller secondary style (e.g. for quoting / sub-label at top)
+Style: Small,Rubik,48,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,2,8,60,60,80,177
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+
+; ---- Usage examples -----------------------------------------
+; Standard two-line caption. \N forces a line break.
+; libass handles RTL / bidi automatically — type Hebrew naturally.
+Dialogue: 0,0:00:00.00,0:00:02.50,Default,,0,0,0,,שלום חברים ברוכים הבאים\Nלפרק חדש של הערוץ
+
+; Single-line caption with one word styled as accent inline.
+; {\rAccent} switches to the Accent style, {\rDefault} resets.
+Dialogue: 0,0:00:02.60,0:00:04.80,Default,,0,0,0,,היום נדבר על {\rAccent}בינה מלאכותית{\rDefault} בעברית
+
+; Fade in/out effect (100 ms in, 200 ms out)
+Dialogue: 0,0:00:04.90,0:00:07.00,Default,,0,0,0,,{\fad(100,200)}כל מילה שנאמרת מוקלדת אוטומטית
+
+; Caption at the top of the frame using the Small style
+Dialogue: 0,0:00:07.10,0:00:09.00,Small,,0,0,0,,פרק 1 — היכרות
+
+; Pop/scale-in emphasis: \t animates scale from 80% to 100% over 150ms
+Dialogue: 0,0:00:09.10,0:00:11.00,Default,,0,0,0,,{\fscx80\fscy80\t(0,150,\fscx100\fscy100)}זה הסגנון של רילסים
+; -------------------------------------------------------------

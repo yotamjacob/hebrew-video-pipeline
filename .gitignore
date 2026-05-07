@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Pipeline outputs
+*_edited.mp4
+output.mp4
+hebpipe_*/
+tmp/
+outputs/
+
+# Local secrets
+.env
+.envrc
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Models cache (if stored locally)
+models/
+
+# Node / Playwright
+node_modules/
+playwright-report/
+test-results/

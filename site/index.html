@@ -1,0 +1,3732 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hebrew Video Pipeline · Yogalina</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;700&family=Assistant:wght@400;700&family=Frank+Ruhl+Libre:wght@400;700&family=Secular+One&family=Noto+Sans+Hebrew:wght@400;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --purple-900: #3B0764;
+      --purple-800: #4C1D95;
+      --purple-700: #6D28D9;
+      --purple-600: #7C3AED;
+      --purple-500: #8B5CF6;
+      --purple-400: #A78BFA;
+      --purple-300: #C4B5FD;
+      --purple-100: #EDE9FE;
+      --purple-50:  #F5F3FF;
+      --bg:         #F2EEF8;
+      --white:      #FFFFFF;
+      --text:       #1E1033;
+      --muted:      #6B7080;
+      --green:      #059669;
+      --amber:      #D97706;
+      --red:        #DC2626;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100svh;
+    }
+
+    /* ── Hero ── */
+    .hero {
+      position: relative;
+      height: 240px;
+      overflow: hidden;
+    }
+    .hero img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center 30%;
+      display: block;
+    }
+    .hero-overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        110deg,
+        rgba(55, 7, 100, 0.82) 0%,
+        rgba(109, 40, 217, 0.55) 45%,
+        rgba(167, 139, 250, 0.10) 100%
+      );
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0 40px;
+    }
+    .hero-title {
+      color: #fff;
+      font-size: clamp(1.4rem, 4vw, 2rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      text-shadow: 0 2px 20px rgba(0,0,0,0.5);
+      margin-bottom: 6px;
+    }
+    .hero-sub {
+      color: rgba(255,255,255,0.78);
+      font-size: clamp(0.78rem, 2vw, 0.9rem);
+      font-weight: 400;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.4);
+    }
+
+    /* ── Layout ── */
+    .container {
+      max-width: 560px;
+      margin: 0 auto;
+      padding: 28px 16px 60px;
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--white);
+      border: 1.5px solid var(--purple-100);
+      border-radius: 20px;
+      padding: 24px;
+      box-shadow: 0 4px 24px rgba(109, 40, 217, 0.08);
+      margin-bottom: 16px;
+    }
+
+    /* ── Upload zone ── */
+    .upload-zone {
+      border: 2px dashed var(--purple-300);
+      border-radius: 14px;
+      padding: 36px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      background: var(--purple-50);
+      position: relative;
+    }
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: var(--purple-600);
+      background: var(--purple-100);
+    }
+    .upload-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+    .upload-icon { font-size: 2.4rem; margin-bottom: 10px; }
+    .upload-main {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--purple-800);
+      margin-bottom: 4px;
+    }
+    .upload-sub { font-size: 0.85rem; color: var(--muted); }
+    .upload-link { color: var(--purple-600); text-decoration: underline; }
+    .upload-hint { margin-top: 10px; font-size: 0.75rem; color: var(--purple-400); }
+
+    /* ── File info strip ── */
+    .file-info {
+      display: none;
+      align-items: center;
+      gap: 12px;
+      background: var(--purple-50);
+      border: 1.5px solid #DDD6FE;
+      border-radius: 12px;
+      padding: 12px 16px;
+      margin-top: 12px;
+    }
+    .file-info.visible { display: flex; }
+    .file-info-icon { font-size: 1.6rem; flex-shrink: 0; }
+    .file-info-meta { flex: 1; min-width: 0; }
+    .file-info-name {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--purple-800);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .file-info-detail { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+    .file-info-clear {
+      margin-left: auto;
+      flex-shrink: 0;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 1.1rem;
+      padding: 4px;
+      border-radius: 6px;
+      transition: color 0.15s;
+    }
+    .file-info-clear:hover { color: var(--red); }
+
+    /* ── Warning / block banners ── */
+    .notice {
+      display: none;
+      align-items: flex-start;
+      gap: 10px;
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-top: 12px;
+      font-size: 0.82rem;
+      line-height: 1.45;
+    }
+    .notice.visible { display: flex; }
+    .notice-icon { flex-shrink: 0; font-size: 1rem; margin-top: 1px; }
+    .notice-text { flex: 1; }
+    .notice-title { font-weight: 700; margin-bottom: 2px; }
+
+    .notice-warn {
+      background: #FFF7ED;
+      border: 1.5px solid #FDE68A;
+      color: #92400E;
+    }
+    .notice-block {
+      background: #FEF2F2;
+      border: 1.5px solid #FECACA;
+      color: #991B1B;
+    }
+    .notice-info {
+      background: var(--purple-50);
+      border: 1.5px solid var(--purple-100);
+      color: var(--purple-800);
+    }
+
+    /* ── Options ── */
+    .options-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--purple-400);
+      margin-bottom: 14px;
+    }
+    .option-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--purple-100);
+    }
+    .option-row:last-child { border-bottom: none; }
+    .option-icon { font-size: 1.2rem; flex-shrink: 0; width: 28px; text-align: center; }
+    .option-text { flex: 1; }
+    .option-label { font-size: 0.9rem; font-weight: 600; color: var(--text); }
+    .option-desc { font-size: 0.78rem; color: var(--muted); margin-top: 1px; }
+    .option-row.disabled .option-label,
+    .option-row.disabled .option-desc { color: var(--purple-300); }
+
+    /* iOS toggle */
+    .toggle-wrap { flex-shrink: 0; }
+    .toggle { position: relative; display: inline-block; width: 46px; height: 26px; }
+    .toggle input { display: none; }
+    .toggle-track {
+      position: absolute; inset: 0;
+      background: #DDD6FE; border-radius: 13px; transition: background 0.22s;
+    }
+    .toggle input:checked + .toggle-track { background: var(--purple-600); }
+    .toggle-thumb {
+      position: absolute; top: 3px; left: 3px;
+      width: 20px; height: 20px; background: white; border-radius: 50%;
+      box-shadow: 0 1px 5px rgba(0,0,0,0.25); transition: transform 0.22s;
+    }
+    .toggle input:checked ~ .toggle-thumb { transform: translateX(20px); }
+    .soon-badge {
+      font-size: 0.65rem; font-weight: 600; letter-spacing: 0.05em;
+      background: var(--purple-100); color: var(--purple-400);
+      border-radius: 6px; padding: 2px 6px;
+    }
+
+    /* ── Advanced ── */
+    .advanced-toggle {
+      display: flex; align-items: center; gap: 6px;
+      background: none; border: none; cursor: pointer;
+      color: var(--purple-600); font-size: 0.82rem; font-weight: 600;
+      padding: 0; margin-top: 6px;
+    }
+    .advanced-toggle .chevron { display: inline-block; transition: transform 0.2s; font-style: normal; }
+    .advanced-toggle.open .chevron { transform: rotate(180deg); }
+    .advanced-panel { display: none; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--purple-100); }
+    .advanced-panel.open { display: block; }
+
+    .slider-row { margin-bottom: 18px; }
+    .slider-row:last-child { margin-bottom: 0; }
+    .slider-label { display: flex; justify-content: space-between; font-size: 0.82rem; font-weight: 500; color: var(--purple-800); margin-bottom: 8px; }
+    .slider-val { color: var(--purple-600); font-weight: 600; }
+    .slider-desc { font-size: 0.75rem; color: var(--muted); margin-top: 5px; }
+    .aggr-track { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+    .aggr-track input[type=range] { flex: 1; }
+    .aggr-end { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+    input[type="range"] { width: 100%; height: 5px; accent-color: var(--purple-600); cursor: pointer; }
+
+    /* ── Run button ── */
+    .run-btn {
+      width: 100%; padding: 16px;
+      background: linear-gradient(130deg, var(--purple-700) 0%, var(--purple-500) 100%);
+      color: white; border: none; border-radius: 14px;
+      font-size: 1rem; font-weight: 700; letter-spacing: 0.02em;
+      cursor: pointer; box-shadow: 0 6px 28px rgba(109, 40, 217, 0.38);
+      transition: opacity 0.18s, transform 0.18s, box-shadow 0.18s;
+    }
+    .run-btn:hover:not(:disabled) {
+      opacity: 0.92; transform: translateY(-1px);
+      box-shadow: 0 10px 36px rgba(109, 40, 217, 0.45);
+    }
+    .run-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+    /* ── Status card ── */
+    .status { display: none; }
+    .status.visible { display: block; }
+
+    /* Upload progress */
+    .upload-progress { padding: 24px 20px 8px; }
+    .progress-track {
+      height: 6px; background: var(--purple-100); border-radius: 3px; overflow: hidden; margin-bottom: 10px;
+    }
+    .progress-fill {
+      height: 100%; width: 0%; background: linear-gradient(90deg, var(--purple-700), var(--purple-400));
+      border-radius: 3px; transition: width 0.3s ease;
+    }
+    .progress-meta {
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .progress-label { font-size: 0.82rem; font-weight: 600; color: var(--purple-700); }
+
+    /* Processing spinner */
+    .status-processing {
+      display: flex; flex-direction: column; align-items: center;
+      padding: 28px 20px; gap: 14px;
+    }
+    .spinner {
+      width: 44px; height: 44px;
+      border: 3px solid var(--purple-100); border-top-color: var(--purple-600);
+      border-radius: 50%; animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .proc-meta { display: flex; align-items: center; gap: 10px; }
+    .status-msg { font-size: 0.92rem; font-weight: 600; color: var(--purple-800); text-align: center; }
+    .status-submsg { font-size: 0.78rem; color: var(--muted); text-align: center; }
+    .elapsed { font-size: 0.82rem; font-weight: 600; color: var(--purple-400); font-variant-numeric: tabular-nums; }
+
+    /* Done */
+    .status-done { display: none; flex-direction: column; align-items: center; gap: 16px; padding: 28px 20px; }
+    .status-done.visible { display: flex; }
+    .done-icon { font-size: 2.8rem; }
+    .done-label { font-size: 1rem; font-weight: 600; color: var(--green); }
+    .done-time  { font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .download-btn {
+      width: 100%; padding: 15px;
+      background: linear-gradient(130deg, #065F46, #059669);
+      color: white; border: none; border-radius: 14px;
+      font-size: 0.95rem; font-weight: 700; cursor: pointer;
+      box-shadow: 0 6px 24px rgba(5, 150, 105, 0.32);
+      transition: opacity 0.18s, transform 0.18s;
+    }
+    .download-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+
+    /* Error */
+    .status-error { display: none; flex-direction: column; align-items: center; gap: 10px; padding: 24px 20px; }
+    .status-error.visible { display: flex; }
+    .error-icon { font-size: 2rem; }
+    .error-msg { font-size: 0.85rem; color: var(--red); text-align: center; max-width: 360px; }
+    .retry-btn {
+      background: none; border: 1.5px solid var(--red); color: var(--red);
+      border-radius: 10px; padding: 8px 20px; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+    }
+    /* B-roll */
+    .time-estimate {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 0 4px;
+      font-size: 0.82rem;
+      color: var(--muted);
+      border-top: 1px solid var(--purple-100);
+      margin-top: 4px;
+    }
+    .time-estimate-icon { font-size: 0.9rem; }
+    .gemini-key-row { margin: 8px 0 2px; }
+    .gemini-key-input {
+      width: 100%; padding: 8px 12px; border: 1.5px solid var(--purple-200);
+      border-radius: 8px; font-size: 0.82rem; color: var(--text);
+      background: var(--purple-50); outline: none;
+    }
+    .gemini-key-input:focus { border-color: var(--purple-500); }
+    .broll-status { display: flex; align-items: center; gap: 10px; padding: 14px 0; font-size: 0.85rem; color: var(--muted); }
+    .spinner-sm {
+      width: 18px; height: 18px; flex-shrink: 0;
+      border: 2px solid var(--purple-100); border-top-color: var(--purple-600);
+      border-radius: 50%; animation: spin 0.9s linear infinite;
+    }
+    .broll-row {
+      display: flex; gap: 12px; align-items: flex-start;
+      padding: 14px 0; border-bottom: 1px solid var(--purple-100);
+    }
+    .broll-row:last-child { border-bottom: none; }
+    .broll-checkbox {
+      width: 18px; height: 18px; flex-shrink: 0; margin-top: 4px;
+      accent-color: var(--purple-600); cursor: pointer;
+    }
+    .broll-thumb {
+      width: 72px; height: 128px; overflow: hidden;
+      border-radius: 8px; flex-shrink: 0; background: var(--purple-100);
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+    }
+    .broll-thumb video, .broll-thumb img {
+      width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 8px;
+    }
+    .broll-thumb-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; flex-shrink: 0; }
+    .broll-thumb.zoomable { cursor: zoom-in; }
+    .broll-thumb.zoomable:hover { opacity: 0.9; }
+    .broll-retry {
+      background: none; border: none; cursor: pointer; padding: 0;
+      font-size: 0.68rem; color: var(--purple-400); line-height: 1;
+      transition: color 0.15s;
+    }
+    .broll-retry:hover:not(:disabled) { color: var(--purple-600); }
+    .broll-retry:disabled { opacity: 0.4; cursor: not-allowed; }
+    .broll-thumb-placeholder {
+      width: 28px; height: 28px; opacity: 0.35;
+    }
+    .broll-content { flex: 1; min-width: 0; }
+    .broll-time { font-size: 0.7rem; color: var(--purple-400); font-variant-numeric: tabular-nums; }
+    .broll-label { font-size: 0.85rem; font-weight: 600; color: var(--purple-800); margin: 3px 0 2px; }
+    .broll-desc { font-size: 0.78rem; color: var(--muted); margin-bottom: 8px; line-height: 1.4; }
+    .broll-dismiss { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; padding: 0 2px; flex-shrink: 0; line-height: 1; }
+    .broll-dismiss:hover { color: var(--red); }
+    .card.burning    { pointer-events: none; opacity: 0.5; }
+    .setup-locked    { pointer-events: none; opacity: 0.5; }
+
+    /* ── Confirm dialog modal ── */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(30, 16, 51, 0.55);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 900; padding: 16px;
+    }
+    .modal-dialog {
+      background: var(--white);
+      border: 1.5px solid var(--purple-100);
+      border-radius: 20px;
+      padding: 28px 24px;
+      max-width: 360px;
+      width: 100%;
+      box-shadow: 0 12px 40px rgba(55, 7, 100, 0.22);
+    }
+    .modal-dialog-title { font-size: 1.05rem; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+    .modal-dialog-body  { font-size: 0.88rem; color: var(--muted); margin-bottom: 24px; line-height: 1.5; }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+    .modal-cancel-btn {
+      background: none; border: 1.5px solid var(--purple-200);
+      color: var(--muted); border-radius: 10px; padding: 10px 18px;
+      font-size: 0.88rem; font-weight: 600; cursor: pointer; transition: border-color 0.15s;
+    }
+    .modal-cancel-btn:hover { border-color: var(--purple-400); color: var(--purple-700); }
+    .modal-ok-btn {
+      background: linear-gradient(130deg, var(--purple-700) 0%, var(--purple-500) 100%);
+      color: white; border: none; border-radius: 10px; padding: 10px 20px;
+      font-size: 0.88rem; font-weight: 700; cursor: pointer;
+      box-shadow: 0 4px 16px rgba(109, 40, 217, 0.32); transition: opacity 0.15s;
+    }
+    .modal-ok-btn:hover { opacity: 0.9; }
+
+    /* ── Burn success banner ── */
+    #burnSuccessBanner {
+      background: linear-gradient(135deg, #D1FAE5, #ECFDF5);
+      border: 1.5px solid #6EE7B7;
+      border-radius: 16px;
+      padding: 20px;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+    .burn-success-icon  { font-size: 2rem; }
+    .burn-success-label { font-size: 1rem; font-weight: 700; color: #065F46; }
+    .burn-success-time  { font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+    /* ── Disabled option row (Veo) ── */
+    .option-row.disabled-feature {
+      opacity: 0.42;
+      pointer-events: none;
+      cursor: not-allowed;
+      filter: grayscale(0.3);
+    }
+
+    /* ── Stock B-roll moment cards ── */
+    .moment-card {
+      border: 1.5px solid var(--purple-100);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 12px;
+      background: var(--purple-50);
+    }
+    .moment-card:last-child { margin-bottom: 0; }
+    .moment-card.coverage {
+      opacity: 0.82;
+      border: 1.5px dashed #D1D5DB;
+      background: #F9FAFB;
+    }
+    .moment-card.skipped-emphasis {
+      opacity: 0.45;
+    }
+    .moment-badge-rhythm {
+      background: #ECFDF5; color: #065F46; border: 1.5px solid #6EE7B7;
+      font-size: 0.65rem; font-weight: 700; border-radius: 6px;
+      padding: 1px 7px; letter-spacing: 0.04em; flex-shrink: 0;
+    }
+    .moment-restore-btn {
+      background: none; border: 1px solid var(--purple-300);
+      color: var(--purple-600); border-radius: 6px;
+      padding: 2px 8px; font-size: 0.72rem; font-weight: 600;
+      cursor: pointer; margin-left: auto; flex-shrink: 0;
+    }
+    .moment-restore-btn:hover { background: var(--purple-50); }
+    .broll-summary {
+      font-size: 0.78rem; color: var(--muted); margin-bottom: 10px;
+      padding: 6px 10px; background: var(--purple-50);
+      border: 1px solid var(--purple-100); border-radius: 8px;
+    }
+    .moment-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+      flex-wrap: wrap;
+    }
+    .moment-time-badge {
+      background: var(--purple-100);
+      color: var(--purple-700);
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 2px 9px;
+      border-radius: 20px;
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+      letter-spacing: 0.03em;
+    }
+    .moment-label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--purple-800);
+      flex: 1;
+      min-width: 0;
+    }
+    .moment-excerpt {
+      font-size: 0.83rem;
+      color: var(--text);
+      direction: rtl;
+      text-align: right;
+      font-family: 'Heebo', sans-serif;
+      margin: 4px 0 8px;
+      line-height: 1.55;
+      padding: 7px 10px;
+      background: white;
+      border-radius: 8px;
+      border: 1px solid var(--purple-100);
+    }
+    .moment-reasoning {
+      font-size: 0.74rem;
+      color: var(--muted);
+      margin-bottom: 12px;
+      line-height: 1.45;
+      font-style: italic;
+    }
+    .clips-row {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      padding-bottom: 6px;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+    }
+    .clip-card {
+      flex-shrink: 0;
+      width: 148px;
+      scroll-snap-align: start;
+      border-radius: 10px;
+      overflow: hidden;
+      background: white;
+      border: 1.5px solid var(--purple-100);
+      box-shadow: 0 2px 8px rgba(109, 40, 217, 0.06);
+      transition: transform 0.12s, box-shadow 0.12s;
+    }
+    .clip-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(109, 40, 217, 0.12); }
+    .clip-thumb {
+      position: relative;
+      width: 148px;
+      height: 92px;
+      background: var(--purple-100);
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .clip-thumb img {
+      width: 100%; height: 100%; object-fit: cover; display: block;
+    }
+    .clip-thumb-play {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.16);
+      transition: background 0.15s;
+    }
+    .clip-thumb:hover .clip-thumb-play { background: rgba(0,0,0,0.30); }
+    .clip-thumb-play-icon {
+      width: 34px; height: 34px;
+      background: rgba(255,255,255,0.92);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px;
+      padding-left: 2px;
+    }
+    .clip-source-badge {
+      position: absolute;
+      top: 6px; left: 6px;
+      font-size: 0.58rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: white;
+    }
+    .clip-source-badge.pexels { background: #07A081; }
+    .clip-source-badge.pixabay { background: #2EC66A; }
+    .clip-score-badge {
+      position: absolute;
+      bottom: 6px; right: 6px;
+      font-size: 0.62rem;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: white;
+      letter-spacing: 0.02em;
+      cursor: default;
+    }
+    .clip-score-badge.high { background: rgba(5,150,105,0.92); }
+    .clip-score-badge.mid  { background: rgba(217,119,6,0.92); }
+    .clip-score-badge.low  { background: rgba(107,112,128,0.85); }
+    .clip-meta {
+      padding: 6px 8px 8px;
+    }
+    .clip-author {
+      display: block;
+      font-size: 0.67rem;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-decoration: none;
+      margin-bottom: 5px;
+    }
+    .clip-author:hover { color: var(--purple-600); }
+    .clip-title {
+      display: block;
+      font-size: 0.64rem;
+      color: var(--text);
+      margin-bottom: 4px;
+      line-height: 1.3;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+    .clip-tags {
+      display: block;
+      font-size: 0.59rem;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 4px;
+    }
+    .clip-select-label {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      width: 100%;
+      padding: 4px 0;
+      border: 1.5px solid var(--purple-300);
+      border-radius: 6px;
+      background: none;
+      color: var(--purple-600);
+      font-size: 0.68rem;
+      font-weight: 700;
+      cursor: pointer;
+      text-align: center;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+      font-family: inherit;
+      margin-bottom: 4px;
+    }
+    .clip-select-label:hover { background: var(--purple-100); color: var(--purple-700); }
+    .clip-select-label input { display: none; }
+    .clip-select-label.checked { background: var(--purple-600); color: white; border-color: var(--purple-600); }
+    .clip-card.selected { border-color: var(--purple-500); box-shadow: 0 0 0 2px var(--purple-200), 0 4px 16px rgba(109,40,217,0.14); }
+    .clip-view-link {
+      display: block;
+      text-align: center;
+      font-size: 0.62rem;
+      color: var(--muted);
+      text-decoration: none;
+    }
+    .clip-view-link:hover { color: var(--purple-600); text-decoration: underline; }
+    .moment-dur-badge {
+      background: var(--purple-700);
+      color: white;
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 20px;
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+      letter-spacing: 0.03em;
+    }
+    .clip-window-note {
+      font-size: 0.6rem;
+      color: var(--muted);
+      text-align: center;
+      padding: 2px 0;
+      white-space: nowrap;
+    }
+    .clip-window-note.padded { color: var(--amber, #d97706); }
+    .moment-confidence-badge {
+      font-size: 0.65rem; font-weight: 700; letter-spacing: 0.04em;
+      padding: 2px 8px; border-radius: 20px; flex-shrink: 0; text-transform: uppercase;
+    }
+    .confidence-high   { background: #D1FAE5; color: #065F46; }
+    .confidence-medium { background: #FEF3C7; color: #92400E; }
+    .confidence-low    { background: #F3F4F6; color: #6B7280; }
+
+    .moment-dismiss-btn {
+      margin-left: auto;
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0 2px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .moment-dismiss-btn:hover { color: var(--red); }
+    .no-clips-msg {
+      font-size: 0.78rem;
+      color: var(--muted);
+      padding: 8px 0;
+      font-style: italic;
+    }
+    .find-clips-btn {
+      margin-top: 10px;
+      background: none;
+      border: 1.5px solid var(--purple-200);
+      border-radius: 8px;
+      padding: 5px 12px;
+      font-size: 0.74rem;
+      font-weight: 600;
+      color: var(--purple-500);
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+      font-family: inherit;
+    }
+    .find-clips-btn:hover { border-color: var(--purple-400); color: var(--purple-700); background: var(--purple-50); }
+    .find-clips-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .moment-debug {
+      margin-top: 10px;
+      font-size: 0.71rem;
+      display: none;
+    }
+    .debug-mode .moment-debug { display: block; }
+    .debug-toggle-btn {
+      font-size: 0.72rem;
+      padding: 3px 9px;
+      border-radius: 6px;
+      border: 1px solid var(--purple-200);
+      background: white;
+      color: var(--muted);
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .debug-toggle-btn.active { background: var(--purple-100); color: var(--purple-700); border-color: var(--purple-400); font-weight: 600; }
+    .moment-debug-body {
+      margin-top: 7px;
+      padding: 8px 10px;
+      background: white;
+      border-radius: 8px;
+      border: 1px solid var(--purple-100);
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .moment-debug-row { color: var(--text); line-height: 1.45; }
+    .moment-debug-row strong { color: var(--purple-600); margin-right: 4px; font-weight: 700; }
+    .moment-reasoning { direction: rtl; text-align: right; font-family: 'Heebo', sans-serif; }
+
+    /* Aspect ratio selector */
+    .ar-select { display: flex; gap: 6px; margin-top: 6px; }
+    .ar-select input[type="radio"] { display: none; }
+    .ar-select label {
+      flex: 1; text-align: center; padding: 5px 8px;
+      border-radius: 8px; border: 1.5px solid var(--purple-200);
+      font-size: 0.78rem; font-weight: 600; cursor: pointer;
+      color: var(--purple-400); background: var(--purple-50);
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+    }
+    .ar-select input[type="radio"]:checked + label {
+      border-color: var(--purple-600); color: var(--purple-700);
+      background: var(--purple-100);
+    }
+
+    /* Lightbox */
+    #brollLightbox {
+      display: none; position: fixed; inset: 0; z-index: 10000;
+      background: rgba(0,0,0,0.88); align-items: center; justify-content: center;
+      cursor: zoom-out;
+    }
+    #brollLightbox.open { display: flex; }
+    #brollLightboxImg {
+      max-width: 92vw; max-height: 92vh; object-fit: contain;
+      border-radius: 10px; box-shadow: 0 8px 48px rgba(0,0,0,0.6);
+    }
+
+    .cancel-btn {
+      background: none; border: 1.5px solid var(--muted); color: var(--muted);
+      border-radius: 10px; padding: 6px 18px; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+      margin-top: 10px; transition: border-color 0.15s, color 0.15s;
+    }
+    .cancel-btn:hover { border-color: var(--red); color: var(--red); }
+
+    /* ── Caption editor ── */
+    .caption-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 7px 0; border-bottom: 1px solid var(--purple-100);
+    }
+    .caption-row:last-child { border-bottom: none; }
+    .caption-time {
+      font-size: 0.7rem; color: var(--purple-400);
+      white-space: nowrap; font-variant-numeric: tabular-nums;
+      width: 86px; flex-shrink: 0;
+    }
+    .caption-input {
+      flex: 1; border: 1.5px solid var(--purple-100); border-radius: 8px;
+      padding: 5px 10px; font-size: 0.85rem; direction: rtl;
+      font-family: inherit; color: var(--text); background: var(--white);
+    }
+    .caption-input:focus { outline: none; border-color: var(--purple-600); }
+    .captions-list { max-height: 380px; overflow-y: auto; }
+
+    /* Caption preview */
+    .preview-row { display: flex; gap: 10px; align-items: stretch; justify-content: center; margin-bottom: 14px; }
+    .preview-wrapper {
+      position: relative; background: #000; border-radius: 8px; overflow: hidden;
+      height: 220px; aspect-ratio: 9/16; flex-shrink: 0;
+    }
+    #previewCanvas { width: 100%; height: 100%; display: block; object-fit: contain; }
+    .preview-caption {
+      position: absolute; bottom: 8%; left: 50%; transform: translateX(-50%);
+      color: #fff; text-shadow: 0 0 6px #000, 0 0 3px #000;
+      font-size: clamp(10px, 2.5vw, 18px); font-weight: 700;
+      white-space: nowrap; pointer-events: none;
+      transition: bottom 0.05s;
+    }
+    .preview-sliders-col {
+      display: flex; flex-direction: column; gap: 8px; align-items: center; flex-shrink: 0;
+    }
+    .pos-track {
+      width: 18px; border-radius: 9px; background: var(--purple-100);
+      position: relative; cursor: pointer; flex: 1;
+    }
+    .pos-thumb {
+      width: 18px; height: 18px; border-radius: 50%;
+      background: var(--purple-600); position: absolute;
+      left: 0; transform: translateY(-50%);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.25); cursor: grab;
+      transition: box-shadow 0.1s;
+    }
+    .pos-thumb:active { cursor: grabbing; box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
+    .font-size-track {
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      background: var(--purple-100); border-radius: 9px; padding: 7px 0;
+      width: 18px;
+    }
+    .font-size-track input[type=range] {
+      writing-mode: vertical-lr; direction: rtl;
+      height: 56px; width: 14px;
+      accent-color: var(--purple-600); cursor: pointer;
+    }
+    .fs-lbl { font-size: 0.68rem; color: var(--purple-500); font-weight: 700; line-height: 1; }
+    .caption-controls {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 4px;
+    }
+    .ctrl-label { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+    .font-select {
+      flex: 1; border: 1.5px solid var(--purple-100); border-radius: 8px;
+      padding: 5px 10px; font-size: 0.85rem; color: var(--text);
+      background: var(--white); cursor: pointer;
+    }
+    .font-select:focus { outline: none; border-color: var(--purple-600); }
+
+    /* ── Collapsible card sections ── */
+    .card-header {
+      display: flex; align-items: center; justify-content: space-between;
+      cursor: pointer; user-select: none;
+    }
+    .card-header .options-title { margin-bottom: 0; }
+    .collapse-chevron {
+      font-size: 1.1rem; color: var(--purple-400); font-style: normal;
+      transition: transform 0.2s; flex-shrink: 0;
+    }
+    .card-header.collapsed .collapse-chevron { transform: rotate(-90deg); }
+
+    /* ── Footer ── */
+    .footer {
+      text-align: center; color: var(--purple-400);
+      font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; padding-top: 8px;
+    }
+
+    /* ── Mobile ── */
+    @media (max-width: 480px) {
+      .hero { height: 180px; }
+      .hero-overlay { padding: 0 24px; }
+      .container { padding: 20px 12px 48px; }
+      .card { padding: 18px; border-radius: 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="reconnectBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:#4C1D95;color:#fff;padding:12px 20px;display:none;align-items:center;gap:12px;font-size:0.9rem;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,0.3)">
+  <span style="flex:1">A previous job is still running — tap to reconnect and get your result.</span>
+  <button onclick="resumeSavedJob()" style="background:#7C3AED;border:none;color:#fff;border-radius:8px;padding:8px 16px;font-size:0.85rem;font-weight:700;cursor:pointer">Resume</button>
+  <button onclick="clearSavedJob();document.getElementById('reconnectBanner').style.display='none'" style="background:none;border:1.5px solid rgba(255,255,255,0.4);color:#fff;border-radius:8px;padding:8px 12px;font-size:0.85rem;cursor:pointer">Dismiss</button>
+</div>
+
+<div class="hero">
+  <img src="img/cover.webp" alt="Yogalina — School of Quiet Yoga" />
+  <div class="hero-overlay">
+    <h1 class="hero-title">Hebrew Video Pipeline</h1>
+    <p class="hero-sub">Upload · Edit · Download</p>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Upload -->
+  <div class="card" id="uploadCard">
+    <div class="upload-zone" id="uploadZone">
+      <input type="file" id="fileInput" accept="video/*" />
+      <div class="upload-icon">🎬</div>
+      <p class="upload-main">Drop your video here</p>
+      <p class="upload-sub">or <span class="upload-link">browse files</span></p>
+      <p class="upload-hint">MP4 · MOV · MKV &nbsp;·&nbsp; max 20 min &nbsp;·&nbsp; max 500 MB</p>
+    </div>
+
+    <div class="file-info" id="fileInfo">
+      <div class="file-info-icon">🎥</div>
+      <div class="file-info-meta">
+        <div class="file-info-name" id="fileName">video.mp4</div>
+        <div class="file-info-detail" id="fileDetail"></div>
+      </div>
+      <button class="file-info-clear" id="clearFile" title="Remove">✕</button>
+    </div>
+
+    <!-- Validation notices -->
+    <div class="notice notice-block" id="noticeBlock">
+      <div class="notice-icon">🚫</div>
+      <div class="notice-text">
+        <div class="notice-title" id="noticeBlockTitle"></div>
+        <div id="noticeBlockBody"></div>
+      </div>
+    </div>
+    <div class="notice notice-warn" id="noticeWarn">
+      <div class="notice-icon">⚠️</div>
+      <div class="notice-text">
+        <div class="notice-title" id="noticeWarnTitle"></div>
+        <div id="noticeWarnBody"></div>
+      </div>
+    </div>
+    <div class="notice notice-warn" id="noticeNet">
+      <div class="notice-icon">📶</div>
+      <div class="notice-text">
+        <div class="notice-title" id="noticeNetTitle">Mobile data detected</div>
+        <div id="noticeNetBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Options -->
+  <div class="card" id="optionsCard">
+    <p class="options-title">Options</p>
+
+    <div class="option-row">
+      <div class="option-icon">✂️</div>
+      <div class="option-text">
+        <div class="option-label">Cut silences</div>
+        <div class="option-desc">Remove pauses between speech</div>
+      </div>
+      <div class="toggle-wrap">
+        <label class="toggle">
+          <input type="checkbox" id="cutSilences" checked />
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
+    </div>
+
+    <div class="option-row">
+      <div class="option-icon">💬</div>
+      <div class="option-text">
+        <div class="option-label">Burn Hebrew captions</div>
+        <div class="option-desc">Word-level subtitles baked into video</div>
+      </div>
+      <div class="toggle-wrap">
+        <label class="toggle">
+          <input type="checkbox" id="burnCaptions" checked />
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
+    </div>
+
+    <div class="option-row">
+      <div class="option-icon">🎙️</div>
+      <div class="option-text">
+        <div class="option-label">Enhance audio</div>
+        <div class="option-desc">DeepFilterNet noise reduction</div>
+      </div>
+      <div class="toggle-wrap">
+        <label class="toggle">
+          <input type="checkbox" id="enhanceAudio" checked />
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
+    </div>
+
+    <div class="option-row" id="suggestBrollsRow">
+      <div class="option-icon">🎬</div>
+      <div class="option-text">
+        <div class="option-label">Suggest B-rolls (Veo)</div>
+        <div class="option-desc">AI generates video B-rolls with Veo — coming soon</div>
+      </div>
+      <div class="toggle-wrap">
+        <label class="toggle">
+          <input type="checkbox" id="suggestBrolls" />
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
+    </div>
+    <div id="geminiKeyRow" class="gemini-key-row" style="display:none">
+      <input type="password" id="geminiKey" class="gemini-key-input"
+             placeholder="Gemini API key — get one free at ai.google.dev" autocomplete="off" />
+    </div>
+    <div id="anthropicKeyRow" class="gemini-key-row" style="display:none">
+      <input type="password" id="anthropicKey" class="gemini-key-input"
+             placeholder="Anthropic API key (optional) — for smarter B-roll descriptions" autocomplete="off" />
+    </div>
+    <div id="brollAspectRow" style="display:none; margin-top:8px;">
+      <div style="font-size:0.72rem;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--purple-400);margin-bottom:6px;">B-roll aspect ratio</div>
+      <div class="ar-select">
+        <input type="radio" name="brollAspect" id="ar169" value="16:9">
+        <label for="ar169">Landscape</label>
+        <input type="radio" name="brollAspect" id="ar916" value="9:16" checked>
+        <label for="ar916">Portrait</label>
+        <input type="radio" name="brollAspect" id="ar11" value="1:1">
+        <label for="ar11">Square</label>
+      </div>
+    </div>
+
+    <div class="option-row" id="stockBrollRow">
+      <div class="option-icon">🎥</div>
+      <div class="option-text">
+        <div class="option-label">Stock B-Roll Finder</div>
+        <div class="option-desc">AI picks key moments then searches Pexels &amp; Pixabay for free clips</div>
+      </div>
+      <div class="toggle-wrap">
+        <label class="toggle">
+          <input type="checkbox" id="stockBroll" checked />
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
+    </div>
+
+    <div class="time-estimate" id="timeEstimate" style="display:none">
+      <span class="time-estimate-icon">⏱️</span>
+      <span id="timeEstimateText"></span>
+    </div>
+
+    <button class="advanced-toggle" id="advancedToggle">
+      <i class="chevron">⌄</i> Advanced settings
+    </button>
+    <div class="advanced-panel" id="advancedPanel">
+      <div class="slider-row">
+        <div class="slider-label"><span>How aggressively to cut silences</span><span class="slider-val" id="aggrVal">0.5 s</span></div>
+        <div class="aggr-track">
+          <span class="aggr-end">Gentle</span>
+          <input type="range" id="aggrSlider" min="1" max="5" step="1" value="3" />
+          <span class="aggr-end">Aggressive</span>
+        </div>
+        <div class="slider-desc" id="aggrDesc">Balanced — cuts pauses over 0.5 s</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status -->
+  <div class="card status" id="statusCard">
+
+    <div class="upload-progress" id="uploadProgressEl" style="display:none">
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+      <div class="progress-meta">
+        <div class="progress-label" id="progressLabel">Uploading…  0%</div>
+        <div class="elapsed" id="uploadElapsed">0:00</div>
+      </div>
+    </div>
+
+    <div class="status-processing" id="statusProcessing" style="display:none">
+      <div class="spinner"></div>
+      <div class="proc-meta">
+        <div class="status-msg" id="statusMsg">Processing…</div>
+        <div class="elapsed" id="elapsed">0:00</div>
+      </div>
+      <div class="status-submsg">Keep this page open while processing</div>
+      <button class="cancel-btn" id="cancelBtn">Cancel</button>
+    </div>
+
+    <div class="status-done" id="statusDone">
+      <div class="done-icon">✅</div>
+      <div class="done-label">Done! Your video is ready.</div>
+      <div class="done-time" id="doneTime" style="display:none"></div>
+      <button class="download-btn" id="downloadBtn">⬇&nbsp; Download video</button>
+    </div>
+
+    <div class="status-error" id="statusError">
+      <div class="error-icon">❌</div>
+      <div class="error-msg" id="errorMsg">Something went wrong.</div>
+      <button class="retry-btn" id="retryBtn">Try again</button>
+    </div>
+
+  </div>
+
+  <!-- Caption editor — shown after /process when burn_captions is on -->
+  <div class="card" id="captionEditorCard" style="display:none">
+    <div class="card-header" onclick="toggleCard('captionBody', this)">
+      <p class="options-title">Edit Captions</p>
+      <i class="collapse-chevron">⌄</i>
+    </div>
+    <div id="captionBody" style="padding-top:16px">
+      <!-- Preview + position track + font size track -->
+      <div class="preview-row">
+        <div class="preview-wrapper">
+          <canvas id="previewCanvas"></canvas>
+          <div class="preview-caption" id="previewCaption" dir="rtl"></div>
+        </div>
+        <div class="preview-sliders-col">
+          <div class="pos-track" id="posTrack">
+            <div class="pos-thumb" id="posThumb"></div>
+          </div>
+          <div class="font-size-track" title="Caption text size in burned video">
+            <span class="fs-lbl" style="font-size:0.82rem">A</span>
+            <input type="range" id="captionFontSizeSlider"
+              min="24" max="80" step="1" value="48"
+              aria-label="Caption text size in burned video"
+              aria-valuemin="24" aria-valuemax="80">
+            <span class="fs-lbl" style="font-size:0.58rem">A</span>
+          </div>
+        </div>
+      </div>
+      <span id="captionFontSizeVal" style="display:none">16px</span>
+
+      <!-- Font selector -->
+      <div class="caption-controls">
+        <label class="ctrl-label" for="fontSelect">Font</label>
+        <select id="fontSelect" class="font-select">
+          <option value="Heebo">Heebo</option>
+          <option value="Assistant">Assistant</option>
+          <option value="Frank Ruhl Libre">Frank Ruhl Libre</option>
+          <option value="Secular One">Secular One</option>
+          <option value="Noto Sans Hebrew">Noto Sans Hebrew</option>
+        </select>
+      </div>
+
+      <p style="font-size:0.78rem;color:var(--muted);margin:10px 0 4px">Edit captions below, then burn.</p>
+      <div class="captions-list" id="captionsList"></div>
+
+      <div style="margin-top:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button id="findBrollBtn"
+          style="flex:1;min-width:160px;padding:11px 18px;background:none;border:1.5px solid var(--purple-400);color:var(--purple-700);border-radius:12px;font-size:0.88rem;font-weight:700;cursor:pointer;transition:background 0.15s,color 0.15s"
+          onmouseover="if(!this.disabled)this.style.background='var(--purple-50)'"
+          onmouseout="if(!this.disabled)this.style.background='none'">
+          🎬 Find B-Roll Moments
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- B-roll suggestions — shown after caption editor when toggle is on -->
+  <div class="card" id="brollCard" style="display:none">
+    <div class="card-header" onclick="toggleCard('brollBody', this)">
+      <p class="options-title">B-roll Suggestions</p>
+      <i class="collapse-chevron">⌄</i>
+    </div>
+    <div id="brollBody" style="padding-top:16px">
+      <div id="brollStatus" class="broll-status" style="display:none">
+        <div class="spinner-sm"></div>
+        <span>Analyzing video for B-roll opportunities…</span>
+      </div>
+      <div id="brollList"></div>
+    </div>
+  </div>
+
+  <!-- Stock B-roll suggestions — shown after processing when toggle is on -->
+  <div class="card" id="stockBrollCard" style="display:none">
+    <div class="card-header" onclick="toggleCard('stockBrollBody', this)">
+      <p class="options-title">Stock B-Roll Suggestions</p>
+      <i class="collapse-chevron">⌄</i>
+    </div>
+    <div id="stockBrollBody" style="padding-top:16px">
+      <div id="stockBrollRerunBanner" style="display:none;margin-bottom:12px;padding:10px 14px;background:#FFF7ED;border:1.5px solid #FDE68A;border-radius:12px;font-size:0.82rem;color:#92400E;display:none;align-items:center;gap:10px">
+        <span style="flex:1">Captions changed since last analysis — re-run to update B-roll suggestions.</span>
+        <button onclick="triggerStockBroll()" style="padding:5px 12px;border-radius:8px;border:1.5px solid #D97706;background:none;color:#B45309;font-size:0.8rem;font-weight:600;cursor:pointer;white-space:nowrap">Re-run</button>
+      </div>
+      <div id="stockBrollStatus" class="broll-status" style="display:none">
+        <div class="spinner-sm"></div>
+        <span>Finding B-roll moments…</span>
+        <div class="elapsed" id="stockBrollElapsed">0:00</div>
+      </div>
+      <div id="stockCostLimitBanner" style="display:none;margin-bottom:12px;padding:10px 14px;background:var(--purple-50);border:1.5px solid var(--purple-200);border-radius:12px;font-size:0.82rem;color:var(--purple-800)"></div>
+      <div id="stockBrollList"></div>
+    </div>
+  </div>
+
+  <div class="card" id="hookCard" style="display:none">
+    <div class="card-header" onclick="toggleCard('hookBody', this)">
+      <p class="options-title">🪝 Hook Generator</p>
+      <i class="collapse-chevron">⌄</i>
+    </div>
+    <div id="hookBody" style="padding-top:16px">
+      <p style="font-size:0.82rem;color:var(--muted);margin-bottom:14px">Generate a short opening caption that appears in the first seconds of your video to stop the scroll.</p>
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
+        <button id="generateHookBtn" onclick="triggerGenerateHook()" disabled
+          style="padding:8px 18px;border-radius:10px;border:1.5px solid var(--purple-300);background:var(--purple-50);color:var(--purple-700);font-size:0.85rem;font-weight:600;cursor:pointer">
+          ✨ Generate Hook Options
+        </button>
+        <div id="hookStatus" style="display:none;align-items:center;gap:8px">
+          <div class="spinner-sm"></div>
+          <span style="font-size:0.82rem;color:var(--muted)">Generating…</span>
+          <button id="hookCancelBtn" onclick="cancelGenerateHook()"
+            style="padding:3px 10px;border-radius:6px;border:1.5px solid var(--purple-300);background:none;color:var(--purple-600);font-size:0.78rem;font-weight:600;cursor:pointer">
+            Cancel
+          </button>
+        </div>
+      </div>
+      <div id="hookError" style="display:none;color:var(--red);font-size:0.82rem;margin-bottom:10px"></div>
+      <div id="hookOptions" style="display:none;margin-bottom:16px"></div>
+      <div id="hookControls" style="display:none">
+        <div style="display:flex;justify-content:center;margin-bottom:16px">
+          <canvas id="hookPreviewCanvas" width="270" height="480"
+            style="border-radius:12px;background:#111;box-shadow:0 4px 16px rgba(0,0,0,0.18);display:block"></canvas>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+            Font
+            <select id="hookFont" style="padding:6px 8px;border-radius:8px;border:1.5px solid var(--purple-200);font-size:0.85rem">
+              <option value="Heebo">Heebo</option>
+              <option value="Assistant">Assistant</option>
+              <option value="FrankRuhlLibre">Frank Ruhl Libre</option>
+              <option value="SecularOne">Secular One</option>
+            </select>
+          </label>
+          <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+            Text color
+            <input type="color" id="hookFontColor" value="#FFFFFF"
+              style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
+          </label>
+          <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+            Background color
+            <input type="color" id="hookBgColor" value="#000000"
+              style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
+          </label>
+          <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+            Background opacity: <span id="hookBgOpacityVal">60%</span>
+            <input type="range" id="hookBgOpacity" min="0" max="100" value="60"
+              oninput="document.getElementById('hookBgOpacityVal').textContent=this.value+'%'" style="width:100%;margin-top:4px">
+          </label>
+          <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px;grid-column:1/-1">
+            Text size: <span id="hookFontSizeVal">100%</span>
+            <input type="range" id="hookFontSize" min="50" max="200" value="100" step="5"
+              oninput="document.getElementById('hookFontSizeVal').textContent=this.value+'%'" style="width:100%;margin-top:4px">
+          </label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+            Start (seconds)
+            <input type="number" id="hookStartSec" value="1" min="0" max="30" step="0.5"
+              style="padding:6px 8px;border-radius:8px;border:1.5px solid var(--purple-200);font-size:0.85rem">
+          </label>
+          <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+            Duration (seconds)
+            <input type="number" id="hookDurationSec" value="4" min="1" max="10" step="0.5"
+              style="padding:6px 8px;border-radius:8px;border:1.5px solid var(--purple-200);font-size:0.85rem">
+          </label>
+        </div>
+        <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
+          Vertical position
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:0.75rem;color:var(--muted)">Top</span>
+            <input type="range" id="hookPosition" min="0" max="100" value="10" style="flex:1">
+            <span style="font-size:0.75rem;color:var(--muted)">Bottom</span>
+          </div>
+        </label>
+        <p style="font-size:0.78rem;color:var(--purple-500);text-align:center;margin:4px 0 0">Hook will be included when you burn the video below.</p>
+      </div>
+    </div>
+  </div>
+
+  <button class="run-btn" id="runBtn" disabled>▶&nbsp; Run Pipeline</button>
+  <div id="burnError" style="display:none; color:var(--red); font-size:0.85rem; text-align:center; margin-bottom:16px; padding:10px 14px; background:#FEF2F2; border:1.5px solid #FECACA; border-radius:12px;"></div>
+
+  <div id="burnSuccessBanner" style="display:none">
+    <div class="burn-success-icon">✅</div>
+    <div class="burn-success-label">Done! Your video is ready.</div>
+    <div class="burn-success-time" id="burnSuccessTime"></div>
+    <button class="download-btn" id="burnDownloadBtn" style="width:100%;margin-top:4px">⬇&nbsp; Download again</button>
+    <button id="startOverBtn" style="width:100%;margin-top:6px;padding:10px;border-radius:12px;border:1.5px solid #D1D5DB;background:white;color:var(--text);font-size:0.9rem;font-weight:600;cursor:pointer;transition:background 0.15s">↩ Start over</button>
+  </div>
+
+  <p class="footer">יוגלינה &nbsp;·&nbsp; School of Quiet Yoga</p>
+</div>
+
+<!-- ── Confirm dialog ── -->
+<div id="confirmOverlay" class="modal-overlay" style="display:none">
+  <div class="modal-dialog">
+    <p class="modal-dialog-title" id="confirmTitle">Ready to burn?</p>
+    <p class="modal-dialog-body" id="confirmBody">Finished editing? Click Burn to generate and download your final video.</p>
+    <div class="modal-actions">
+      <button class="modal-cancel-btn" id="confirmCancel">Cancel</button>
+      <button class="modal-ok-btn" id="confirmOk">Burn &amp; Download</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── B-roll lightbox ── -->
+<div id="brollLightbox">
+  <video id="brollLightboxVideo" autoplay loop muted playsinline controls
+         style="max-width:92vw;max-height:92vh;border-radius:10px;box-shadow:0 8px 48px rgba(0,0,0,0.6);">
+  </video>
+</div>
+
+<script>
+  const API_BASE = 'https://yotamjacob--hebrew-video-pipeline-api.modal.run';
+  const API      = API_BASE + '/process/';
+
+  const VEO_ENABLED = false;
+
+  // Limits
+  const MAX_BYTES    = 500 * 1024 * 1024; // 500 MB
+  const WARN_BYTES   = 150 * 1024 * 1024; // 150 MB
+  const MAX_SECS     = 20 * 60;            // 20 min
+  const WARN_SECS    = 8  * 60;            // 8 min
+
+  const uploadZone   = document.getElementById('uploadZone');
+  const fileInput    = document.getElementById('fileInput');
+  const fileInfo     = document.getElementById('fileInfo');
+  const fileName     = document.getElementById('fileName');
+  const fileDetail   = document.getElementById('fileDetail');
+  const clearFile    = document.getElementById('clearFile');
+  const runBtn       = document.getElementById('runBtn');
+  const statusCard   = document.getElementById('statusCard');
+  const uploadProgEl   = document.getElementById('uploadProgressEl');
+  const progressFill   = document.getElementById('progressFill');
+  const progressLabel  = document.getElementById('progressLabel');
+  const uploadElapsedEl= document.getElementById('uploadElapsed');
+  const statusProc     = document.getElementById('statusProcessing');
+  const statusDone     = document.getElementById('statusDone');
+  const statusError    = document.getElementById('statusError');
+  const statusMsg      = document.getElementById('statusMsg');
+  const elapsedEl      = document.getElementById('elapsed');
+  const errorMsg       = document.getElementById('errorMsg');
+  const downloadBtn  = document.getElementById('downloadBtn');
+  const retryBtn     = document.getElementById('retryBtn');
+  const advToggle    = document.getElementById('advancedToggle');
+  const advPanel     = document.getElementById('advancedPanel');
+  const aggrSlider   = document.getElementById('aggrSlider');
+  const aggrDesc     = document.getElementById('aggrDesc');
+  const AGGR_MAP = [
+    { silence: 1.5, padding: 0.35, label: 'Gentle — cuts pauses over 1.5 s' },
+    { silence: 0.8, padding: 0.25, label: 'Mild — cuts pauses over 0.8 s' },
+    { silence: 0.5, padding: 0.20, label: 'Balanced — cuts pauses over 0.5 s' },
+    { silence: 0.3, padding: 0.12, label: 'Aggressive — cuts pauses over 0.3 s' },
+    { silence: 0.2, padding: 0.06, label: 'Very aggressive — cuts pauses over 0.2 s' },
+  ];
+  const noticeBlock  = document.getElementById('noticeBlock');
+  const noticeWarn   = document.getElementById('noticeWarn');
+  const noticeNet    = document.getElementById('noticeNet');
+
+  let selectedFile = null;
+  let videoDuration = null;
+  let resultBlob      = null;
+  let resultName      = 'edited_video.mp4';
+  let uploadTimer     = null;
+  let elapsedTimer    = null;
+  let blocked         = false;
+  let videoKey        = null;
+  let captionsData    = [];
+  let cutFilename     = '';
+  let pollController  = null;
+  let currentCallId   = null;
+  const swResolvers   = new Map(); // callId -> resolve, for SW-won polls
+  let currentPollInfo = null;       // { callId, pollUrl, deadline } while a poll is active
+  let isUploading     = false;
+  let runStartTime    = null;
+  let captionFont      = 'Heebo';
+  let captionMarginPct = 0.08;
+  let captionFontSize  = 48;
+  let burnMode        = false;
+  let pendingAnalyses        = 0;
+  let stockBrollAnalyzed     = false;
+  let lastAnalyzedSignature  = '';
+  let selectedHookIdx        = -1;
+  let hookGenAborted         = false;
+  let hookThumbnail          = null;
+
+  // ── Background-job persistence (survives tab close/reload on mobile) ──
+  const JOB_KEY = 'hebpipe_job';
+  const JOB_TTL = 45 * 60 * 1000; // 45 min — Modal jobs expire after that
+
+  function saveJob(type, callId, extra) {
+    localStorage.setItem(JOB_KEY, JSON.stringify({ type, callId, ts: Date.now(), ...extra }));
+  }
+  function clearSavedJob() {
+    localStorage.removeItem(JOB_KEY);
+  }
+  function loadSavedJob() {
+    try {
+      const raw = localStorage.getItem(JOB_KEY);
+      if (!raw) return null;
+      const job = JSON.parse(raw);
+      if (Date.now() - job.ts > JOB_TTL) { clearSavedJob(); return null; }
+      return job;
+    } catch { clearSavedJob(); return null; }
+  }
+
+  async function resumeSavedJob() {
+    const job = loadSavedJob();
+    document.getElementById('reconnectBanner').style.display = 'none';
+    if (!job) return;
+
+    if (job.type === 'process') {
+      showProcessing([[0, 'Reconnecting — waiting for processing result…']]);
+      try {
+        const result = await pollForJSON(`${API_BASE}/process_poll/${job.callId}/`, 900_000, job.callId);
+        clearSavedJob();
+        captionsData = result.captions || [];
+        videoKey     = result.video_key;
+        cutFilename  = (job.filename || 'video').replace(/\.[^/.]+$/, '') + '_cut.mp4';
+        if (captionsData.length > 0) {
+          statusCard.classList.remove('visible');
+          statusProc.style.display = 'none';
+          showCaptionEditor();
+        } else {
+          const dlResp = await fetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
+          resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
+          resultName = cutFilename;
+          showDone();
+        }
+      } catch (err) {
+        clearSavedJob();
+        if (err.name !== 'AbortError')
+          showError('Could not reconnect — job may have expired. Please start again.');
+      }
+
+    } else if (job.type === 'burn') {
+      statusCard.classList.add('visible');
+      statusProc.style.display = 'flex';
+      statusMsg.textContent = 'Reconnecting — waiting for burn result…';
+      runBtn.style.display = 'block';
+      runBtn.disabled = true;
+      try {
+        const burnResult = await pollForJSON(`${API_BASE}/burn_poll/${job.callId}/`, 600_000, job.callId);
+        clearSavedJob();
+        const dlResp = await fetch(
+          `${API_BASE}/download/${burnResult.output_key}/?filename=${encodeURIComponent(job.outputFilename)}`
+        );
+        if (!dlResp.ok) throw new Error(`Download failed (${dlResp.status})`);
+        resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
+        resultName = job.outputFilename;
+        statusProc.style.display = 'none';
+        triggerDownload();
+        document.getElementById('burnSuccessBanner').style.display = 'flex';
+      } catch (err) {
+        clearSavedJob();
+        if (err.name !== 'AbortError')
+          showError('Could not reconnect — job may have expired. Please start again.');
+      } finally {
+        runBtn.disabled = false;
+      }
+    }
+  }
+
+  function bumpPending(delta) {
+    pendingAnalyses = Math.max(0, pendingAnalyses + delta);
+    if (burnMode) runBtn.disabled = pendingAnalyses > 0;
+  }
+
+  function getEditedCaptions() {
+    const inputs = document.querySelectorAll('#captionsList .caption-input');
+    return captionsData.map((cap, i) => ({
+      start: cap.start,
+      end:   cap.end,
+      text:  inputs[i] ? inputs[i].value : cap.text,
+    }));
+  }
+
+  function getCaptionsSignature() {
+    const inputs = document.querySelectorAll('#captionsList .caption-input');
+    return Array.from(inputs).map(i => i.value).join('|');
+  }
+
+  function showConfirmModal(title, body, okText) {
+    return new Promise(resolve => {
+      document.getElementById('confirmTitle').textContent = title;
+      document.getElementById('confirmBody').textContent  = body;
+      document.getElementById('confirmOk').textContent    = okText || 'Confirm';
+      const overlay = document.getElementById('confirmOverlay');
+      overlay.style.display = 'flex';
+      function cleanup(result) {
+        overlay.style.display = 'none';
+        document.getElementById('confirmOk').onclick     = null;
+        document.getElementById('confirmCancel').onclick = null;
+        resolve(result);
+      }
+      document.getElementById('confirmOk').onclick     = () => cleanup(true);
+      document.getElementById('confirmCancel').onclick = () => cleanup(false);
+    });
+  }
+
+  function setSetupLocked(locked) {
+    ['uploadCard', 'optionsCard'].forEach(id =>
+      document.getElementById(id).classList.toggle('setup-locked', locked));
+  }
+
+  // ── File selection ──
+  fileInput.addEventListener('change', () => handleFile(fileInput.files[0]));
+  uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+  uploadZone.addEventListener('drop', e => {
+    e.preventDefault(); uploadZone.classList.remove('drag-over');
+    handleFile(e.dataTransfer.files[0]);
+  });
+
+  async function handleFile(file) {
+    if (!file) return;
+    if (!file.type.startsWith('video/') && !file.name.match(/\.(mp4|mov|mkv|avi|webm)$/i)) {
+      showBlockNotice('Unsupported file type', 'Please upload a video file (MP4, MOV, MKV).');
+      return;
+    }
+
+    selectedFile = file;
+    fileName.textContent = file.name;
+    fileInfo.classList.add('visible');
+    clearNotices();
+    resetStatus();
+
+    // Size check (instant)
+    if (file.size > MAX_BYTES) {
+      fileDetail.textContent = formatSize(file.size) + ' · too large';
+      showBlockNotice('File too large', `Max size is 500 MB. This file is ${formatSize(file.size)}. Please trim or compress it first.`);
+      blocked = true;
+      runBtn.disabled = true;
+      return;
+    }
+
+    // Read duration from the video element
+    fileDetail.textContent = formatSize(file.size) + ' · reading…';
+    videoDuration = await getVideoDuration(file);
+
+    if (videoDuration !== null) {
+      fileDetail.textContent = formatSize(file.size) + ' · ' + formatDuration(videoDuration);
+    } else {
+      fileDetail.textContent = formatSize(file.size);
+    }
+
+    // Validate duration
+    if (videoDuration !== null && videoDuration > MAX_SECS) {
+      showBlockNotice(
+        'Video too long',
+        `Max length is 20 minutes. This video is ${formatDuration(videoDuration)}. Please trim it before uploading.`
+      );
+      blocked = true;
+      runBtn.disabled = true;
+      return;
+    }
+
+    blocked = false;
+    runBtn.disabled = false;
+
+    // Warnings & estimated time
+    if (file.size > WARN_BYTES) {
+      showWarnNotice('Large file', `${formatSize(file.size)} — the upload itself may take 30–60 seconds depending on your connection.`);
+    } else if (videoDuration !== null && videoDuration > WARN_SECS) {
+      showWarnNotice('Long video', `${formatDuration(videoDuration)} — processing will take a few minutes. Keep the page open.`);
+    }
+
+    updateTimeEstimate();
+
+    checkNetwork();
+
+    // Fire-and-forget GPU warmup so the container is ready by the time the user clicks Run
+    fetch(API_BASE + '/warmup/').catch(() => {});
+  }
+
+  clearFile.addEventListener('click', () => {
+    if (!confirm('Remove the attached video?')) return;
+    selectedFile = null; videoDuration = null;
+    fileInput.value = '';
+    fileInfo.classList.remove('visible');
+    clearNotices();
+    runBtn.disabled = true;
+    resetStatus();
+  });
+
+  // ── Duration helper ──
+  function getVideoDuration(file) {
+    return new Promise(resolve => {
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      video.onloadedmetadata = () => { URL.revokeObjectURL(video.src); resolve(video.duration); };
+      video.onerror = () => resolve(null);
+      video.src = URL.createObjectURL(file);
+    });
+  }
+
+  function estimatedTime(secs) {
+    const useEnhance    = document.getElementById('enhanceAudio').checked;
+    const useTranscribe = document.getElementById('cutSilences').checked || document.getElementById('burnCaptions').checked;
+    const useBroll      = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
+    const useStockBroll = document.getElementById('stockBroll').checked;
+
+    let total = 0;
+    if (useEnhance || useTranscribe) {
+      total += 90;
+    } else if (useBroll || useStockBroll) {
+      total += 20;
+    }
+    if (useEnhance)     total += secs * 3.5;   // DeepFilterNet ≈ 3× realtime on T4
+    if (useTranscribe)  total += secs / 8;
+    if (useEnhance || useTranscribe) total += 60;
+    if (useBroll)       total += 60;
+    if (useStockBroll)  total += 30;   // Claude moment selection + 2 API searches
+
+    const lo = Math.max(1, Math.round(total / 60));
+    const hi = lo + 1;
+    return `Estimated ${lo}–${hi} min`;
+  }
+
+  function updateTimeEstimate() {
+    if (!videoDuration) return;
+    document.getElementById('timeEstimateText').textContent = estimatedTime(videoDuration);
+    document.getElementById('timeEstimate').style.display = 'flex';
+  }
+
+  // ── Advanced ──
+  advToggle.addEventListener('click', () => {
+    advToggle.classList.toggle('open'); advPanel.classList.toggle('open');
+  });
+
+  function checkToolsEnabled() {
+    if (!selectedFile || burnMode) return;
+    const ids = ['cutSilences', 'burnCaptions', 'enhanceAudio', 'stockBroll'];
+    if (VEO_ENABLED) ids.push('suggestBrolls');
+    runBtn.disabled = !ids.some(id => document.getElementById(id)?.checked);
+  }
+  ['cutSilences', 'burnCaptions', 'enhanceAudio', 'suggestBrolls', 'stockBroll'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', () => { checkToolsEnabled(); updateTimeEstimate(); });
+  });
+  const aggrVal = document.getElementById('aggrVal');
+  aggrSlider.addEventListener('input', () => {
+    const a = AGGR_MAP[aggrSlider.value - 1];
+    aggrDesc.textContent = a.label;
+    aggrVal.textContent  = a.silence + ' s';
+  });
+
+  // ── Run ──
+  runBtn.addEventListener('click', () => { if (burnMode) doBurn(); else run(); });
+  retryBtn.addEventListener('click', run);
+
+  document.getElementById('cancelBtn').addEventListener('click', () => {
+    if (!confirm('Cancel processing? The job on the server will be stopped.')) return;
+    const idToCancel = currentCallId;
+    resetStatus();
+    runBtn.disabled = false;
+    if (idToCancel) {
+      fetch(`${API_BASE}/cancel/${idToCancel}/`).catch(() => {});
+    }
+  });
+
+  window.addEventListener('beforeunload', (e) => {
+    const editing = document.getElementById('captionEditorCard').style.display !== 'none';
+    const hasBrollWork = selectedBrolls.length > 0 || Object.keys(stockBrollSelections).length > 0;
+    if (isUploading || pollController || editing || resultBlob || hasBrollWork) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+
+  // Dynamic phase thresholds — DeepFilterNet ≈ 3× realtime on T4, Whisper ≈ 8× faster
+  function getProcMessages(dur) {
+    dur = dur || 60;
+    const enhanceEnd    = Math.round(dur * 2.8);
+    const transcribeEnd = Math.round(enhanceEnd + Math.max(30, dur / 8));
+    const renderStart   = transcribeEnd + 20;
+    const encodeEnd     = renderStart + Math.max(60, Math.round(dur * 0.3));
+    return [
+      [0,            'Starting up…'],
+      [18,           'Enhancing audio…'],
+      [enhanceEnd,   'Transcribing audio…'],
+      [transcribeEnd,'Cutting silences…'],
+      [renderStart,  'Rendering…'],
+      [encodeEnd,    'Almost there…'],
+    ];
+  }
+
+  const BURN_MESSAGES = [
+    [0,  'Burning captions…'],
+    [25, 'Encoding video…'],
+    [50, 'Almost there…'],
+  ];
+
+  async function run(isRetry = false) {
+    if (!selectedFile || blocked) return;
+
+    resultBlob = null;
+    showUploadProgress();
+
+    const aggr = AGGR_MAP[aggrSlider.value - 1];
+    const brollOn      = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
+    const stockBrollOn = document.getElementById('stockBroll').checked;
+    const needTranscript = (brollOn || stockBrollOn) && !document.getElementById('burnCaptions').checked;
+    const params = new URLSearchParams({
+      filename:             selectedFile.name,
+      cut_silences:         document.getElementById('cutSilences').checked  ? 'true' : 'false',
+      burn_captions:        document.getElementById('burnCaptions').checked ? 'true' : 'false',
+      enhance_audio:        document.getElementById('enhanceAudio').checked ? 'true' : 'false',
+      transcribe_for_broll: needTranscript ? 'true' : 'false',
+      min_silence:          aggr.silence,
+      padding:              aggr.padding,
+    });
+
+    try {
+      // Phase 1: upload video in 1 MB chunks to avoid Modal's large-body 303 redirect
+      const uploadKey = await chunkedUpload(selectedFile, (pct) => {
+        progressFill.style.width = (pct * 100).toFixed(0) + '%';
+        progressLabel.textContent = `Uploading…  ${(pct * 100).toFixed(0)}%`;
+      });
+
+      // Phase 2: spawn processing job (tiny request — just params, no body)
+      runStartTime = Date.now();
+      showProcessing(getProcMessages(videoDuration));
+      params.set('key', uploadKey);
+      const spawnResp = await fetch(`${API_BASE}/process/?${params}`, { method: 'POST' });
+      if (spawnResp.status !== 202) {
+        const body = await spawnResp.json().catch(() => ({}));
+        throw new Error(body.error || `Spawn failed (${spawnResp.status})`);
+      }
+      const { call_id } = await spawnResp.json();
+
+      // Poll until processing is done — returns JSON {captions, video_key}
+      currentCallId = call_id;
+      saveJob('process', call_id, { filename: selectedFile.name });
+      const pollUrl = `${API_BASE}/process_poll/${call_id}/`;
+      const result = await pollForJSON(pollUrl, 900_000, call_id);
+      clearInterval(elapsedTimer);
+      clearSavedJob();
+
+      captionsData = result.captions;
+      videoKey     = result.video_key;
+      cutFilename  = (selectedFile.name || 'video').replace(/\.[^/.]+$/, '') + '_cut.mp4';
+
+      const brollActive      = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
+      const stockBrollActive = document.getElementById('stockBroll').checked;
+      if (captionsData.length > 0 || brollActive) {
+        statusCard.classList.remove('visible');
+        statusProc.style.display = 'none';
+        showCaptionEditor();
+        startBrollAnalysis();
+      } else {
+        // No captions, no B-roll — download directly
+        statusMsg.textContent = 'Downloading…';
+        const dlResp = await fetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
+        resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
+        resultName = cutFilename;
+        showDone();
+      }
+    } catch (err) {
+      clearInterval(elapsedTimer);
+      if (err.name === 'AbortError') return;
+      console.error('Process error:', err.message);
+      clearSavedJob();
+      if (!isRetry && err.message.includes('Network error')) {
+        statusMsg.textContent = 'GPU warming up — retrying…';
+        uploadProgEl.style.display = 'none';
+        statusProc.style.display = 'flex';
+        await new Promise(r => setTimeout(r, 8000));
+        run(true);
+      } else {
+        showError(err.message);
+      }
+    }
+  }
+
+  // Upload file in 1 MB chunks to avoid Modal's large-body 303 redirect on slow connections.
+  // Returns the upload key to pass to /process/?key=...
+  const CHUNK_SIZE = 1 * 1024 * 1024;
+  async function chunkedUpload(file, onProgress) {
+    const key = crypto.randomUUID().replace(/-/g, '');
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    let bytesUploaded = 0;
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE;
+      const end   = Math.min(start + CHUNK_SIZE, file.size);
+      const resp  = await fetch(
+        `${API_BASE}/upload_chunk/?key=${key}&index=${i}`,
+        { method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: file.slice(start, end) }
+      );
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        throw new Error(body.error || `Upload failed at chunk ${i} (${resp.status})`);
+      }
+      bytesUploaded += (end - start);
+      onProgress(bytesUploaded / file.size);
+    }
+    return key;
+  }
+
+  // Upload file via XHR (for progress tracking); returns {callId} from 202 response
+  function xhrUpload(url, file, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url);
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.responseType = 'text';
+
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable) onProgress(e.loaded / e.total);
+      };
+      xhr.upload.onload = () => onProgress(1);
+
+      xhr.onload = () => {
+        if (xhr.status === 202) {
+          const json = JSON.parse(xhr.responseText);
+          resolve({ callId: json.call_id });
+        } else {
+          reject(new Error(`Server error (${xhr.status}): ${xhr.responseText.slice(0, 200)}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error — check your connection and try again.'));
+      xhr.ontimeout = () => reject(new Error('Upload timed out.'));
+      xhr.timeout = 10 * 60 * 1000; // 10 min for upload only
+      xhr.send(file);
+    });
+  }
+
+  // Poll a URL every 3s until it returns 200 (binary) or throws on 5xx.
+  // Retries up to 3 times on transient network errors (e.g. ERR_CONNECTION_RESET).
+  async function pollForBinary(pollUrl) {
+    pollController = new AbortController();
+    const signal = pollController.signal;
+    let networkRetries = 0;
+    const MAX_RETRIES = 3;
+    while (true) {
+      try {
+        const resp = await fetch(pollUrl, { signal });
+        networkRetries = 0;
+        if (resp.status === 200) {
+          const buffer = await resp.arrayBuffer();
+          const cd = resp.headers.get('content-disposition') || '';
+          return { buffer, cd };
+        }
+        if (resp.status === 202) {
+          await new Promise((res, rej) => {
+            const t = setTimeout(res, 3000);
+            signal.addEventListener('abort', () => { clearTimeout(t); rej(new DOMException('aborted', 'AbortError')); });
+          });
+          continue;
+        }
+        const text = await resp.text();
+        throw new Error(`Server error (${resp.status}): ${text.slice(0, 200)}`);
+      } catch (e) {
+        if (e.name === 'AbortError') throw e;
+        if (++networkRetries <= MAX_RETRIES) {
+          console.warn(`Poll network error (retry ${networkRetries}/${MAX_RETRIES}): ${e.message}`);
+          await new Promise((res, rej) => {
+            const t = setTimeout(res, 2000);
+            signal.addEventListener('abort', () => { clearTimeout(t); rej(new DOMException('aborted', 'AbortError')); });
+          });
+          continue;
+        }
+        console.error('Poll failed after retries:', e.message);
+        throw e;
+      }
+    }
+  }
+
+  async function pollForJSON(pollUrl, timeoutMs = 900_000, callId = null) {
+    pollController = new AbortController();
+    const signal = pollController.signal;
+    const deadline = Date.now() + timeoutMs;
+
+    // Single promise that can be settled by either the page poll loop or the SW
+    let _resolve, _reject;
+    const done = new Promise((res, rej) => { _resolve = res; _reject = rej; });
+
+    if (callId) {
+      swResolvers.set(callId, _resolve);
+      // Record poll info so the visibilitychange handler can hand off to SW when hidden
+      currentPollInfo = { callId, pollUrl, deadline };
+    }
+
+    // Page-side poll — calls _resolve/_reject directly, never leaves a dangling promise
+    (async () => {
+      let networkRetries = 0;
+      const MAX_RETRIES = 3;
+      while (Date.now() < deadline) {
+        try {
+          const resp = await fetch(pollUrl, { signal });
+          networkRetries = 0;
+          if (resp.status === 200) { _resolve(await resp.json()); return; }
+          if (resp.status === 202) {
+            await new Promise((res, rej) => {
+              const t = setTimeout(res, Math.min(3000, deadline - Date.now()));
+              signal.addEventListener('abort', () => { clearTimeout(t); rej(new DOMException('aborted', 'AbortError')); });
+            });
+            continue;
+          }
+          const text = await resp.text();
+          throw new Error(`Server error (${resp.status}): ${text.slice(0, 200)}`);
+        } catch (e) {
+          if (e.name === 'AbortError') { _reject(e); return; }
+          if (++networkRetries <= MAX_RETRIES) {
+            console.warn(`Poll network error (retry ${networkRetries}/${MAX_RETRIES}): ${e.message}`);
+            await new Promise((res, rej) => {
+              const t = setTimeout(res, Math.min(2000, deadline - Date.now()));
+              signal.addEventListener('abort', () => { clearTimeout(t); rej(new DOMException('aborted', 'AbortError')); });
+            });
+            continue;
+          }
+          console.error('Poll failed after retries:', e.message);
+          _reject(e); return;
+        }
+      }
+      _reject(new Error('Timed out waiting for server result. The job may have failed — check Modal logs.'));
+    })();
+
+    try {
+      const result = await done;
+      if (callId) {
+        swResolvers.delete(callId);
+        currentPollInfo = null;
+        navigator.serviceWorker?.controller?.postMessage({ type: 'POLL_CANCEL', callId });
+      }
+      return result;
+    } catch (e) {
+      if (callId) { swResolvers.delete(callId); currentPollInfo = null; }
+      throw e;
+    }
+  }
+
+  downloadBtn.addEventListener('click', triggerDownload);
+  document.getElementById('burnDownloadBtn').addEventListener('click', triggerDownload);
+  document.getElementById('startOverBtn').addEventListener('click', async () => {
+    const confirmed = await showConfirmModal(
+      'Start over?',
+      'This will clear the current video and all edits. Your downloaded file is safe.',
+      'Start over'
+    );
+    if (confirmed) location.reload();
+  });
+
+  // Find B-Roll Moments button
+  const findBrollBtn = document.getElementById('findBrollBtn');
+  findBrollBtn.addEventListener('click', () => {
+    if (!document.getElementById('stockBroll').checked) return;
+    triggerStockBroll();
+  });
+
+  function updateFindBrollBtn() {
+    const on = document.getElementById('stockBroll').checked;
+    findBrollBtn.disabled = !on;
+    findBrollBtn.title    = on ? '' : 'Enable Stock B-Roll Finder in tool settings';
+    findBrollBtn.style.opacity = on ? '1' : '0.45';
+    findBrollBtn.style.cursor  = on ? 'pointer' : 'not-allowed';
+  }
+  document.getElementById('stockBroll').addEventListener('change', updateFindBrollBtn);
+  updateFindBrollBtn();
+
+  // Caption preview / burn font size slider
+  const fontSizeSlider = document.getElementById('captionFontSizeSlider');
+
+  fontSizeSlider.addEventListener('input', () => {
+    captionFontSize = parseInt(fontSizeSlider.value, 10);
+    localStorage.setItem('captionFontSize', captionFontSize);
+    updatePreviewCaption();
+  });
+
+  (function initPreviewFontSize() {
+    const saved = parseInt(localStorage.getItem('captionFontSize') || '48', 10);
+    captionFontSize = saved;
+    fontSizeSlider.value = saved;
+  })();
+
+  function triggerDownload() {
+    if (!resultBlob) return;
+    const url = URL.createObjectURL(resultBlob);
+    const a = document.createElement('a');
+    a.href = url; a.download = resultName; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
+  // ── State helpers ──
+  function showUploadProgress() {
+    isUploading = true;
+    setSetupLocked(true);
+    statusCard.classList.add('visible');
+    uploadProgEl.style.display = 'block';
+    statusProc.style.display   = 'none';
+    statusDone.classList.remove('visible');
+    statusError.classList.remove('visible');
+    progressFill.style.width  = '0%';
+    progressLabel.textContent = 'Uploading…  0%';
+    uploadElapsedEl.textContent = '0:00';
+    runBtn.disabled = true;
+    runBtn.style.display = 'none';
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    clearInterval(uploadTimer);
+    const uploadStart = Date.now();
+    uploadTimer = setInterval(() => {
+      const secs = Math.floor((Date.now() - uploadStart) / 1000);
+      uploadElapsedEl.textContent = formatTime(secs);
+    }, 500);
+  }
+
+  function showProcessing(msgs) {
+    isUploading = false;
+    statusCard.classList.add('visible');
+    const messages = msgs || PROC_MESSAGES;
+    clearInterval(uploadTimer);
+    uploadProgEl.style.display = 'none';
+    statusProc.style.display   = 'flex';
+    statusMsg.textContent      = messages[0][1];
+    elapsedEl.textContent      = '0:00';
+    clearInterval(elapsedTimer);
+    const procStart = Date.now();
+    elapsedTimer = setInterval(() => {
+      const secs = Math.floor((Date.now() - procStart) / 1000);
+      elapsedEl.textContent = formatTime(secs);
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (secs >= messages[i][0]) { statusMsg.textContent = messages[i][1]; break; }
+      }
+    }, 500);
+  }
+
+  function showDone() {
+    statusProc.style.display = 'none';
+    statusDone.classList.add('visible');
+    if (!burnMode) runBtn.style.display = 'none';
+    const doneTimeEl = document.getElementById('doneTime');
+    if (doneTimeEl && runStartTime) {
+      const totalSec = Math.round((Date.now() - runStartTime) / 1000);
+      doneTimeEl.textContent = `Total processing time: ${formatTime(totalSec)}`;
+      doneTimeEl.style.display = 'block';
+    }
+    triggerDownload();
+  }
+
+  function showError(msg) {
+    isUploading = false;
+    setSetupLocked(false);
+    clearInterval(uploadTimer);
+    clearInterval(elapsedTimer);
+    uploadProgEl.style.display = 'none';
+    statusProc.style.display   = 'none';
+    statusError.classList.add('visible');
+    errorMsg.textContent = msg.length > 200 ? msg.slice(0, 200) + '…' : msg;
+    runBtn.disabled = false;
+    runBtn.style.display = 'block';
+  }
+
+  function resetStatus() {
+    isUploading = false;
+    if (pollController) { pollController.abort(); pollController = null; }
+    currentCallId = null;
+    clearInterval(uploadTimer);
+    clearInterval(elapsedTimer);
+    runStartTime = null;
+    const doneTimeEl = document.getElementById('doneTime');
+    if (doneTimeEl) doneTimeEl.style.display = 'none';
+    statusCard.classList.remove('visible');
+    uploadProgEl.style.display = 'none';
+    statusProc.style.display   = 'none';
+    statusDone.classList.remove('visible');
+    statusError.classList.remove('visible');
+    document.getElementById('captionEditorCard').style.display = 'none';
+    document.getElementById('captionsList').innerHTML = '';
+    document.getElementById('brollCard').style.display = 'none';
+    document.getElementById('brollList').innerHTML = '';
+    document.getElementById('stockBrollCard').style.display = 'none';
+    document.getElementById('stockBrollList').innerHTML = '';
+    stockBrollSelections = {};
+    document.getElementById('hookCard').style.display = 'none';
+    document.getElementById('hookOptions').style.display = 'none';
+    document.getElementById('hookControls').style.display = 'none';
+    document.getElementById('hookError').style.display = 'none';
+    document.getElementById('generateHookBtn').disabled = true;
+    document.getElementById('hookStatus').style.display = 'none';
+    selectedHookIdx = -1;
+    hookGenAborted = false;
+    hookThumbnail = null;
+    pendingAnalyses       = 0;
+    stockBrollAnalyzed    = false;
+    lastAnalyzedSignature = '';
+    burnMode = false;
+    setSetupLocked(false);
+    document.getElementById('burnSuccessBanner').style.display = 'none';
+    document.getElementById('stockBrollRerunBanner').style.display = 'none';
+    document.getElementById('stockCostLimitBanner').style.display  = 'none';
+    runBtn.textContent = '▶  Run Pipeline';
+    runBtn.style.display = 'block';
+    const burnErrorEl = document.getElementById('burnError');
+    if (burnErrorEl) burnErrorEl.style.display = 'none';
+    selectedBrolls = [];
+    captionsData = [];
+    videoKey    = null;
+    cutFilename = '';
+    captionFont = 'Heebo';
+    captionMarginPct = 0.08;
+    captionFontSize  = 48;
+    const fs = document.getElementById('fontSelect');
+    if (fs) fs.value = 'Heebo';
+  }
+
+  // ── Network check ──
+  const _conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+
+  function checkNetwork() {
+    if (!_conn) return;
+    const type = _conn.type;
+    const eff  = _conn.effectiveType;
+    const isCellular = type === 'cellular';
+    const isWired    = type === 'wifi' || type === 'ethernet';
+    const isSlow     = !isCellular && !isWired && ['slow-2g', '2g', '3g'].includes(eff);
+    if (isCellular || isSlow) {
+      document.getElementById('noticeNetTitle').textContent =
+        isCellular ? 'Mobile data detected' : 'Slow connection detected';
+      document.getElementById('noticeNetBody').textContent =
+        isCellular
+          ? `Uploading a large video on cellular may use significant data and take longer than expected. Switch to WiFi if possible.`
+          : `Your connection looks slow (${eff}). The upload may take a while — stay on this page.`;
+      noticeNet.classList.add('visible');
+    } else {
+      noticeNet.classList.remove('visible');
+    }
+  }
+
+  if (_conn) _conn.addEventListener('change', checkNetwork);
+
+  // ── Notice helpers ──
+  function clearNotices() {
+    noticeBlock.classList.remove('visible');
+    noticeWarn.classList.remove('visible');
+    noticeNet.classList.remove('visible');
+  }
+  function showBlockNotice(title, body) {
+    document.getElementById('noticeBlockTitle').textContent = title;
+    document.getElementById('noticeBlockBody').textContent  = body;
+    noticeBlock.classList.add('visible');
+  }
+  function showWarnNotice(title, body) {
+    document.getElementById('noticeWarnTitle').textContent = title;
+    document.getElementById('noticeWarnBody').textContent  = body;
+    noticeWarn.classList.add('visible');
+  }
+
+  // ── Utils ──
+  function formatSize(bytes) {
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+  function formatTime(s) {
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  }
+  function formatDuration(s) {
+    const m = Math.floor(s / 60);
+    const sec = Math.round(s % 60);
+    return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+  }
+
+  // ── Caption editor ──
+  function fmtCapTime(secs) {
+    const m = Math.floor(secs / 60);
+    const s = String(Math.floor(secs % 60)).padStart(2, '0');
+    return `${m}:${s}`;
+  }
+
+  // ── Caption preview & positioning ──
+  function renderThumbnail() {
+    if (!selectedFile) return;
+    const canvas = document.getElementById('previewCanvas');
+    if (!canvas) return;
+    const vid = document.createElement('video');
+    vid.muted = true;
+    vid.preload = 'auto';
+    vid.src = URL.createObjectURL(selectedFile);
+    // Add seeked listener inside loadeddata to prevent early seeked (t=0) consuming it
+    vid.addEventListener('loadeddata', () => {
+      vid.addEventListener('seeked', () => {
+        const ctx = canvas.getContext('2d');
+        canvas.width  = vid.videoWidth  || 640;
+        canvas.height = vid.videoHeight || 360;
+        ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(vid.src);
+      }, { once: true });
+      vid.currentTime = 1;
+    }, { once: true });
+  }
+
+  function updatePreviewCaption() {
+    const el = document.getElementById('previewCaption');
+    if (!el) return;
+    const inputs = document.querySelectorAll('#captionsList .caption-input');
+    let longestText = '';
+    inputs.forEach(inp => { if (inp.value.length > longestText.length) longestText = inp.value; });
+    el.textContent = longestText || 'כתובית לדוגמה';
+    el.style.fontFamily = `'${captionFont}', sans-serif`;
+    el.style.bottom = (captionMarginPct * 100) + '%';
+    const canvas = document.getElementById('previewCanvas');
+    const cw = canvas ? (canvas.clientWidth || 124) : 124;
+    el.style.fontSize = Math.max(8, Math.round(captionFontSize * cw / 480)) + 'px';
+  }
+
+  function initPositionTrack() {
+    const track = document.getElementById('posTrack');
+    const thumb = document.getElementById('posThumb');
+    if (!track || !thumb) return;
+
+    function setFromPct(pct) {
+      const MIN_PCT = 0.03; const MAX_PCT = 0.80;
+      const clamped = Math.max(MIN_PCT, Math.min(MAX_PCT, pct));
+      captionMarginPct = clamped;
+      const ratio = 1 - (clamped - MIN_PCT) / (MAX_PCT - MIN_PCT);
+      thumb.style.top = (ratio * track.clientHeight) + 'px';
+      updatePreviewCaption();
+    }
+
+    function onMove(clientY) {
+      const rect = track.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+      const MIN_PCT = 0.03; const MAX_PCT = 0.80;
+      setFromPct(MIN_PCT + (1 - ratio) * (MAX_PCT - MIN_PCT));
+    }
+
+    thumb.addEventListener('mousedown', e => {
+      e.preventDefault();
+      const onMove2 = e2 => onMove(e2.clientY);
+      const stop = () => { document.removeEventListener('mousemove', onMove2); document.removeEventListener('mouseup', stop); };
+      document.addEventListener('mousemove', onMove2);
+      document.addEventListener('mouseup', stop);
+    });
+    thumb.addEventListener('touchstart', e => {
+      e.preventDefault();
+      const onMove2 = e2 => { e2.preventDefault(); onMove(e2.touches[0].clientY); };
+      const stop = () => { document.removeEventListener('touchmove', onMove2); document.removeEventListener('touchend', stop); };
+      document.addEventListener('touchmove', onMove2, { passive: false });
+      document.addEventListener('touchend', stop);
+    }, { passive: false });
+    track.addEventListener('click', e => onMove(e.clientY));
+
+    setFromPct(captionMarginPct);
+  }
+
+  document.getElementById('fontSelect')?.addEventListener('change', e => {
+    captionFont = e.target.value;
+    updatePreviewCaption();
+  });
+
+  // ── Collapsible cards ──
+  function toggleCard(bodyId, headerEl) {
+    const body = document.getElementById(bodyId);
+    const isCollapsed = headerEl.classList.contains('collapsed');
+    headerEl.classList.toggle('collapsed');
+    body.style.display = isCollapsed ? 'block' : 'none';
+  }
+
+  // ── B-roll ──
+  let selectedBrolls = [];
+  let stockBrollSelections = {};
+
+  function openLightbox(url) {
+    const lb  = document.getElementById('brollLightbox');
+    const vid = document.getElementById('brollLightboxVideo');
+    vid.src = url;
+    vid.play().catch(() => {});
+    lb.classList.add('open');
+  }
+  function closeLightbox() {
+    const lb  = document.getElementById('brollLightbox');
+    const vid = document.getElementById('brollLightboxVideo');
+    lb.classList.remove('open');
+    vid.pause();
+    vid.src = '';
+  }
+  document.getElementById('brollLightbox').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeLightbox();
+  });
+
+  function updateBurnBtn() {
+    if (!burnMode) return;
+    const n = selectedBrolls.length + Object.keys(stockBrollSelections).length;
+    runBtn.textContent = n > 0
+      ? `▶  Burn & Download  (+${n} B-roll${n > 1 ? 's' : ''})`
+      : '▶  Burn & Download';
+  }
+
+  document.getElementById('suggestBrolls').addEventListener('change', e => {
+    if (!VEO_ENABLED) return;
+    const show = e.target.checked ? 'block' : 'none';
+    document.getElementById('geminiKeyRow').style.display = show;
+    document.getElementById('anthropicKeyRow').style.display = show;
+    document.getElementById('brollAspectRow').style.display = show;
+    if (e.target.checked) {
+      const savedGemini = localStorage.getItem('geminiApiKey') || '';
+      if (savedGemini) document.getElementById('geminiKey').value = savedGemini;
+      const savedAnthropic = localStorage.getItem('anthropicApiKey') || '';
+      if (savedAnthropic) document.getElementById('anthropicKey').value = savedAnthropic;
+    }
+  });
+  document.getElementById('geminiKey').addEventListener('change', e => {
+    localStorage.setItem('geminiApiKey', e.target.value.trim());
+  });
+  document.getElementById('anthropicKey').addEventListener('change', e => {
+    localStorage.setItem('anthropicApiKey', e.target.value.trim());
+  });
+
+  // Stock B-roll toggle
+  document.getElementById('stockBroll').addEventListener('change', e => {
+    localStorage.setItem('stockBrollEnabled', e.target.checked);
+  });
+
+  // Init: check for a saved background job and show reconnect banner
+  (function checkSavedJob() {
+    const job = loadSavedJob();
+    if (job) document.getElementById('reconnectBanner').style.display = 'flex';
+  })();
+
+  // Service Worker — takes over polling only when the tab goes to the background
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js')
+      .then(() => console.info('[SW] registered'))
+      .catch(e => console.warn('[SW] registration failed:', e.message));
+
+    navigator.serviceWorker.addEventListener('message', evt => {
+      const { type, callId, result } = evt.data || {};
+      console.info(`[SW] message: ${type} callId=${callId}`);
+      if (type === 'SW_DONE') {
+        const resolve = swResolvers.get(callId);
+        if (resolve) { swResolvers.delete(callId); currentPollInfo = null; resolve(result); }
+      }
+    });
+
+    // Hand off to SW when page is minimized; reclaim when page comes back
+    document.addEventListener('visibilitychange', () => {
+      const sw = navigator.serviceWorker.controller;
+      if (!sw || !currentPollInfo) return;
+      if (document.hidden) {
+        console.info('[SW] page hidden — handing poll to SW');
+        sw.postMessage({ type: 'POLL_START', ...currentPollInfo });
+      } else {
+        console.info('[SW] page visible — reclaiming poll from SW');
+        sw.postMessage({ type: 'POLL_CANCEL', callId: currentPollInfo.callId });
+      }
+    });
+  }
+
+  // Init: apply VEO_ENABLED and restore stock B-roll state from localStorage
+  (function initToggles() {
+    // Disable Veo toggle if not enabled
+    if (!VEO_ENABLED) {
+      const veoRow = document.getElementById('suggestBrollsRow');
+      if (veoRow) {
+        veoRow.classList.add('disabled-feature');
+        veoRow.title = 'Veo video generation — maybe later!';
+      }
+      const veoChk = document.getElementById('suggestBrolls');
+      if (veoChk) { veoChk.checked = false; veoChk.disabled = true; }
+    }
+
+    // Restore stock B-roll preference
+    if (localStorage.getItem('stockBrollEnabled') === 'false') {
+      document.getElementById('stockBroll').checked = false;
+    }
+  })();
+
+  async function startBrollAnalysis() {
+    if (!document.getElementById('suggestBrolls').checked) return;
+    if (!videoKey) return;
+    const geminiKey = document.getElementById('geminiKey').value.trim()
+                   || localStorage.getItem('geminiApiKey') || '';
+    if (!geminiKey) return;
+    const anthropicKey = document.getElementById('anthropicKey').value.trim()
+                      || localStorage.getItem('anthropicApiKey') || '';
+
+    bumpPending(+1);
+    const card   = document.getElementById('brollCard');
+    const status = document.getElementById('brollStatus');
+    const list   = document.getElementById('brollList');
+    // Ensure broll card body is expanded when showing
+    const brollHeader = document.querySelector('#brollCard .card-header');
+    if (brollHeader) brollHeader.classList.remove('collapsed');
+    const brollBody = document.getElementById('brollBody');
+    if (brollBody) brollBody.style.display = 'block';
+    card.style.display   = 'block';
+    status.style.display = 'flex';
+    list.innerHTML       = '';
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+
+    const aspectRatio = document.querySelector('input[name="brollAspect"]:checked')?.value || '9:16';
+
+    try {
+      const resp = await fetch(`${API_BASE}/broll/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ video_key: videoKey, captions: captionsData, gemini_key: geminiKey, aspect_ratio: aspectRatio, anthropic_key: anthropicKey }),
+      });
+      if (!resp.ok) throw new Error(`Spawn failed: ${resp.status}`);
+      const { call_id } = await resp.json();
+
+      const result = await pollBroll(`${API_BASE}/broll_poll/${call_id}/`);
+      status.style.display = 'none';
+      selectedBrolls = [];
+      updateBurnBtn();
+      const suggestions = result.suggestions || [];
+      if (!suggestions.length) {
+        list.innerHTML = '<p style="color:var(--muted);font-size:0.85rem;padding:8px 0">No B-roll suggestions found.</p>';
+        return;
+      }
+      renderBrollList(suggestions);
+    } catch (e) {
+      console.error('B-roll error:', e.message);
+      status.style.display = 'none';
+      const isRetryable = /503|UNAVAILABLE|high demand|timeout|timed out/i.test(e.message);
+      const msg = isRetryable
+        ? 'Analysis timed out or Gemini is overloaded — try again.'
+        : `Analysis failed: ${e.message}`;
+      list.innerHTML = `<p style="color:var(--red);font-size:0.85rem;padding:8px 0">${msg} <button onclick="startBrollAnalysis()" style="margin-left:8px;font-size:0.8rem;padding:3px 10px;border-radius:6px;border:1px solid var(--red);background:none;color:var(--red);cursor:pointer">Retry</button></p>`;
+    } finally {
+      bumpPending(-1);
+    }
+  }
+
+  async function pollBroll(url) {
+    let retries = 0;
+    while (true) {
+      try {
+        const resp = await fetch(url);
+        if (resp.status === 200) return await resp.json();
+        if (resp.status === 202) { await new Promise(r => setTimeout(r, 5000)); continue; }
+        const body = await resp.json().catch(() => ({}));
+        throw new Error(body.error || `Server error ${resp.status}`);
+      } catch (e) {
+        if (e.message && !e.message.startsWith('Server error') && ++retries <= 3) {
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
+        throw e;
+      }
+    }
+  }
+
+  // ── Stock B-roll ──
+
+  function triggerStockBroll() {
+    document.getElementById('stockBrollRerunBanner').style.display = 'none';
+    startStockBrollAnalysis(getEditedCaptions());
+  }
+
+  // ── Hook Generator ──────────────────────────────────────────────────────
+
+  function cancelGenerateHook() {
+    hookGenAborted = true;
+  }
+
+  async function fetchHookThumbnail() {
+    if (!videoKey) return;
+    await document.fonts.ready;
+    try {
+      const resp = await fetch(`${API_BASE}/thumbnail/${videoKey}/`);
+      if (!resp.ok) return;
+      const blob = await resp.blob();
+      const img  = new Image();
+      img.onload = () => { hookThumbnail = img; drawHookPreview(); };
+      img.src = URL.createObjectURL(blob);
+    } catch (_) {}
+  }
+
+  function drawHookPreview() {
+    const canvas = document.getElementById('hookPreviewCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+
+    ctx.clearRect(0, 0, W, H);
+    if (hookThumbnail) {
+      // Cover-fit: fill canvas, crop excess
+      const scale = Math.max(W / hookThumbnail.naturalWidth, H / hookThumbnail.naturalHeight);
+      const sw = hookThumbnail.naturalWidth * scale, sh = hookThumbnail.naturalHeight * scale;
+      ctx.drawImage(hookThumbnail, (W - sw) / 2, (H - sh) / 2, sw, sh);
+    } else {
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    // Retrieve current settings
+    const text = selectedHookIdx >= 0
+      ? (document.getElementById(`hookText${selectedHookIdx}`)?.value?.trim() || '')
+      : '';
+    if (!text) return;
+
+    const fontName   = document.getElementById('hookFont')?.value || 'Heebo';
+    const fontColor  = document.getElementById('hookFontColor')?.value || '#FFFFFF';
+    const bgColor    = document.getElementById('hookBgColor')?.value || '#000000';
+    const bgOpacity  = parseInt(document.getElementById('hookBgOpacity')?.value || '60') / 100;
+    const vPos       = parseInt(document.getElementById('hookPosition')?.value || '10') / 100;
+    const sizePct    = parseInt(document.getElementById('hookFontSize')?.value || '100') / 100;
+
+    const fontSize = Math.max(12, Math.round(H * 0.075 * sizePct));
+    ctx.direction   = 'rtl';
+    ctx.font        = `bold ${fontSize}px '${fontName}', 'Heebo', sans-serif`;
+    ctx.textAlign   = 'center';
+    ctx.textBaseline = 'middle';
+
+    const edgePad = fontSize;
+    const maxW    = W - 2 * edgePad;          // max text width
+    const padH    = Math.round(fontSize * 0.55); // horizontal box padding
+    const padV    = Math.round(fontSize * 0.35); // vertical box padding
+    const lineH   = Math.round(fontSize * 1.35); // line height
+
+    // Word-wrap text into lines that fit within maxW
+    const words = text.split(' ').filter(Boolean);
+    const lines = [];
+    let cur = '';
+    for (const w of words) {
+      const test = cur ? cur + ' ' + w : w;
+      if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = w; }
+      else cur = test;
+    }
+    if (cur) lines.push(cur);
+
+    const blockH  = lines.length * lineH;
+    // Center of block, clamped so the box stays inside the canvas
+    const rawCY   = edgePad + (H - 2 * edgePad) * vPos;
+    const centerY = Math.max(blockH / 2 + padV + 4,
+                    Math.min(H - blockH / 2 - padV - 4, rawCY));
+    const boxW = maxW + 2 * padH;
+    const boxH = blockH + 2 * padV;
+    const bx   = W / 2 - boxW / 2;
+    const by   = centerY - boxH / 2;
+
+    // Background box (rounded)
+    ctx.save();
+    ctx.globalAlpha = bgOpacity;
+    ctx.fillStyle   = bgColor;
+    const r = 6;
+    ctx.beginPath();
+    ctx.moveTo(bx + r, by);
+    ctx.lineTo(bx + boxW - r, by); ctx.arcTo(bx + boxW, by, bx + boxW, by + r, r);
+    ctx.lineTo(bx + boxW, by + boxH - r); ctx.arcTo(bx + boxW, by + boxH, bx + boxW - r, by + boxH, r);
+    ctx.lineTo(bx + r, by + boxH); ctx.arcTo(bx, by + boxH, bx, by + boxH - r, r);
+    ctx.lineTo(bx, by + r); ctx.arcTo(bx, by, bx + r, by, r);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Draw each wrapped line — re-assert all text props after restore
+    ctx.direction    = 'rtl';
+    ctx.font         = `bold ${fontSize}px '${fontName}', 'Heebo', sans-serif`;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle    = fontColor;
+    lines.forEach((line, i) => {
+      ctx.fillText(line, W / 2, by + padV + (i + 0.5) * lineH);
+    });
+  }
+
+  function _hookSettingListeners() {
+    ['hookFont','hookFontColor','hookBgColor','hookBgOpacity','hookPosition','hookFontSize'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('input',  drawHookPreview);
+      el.addEventListener('change', drawHookPreview); // color pickers fire 'change' on Safari after picker closes
+    });
+  }
+
+  async function triggerGenerateHook() {
+    if (!videoKey || !captionsData.length) return;
+    const captions = getEditedCaptions();
+
+    const btn        = document.getElementById('generateHookBtn');
+    const status     = document.getElementById('hookStatus');
+    const optionsEl  = document.getElementById('hookOptions');
+    const controlsEl = document.getElementById('hookControls');
+    const errEl      = document.getElementById('hookError');
+
+    hookGenAborted        = false;
+    btn.disabled          = true;
+    status.style.display  = 'flex';
+    optionsEl.style.display   = 'none';
+    controlsEl.style.display  = 'none';
+    errEl.style.display   = 'none';
+    selectedHookIdx       = -1;
+
+    try {
+      const resp = await fetch(`${API_BASE}/generate-hook/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ captions_json: JSON.stringify(captions), video_key: videoKey }),
+      });
+      if (!resp.ok) {
+        const errBody = await resp.json().catch(() => ({}));
+        throw new Error(errBody.error || `HTTP ${resp.status}`);
+      }
+      const { call_id } = await resp.json();
+
+      let retries = 0;
+      while (true) {
+        if (hookGenAborted) break;
+        try {
+          const poll = await fetch(`${API_BASE}/generate-hook-poll/${call_id}/`);
+          if (poll.status === 200) {
+            const result = await poll.json();
+            if (!hookGenAborted) renderHookOptions(result.hooks || []);
+            break;
+          }
+          if (poll.status === 202) { await new Promise(r => setTimeout(r, 3000)); retries = 0; continue; }
+          throw new Error(`Server error ${poll.status}`);
+        } catch (e) {
+          if (!e.message.startsWith('Server error') && ++retries <= 3) {
+            await new Promise(r => setTimeout(r, 2000)); continue;
+          }
+          throw e;
+        }
+      }
+    } catch (e) {
+      if (!hookGenAborted) {
+        errEl.textContent   = `Failed: ${e.message.slice(0, 120)}`;
+        errEl.style.display = 'block';
+      }
+    } finally {
+      btn.disabled         = false;
+      status.style.display = 'none';
+      hookGenAborted       = false;
+    }
+  }
+
+  function renderHookOptions(hooks) {
+    selectedHookIdx = -1;
+    const optionsEl  = document.getElementById('hookOptions');
+    const controlsEl = document.getElementById('hookControls');
+
+    if (!hooks.length) {
+      optionsEl.innerHTML = '<p style="color:var(--muted);font-size:0.82rem">No hooks generated — try again.</p>';
+      optionsEl.style.display = 'block';
+      return;
+    }
+
+    optionsEl.innerHTML = '';
+    hooks.forEach((h, i) => {
+      const card = document.createElement('div');
+      card.id = `hookOption${i}`;
+      card.style.cssText = 'border:1.5px solid var(--purple-200);border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:background 0.15s,border-color 0.15s';
+
+      // Editable textarea for hook text
+      const ta = document.createElement('textarea');
+      ta.id = `hookText${i}`;
+      ta.value = h.text;
+      ta.style.cssText = 'width:100%;border:none;border-bottom:1.5px dashed var(--purple-300);background:transparent;resize:none;overflow:hidden;font-family:inherit;font-size:1.05rem;font-weight:700;direction:rtl;text-align:right;color:var(--text);padding:0 0 2px;margin:0 0 6px;cursor:text;line-height:1.4;display:block;outline:none;transition:border-color 0.15s;';
+      ta.rows = 1;
+      ta.title = 'לחץ לעריכה';
+      ta.addEventListener('focus', () => { ta.style.borderBottomColor = 'var(--purple-500)'; });
+      ta.addEventListener('blur',  () => { ta.style.borderBottomColor = 'var(--purple-300)'; });
+      ta.addEventListener('input', () => {
+        ta.style.height = 'auto';
+        ta.style.height = ta.scrollHeight + 'px';
+        drawHookPreview();
+      });
+
+      const rationale = document.createElement('p');
+      rationale.style.cssText = 'font-size:0.76rem;color:var(--muted);margin:0;pointer-events:none;';
+      rationale.textContent = h.rationale || '';
+
+      card.appendChild(ta);
+      card.appendChild(rationale);
+
+      card.onclick = () => {
+        if (selectedHookIdx === i) return; // already selected — don't interrupt editing
+        document.querySelectorAll('[id^="hookOption"]').forEach(el => {
+          el.style.background  = '';
+          el.style.borderColor = 'var(--purple-200)';
+        });
+        card.style.background  = 'var(--purple-50)';
+        card.style.borderColor = 'var(--purple-400)';
+        selectedHookIdx = i;
+        drawHookPreview();
+      };
+
+      optionsEl.appendChild(card);
+
+      // Auto-size textarea once it's in the DOM
+      requestAnimationFrame(() => {
+        ta.style.height = 'auto';
+        ta.style.height = ta.scrollHeight + 'px';
+      });
+    });
+
+    optionsEl.style.display  = 'block';
+    const firstShow = controlsEl.style.display === 'none';
+    controlsEl.style.display = 'block';
+    if (firstShow) _hookSettingListeners();
+    drawHookPreview();
+  }
+
+  // ── End Hook Generator ──────────────────────────────────────────────────
+
+  async function startStockBrollAnalysis(captionsOverride) {
+    if (!document.getElementById('stockBroll').checked) return;
+    const captions = captionsOverride || captionsData;
+    if (!captions.length) return;
+
+    const card   = document.getElementById('stockBrollCard');
+    const status = document.getElementById('stockBrollStatus');
+    const list   = document.getElementById('stockBrollList');
+
+    const cardHeader = card.querySelector('.card-header');
+    if (cardHeader) cardHeader.classList.remove('collapsed');
+    const cardBody = document.getElementById('stockBrollBody');
+    if (cardBody) cardBody.style.display = 'block';
+    card.style.display   = 'block';
+    status.style.display = 'flex';
+    list.innerHTML       = '';
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+
+    // Lock the caption editor and button while searching
+    findBrollBtn.disabled = true;
+    findBrollBtn.textContent = '⏳ Searching…';
+    document.querySelectorAll('#captionsList .caption-input').forEach(el => { el.disabled = true; });
+
+    bumpPending(+1);
+    const stockElapsedEl = document.getElementById('stockBrollElapsed');
+    stockElapsedEl.textContent = '0:00';
+    let stockSecs = 0;
+    const stockTimer = setInterval(() => { stockElapsedEl.textContent = formatTime(++stockSecs); }, 1000);
+
+    try {
+      const resp = await fetch(`${API_BASE}/stock-broll/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ captions_json: JSON.stringify(captions), video_key: videoKey || '' }),
+      });
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        throw new Error(body.error || `Spawn failed: ${resp.status}`);
+      }
+      const { call_id } = await resp.json();
+
+      let netRetries = 0;
+      while (true) {
+        try {
+          const pollResp = await fetch(`${API_BASE}/stock-broll-poll/${call_id}/`);
+          if (pollResp.status === 200) {
+            const result = await pollResp.json();
+            clearInterval(stockTimer);
+            status.style.display = 'none';
+            const moments = result.moments || [];
+            stockBrollAnalyzed    = true;
+            lastAnalyzedSignature = getCaptionsSignature();
+            // Cost-limit banner
+            const costBanner = document.getElementById('stockCostLimitBanner');
+            if (result.cost_limit_hit) {
+              costBanner.textContent = `Processed top ${result.moments_processed} of ${result.total_moments_identified} moments to stay within budget.`;
+              costBanner.style.display = 'block';
+            } else {
+              costBanner.style.display = 'none';
+            }
+            if (!moments.length) {
+              const fs = result.filter_stats || {};
+              let emptyMsg;
+              if (!fs.sonnet_moments_raw) {
+                emptyMsg = 'No strong moments identified in this video.';
+              } else {
+                const dropParts = [];
+                if (fs.buf_drops)     dropParts.push(`${fs.buf_drops} near video edges`);
+                if (fs.spacing_drops) dropParts.push(`${fs.spacing_drops} too close together`);
+                const detail = dropParts.length ? ` (${dropParts.join('; ')})` : '';
+                const n = fs.sonnet_moments_raw;
+                emptyMsg = `${n} moment${n === 1 ? '' : 's'} identified but didn't meet placement rules${detail}.`;
+              }
+              list.innerHTML = `<p style="color:var(--muted);font-size:0.85rem;padding:8px 0">${emptyMsg}</p>`;
+              return;
+            }
+            renderStockMoments(moments, result.video_context || null);
+            return;
+          }
+          if (pollResp.status === 202) {
+            await new Promise(r => setTimeout(r, 5000));
+            netRetries = 0;
+            continue;
+          }
+          const body = await pollResp.json().catch(() => ({}));
+          throw new Error(body.error || `Server error ${pollResp.status}`);
+        } catch (e) {
+          if (!e.message.startsWith('Server error') && ++netRetries <= 3) {
+            await new Promise(r => setTimeout(r, 2000));
+            continue;
+          }
+          throw e;
+        }
+      }
+    } catch (e) {
+      clearInterval(stockTimer);
+      console.error('Stock B-roll error:', e.message);
+      status.style.display = 'none';
+      list.innerHTML = `<p style="color:var(--red);font-size:0.85rem;padding:8px 0">Failed: ${e.message.slice(0, 160)} <button onclick="triggerStockBroll()" style="margin-left:8px;font-size:0.8rem;padding:3px 10px;border-radius:6px;border:1px solid var(--red);background:none;color:var(--red);cursor:pointer">Retry</button></p>`;
+    } finally {
+      bumpPending(-1);
+      // Restore caption editor and button
+      document.querySelectorAll('#captionsList .caption-input').forEach(el => { el.disabled = false; });
+      findBrollBtn.textContent = '🎬 Find B-Roll Moments';
+      updateFindBrollBtn();
+    }
+  }
+
+  function renderStockMoments(moments, videoCtx) {
+    const list = document.getElementById('stockBrollList');
+    list.innerHTML = '';
+
+    // 2-pass summary row + global debug toggle
+    const nEmphasis = moments.filter(m => m.moment_type !== 'coverage').length;
+    const nCoverage = moments.filter(m => m.moment_type === 'coverage').length;
+    if (moments.length > 0) {
+      const summaryRow = document.createElement('div');
+      summaryRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px';
+
+      const summary = document.createElement('div');
+      summary.className = 'broll-summary';
+      summary.style.margin = '0';
+      const parts = [`${moments.length} moment${moments.length !== 1 ? 's' : ''} found`];
+      if (nEmphasis > 0) parts.push(`${nEmphasis} emphasis`);
+      if (nCoverage > 0) parts.push(`${nCoverage} rhythm/coverage`);
+      summary.textContent = parts.join(' · ');
+
+      const debugBtn = document.createElement('button');
+      debugBtn.className = 'debug-toggle-btn';
+      const debugOn = localStorage.getItem('brollDebugMode') === 'on';
+      debugBtn.textContent = debugOn ? '⚙ Debug on' : '⚙ Debug';
+      if (debugOn) debugBtn.classList.add('active');
+      debugBtn.addEventListener('click', () => {
+        const wrapper = list.querySelector('.broll-moments-wrapper');
+        if (!wrapper) return;
+        const isOn = wrapper.classList.toggle('debug-mode');
+        localStorage.setItem('brollDebugMode', isOn ? 'on' : 'off');
+        debugBtn.textContent = isOn ? '⚙ Debug on' : '⚙ Debug';
+        debugBtn.classList.toggle('active', isOn);
+      });
+
+      summaryRow.appendChild(summary);
+      summaryRow.appendChild(debugBtn);
+      list.appendChild(summaryRow);
+
+      // Video context debug panel — visible only when debug toggle is on
+      if (videoCtx && Object.keys(videoCtx).length > 0) {
+        const ctxDiv = document.createElement('div');
+        ctxDiv.className = 'moment-debug';
+        ctxDiv.style.cssText = 'margin-bottom:10px;padding:8px 10px;background:var(--purple-50,#f5f3ff);border-radius:6px;border:1px solid var(--purple-200,#ddd6fe)';
+        const rows = [
+          ['Genre', videoCtx.video_genre],
+          ['Register', videoCtx.speaker_emotional_register],
+          ['Setting', videoCtx.setting_description],
+          ['Topic', videoCtx.topic_summary],
+          ['B-roll style', videoCtx.broll_style_recommendation],
+          ['Cultural notes', videoCtx.cultural_context_notes],
+          ['Sensitive topics', (videoCtx.sensitive_topics || []).join('; ') || 'none'],
+        ];
+        ctxDiv.innerHTML = '<strong style="font-size:0.71rem;color:var(--purple-700,#6d28d9)">VIDEO CONTEXT</strong>' +
+          rows.filter(([, v]) => v).map(([k, v]) =>
+            `<div style="margin-top:3px"><span style="color:var(--muted);font-size:0.68rem">${k}:</span> <span style="font-size:0.71rem">${v}</span></div>`
+          ).join('');
+        list.appendChild(ctxDiv);
+      }
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'broll-moments-wrapper';
+    if (moments.length > 6) {
+      wrapper.style.cssText = 'max-height:520px;overflow-y:auto;padding-right:4px';
+    }
+    if (localStorage.getItem('brollDebugMode') === 'on') wrapper.classList.add('debug-mode');
+    list.appendChild(wrapper);
+
+    moments.forEach((m, momentIdx) => {
+      const isCoverage = m.moment_type === 'coverage';
+      const card = document.createElement('div');
+      card.className = isCoverage ? 'moment-card coverage' : 'moment-card';
+
+      const momentCtx = {
+        momentIdx,
+        start: m.start,
+        end: m.end,
+        broll_duration_seconds: m.broll_duration_seconds || 3.0,
+        label: m.label || '',
+        reasoning: m.reasoning || '',
+        broad_search_prompt: m.broad_search_prompt || m.search_query || '',
+        strict_eval_prompt: m.strict_eval_prompt || '',
+      };
+
+      // Header: time badge + label + dismiss X
+      const header = document.createElement('div');
+      header.className = 'moment-header';
+
+      const badge = document.createElement('span');
+      badge.className = 'moment-time-badge';
+      badge.textContent = fmtCapTime(m.start) + ' – ' + fmtCapTime(m.end);
+
+      const label = document.createElement('span');
+      label.className = 'moment-label';
+      label.textContent = m.label || '';
+
+      // Dismiss button — for coverage: removes card entirely; for emphasis: skip with restore
+      const dismissBtn = document.createElement('button');
+      dismissBtn.className = 'moment-dismiss-btn';
+      dismissBtn.textContent = '✕';
+      dismissBtn.title = isCoverage ? 'Skip this rhythm moment' : 'Skip this moment';
+      dismissBtn.addEventListener('click', () => {
+        delete stockBrollSelections[momentIdx];
+        if (isCoverage) {
+          card.remove();
+        } else {
+          // Collapse card: hide all children except header, show restore button
+          Array.from(card.children).forEach(el => { if (el !== header) el.style.display = 'none'; });
+          card.classList.add('skipped-emphasis');
+          dismissBtn.remove();
+          const restoreBtn = document.createElement('button');
+          restoreBtn.className = 'moment-restore-btn';
+          restoreBtn.textContent = 'Restore';
+          restoreBtn.addEventListener('click', () => {
+            Array.from(card.children).forEach(el => { el.style.display = ''; });
+            card.classList.remove('skipped-emphasis');
+            restoreBtn.remove();
+            header.appendChild(dismissBtn);
+          });
+          header.appendChild(restoreBtn);
+        }
+      });
+
+      header.appendChild(badge);
+      if (m.broll_duration_seconds) {
+        const durBadge = document.createElement('span');
+        durBadge.className = 'moment-dur-badge';
+        durBadge.textContent = m.broll_duration_seconds.toFixed(1) + 's';
+        header.appendChild(durBadge);
+      }
+      // Type badge: coverage gets "rhythm" label; other non-concrete types show their type
+      if (isCoverage) {
+        const rhythmBadge = document.createElement('span');
+        rhythmBadge.className = 'moment-badge-rhythm';
+        rhythmBadge.title = 'Coverage moment — added for visual rhythm, not an emphasis peak';
+        rhythmBadge.textContent = 'rhythm';
+        header.appendChild(rhythmBadge);
+      } else if (m.moment_type && m.moment_type !== 'concrete') {
+        const typeBadge = document.createElement('span');
+        typeBadge.className = 'moment-confidence-badge';
+        typeBadge.style.cssText = m.moment_type === 'emotional'
+          ? 'background:#fce7f3;color:#9d174d;border-color:#f9a8d4'
+          : 'background:#ede9fe;color:#6d28d9;border-color:#c4b5fd';
+        typeBadge.textContent = m.moment_type;
+        header.appendChild(typeBadge);
+      }
+      if (m.confidence) {
+        const confBadge = document.createElement('span');
+        confBadge.className = `moment-confidence-badge confidence-${m.confidence}`;
+        confBadge.title = m.intensity_score != null ? `intensity ${m.intensity_score}/10` : '';
+        confBadge.textContent = m.confidence;
+        header.appendChild(confBadge);
+      }
+      header.appendChild(label);
+      header.appendChild(dismissBtn);
+      card.appendChild(header);
+
+      // Hebrew excerpt — prefer the backend's transcript_excerpt (built from edited captions)
+      const excerptText = m.transcript_excerpt || m.verbatim_quote || (() => {
+        const edited = getEditedCaptions();
+        return edited.filter(c => c.end >= m.start - 0.5 && c.start <= m.end + 0.5).map(c => c.text).join(' ');
+      })();
+      if (excerptText) {
+        const excerpt = document.createElement('div');
+        excerpt.className = 'moment-excerpt';
+        excerpt.textContent = excerptText;
+        card.appendChild(excerpt);
+      }
+
+      // Reasoning (Hebrew)
+      if (m.reasoning) {
+        const reasoning = document.createElement('div');
+        reasoning.className = 'moment-reasoning';
+        reasoning.textContent = m.reasoning;
+        card.appendChild(reasoning);
+      }
+
+      // Clips row
+      const clipsContainer = document.createElement('div');
+      renderClips(clipsContainer, m.clips || [], m.broad_search_prompt || m.search_query, momentCtx);
+      if (m.weak_match) {
+        const wm = document.createElement('p');
+        wm.className = 'no-clips-msg';
+        wm.style.fontStyle = 'italic';
+        wm.textContent = 'No stock clips matched this moment — try "Find different clips" with a broader query.';
+        clipsContainer.appendChild(wm);
+      }
+      card.appendChild(clipsContainer);
+
+      // Debug panel — shown only when global debug toggle is active
+      const dbg = document.createElement('div');
+      dbg.className = 'moment-debug';
+      const body = document.createElement('div');
+      body.className = 'moment-debug-body';
+      const markersStr = (m.intensity_markers && m.intensity_markers.length)
+        ? m.intensity_markers.join(', ')
+        : null;
+      const passLabel = isCoverage
+        ? 'Pass 2 — coverage (rhythm)'
+        : `Pass 1 — emphasis (${m.moment_type || 'concrete'})`;
+      // Per-variant retrieval stats
+      const variantStatsStr = (() => {
+        const stats = m._variant_stats;
+        if (!stats || !stats.length) return null;
+        return stats.map(s => `'${s.variant}': ${s.count} clips`).join('\n');
+      })();
+      // Winner variant
+      const winnerClip = m.clips && m.clips[0];
+      const winnerVariant = winnerClip && winnerClip._source_variant
+        ? `'${winnerClip._source_variant}' (score ${winnerClip.score ?? '?'})` : null;
+      const rows = [
+        ['Pass', passLabel],
+        ['Type', m.moment_type ? `${m.moment_type} · intensity ${m.intensity_score ?? '?'}/10` : null],
+        ['Intensity markers', markersStr],
+        ['Key insight', m.key_insight],
+        ['Visual anchor', m.visual_anchor],
+        ['Search variants', m.search_variants && m.search_variants.length
+          ? m.search_variants.map((v, i) => `${i+1}. ${v}`).join('\n') : null],
+        ['Variant retrieval', variantStatsStr],
+        ['Winning variant', winnerVariant],
+        ['Scoring target (strict)', m.strict_eval_prompt],
+        ['Duration reasoning', m.duration_reasoning],
+      ];
+      rows.forEach(([label, value]) => {
+        if (!value) return;
+        const row = document.createElement('div');
+        row.className = 'moment-debug-row';
+        row.innerHTML = `<strong>${label}:</strong>${value}`;
+        body.appendChild(row);
+      });
+      if (body.childElementCount > 0) {
+        dbg.appendChild(body);
+        card.appendChild(dbg);
+      }
+
+      // Find different clips button
+      let clipPage = 2;
+      const findBtn = document.createElement('button');
+      findBtn.className = 'find-clips-btn';
+      findBtn.textContent = '🔄 Find different clips';
+      findBtn.addEventListener('click', async () => {
+        findBtn.disabled = true;
+        findBtn.textContent = 'Scoring clips…';
+        delete stockBrollSelections[momentIdx];
+        await retryStockMomentClips(momentCtx.broad_search_prompt || m.search_query, clipsContainer, clipPage++, findBtn, momentCtx);
+      });
+      card.appendChild(findBtn);
+
+      wrapper.appendChild(card);
+    });
+  }
+
+  function renderClips(container, clips, searchQuery, momentCtx) {
+    container.innerHTML = '';
+    if (!clips || !clips.length) {
+      const msg = document.createElement('p');
+      msg.className = 'no-clips-msg';
+      msg.textContent = 'No clips found for "' + (searchQuery || 'this moment') + '".';
+      container.appendChild(msg);
+      return;
+    }
+
+    const radioGroup = momentCtx ? `stock-broll-${momentCtx.momentIdx}` : `stock-broll-x`;
+    const row = document.createElement('div');
+    row.className = 'clips-row';
+
+    clips.forEach(clip => {
+      const clipCard = document.createElement('div');
+      clipCard.className = 'clip-card';
+
+      const thumbDiv = document.createElement('div');
+      thumbDiv.className = 'clip-thumb';
+      thumbDiv.addEventListener('click', () => {
+        if (clip.page_url) window.open(clip.page_url, '_blank', 'noopener,noreferrer');
+      });
+
+      if (clip.thumbnail) {
+        const img = document.createElement('img');
+        img.src = clip.thumbnail;
+        img.alt = clip.author || 'Stock clip';
+        img.loading = 'lazy';
+        thumbDiv.appendChild(img);
+      }
+
+      const playOverlay = document.createElement('div');
+      playOverlay.className = 'clip-thumb-play';
+      const playIcon = document.createElement('div');
+      playIcon.className = 'clip-thumb-play-icon';
+      playIcon.textContent = '▶';
+      playOverlay.appendChild(playIcon);
+      thumbDiv.appendChild(playOverlay);
+
+      const srcBadge = document.createElement('span');
+      srcBadge.className = 'clip-source-badge ' + (clip.source || 'pexels');
+      srcBadge.textContent = clip.source === 'pixabay' ? 'Pixabay' : 'Pexels';
+      thumbDiv.appendChild(srcBadge);
+
+      if (clip.score !== undefined) {
+        const level = clip.score >= 8 ? 'high' : clip.score >= 5 ? 'mid' : 'low';
+        const scoreBadge = document.createElement('span');
+        scoreBadge.className = 'clip-score-badge ' + level;
+        scoreBadge.textContent = clip.score + '/10';
+        const tooltipParts = [];
+        if (clip.frames_observed)    tooltipParts.push('Frames: ' + clip.frames_observed);
+        if (clip.score_reason)       tooltipParts.push('Reason: ' + clip.score_reason);
+        if (clip.step1_disqualified) tooltipParts.push('⚠ STEP 1 disqualified');
+        if (clip.frame_sample_failed) tooltipParts.push('(thumbnail fallback — frame sampling failed)');
+        if (clip.title)              tooltipParts.push('Title: ' + clip.title);
+        if (clip.tags && clip.tags.length) tooltipParts.push('Tags: ' + clip.tags.slice(0, 5).join(', '));
+        if (tooltipParts.length) scoreBadge.title = tooltipParts.join('\n');
+        thumbDiv.appendChild(scoreBadge);
+      }
+
+      const meta = document.createElement('div');
+      meta.className = 'clip-meta';
+
+      if (clip.title) {
+        const titleEl = document.createElement('span');
+        titleEl.className = 'clip-title';
+        titleEl.textContent = clip.title;
+        meta.appendChild(titleEl);
+      }
+      if (clip.tags && clip.tags.length) {
+        const tagsEl = document.createElement('span');
+        tagsEl.className = 'clip-tags';
+        tagsEl.textContent = clip.tags.slice(0, 5).join(', ');
+        meta.appendChild(tagsEl);
+      }
+
+      const authorLink = document.createElement('a');
+      authorLink.className = 'clip-author';
+      authorLink.href   = clip.author_url || clip.page_url || '#';
+      authorLink.target = '_blank';
+      authorLink.rel    = 'noopener noreferrer';
+      authorLink.textContent = clip.author ? 'by ' + clip.author : clip.source;
+
+      // Toggle button — "Use for video" (acts like radio but can be deselected)
+      const selLabel = document.createElement('label');
+      selLabel.className = 'clip-select-label';
+      const radio = document.createElement('input');
+      radio.type = 'checkbox';
+      radio.dataset.group = radioGroup;
+      radio.addEventListener('change', () => {
+        if (radio.checked) {
+          // Deselect all others in this group, then select this one
+          row.querySelectorAll(`input[data-group="${radioGroup}"]`).forEach(cb => {
+            if (cb !== radio) {
+              cb.checked = false;
+              cb.closest('.clip-card')?.classList.remove('selected');
+              cb.closest('label')?.classList.remove('checked');
+            }
+          });
+          clipCard.classList.add('selected');
+          selLabel.classList.add('checked');
+          if (momentCtx) {
+            stockBrollSelections[momentCtx.momentIdx] = {
+              start:        momentCtx.start,
+              end:          momentCtx.end,
+              download_url: clip.preview_url || '',
+              source:       clip.source || 'pexels',
+              page_url:     clip.page_url || '',
+              clip_use_start_seconds: clip.clip_use_start_seconds != null ? clip.clip_use_start_seconds : 0,
+              clip_use_end_seconds:   clip.clip_use_end_seconds   != null ? clip.clip_use_end_seconds   : null,
+            };
+          }
+        } else {
+          // Toggled off — remove selection
+          clipCard.classList.remove('selected');
+          selLabel.classList.remove('checked');
+          if (momentCtx) delete stockBrollSelections[momentCtx.momentIdx];
+        }
+      });
+      selLabel.appendChild(radio);
+      selLabel.appendChild(document.createTextNode('Use for video'));
+
+      // Small view link
+      const viewLink = document.createElement('a');
+      viewLink.className = 'clip-view-link';
+      viewLink.href   = clip.page_url || '#';
+      viewLink.target = '_blank';
+      viewLink.rel    = 'noopener noreferrer';
+      viewLink.textContent = 'View ↗';
+
+      // Clip window hint (middle/padded strategy)
+      if (clip.clip_window_strategy === 'middle' || clip.clip_window_strategy === 'padded') {
+        const wn = document.createElement('div');
+        wn.className = 'clip-window-note' + (clip.clip_window_strategy === 'padded' ? ' padded' : '');
+        const inS  = (clip.clip_use_start_seconds != null ? clip.clip_use_start_seconds : 0).toFixed(1);
+        const outS = (clip.clip_use_end_seconds   != null ? clip.clip_use_end_seconds   : 0).toFixed(1);
+        wn.textContent = clip.clip_window_strategy === 'padded'
+          ? `⚠ clip too short (${outS}s)`
+          : `Use ${inS}s → ${outS}s`;
+        meta.appendChild(wn);
+      }
+
+      meta.appendChild(authorLink);
+      meta.appendChild(selLabel);
+      meta.appendChild(viewLink);
+
+      clipCard.appendChild(thumbDiv);
+      clipCard.appendChild(meta);
+      row.appendChild(clipCard);
+    });
+
+    container.appendChild(row);
+  }
+
+  async function retryStockMomentClips(searchQuery, container, page, btn, momentCtx) {
+    try {
+      const ctxPayload = momentCtx
+        ? JSON.stringify({
+            label: momentCtx.label,
+            reasoning: momentCtx.reasoning,
+            strict_eval_prompt: momentCtx.strict_eval_prompt || '',
+            broll_duration_seconds: momentCtx.broll_duration_seconds || 3.0,
+          })
+        : '';
+      const resp = await fetch(`${API_BASE}/stock-broll-clips/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ search_query: searchQuery, page: page || 2, moment_context: ctxPayload }),
+      });
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        throw new Error(body.error || `Spawn failed: ${resp.status}`);
+      }
+      const { call_id } = await resp.json();
+
+      while (true) {
+        const poll = await fetch(`${API_BASE}/stock-broll-clips-poll/${call_id}/`);
+        if (poll.status === 202) { await new Promise(r => setTimeout(r, 3000)); continue; }
+        if (!poll.ok) throw new Error(`Poll error: ${poll.status}`);
+        const result = await poll.json();
+        renderClips(container, result.clips || [], searchQuery, momentCtx);
+        break;
+      }
+    } catch (e) {
+      console.error('Retry clips failed:', e.message);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '🔄 Find different clips';
+      }
+    }
+  }
+
+  async function retryBrollVideo(s, thumbBox, retryBtn) {
+    const geminiKey = document.getElementById('geminiKey').value.trim()
+                   || localStorage.getItem('geminiApiKey') || '';
+    const aspectRatio = document.querySelector('input[name="brollAspect"]:checked')?.value || '9:16';
+
+    retryBtn.disabled = true;
+    retryBtn.textContent = '…';
+
+    try {
+      const resp = await fetch(`${API_BASE}/broll_image/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: s.description, aspect_ratio: aspectRatio, gemini_key: geminiKey }),
+      });
+      if (!resp.ok) throw new Error(`Spawn failed: ${resp.status}`);
+      const { call_id } = await resp.json();
+
+      while (true) {
+        const poll = await fetch(`${API_BASE}/broll_image_poll/${call_id}/`);
+        if (poll.status === 202) { await new Promise(r => setTimeout(r, 5000)); continue; }
+        if (!poll.ok) throw new Error(`Poll error: ${poll.status}`);
+        const result = await poll.json();
+        if (result.video_key) {
+          const videoUrl = `${API_BASE}/download/${result.video_key}/`;
+          s.video_key = result.video_key;
+          // Update in selectedBrolls if this card was checked
+          const sel = selectedBrolls.find(b => b.start === s.start && b.end === s.end);
+          if (sel) sel.video_key = result.video_key;
+          // Replace thumb content with video
+          thumbBox.innerHTML = '';
+          thumbBox.classList.add('zoomable');
+          const vid = document.createElement('video');
+          vid.src = videoUrl;
+          vid.autoplay = true;
+          vid.loop = true;
+          vid.muted = true;
+          vid.playsInline = true;
+          thumbBox.appendChild(vid);
+          thumbBox.onclick = () => openLightbox(videoUrl);
+        } else {
+          throw new Error(result.video_error || 'Unknown error');
+        }
+        break;
+      }
+    } catch (e) {
+      console.error('B-roll video retry failed:', e.message);
+    } finally {
+      retryBtn.disabled = false;
+      retryBtn.textContent = '↻ new video';
+    }
+  }
+
+  function renderBrollList(suggestions) {
+    const list = document.getElementById('brollList');
+    list.innerHTML = '';
+    suggestions.forEach((s, i) => {
+      const row = document.createElement('div');
+      row.className = 'broll-row';
+
+      // Checkbox — select this B-roll to include in the final video
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'broll-checkbox';
+      checkbox.title = 'Include this B-roll in the final video';
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          selectedBrolls.push({ start: s.start, end: s.end, video_key: s.video_key });
+        } else {
+          selectedBrolls = selectedBrolls.filter(b => !(b.start === s.start && b.end === s.end));
+        }
+        updateBurnBtn();
+      });
+
+      // Thumbnail + retry button wrapped together
+      const thumbWrap = document.createElement('div');
+      thumbWrap.className = 'broll-thumb-wrap';
+
+      const thumbBox = document.createElement('div');
+      thumbBox.className = 'broll-thumb';
+      if (s.video_key) {
+        const videoUrl = `${API_BASE}/download/${s.video_key}/`;
+        const vid = document.createElement('video');
+        vid.src = videoUrl;
+        vid.autoplay = true;
+        vid.loop = true;
+        vid.muted = true;
+        vid.playsInline = true;
+        thumbBox.appendChild(vid);
+        thumbBox.classList.add('zoomable');
+        thumbBox.addEventListener('click', () => openLightbox(videoUrl));
+      } else {
+        const errMsg = s.video_error || 'Video generation unavailable.';
+        thumbBox.title = errMsg;
+        thumbBox.innerHTML = '<svg class="broll-thumb-placeholder" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="1.5"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>';
+      }
+
+      const retryBtn = document.createElement('button');
+      retryBtn.className = 'broll-retry';
+      retryBtn.textContent = '↻ new video';
+      retryBtn.title = 'Coming soon';
+      retryBtn.disabled = true;
+
+      thumbWrap.appendChild(thumbBox);
+      thumbWrap.appendChild(retryBtn);
+
+      const content = document.createElement('div');
+      content.className = 'broll-content';
+
+      const time = document.createElement('div');
+      time.className = 'broll-time';
+      time.textContent = fmtCapTime(s.start) + ' – ' + fmtCapTime(s.end);
+
+      const label = document.createElement('div');
+      label.className = 'broll-label';
+      label.textContent = s.label;
+
+      const desc = document.createElement('div');
+      desc.className = 'broll-desc';
+      desc.textContent = s.description;
+
+      content.appendChild(time);
+      content.appendChild(label);
+      content.appendChild(desc);
+
+      if (!s.video_key && s.video_error) {
+        const vidErr = document.createElement('div');
+        vidErr.style.cssText = 'font-size:0.72rem;color:var(--amber);margin-top:4px;';
+        vidErr.textContent = `⚠ ${s.video_error}`;
+        content.appendChild(vidErr);
+      }
+
+      const dismiss = document.createElement('button');
+      dismiss.className = 'broll-dismiss';
+      dismiss.textContent = '✕';
+      dismiss.addEventListener('click', () => {
+        if (checkbox.checked) {
+          selectedBrolls = selectedBrolls.filter(b => !(b.start === s.start && b.end === s.end));
+          updateBurnBtn();
+        }
+        row.remove();
+      });
+
+      row.appendChild(checkbox);
+      row.appendChild(thumbWrap);
+      row.appendChild(content);
+      row.appendChild(dismiss);
+      list.appendChild(row);
+    });
+  }
+
+  function showCaptionEditor() {
+    // Ensure card body is expanded (may have been collapsed in a previous burn)
+    const captionHeader = document.querySelector('#captionEditorCard .card-header');
+    if (captionHeader) captionHeader.classList.remove('collapsed');
+    const captionBody = document.getElementById('captionBody');
+    if (captionBody) captionBody.style.display = 'block';
+
+    const list = document.getElementById('captionsList');
+    list.innerHTML = '';
+    captionsData.forEach((cap, i) => {
+      const row   = document.createElement('div');
+      row.className = 'caption-row';
+      const time  = document.createElement('span');
+      time.className = 'caption-time';
+      time.textContent = fmtCapTime(cap.start) + ' – ' + fmtCapTime(cap.end);
+      const input = document.createElement('input');
+      input.type      = 'text';
+      input.className = 'caption-input';
+      input.value     = cap.text;
+      input.dir       = 'rtl';
+      input.addEventListener('input', () => {
+        updatePreviewCaption();
+        if (stockBrollAnalyzed && getCaptionsSignature() !== lastAnalyzedSignature) {
+          document.getElementById('stockBrollRerunBanner').style.display = 'flex';
+        }
+      });
+      row.appendChild(time);
+      row.appendChild(input);
+      list.appendChild(row);
+    });
+    document.getElementById('captionEditorCard').style.display = 'block';
+    document.getElementById('hookCard').style.display = 'block';
+    document.getElementById('generateHookBtn').disabled = false;
+    fetchHookThumbnail();
+    burnMode = true;
+    setSetupLocked(true);
+    runBtn.disabled = false;
+    runBtn.style.display = 'block';
+    updateBurnBtn();
+    renderThumbnail();
+    setTimeout(() => { initPositionTrack(); updatePreviewCaption(); }, 50);
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  }
+
+  async function doBurn() {
+    if (!videoKey) return;
+    if (captionsData.length === 0 && selectedBrolls.length === 0 && Object.keys(stockBrollSelections).length === 0) return;
+    const confirmed = await showConfirmModal(
+      'Ready to burn?',
+      'Finished editing? Click Burn to generate and download your final video.',
+      'Burn & Download'
+    );
+    if (!confirmed) return;
+    document.getElementById('burnSuccessBanner').style.display = 'none';
+
+    // Collect edited caption text from inputs
+    const inputs = document.querySelectorAll('#captionsList .caption-input');
+    const edited = captionsData.map((cap, i) => ({
+      start: cap.start,
+      end:   cap.end,
+      text:  inputs[i] ? inputs[i].value : cap.text,
+    }));
+
+    const fname = selectedFile ? selectedFile.name : 'video.mp4';
+    const burnUrl = new URL(API_BASE + '/burn/');
+    burnUrl.searchParams.set('video_key',  videoKey);
+    burnUrl.searchParams.set('filename',   fname);
+    burnUrl.searchParams.set('font',       captionFont);
+    burnUrl.searchParams.set('margin_v',   captionMarginPct.toFixed(4));
+    burnUrl.searchParams.set('font_size',  captionFontSize);
+
+    const burnErrorEl = document.getElementById('burnError');
+    runBtn.disabled    = true;
+    runBtn.textContent = '⏳ Burning… 0:00';
+    burnErrorEl.style.display = 'none';
+    let burnSecs = 0;
+    let burnBtnTimer = setInterval(() => {
+      runBtn.textContent = `⏳ Burning… ${formatTime(++burnSecs)}`;
+    }, 1000);
+
+    // Lock all editor cards and collapse them while burn is in progress
+    const editorIds = ['captionEditorCard', 'brollCard', 'stockBrollCard'];
+    editorIds.forEach(id => document.getElementById(id).classList.add('burning'));
+    const captionHeader = document.querySelector('#captionEditorCard .card-header');
+    const brollHeader   = document.querySelector('#brollCard .card-header');
+    const sbHeader      = document.querySelector('#stockBrollCard .card-header');
+    const captionBody   = document.getElementById('captionBody');
+    const brollBody     = document.getElementById('brollBody');
+    const sbBody        = document.getElementById('stockBrollBody');
+    [{ h: captionHeader, b: captionBody }, { h: brollHeader, b: brollBody }, { h: sbHeader, b: sbBody }]
+      .forEach(({ h, b }) => {
+        if (h && !h.classList.contains('collapsed')) { h.classList.add('collapsed'); if (b) b.style.display = 'none'; }
+      });
+    try {
+      // POST captions + selected B-rolls (Veo + stock) → get call_id immediately
+      const allBroll = [...selectedBrolls, ...Object.values(stockBrollSelections)];
+
+      // Collect hook settings if an option was selected
+      let hookPayload = null;
+      if (selectedHookIdx >= 0) {
+        const hookTextEl = document.getElementById(`hookText${selectedHookIdx}`);
+        const hookText   = hookTextEl ? hookTextEl.value.trim() : '';
+        if (hookText) {
+          hookPayload = {
+            text:              hookText,
+            font:              document.getElementById('hookFont')?.value || 'Heebo',
+            font_color:        document.getElementById('hookFontColor')?.value || '#FFFFFF',
+            bg_color:          document.getElementById('hookBgColor')?.value || '#000000',
+            bg_opacity:        parseInt(document.getElementById('hookBgOpacity')?.value || '60') / 100,
+            font_size_pct:     parseInt(document.getElementById('hookFontSize')?.value || '100'),
+            start_seconds:     parseFloat(document.getElementById('hookStartSec')?.value || '1'),
+            duration_seconds:  parseFloat(document.getElementById('hookDurationSec')?.value || '4'),
+            vertical_position: parseInt(document.getElementById('hookPosition')?.value || '10'),
+          };
+        }
+      }
+
+      pollController = new AbortController();
+      const spawnResp = await fetch(burnUrl.toString(), {
+        method: 'POST',
+        body: JSON.stringify({ captions: edited, broll: allBroll, ...(hookPayload ? { hook: hookPayload } : {}) }),
+        headers: { 'Content-Type': 'application/json' },
+        signal: pollController.signal,
+      });
+      if (!spawnResp.ok) throw new Error(`Burn spawn failed: ${spawnResp.status}`);
+      const { call_id } = await spawnResp.json();
+
+      // Poll until burn is done → returns {output_key}
+      currentCallId = call_id;
+      const outFilename = fname.replace(/\.[^/.]+$/, '') + '_edited.mp4';
+      saveJob('burn', call_id, { outputFilename: outFilename });
+      const burnResult = await pollForJSON(`${API_BASE}/burn_poll/${call_id}/`, 600_000, call_id);
+      clearInterval(elapsedTimer);
+      clearSavedJob();
+
+      // Switch button to download phase
+      clearInterval(burnBtnTimer);
+      let dlSecs = 0;
+      runBtn.textContent = `⏳ Downloading… 0:00`;
+      burnBtnTimer = setInterval(() => {
+        runBtn.textContent = `⏳ Downloading… ${formatTime(++dlSecs)}`;
+      }, 1000);
+
+      // Download final video from volume — 10-minute hard timeout covers both headers AND body
+      const dlAbort  = new AbortController();
+      const dlKillId = setTimeout(() => dlAbort.abort(), 10 * 60 * 1000);
+      try {
+        const dlResp = await fetch(
+          `${API_BASE}/download/${burnResult.output_key}/?filename=${encodeURIComponent(outFilename)}`,
+          { signal: dlAbort.signal }
+        );
+        if (!dlResp.ok) throw new Error(`Download failed (${dlResp.status})`);
+        resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
+      } finally {
+        clearTimeout(dlKillId);
+      }
+      resultName = outFilename;
+      triggerDownload();
+      const successBanner = document.getElementById('burnSuccessBanner');
+      const successTime   = document.getElementById('burnSuccessTime');
+      if (runStartTime) {
+        const totalSec = Math.round((Date.now() - runStartTime) / 1000);
+        successTime.textContent = `Total time: ${formatTime(totalSec)}`;
+      }
+      successBanner.style.display = 'flex';
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      // Re-enable editors for another round of changes on the same video
+      editorIds.forEach(id => document.getElementById(id).classList.remove('burning'));
+      [{ h: captionHeader, b: captionBody }, { h: brollHeader, b: brollBody }, { h: sbHeader, b: sbBody }]
+        .forEach(({ h, b }) => {
+          if (h) { h.classList.remove('collapsed'); if (b) b.style.display = 'block'; }
+        });
+    } catch (err) {
+      clearInterval(elapsedTimer);
+      clearSavedJob();
+      if (err.name !== 'AbortError') {
+        console.error('Burn error:', err.message);
+        editorIds.forEach(id => document.getElementById(id).classList.remove('burning'));
+        // Expand editors back so user can retry
+        [{ h: captionHeader, b: captionBody }, { h: brollHeader, b: brollBody }, { h: sbHeader, b: sbBody }]
+          .forEach(({ h, b }) => {
+            if (h) { h.classList.remove('collapsed'); if (b) b.style.display = 'block'; }
+          });
+        burnErrorEl.textContent = err.message.length > 200 ? err.message.slice(0, 200) + '…' : err.message;
+        burnErrorEl.style.display = 'block';
+      }
+    } finally {
+      clearInterval(burnBtnTimer);
+      runBtn.disabled = false;
+      updateBurnBtn();
+    }
+  }
+</script>
+
+<!-- ── Debug log panel ── -->
+<div id="debugPanel">
+  <div id="debugBar" onclick="document.getElementById('debugPanel').classList.toggle('open')">
+    <span id="debugLabel">▸ log</span>
+    <button id="debugCopy" onclick="event.stopPropagation(); copyDebugLog()">copy</button>
+  </div>
+  <div id="debugBody">
+    <div id="debugLines"></div>
+  </div>
+</div>
+
+<style>
+  #debugPanel {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    font-family: monospace;
+    font-size: 11px;
+    z-index: 9999;
+    background: rgba(15,10,30,0.92);
+    color: #a0f0a0;
+    max-height: 32px;
+    overflow: hidden;
+    transition: max-height 0.25s ease;
+    backdrop-filter: blur(4px);
+  }
+  #debugPanel.open { max-height: 40vh; }
+  #debugBar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    cursor: pointer;
+    user-select: none;
+    border-top: 1px solid rgba(255,255,255,0.08);
+  }
+  #debugLabel { color: #7c7c9c; font-size: 10px; letter-spacing: 0.05em; }
+  #debugCopy {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #aaa;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: monospace;
+  }
+  #debugCopy:hover { background: rgba(255,255,255,0.15); color: #fff; }
+  #debugBody {
+    overflow-y: auto;
+    max-height: calc(40vh - 32px);
+    padding: 4px 12px 8px;
+  }
+  .dl { padding: 1px 0; white-space: pre-wrap; word-break: break-all; }
+  .dl.err { color: #ff8080; }
+  .dl.warn { color: #ffd080; }
+  .dl.info { color: #80d0ff; }
+</style>
+
+<script>
+(function () {
+  const lines = [];
+  const el = () => document.getElementById('debugLines');
+  const lbl = () => document.getElementById('debugLabel');
+
+  function stamp() {
+    const d = new Date();
+    return d.toTimeString().slice(0,8) + '.' + String(d.getMilliseconds()).padStart(3,'0');
+  }
+
+  function push(cls, args) {
+    const text = args.map(a => {
+      if (typeof a === 'string') return a;
+      try { return JSON.stringify(a, null, 0); } catch { return String(a); }
+    }).join(' ');
+    const entry = `[${stamp()}] ${text}`;
+    lines.push({ cls, entry });
+    const row = document.createElement('div');
+    row.className = 'dl ' + cls;
+    row.textContent = entry;
+    const container = el();
+    if (container) {
+      container.appendChild(row);
+      container.scrollTop = container.scrollHeight;
+    }
+    const label = lbl();
+    if (label && cls === 'err') label.textContent = '▸ log ⚠';
+  }
+
+  const _log   = console.log.bind(console);
+  const _warn  = console.warn.bind(console);
+  const _error = console.error.bind(console);
+  const _info  = console.info.bind(console);
+
+  console.log   = (...a) => { _log(...a);   push('',     a); };
+  console.warn  = (...a) => { _warn(...a);  push('warn', a); };
+  console.error = (...a) => { _error(...a); push('err',  a); };
+  console.info  = (...a) => { _info(...a);  push('info', a); };
+
+  window.addEventListener('error', e => {
+    push('err', [`Uncaught: ${e.message} (${e.filename}:${e.lineno})`]);
+  });
+  window.addEventListener('unhandledrejection', e => {
+    push('err', [`UnhandledRejection: ${e.reason}`]);
+  });
+
+  window.copyDebugLog = function () {
+    const text = lines.map(l => l.entry).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.getElementById('debugCopy');
+      if (btn) { btn.textContent = 'copied!'; setTimeout(() => btn.textContent = 'copy', 1500); }
+    });
+  };
+
+  // Log page load + UA for mobile context
+  push('info', [`Page loaded — ${navigator.userAgent}`]);
+})();
+</script>
+</body>
+</html>
