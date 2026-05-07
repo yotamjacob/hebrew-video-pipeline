@@ -1133,7 +1133,7 @@
       <div class="preview-row">
         <div class="preview-wrapper">
           <canvas id="previewCanvas"></canvas>
-          <div class="preview-caption" id="previewCaption" dir="rtl"></div>
+          <div class="preview-caption" id="previewCaption" dir="rtl" style="display:none"></div>
         </div>
         <div class="preview-sliders-col">
           <div class="pos-track" id="posTrack">
@@ -1397,6 +1397,7 @@
   let captionFont      = 'Heebo';
   let captionMarginPct = 0.08;
   let captionFontSize  = 48;
+  let previewFrameData = null;
   let burnMode        = false;
   let pendingAnalyses        = 0;
   let stockBrollAnalyzed     = false;
@@ -2116,9 +2117,10 @@
     captionsData = [];
     videoKey    = null;
     cutFilename = '';
-    captionFont = 'Heebo';
+    captionFont      = 'Heebo';
     captionMarginPct = 0.08;
     captionFontSize  = 48;
+    previewFrameData = null;
     const fs = document.getElementById('fontSelect');
     if (fs) fs.value = 'Heebo';
   }
@@ -2195,31 +2197,91 @@
     vid.muted = true;
     vid.preload = 'auto';
     vid.src = URL.createObjectURL(selectedFile);
-    // Add seeked listener inside loadeddata to prevent early seeked (t=0) consuming it
     vid.addEventListener('loadeddata', () => {
       vid.addEventListener('seeked', () => {
         const ctx = canvas.getContext('2d');
-        canvas.width  = vid.videoWidth  || 640;
-        canvas.height = vid.videoHeight || 360;
+        canvas.width  = vid.videoWidth  || 1080;
+        canvas.height = vid.videoHeight || 1920;
         ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+        previewFrameData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         URL.revokeObjectURL(vid.src);
+        updatePreviewCaption();
       }, { once: true });
       vid.currentTime = 1;
     }, { once: true });
   }
 
   function updatePreviewCaption() {
-    const el = document.getElementById('previewCaption');
-    if (!el) return;
-    const inputs = document.querySelectorAll('#captionsList .caption-input');
-    let longestText = '';
-    inputs.forEach(inp => { if (inp.value.length > longestText.length) longestText = inp.value; });
-    el.textContent = longestText || 'כתובית לדוגמה';
-    el.style.fontFamily = `'${captionFont}', sans-serif`;
-    el.style.bottom = (captionMarginPct * 100) + '%';
     const canvas = document.getElementById('previewCanvas');
-    const cw = canvas ? (canvas.clientWidth || 124) : 124;
-    el.style.fontSize = Math.max(8, Math.round(captionFontSize * cw / 480)) + 'px';
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width  || 1080;
+    const H = canvas.height || 1920;
+
+    // Restore video frame (or black background)
+    if (previewFrameData && previewFrameData.width === W && previewFrameData.height === H) {
+      ctx.putImageData(previewFrameData, 0, 0);
+    } else {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    // Pick caption text: focused input first, else longest
+    const inputs = document.querySelectorAll('#captionsList .caption-input');
+    let text = '';
+    const focused = document.activeElement;
+    if (focused && focused.classList.contains('caption-input')) {
+      text = focused.value;
+    } else {
+      inputs.forEach(inp => { if (inp.value.length > text.length) text = inp.value; });
+    }
+    if (!text) text = 'כתובית לדוגמה';
+
+    // Layout — identical math to burn_captions_fn
+    const margin_h = Math.max(25, Math.round(W / 14));
+    const margin_v = Math.round(H * captionMarginPct);
+    const fontSize = captionFontSize;
+    const maxW     = W - 2 * margin_h;
+
+    ctx.save();
+    ctx.font      = `bold ${fontSize}px '${captionFont}', sans-serif`;
+    ctx.direction = 'rtl';
+
+    // Word-wrap: honour explicit \N breaks, then wrap each segment by pixel width
+    const allLines = [];
+    for (const segment of text.split(/\\N/)) {
+      const words = segment.trim().split(/\s+/).filter(Boolean);
+      let cur = '';
+      for (const word of words) {
+        const test = cur ? cur + ' ' + word : word;
+        if (ctx.measureText(test).width > maxW && cur) {
+          allLines.push(cur);
+          cur = word;
+        } else {
+          cur = test;
+        }
+      }
+      if (cur) allLines.push(cur);
+    }
+    if (!allLines.length) allLines.push(text);
+
+    const lineH    = fontSize * 1.35;
+    const bottomY  = H - margin_v;
+
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'alphabetic';
+
+    allLines.forEach((line, i) => {
+      const y = bottomY - (allLines.length - 1 - i) * lineH;
+      ctx.lineWidth  = Math.max(3, fontSize * 0.12);
+      ctx.lineJoin   = 'round';
+      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.strokeText(line, W / 2, y);
+      ctx.fillStyle  = '#ffffff';
+      ctx.fillText(line, W / 2, y);
+    });
+
+    ctx.restore();
   }
 
   function initPositionTrack() {

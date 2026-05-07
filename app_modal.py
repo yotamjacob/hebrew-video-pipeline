@@ -350,6 +350,15 @@ def process_video(
             audio_t = audio_t.mean(0, keepdim=True)  # force mono
 
         enhanced = enhance(model, df_state, audio_t)
+
+        # DeepFilterNet attenuates the signal alongside the noise; restore
+        # peak level to match the original so the output isn't too quiet.
+        orig_peak = audio_t.abs().max().item()
+        enh_peak  = enhanced.abs().max().item()
+        if enh_peak > 1e-6:
+            target = min(max(orig_peak, 0.25), 0.95)  # at least -12 dBFS, headroom at -0.4 dBFS
+            enhanced = enhanced * (target / enh_peak)
+
         sf.write(str(out_wav), enhanced.numpy().T, df_state.sr())
         model_volume.commit()
 
