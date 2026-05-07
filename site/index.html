@@ -879,7 +879,8 @@
       position: absolute; left: 50%; transform: translateX(-50%);
       max-width: 86%; color: #fff; font-weight: 700; text-align: center;
       white-space: pre-wrap; word-break: break-word; pointer-events: none; line-height: 1.35;
-      text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 8px rgba(0,0,0,0.7);
+      text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000,
+                   -2px 0 0 #000, 2px 0 0 #000, 0 -2px 0 #000, 0 2px 0 #000;
     }
     #playerBigPlay {
       position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -894,12 +895,23 @@
       color: var(--purple-700); font-size: 1rem; padding: 2px 4px; flex-shrink: 0;
     }
     .player-prog-wrap {
-      flex: 1; height: 5px; background: var(--purple-100);
-      border-radius: 3px; cursor: pointer; position: relative;
+      flex: 1; height: 20px; cursor: pointer; position: relative;
+      display: flex; align-items: center;
+    }
+    .player-prog-track {
+      position: absolute; left: 0; right: 0; height: 5px;
+      background: var(--purple-100); border-radius: 3px; overflow: hidden;
     }
     .player-prog-fill {
       height: 100%; background: var(--purple-500);
-      border-radius: 3px; width: 0%; pointer-events: none; transition: width 0.1s linear;
+      border-radius: 3px; width: 0%; pointer-events: none;
+    }
+    .player-prog-thumb {
+      position: absolute; width: 12px; height: 12px;
+      background: var(--purple-600); border-radius: 50%;
+      top: 50%; transform: translate(-50%, -50%);
+      pointer-events: none; left: 0%;
+      box-shadow: 0 1px 3px rgba(0,0,0,.3);
     }
     .player-time-lbl {
       font-size: 0.7rem; color: var(--muted); white-space: nowrap;
@@ -1206,7 +1218,10 @@
         <div class="player-controls">
           <button id="playerPlayBtn" class="player-btn" title="Play / Pause">▶</button>
           <div class="player-prog-wrap" id="playerProgWrap">
-            <div id="playerProgFill" class="player-prog-fill"></div>
+            <div class="player-prog-track">
+              <div id="playerProgFill" class="player-prog-fill"></div>
+            </div>
+            <div id="playerProgThumb" class="player-prog-thumb"></div>
           </div>
           <span id="playerTimeLbl" class="player-time-lbl">0:00 / 0:00</span>
         </div>
@@ -1316,6 +1331,16 @@
             <input type="range" id="hookBgOpacity" min="0" max="100" value="60"
               oninput="document.getElementById('hookBgOpacityVal').textContent=this.value+'%'" style="width:100%;margin-top:4px">
           </label>
+          <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+            Border color
+            <input type="color" id="hookBorderColor" value="#000000"
+              style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
+          </label>
+          <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+            Border size: <span id="hookBorderSizeVal">0px</span>
+            <input type="range" id="hookBorderSize" min="0" max="12" value="0" step="1"
+              oninput="document.getElementById('hookBorderSizeVal').textContent=this.value+'px'" style="width:100%;margin-top:4px">
+          </label>
           <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px;grid-column:1/-1">
             Text size: <span id="hookFontSizeVal">100%</span>
             <input type="range" id="hookFontSize" min="50" max="200" value="100" step="5"
@@ -1342,6 +1367,12 @@
             <span style="font-size:0.75rem;color:var(--muted)">Bottom</span>
           </div>
         </label>
+        <div style="display:flex;gap:8px;align-items:center;justify-content:center;margin-bottom:12px">
+          <button onclick="openHookTemplateModal()"
+            style="padding:6px 14px;border-radius:9px;border:1.5px solid var(--purple-300);background:var(--purple-50);color:var(--purple-700);font-size:0.8rem;font-weight:600;cursor:pointer">
+            💾 Save / Load Template
+          </button>
+        </div>
         <p style="font-size:0.78rem;color:var(--purple-500);text-align:center;margin:4px 0 0">Hook will be included when you burn the video below.</p>
       </div>
     </div>
@@ -1369,6 +1400,31 @@
     <div class="modal-actions">
       <button class="modal-cancel-btn" id="confirmCancel">Cancel</button>
       <button class="modal-ok-btn" id="confirmOk">Burn &amp; Download</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Hook template modal ── -->
+<div id="hookTemplateOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeHookTemplateModal()">
+  <div class="modal-dialog" style="max-width:400px;width:100%">
+    <p class="modal-dialog-title" style="margin-bottom:16px">Hook Design Templates</p>
+
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <input id="hookTemplateName" type="text" placeholder="Template name…"
+        style="flex:1;padding:8px 12px;border-radius:9px;border:1.5px solid var(--purple-200);font-size:0.85rem;outline:none"
+        onkeydown="if(event.key==='Enter')saveHookTemplate()">
+      <button onclick="saveHookTemplate()"
+        style="padding:8px 14px;border-radius:9px;border:none;background:var(--purple-600);color:#fff;font-size:0.82rem;font-weight:700;cursor:pointer;white-space:nowrap">
+        Save
+      </button>
+    </div>
+
+    <div id="hookTemplateList" style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
+      <p style="font-size:0.82rem;color:var(--muted);text-align:center">No saved templates yet.</p>
+    </div>
+
+    <div class="modal-actions" style="justify-content:flex-end">
+      <button class="modal-cancel-btn" onclick="closeHookTemplateModal()">Close</button>
     </div>
   </div>
 </div>
@@ -2294,8 +2350,12 @@
 
     vid.addEventListener('timeupdate', () => {
       const t = vid.currentTime, dur = vid.duration || 0;
-      // Progress bar
-      if (dur > 0) progFill.style.width = (t / dur * 100) + '%';
+      // Progress bar + thumb
+      if (dur > 0 && !scrubbing) {
+        const pct = (t / dur * 100) + '%';
+        progFill.style.width = pct;
+        if (thumb) thumb.style.left = pct;
+      }
       timeLbl.textContent = fmtT(t) + ' / ' + fmtT(dur);
 
       // Caption overlay — same font/position as the preview and the burned video
@@ -2313,16 +2373,30 @@
       document.querySelectorAll('.caption-row').forEach((row, i) => {
         const active = !!captionsData[i] && t >= captionsData[i].start && t <= captionsData[i].end + 0.05;
         row.classList.toggle('caption-row-active', active);
-        if (active) row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        // auto-scroll disabled — user scrolls manually
       });
     });
 
-    // Click progress bar to seek
-    progWrap.addEventListener('click', e => {
+    // Scrub: click or drag progress bar to seek
+    const thumb = document.getElementById('playerProgThumb');
+    function seekToX(clientX) {
       if (!isFinite(vid.duration)) return;
       const r = progWrap.getBoundingClientRect();
-      vid.currentTime = ((e.clientX - r.left) / r.width) * vid.duration;
+      const pct = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+      vid.currentTime = pct * vid.duration;
+      progFill.style.width = (pct * 100) + '%';
+      if (thumb) thumb.style.left = (pct * 100) + '%';
+    }
+    let scrubbing = false;
+    progWrap.addEventListener('mousedown', e => {
+      scrubbing = true;
+      seekToX(e.clientX);
     });
+    document.addEventListener('mousemove', e => { if (scrubbing) seekToX(e.clientX); });
+    document.addEventListener('mouseup',   () => { scrubbing = false; });
+    progWrap.addEventListener('touchstart', e => { scrubbing = true; seekToX(e.touches[0].clientX); }, { passive: true });
+    document.addEventListener('touchmove',  e => { if (scrubbing) seekToX(e.touches[0].clientX); }, { passive: true });
+    document.addEventListener('touchend',   () => { scrubbing = false; });
   }
 
   function initPositionTrack() {
@@ -2672,19 +2746,128 @@
     ctx.font         = `bold ${fontSize}px '${fontName}', 'Heebo', sans-serif`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle    = fontColor;
+
+    const borderSize  = parseInt(document.getElementById('hookBorderSize')?.value || '0');
+    const borderColor = document.getElementById('hookBorderColor')?.value || '#000000';
+
+    if (borderSize > 0) {
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth   = borderSize * 2;
+      ctx.lineJoin    = 'round';
+      lines.forEach((line, i) => {
+        ctx.strokeText(line, W / 2, by + padV + (i + 0.5) * lineH);
+      });
+    }
+
+    ctx.fillStyle = fontColor;
     lines.forEach((line, i) => {
       ctx.fillText(line, W / 2, by + padV + (i + 0.5) * lineH);
     });
   }
 
   function _hookSettingListeners() {
-    ['hookFont','hookFontColor','hookBgColor','hookBgOpacity','hookPosition','hookFontSize'].forEach(id => {
+    ['hookFont','hookFontColor','hookBgColor','hookBgOpacity','hookPosition','hookFontSize','hookBorderColor','hookBorderSize'].forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
       el.addEventListener('input',  drawHookPreview);
       el.addEventListener('change', drawHookPreview); // color pickers fire 'change' on Safari after picker closes
     });
+  }
+
+  // ── Hook design templates (localStorage) ──────────────────────────────────
+  function _getHookTemplates() {
+    try { return JSON.parse(localStorage.getItem('hookTemplates') || '[]'); } catch { return []; }
+  }
+  function _saveHookTemplates(list) {
+    localStorage.setItem('hookTemplates', JSON.stringify(list));
+  }
+  function _currentHookDesign() {
+    return {
+      font:        document.getElementById('hookFont')?.value || 'Heebo',
+      fontColor:   document.getElementById('hookFontColor')?.value || '#FFFFFF',
+      bgColor:     document.getElementById('hookBgColor')?.value || '#000000',
+      bgOpacity:   document.getElementById('hookBgOpacity')?.value || '60',
+      fontSize:    document.getElementById('hookFontSize')?.value || '100',
+      borderColor: document.getElementById('hookBorderColor')?.value || '#000000',
+      borderSize:  document.getElementById('hookBorderSize')?.value || '0',
+      position:    document.getElementById('hookPosition')?.value || '10',
+    };
+  }
+  function _applyHookDesign(d) {
+    const map = {
+      hookFont: d.font, hookFontColor: d.fontColor, hookBgColor: d.bgColor,
+      hookBgOpacity: d.bgOpacity, hookFontSize: d.fontSize,
+      hookBorderColor: d.borderColor, hookBorderSize: d.borderSize,
+      hookPosition: d.position,
+    };
+    for (const [id, val] of Object.entries(map)) {
+      const el = document.getElementById(id);
+      if (el) el.value = val;
+    }
+    const opacityValEl = document.getElementById('hookBgOpacityVal');
+    const sizeValEl    = document.getElementById('hookFontSizeVal');
+    const borderValEl  = document.getElementById('hookBorderSizeVal');
+    if (opacityValEl) opacityValEl.textContent = d.bgOpacity + '%';
+    if (sizeValEl)    sizeValEl.textContent    = d.fontSize + '%';
+    if (borderValEl)  borderValEl.textContent  = d.borderSize + 'px';
+    drawHookPreview();
+  }
+  function _renderTemplateList() {
+    const list = _getHookTemplates();
+    const el   = document.getElementById('hookTemplateList');
+    if (!el) return;
+    if (!list.length) {
+      el.innerHTML = '<p style="font-size:0.82rem;color:var(--muted);text-align:center">No saved templates yet.</p>';
+      return;
+    }
+    el.innerHTML = list.map((t, i) => `
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--purple-100);border-radius:10px;background:var(--purple-50)">
+        <span style="flex:1;font-size:0.85rem;font-weight:600;color:var(--purple-800);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.name}</span>
+        <button data-tidx="${i}" class="hook-tpl-apply"
+          style="padding:4px 10px;border-radius:7px;border:none;background:var(--purple-600);color:#fff;font-size:0.78rem;font-weight:700;cursor:pointer;flex-shrink:0">
+          Apply
+        </button>
+        <button data-tidx="${i}" class="hook-tpl-del"
+          style="padding:4px 8px;border-radius:7px;border:1.5px solid #FECACA;background:#FEF2F2;color:var(--red);font-size:0.78rem;font-weight:700;cursor:pointer;flex-shrink:0">
+          ✕
+        </button>
+      </div>`).join('');
+    el.querySelectorAll('.hook-tpl-apply').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const i = parseInt(btn.dataset.tidx);
+        _applyHookDesign(_getHookTemplates()[i]);
+        closeHookTemplateModal();
+      });
+    });
+    el.querySelectorAll('.hook-tpl-del').forEach(btn => {
+      btn.addEventListener('click', () => _deleteHookTemplate(parseInt(btn.dataset.tidx)));
+    });
+  }
+  function _deleteHookTemplate(idx) {
+    const list = _getHookTemplates();
+    list.splice(idx, 1);
+    _saveHookTemplates(list);
+    _renderTemplateList();
+  }
+  function saveHookTemplate() {
+    const nameEl = document.getElementById('hookTemplateName');
+    const name   = nameEl?.value.trim();
+    if (!name) { nameEl?.focus(); return; }
+    const list = _getHookTemplates();
+    list.unshift({ name, ..._currentHookDesign() });
+    _saveHookTemplates(list);
+    if (nameEl) nameEl.value = '';
+    _renderTemplateList();
+  }
+  function openHookTemplateModal() {
+    _renderTemplateList();
+    const ov = document.getElementById('hookTemplateOverlay');
+    if (ov) ov.style.display = 'flex';
+    setTimeout(() => document.getElementById('hookTemplateName')?.focus(), 50);
+  }
+  function closeHookTemplateModal() {
+    const ov = document.getElementById('hookTemplateOverlay');
+    if (ov) ov.style.display = 'none';
   }
 
   async function triggerGenerateHook() {
@@ -3640,6 +3823,8 @@
             bg_color:          document.getElementById('hookBgColor')?.value || '#000000',
             bg_opacity:        parseInt(document.getElementById('hookBgOpacity')?.value || '60') / 100,
             font_size_pct:     parseInt(document.getElementById('hookFontSize')?.value || '100'),
+            border_color:      document.getElementById('hookBorderColor')?.value || '#000000',
+            border_size:       parseInt(document.getElementById('hookBorderSize')?.value || '0'),
             start_seconds:     parseFloat(document.getElementById('hookStartSec')?.value || '1'),
             duration_seconds:  parseFloat(document.getElementById('hookDurationSec')?.value || '4'),
             vertical_position: parseInt(document.getElementById('hookPosition')?.value || '10'),

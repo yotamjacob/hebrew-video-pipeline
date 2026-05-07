@@ -130,7 +130,7 @@ def _check_rate_limit(ip: str) -> bool:
         return True
 
 def _get_client_ip(scope) -> str:
-    headers = dict(scope.get("headers", []))
+    headers = {bytes(k): bytes(v) for k, v in scope.get("headers", [])}
     xff = headers.get(b"x-forwarded-for", b"")
     if xff:
         return xff.decode().split(",")[0].strip()
@@ -602,12 +602,14 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
         hook_style_line = ""
         hook_event_line = ""
         if hook.get("text"):
-            h_font      = hook.get("font", "Heebo")
-            h_size_pct  = max(50, min(200, int(hook.get("font_size_pct", 100))))
-            h_fsize     = max(24, int(height * 0.075 * h_size_pct / 100))
-            h_primary   = hex_to_ass(hook.get("font_color", "#FFFFFF"), 0)
-            h_bg_alpha  = int((1.0 - max(0.0, min(1.0, float(hook.get("bg_opacity", 0.6))))) * 255)
-            h_back      = hex_to_ass(hook.get("bg_color", "#000000"), h_bg_alpha)
+            h_font         = hook.get("font", "Heebo")
+            h_size_pct     = max(50, min(200, int(hook.get("font_size_pct", 100))))
+            h_fsize        = max(24, int(height * 0.075 * h_size_pct / 100))
+            h_primary      = hex_to_ass(hook.get("font_color", "#FFFFFF"), 0)
+            h_bg_alpha     = int((1.0 - max(0.0, min(1.0, float(hook.get("bg_opacity", 0.6))))) * 255)
+            h_back         = hex_to_ass(hook.get("bg_color", "#000000"), h_bg_alpha)
+            h_border_size  = max(0, min(20, int(hook.get("border_size", 0))))
+            h_border_color = hook.get("border_color", "#000000")
             h_vpos      = max(0, min(100, int(hook.get("vertical_position", 10))))
             h_pad       = h_fsize
             h_y         = int(h_pad + (height - 2 * h_pad) * (h_vpos / 100))
@@ -649,9 +651,16 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
                 f"{h_primary},&H000000FF,{h_back},&HFF000000,"
                 f"-1,0,0,0,100,100,0,0,3,10,0,8,0,0,0,1\n"  # Spacing=0, Alignment=8
             )
+            h_border_override = ""
+            if h_border_size > 0:
+                hbc = h_border_color.lstrip("#")
+                if len(hbc) == 3: hbc = "".join(c * 2 for c in hbc)
+                hr, hg, hb = int(hbc[0:2], 16), int(hbc[2:4], 16), int(hbc[4:6], 16)
+                h_border_override = ("{\\bord" + str(h_border_size)
+                                     + "\\3c&H" + f"{hb:02X}{hg:02X}{hr:02X}" + "&}")
             hook_event_line = (
                 f"Dialogue: 1,{seconds_to_ass(h_start)},{seconds_to_ass(h_start + h_dur)},"
-                f"Hook,,0,0,{h_margin_v},,{h_text}\n"
+                f"Hook,,0,0,{h_margin_v},,{h_border_override}{h_text}\n"
             )
 
         header = (
@@ -1773,9 +1782,9 @@ def analyze_stock_broll(captions_json: str, video_key: str = "") -> list:
     # genre, register, and B-roll style fit. Result grounds all downstream steps.
     video_context = {}
     if video_key:
+        tmp_vol.reload()
         _vpath = _Path(TMP_DIR) / video_key
         if _vpath.exists():
-            tmp_vol.reload()
             video_context = _get_video_context(str(_vpath), transcript, client)
         else:
             print(f"[ctx] video_key={video_key!r} not found in volume — skipping context")
@@ -2474,6 +2483,8 @@ def burn_hook_fn(
     start_seconds: float = 1.0,
     duration_seconds: float = 4.0,
     vertical_position: int = 10,
+    border_color: str = "#000000",
+    border_size: int = 0,
 ) -> dict:
     import json, subprocess, tempfile, shutil
     from pathlib import Path
@@ -2525,7 +2536,14 @@ def burn_hook_fn(
         y   = int(pad + (height - 2 * pad) * (max(0, min(100, vertical_position)) / 100))
 
         safe_text = hook_text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
-        override  = "{\\an5\\pos(" + str(width // 2) + "," + str(y) + ")}"
+        override  = "{\\an5\\pos(" + str(width // 2) + "," + str(y)
+        border_size = max(0, min(20, int(border_size)))
+        if border_size > 0:
+            bc = border_color.lstrip("#")
+            if len(bc) == 3: bc = "".join(c * 2 for c in bc)
+            br, bg_, bb = int(bc[0:2], 16), int(bc[2:4], 16), int(bc[4:6], 16)
+            override += "\\bord" + str(border_size) + "\\3c&H" + f"{bb:02X}{bg_:02X}{br:02X}" + "&"
+        override += "}"
 
         ass_content = (
             "[Script Info]\nScriptType: v4.00+\n"
@@ -3082,6 +3100,8 @@ def api():
                     float(data.get("start_seconds", 1.0)),
                     float(data.get("duration_seconds", 4.0)),
                     int(data.get("vertical_position", 10)),
+                    data.get("border_color", "#000000"),
+                    int(data.get("border_size", 0)),
                 )
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
