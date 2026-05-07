@@ -872,7 +872,7 @@
     .player-outer { margin-bottom: 16px; }
     .player-wrap {
       position: relative; background: #000; border-radius: 10px; overflow: hidden;
-      max-width: min(240px, 72%); aspect-ratio: 9/16; margin: 0 auto; cursor: pointer;
+      width: min(240px, 72%); aspect-ratio: 9/16; flex-shrink: 0; cursor: pointer;
     }
     #cutVideo { width: 100%; height: 100%; display: block; object-fit: contain; }
     #playerCap {
@@ -1169,28 +1169,6 @@
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="captionBody" style="padding-top:16px">
-      <!-- Preview + position track + font size track -->
-      <div class="preview-row">
-        <div class="preview-wrapper">
-          <canvas id="previewCanvas"></canvas>
-          <div class="preview-caption" id="previewCaption" dir="rtl" style="display:none"></div>
-        </div>
-        <div class="preview-sliders-col">
-          <div class="pos-track" id="posTrack">
-            <div class="pos-thumb" id="posThumb"></div>
-          </div>
-          <div class="font-size-track" title="Caption text size in burned video">
-            <span class="fs-lbl" style="font-size:0.82rem">A</span>
-            <input type="range" id="captionFontSizeSlider"
-              min="24" max="80" step="1" value="48"
-              aria-label="Caption text size in burned video"
-              aria-valuemin="24" aria-valuemax="80">
-            <span class="fs-lbl" style="font-size:0.58rem">A</span>
-          </div>
-        </div>
-      </div>
-      <span id="captionFontSizeVal" style="display:none">16px</span>
-
       <!-- Font selector -->
       <div class="caption-controls">
         <label class="ctrl-label" for="fontSelect">Font</label>
@@ -1203,12 +1181,27 @@
         </select>
       </div>
 
-      <!-- Video player for reviewing cut video with live captions -->
+      <!-- Video player with caption size + position sliders alongside -->
       <div id="captionPlayer" class="player-outer" style="display:none">
-        <div class="player-wrap" id="playerWrap">
-          <video id="cutVideo" playsinline preload="metadata"></video>
-          <div id="playerCap" dir="rtl"></div>
-          <div id="playerBigPlay">▶</div>
+        <div class="preview-row">
+          <div class="player-wrap" id="playerWrap">
+            <video id="cutVideo" playsinline preload="metadata"></video>
+            <div id="playerCap" dir="rtl"></div>
+            <div id="playerBigPlay">▶</div>
+          </div>
+          <div class="preview-sliders-col">
+            <div class="pos-track" id="posTrack">
+              <div class="pos-thumb" id="posThumb"></div>
+            </div>
+            <div class="font-size-track" title="Caption text size in burned video">
+              <span class="fs-lbl" style="font-size:0.82rem">A</span>
+              <input type="range" id="captionFontSizeSlider"
+                min="24" max="80" step="1" value="48"
+                aria-label="Caption text size in burned video"
+                aria-valuemin="24" aria-valuemax="80">
+              <span class="fs-lbl" style="font-size:0.58rem">A</span>
+            </div>
+          </div>
         </div>
         <div class="player-controls">
           <button id="playerPlayBtn" class="player-btn" title="Play / Pause">▶</button>
@@ -1453,7 +1446,6 @@
   let captionFont      = 'Heebo';
   let captionMarginPct = 0.08;
   let captionFontSize  = 48;
-  let previewFrameData = null;
   let burnMode        = false;
   let pendingAnalyses        = 0;
   let stockBrollAnalyzed     = false;
@@ -2176,7 +2168,6 @@
     captionFont      = 'Heebo';
     captionMarginPct = 0.08;
     captionFontSize  = 48;
-    previewFrameData = null;
     const _vid = document.getElementById('cutVideo');
     if (_vid) { _vid.pause(); _vid.removeAttribute('src'); _vid.load(); }
     const _cp = document.getElementById('captionPlayer');
@@ -2249,99 +2240,17 @@
   }
 
   // ── Caption preview & positioning ──
-  function renderThumbnail() {
-    if (!selectedFile) return;
-    const canvas = document.getElementById('previewCanvas');
-    if (!canvas) return;
-    const vid = document.createElement('video');
-    vid.muted = true;
-    vid.preload = 'auto';
-    vid.src = URL.createObjectURL(selectedFile);
-    vid.addEventListener('loadeddata', () => {
-      vid.addEventListener('seeked', () => {
-        const ctx = canvas.getContext('2d');
-        canvas.width  = vid.videoWidth  || 1080;
-        canvas.height = vid.videoHeight || 1920;
-        ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
-        previewFrameData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        URL.revokeObjectURL(vid.src);
-        updatePreviewCaption();
-      }, { once: true });
-      vid.currentTime = 1;
-    }, { once: true });
-  }
-
   function updatePreviewCaption() {
-    const canvas = document.getElementById('previewCanvas');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const W = canvas.width  || 1080;
-    const H = canvas.height || 1920;
-
-    // Restore video frame (or black background)
-    if (previewFrameData && previewFrameData.width === W && previewFrameData.height === H) {
-      ctx.putImageData(previewFrameData, 0, 0);
-    } else {
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, W, H);
+    // Called by font/size/position sliders — refreshes player caption overlay immediately
+    const capEl = document.getElementById('playerCap');
+    const vid   = document.getElementById('cutVideo');
+    if (!capEl) return;
+    capEl.style.fontFamily = `'${captionFont}', sans-serif`;
+    capEl.style.bottom     = (captionMarginPct * 100) + '%';
+    if (vid && vid.videoHeight) {
+      const scale = vid.clientHeight / vid.videoHeight;
+      capEl.style.fontSize = Math.max(7, Math.round(captionFontSize * scale)) + 'px';
     }
-
-    // Pick caption text: focused input first, else longest
-    const inputs = document.querySelectorAll('#captionsList .caption-input');
-    let text = '';
-    const focused = document.activeElement;
-    if (focused && focused.classList.contains('caption-input')) {
-      text = focused.value;
-    } else {
-      inputs.forEach(inp => { if (inp.value.length > text.length) text = inp.value; });
-    }
-    if (!text) text = 'כתובית לדוגמה';
-
-    // Layout — identical math to burn_captions_fn
-    const margin_h = Math.max(25, Math.round(W / 14));
-    const margin_v = Math.round(H * captionMarginPct);
-    const fontSize = captionFontSize;
-    const maxW     = W - 2 * margin_h;
-
-    ctx.save();
-    ctx.font      = `bold ${fontSize}px '${captionFont}', sans-serif`;
-    ctx.direction = 'rtl';
-
-    // Word-wrap: honour explicit \N breaks, then wrap each segment by pixel width
-    const allLines = [];
-    for (const segment of text.split(/\\N/)) {
-      const words = segment.trim().split(/\s+/).filter(Boolean);
-      let cur = '';
-      for (const word of words) {
-        const test = cur ? cur + ' ' + word : word;
-        if (ctx.measureText(test).width > maxW && cur) {
-          allLines.push(cur);
-          cur = word;
-        } else {
-          cur = test;
-        }
-      }
-      if (cur) allLines.push(cur);
-    }
-    if (!allLines.length) allLines.push(text);
-
-    const lineH    = fontSize * 1.35;
-    const bottomY  = H - margin_v;
-
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'alphabetic';
-
-    allLines.forEach((line, i) => {
-      const y = bottomY - (allLines.length - 1 - i) * lineH;
-      ctx.lineWidth  = Math.max(3, fontSize * 0.12);
-      ctx.lineJoin   = 'round';
-      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-      ctx.strokeText(line, W / 2, y);
-      ctx.fillStyle  = '#ffffff';
-      ctx.fillText(line, W / 2, y);
-    });
-
-    ctx.restore();
   }
 
   function setupCaptionPlayer() {
@@ -2357,6 +2266,15 @@
     // Set source — video streams from the already-processed cut file on Modal
     vid.src = `${API_BASE}/download/${videoKey}`;
     document.getElementById('captionPlayer').style.display = 'block';
+
+    // Match aspect ratio to the actual video once metadata arrives
+    vid.addEventListener('loadedmetadata', () => {
+      const wrap = document.getElementById('playerWrap');
+      if (wrap && vid.videoWidth && vid.videoHeight) {
+        wrap.style.aspectRatio = `${vid.videoWidth} / ${vid.videoHeight}`;
+        updatePreviewCaption();
+      }
+    }, { once: true });
 
     function fmtT(s) {
       if (!isFinite(s)) return '0:00';
@@ -3651,7 +3569,6 @@
     runBtn.disabled = false;
     runBtn.style.display = 'block';
     updateBurnBtn();
-    renderThumbnail();
     setupCaptionPlayer();
     setTimeout(() => { initPositionTrack(); updatePreviewCaption(); }, 50);
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
