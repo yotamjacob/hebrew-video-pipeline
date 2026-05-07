@@ -868,6 +868,46 @@
       accent-color: var(--purple-600); cursor: pointer;
     }
     .fs-lbl { font-size: 0.68rem; color: var(--purple-500); font-weight: 700; line-height: 1; }
+    /* Caption video player */
+    .player-outer { margin-bottom: 16px; }
+    .player-wrap {
+      position: relative; background: #000; border-radius: 10px; overflow: hidden;
+      max-width: min(240px, 72%); aspect-ratio: 9/16; margin: 0 auto; cursor: pointer;
+    }
+    #cutVideo { width: 100%; height: 100%; display: block; object-fit: contain; }
+    #playerCap {
+      position: absolute; left: 50%; transform: translateX(-50%);
+      max-width: 86%; color: #fff; font-weight: 700; text-align: center;
+      white-space: pre-wrap; word-break: break-word; pointer-events: none; line-height: 1.35;
+      text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 8px rgba(0,0,0,0.7);
+    }
+    #playerBigPlay {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-size: 2.8rem; color: rgba(255,255,255,0.9); pointer-events: none; transition: opacity 0.15s;
+    }
+    .player-controls {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 8px; padding: 0 4px;
+    }
+    .player-btn {
+      background: none; border: none; cursor: pointer;
+      color: var(--purple-700); font-size: 1rem; padding: 2px 4px; flex-shrink: 0;
+    }
+    .player-prog-wrap {
+      flex: 1; height: 5px; background: var(--purple-100);
+      border-radius: 3px; cursor: pointer; position: relative;
+    }
+    .player-prog-fill {
+      height: 100%; background: var(--purple-500);
+      border-radius: 3px; width: 0%; pointer-events: none; transition: width 0.1s linear;
+    }
+    .player-time-lbl {
+      font-size: 0.7rem; color: var(--muted); white-space: nowrap;
+      font-variant-numeric: tabular-nums; flex-shrink: 0;
+    }
+    .caption-row-active { background: var(--purple-50) !important; border-radius: 6px; }
+    .caption-time { cursor: pointer; }
+    .caption-time:hover { color: var(--purple-600); text-decoration: underline dotted; }
     .caption-controls {
       display: flex; align-items: center; gap: 10px; margin-bottom: 4px;
     }
@@ -1161,6 +1201,22 @@
           <option value="Secular One">Secular One</option>
           <option value="Noto Sans Hebrew">Noto Sans Hebrew</option>
         </select>
+      </div>
+
+      <!-- Video player for reviewing cut video with live captions -->
+      <div id="captionPlayer" class="player-outer" style="display:none">
+        <div class="player-wrap" id="playerWrap">
+          <video id="cutVideo" playsinline preload="metadata"></video>
+          <div id="playerCap" dir="rtl"></div>
+          <div id="playerBigPlay">▶</div>
+        </div>
+        <div class="player-controls">
+          <button id="playerPlayBtn" class="player-btn" title="Play / Pause">▶</button>
+          <div class="player-prog-wrap" id="playerProgWrap">
+            <div id="playerProgFill" class="player-prog-fill"></div>
+          </div>
+          <span id="playerTimeLbl" class="player-time-lbl">0:00 / 0:00</span>
+        </div>
       </div>
 
       <p style="font-size:0.78rem;color:var(--muted);margin:10px 0 4px">Edit captions below, then burn.</p>
@@ -2121,6 +2177,10 @@
     captionMarginPct = 0.08;
     captionFontSize  = 48;
     previewFrameData = null;
+    const _vid = document.getElementById('cutVideo');
+    if (_vid) { _vid.pause(); _vid.removeAttribute('src'); _vid.load(); }
+    const _cp = document.getElementById('captionPlayer');
+    if (_cp) _cp.style.display = 'none';
     const fs = document.getElementById('fontSelect');
     if (fs) fs.value = 'Heebo';
   }
@@ -2282,6 +2342,69 @@
     });
 
     ctx.restore();
+  }
+
+  function setupCaptionPlayer() {
+    const vid     = document.getElementById('cutVideo');
+    const capEl   = document.getElementById('playerCap');
+    const bigPlay = document.getElementById('playerBigPlay');
+    const playBtn = document.getElementById('playerPlayBtn');
+    const progFill = document.getElementById('playerProgFill');
+    const progWrap = document.getElementById('playerProgWrap');
+    const timeLbl  = document.getElementById('playerTimeLbl');
+    if (!vid) return;
+
+    // Set source — video streams from the already-processed cut file on Modal
+    vid.src = `${API_BASE}/download/${videoKey}`;
+    document.getElementById('captionPlayer').style.display = 'block';
+
+    function fmtT(s) {
+      if (!isFinite(s)) return '0:00';
+      const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+      return `${m}:${sec.toString().padStart(2, '0')}`;
+    }
+
+    function togglePlay() {
+      if (vid.paused || vid.ended) vid.play(); else vid.pause();
+    }
+
+    vid.addEventListener('click', togglePlay);
+    playBtn.addEventListener('click', togglePlay);
+    vid.addEventListener('play',  () => { bigPlay.style.opacity = '0'; playBtn.textContent = '⏸'; });
+    vid.addEventListener('pause', () => { bigPlay.style.opacity = '1'; playBtn.textContent = '▶'; });
+    vid.addEventListener('ended', () => { bigPlay.style.opacity = '1'; playBtn.textContent = '▶'; });
+
+    vid.addEventListener('timeupdate', () => {
+      const t = vid.currentTime, dur = vid.duration || 0;
+      // Progress bar
+      if (dur > 0) progFill.style.width = (t / dur * 100) + '%';
+      timeLbl.textContent = fmtT(t) + ' / ' + fmtT(dur);
+
+      // Caption overlay — same font/position as the preview and the burned video
+      const cap = captionsData.find(c => t >= c.start && t <= c.end + 0.05);
+      capEl.textContent = cap ? cap.text.replace(/\\N/g, '\n') : '';
+      if (cap) {
+        capEl.style.fontFamily = `'${captionFont}', sans-serif`;
+        capEl.style.bottom     = (captionMarginPct * 100) + '%';
+        // Scale font size proportionally: same ratio as preview canvas
+        const scale = vid.clientHeight / (vid.videoHeight || 1920);
+        capEl.style.fontSize   = Math.max(7, Math.round(captionFontSize * scale)) + 'px';
+      }
+
+      // Highlight active row and auto-scroll it into view in the list
+      document.querySelectorAll('.caption-row').forEach((row, i) => {
+        const active = !!captionsData[i] && t >= captionsData[i].start && t <= captionsData[i].end + 0.05;
+        row.classList.toggle('caption-row-active', active);
+        if (active) row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+    });
+
+    // Click progress bar to seek
+    progWrap.addEventListener('click', e => {
+      if (!isFinite(vid.duration)) return;
+      const r = progWrap.getBoundingClientRect();
+      vid.currentTime = ((e.clientX - r.left) / r.width) * vid.duration;
+    });
   }
 
   function initPositionTrack() {
@@ -3505,6 +3628,16 @@
           document.getElementById('stockBrollRerunBanner').style.display = 'flex';
         }
       });
+      // Click timestamp → seek player to that caption
+      time.title = 'Click to jump to this caption in the player';
+      time.addEventListener('click', () => {
+        const vid = document.getElementById('cutVideo');
+        if (vid && vid.src && isFinite(vid.duration)) {
+          vid.currentTime = cap.start;
+          vid.play();
+          document.getElementById('playerWrap')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      });
       row.appendChild(time);
       row.appendChild(input);
       list.appendChild(row);
@@ -3519,6 +3652,7 @@
     runBtn.style.display = 'block';
     updateBurnBtn();
     renderThumbnail();
+    setupCaptionPlayer();
     setTimeout(() => { initPositionTrack(); updatePreviewCaption(); }, 50);
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
   }
