@@ -2853,21 +2853,50 @@ def api():
                         str(file_path.resolve()) != _base:
                     raise ValueError("Forbidden path")
                 file_size = file_path.stat().st_size
-                await send({"type": "http.response.start", "status": 200,
-                            "headers": CORS + [
-                                (b"content-type",        b"video/mp4"),
-                                (b"content-disposition", f'attachment; filename="{filename}"'.encode()),
-                                (b"content-length",      str(file_size).encode()),
-                            ]})
+
+                # Parse Range header so the browser can seek in the preview player
+                req_hdrs = {k.lower(): v for k, v in scope.get("headers", [])}
+                range_hdr = req_hdrs.get(b"range", b"").decode()
+                start, end, status = 0, file_size - 1, 200
+                if range_hdr.startswith("bytes="):
+                    rng = range_hdr[6:]
+                    if rng.startswith("-"):
+                        start = max(0, file_size - int(rng[1:]))
+                    else:
+                        parts = rng.split("-", 1)
+                        start = int(parts[0])
+                        end   = int(parts[1]) if parts[1] else file_size - 1
+                    end    = min(end, file_size - 1)
+                    status = 206
+
+                content_length = end - start + 1
+                resp_headers = CORS + [
+                    (b"content-type",        b"video/mp4"),
+                    (b"accept-ranges",       b"bytes"),
+                    (b"content-length",      str(content_length).encode()),
+                    (b"content-disposition", f'attachment; filename="{filename}"'.encode()),
+                ]
+                if status == 206:
+                    resp_headers.append(
+                        (b"content-range", f"bytes {start}-{end}/{file_size}".encode())
+                    )
+
+                await send({"type": "http.response.start", "status": status,
+                            "headers": resp_headers})
                 chunk = 512 * 1024
                 with open(file_path, "rb") as f:
-                    while True:
-                        data = f.read(chunk)
+                    f.seek(start)
+                    remaining = content_length
+                    while remaining > 0:
+                        data = f.read(min(chunk, remaining))
                         if not data:
                             break
-                        await send({"type": "http.response.body", "body": data, "more_body": True})
-                await send({"type": "http.response.body", "body": b"", "more_body": False})
-                if key.endswith("_out.mp4"):
+                        remaining -= len(data)
+                        await send({"type": "http.response.body", "body": data,
+                                    "more_body": remaining > 0})
+                if remaining > 0:
+                    await send({"type": "http.response.body", "body": b"", "more_body": False})
+                if key.endswith("_out.mp4") and status != 206:
                     file_path.unlink(missing_ok=True)
                     tmp_vol.commit()
             except Exception as e:
