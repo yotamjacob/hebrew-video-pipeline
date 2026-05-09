@@ -414,7 +414,7 @@ def process_video(
     def generate_ass(segs, path, w, h, font_size=48):
         margin_h = max(25, w // 14)
         margin_v = h // 4
-        max_chars = max(8, int((w - 2 * margin_h) / (font_size * 0.48)))
+        max_chars = max(8, int((w - 2 * margin_h) / (font_size * 0.60)))
 
         def _clean(t):
             return t.strip("،,.-–—!?;:")
@@ -597,6 +597,35 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
         font_size = max(12, min(120, font_size))
         margin_h  = max(25, width  // 14)
         margin_v  = int(margin_v_pct * height)
+
+        # Re-wrap caption text to match the CSS preview's word-wrap behaviour.
+        # The preview uses max-width = (videoWidth - 2*marginH)/videoWidth% with
+        # the browser's actual font metrics; we approximate char width at 0.55×fontSize
+        # (same coefficient as the hook word-wrap). This runs AFTER font_size is clamped
+        # and margin_h is computed, so it reflects the user's current slider settings.
+        def _rewrap_cap(text: str) -> str:
+            words = text.replace(r"\N", " ").split()
+            if not words:
+                return text
+            avail = width - 2 * margin_h
+            char_w = font_size * 0.60
+            lines: list[str] = []
+            cur: list[str] = []
+            cur_w = 0.0
+            for word in words:
+                ww = len(word) * char_w
+                gap = char_w if cur else 0.0
+                if cur and cur_w + gap + ww > avail:
+                    lines.append(" ".join(cur))
+                    cur, cur_w = [word], ww
+                else:
+                    cur.append(word)
+                    cur_w += gap + ww
+            if cur:
+                lines.append(" ".join(cur))
+            return r"\N".join(lines) if lines else text
+
+        captions = [{"start": c["start"], "end": c["end"], "text": _rewrap_cap(c["text"])} for c in captions]
 
         # Build hook style + event if a hook was selected
         hook_style_line = ""

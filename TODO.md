@@ -53,6 +53,4 @@
 
 
 add forbiden words filter to avoid instagram shadow banning the video
-captions preview must be 1:1 to what it will be in the video - currently the cpations appear longer than the screen width
-is it possible to view the whole video and it's subtitles, to make the captions edit better
-noise cleaning makes the volume too low
+add capability to add cupations and split existing caption into separate lines in the caption editor

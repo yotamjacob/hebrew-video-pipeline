@@ -264,3 +264,131 @@ class TestMarginHFormula:
         assert "max(25, width  // 14)" in snippet or "max(25, width // 14)" in snippet, (
             "margin_h formula must be max(25, width // 14)"
         )
+
+
+# ─── Caption word-wrap (rewrap) parity ───────────────────────────────────────
+
+def _rewrap(text: str, video_w: int, video_h: int, font_size: int) -> str:
+    """Mirror of the _rewrap_cap closure in burn_captions_fn."""
+    margin_h = max(25, video_w // 14)
+    avail    = video_w - 2 * margin_h
+    char_w   = font_size * 0.60
+    words    = text.replace(r"\N", " ").split()
+    if not words:
+        return text
+    lines: list[str] = []
+    cur: list[str]   = []
+    cur_w = 0.0
+    for word in words:
+        ww  = len(word) * char_w
+        gap = char_w if cur else 0.0
+        if cur and cur_w + gap + ww > avail:
+            lines.append(" ".join(cur))
+            cur, cur_w = [word], ww
+        else:
+            cur.append(word)
+            cur_w += gap + ww
+    if cur:
+        lines.append(" ".join(cur))
+    return r"\N".join(lines) if lines else text
+
+
+def _css_approx_lines(text: str, video_w: int, video_h: int, font_size: int,
+                      client_h: int) -> int:
+    """Estimate the number of CSS lines the preview would show.
+
+    Uses the same 0.60 coefficient so the comparison is apples-to-apples.
+    """
+    margin_h   = max(25, video_w // 14)
+    avail_pct  = (video_w - 2 * margin_h) / video_w  # e.g. 0.857
+    client_w   = round(client_h * video_w / video_h)  # player display width
+    avail_px   = client_w * avail_pct
+    scale      = client_h / video_h
+    fs_css     = max(7, round(font_size * scale))
+    char_w_css = fs_css * 0.60
+    words      = text.replace(r"\N", " ").split()
+    if not words:
+        return 0
+    lines = cur = 0
+    cur_w = 0.0
+    for word in words:
+        ww  = len(word) * char_w_css
+        gap = char_w_css if cur else 0.0
+        if cur and cur_w + gap + ww > avail_px:
+            lines += 1
+            cur = 0
+            cur_w = ww
+        else:
+            cur_w += gap + ww
+        cur += 1
+    return lines + (1 if cur else 0)
+
+
+class TestCaptionRewrap:
+    # The burned video must show the same number of lines as the CSS preview.
+    # Strategy: count literal-backslash-N breaks that _rewrap inserts and
+    # compare to the CSS-based line-count estimate (both use 0.60 coefficient).
+
+    PORTRAIT_W, PORTRAIT_H = 1080, 1920
+    LANDSCAPE_W, LANDSCAPE_H = 1920, 1080
+    CLIENT_H = 427  # typical player height for portrait video
+
+    def _burn_lines(self, text, w, h, fs) -> int:
+        return _rewrap(text, w, h, fs).count(r"\N") + 1
+
+    def _preview_lines(self, text, w, h, fs) -> int:
+        return _css_approx_lines(text, w, h, fs, self.CLIENT_H)
+
+    # ── portrait video cases ──────────────────────────────────────────────────
+
+    def test_short_caption_single_line_portrait(self):
+        text = "שלום"
+        assert self._burn_lines(text, self.PORTRAIT_W, self.PORTRAIT_H, 48) == 1
+
+    def test_long_caption_wraps_portrait_fs48(self):
+        text = "בדיוק שבת עוד לא יצא אז אני"
+        burn = self._burn_lines(text, self.PORTRAIT_W, self.PORTRAIT_H, 48)
+        prev = self._preview_lines(text, self.PORTRAIT_W, self.PORTRAIT_H, 48)
+        assert burn == prev, f"burn={burn} preview={prev}"
+
+    def test_long_caption_wraps_portrait_fs80(self):
+        text = "בדיוק שבת עוד לא יצא אז אני"
+        burn = self._burn_lines(text, self.PORTRAIT_W, self.PORTRAIT_H, 80)
+        prev = self._preview_lines(text, self.PORTRAIT_W, self.PORTRAIT_H, 80)
+        assert burn == prev, f"burn={burn} preview={prev}"
+
+    def test_existing_N_stripped_and_rewrapped(self):
+        # Text already has \N from a previous process_video pass with different font_size.
+        # burn must strip it and re-wrap at the CURRENT font_size.
+        old_wrapped = r"בדיוק שבת\Nעוד לא\Nיצא אז אני"
+        bare        = "בדיוק שבת עוד לא יצא אז אני"
+        fs = 60
+        assert (_rewrap(old_wrapped, self.PORTRAIT_W, self.PORTRAIT_H, fs) ==
+                _rewrap(bare,        self.PORTRAIT_W, self.PORTRAIT_H, fs)), (
+            "Existing \\N in text must be stripped before re-wrapping"
+        )
+
+    # ── landscape video cases ─────────────────────────────────────────────────
+
+    def test_long_caption_landscape_fs48(self):
+        text = "בדיוק שבת עוד לא יצא אז אני"
+        burn = self._burn_lines(text, self.LANDSCAPE_W, self.LANDSCAPE_H, 48)
+        prev = _css_approx_lines(text, self.LANDSCAPE_W, self.LANDSCAPE_H, 48,
+                                 round(self.CLIENT_H * self.LANDSCAPE_W / self.LANDSCAPE_H))
+        assert burn == prev, f"burn={burn} preview={prev}"
+
+    # ── coefficient consistency with source ───────────────────────────────────
+
+    def test_source_uses_055_coefficient(self):
+        snippet = _extract_snippet(MODAL_SRC, "burn_captions_fn")
+        assert "0.60" in snippet, (
+            "_rewrap_cap in burn_captions_fn must use 0.60 char-width coefficient "
+            "to match the hook word-wrap and the CSS preview approximation"
+        )
+
+    def test_generate_ass_uses_055_coefficient(self):
+        snippet = _extract_snippet(MODAL_SRC, "process_video")
+        assert "0.60" in snippet, (
+            "generate_ass max_chars must also use 0.60 so initial captions "
+            "already have consistent \\N positions before the burn re-wraps"
+        )

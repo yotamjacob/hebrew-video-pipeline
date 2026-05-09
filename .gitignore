@@ -30,3 +30,9 @@ models/
 node_modules/
 playwright-report/
 test-results/
+
+# Local test videos and diagnostic outputs
+input_vids/
+test_broll_output/
+.diag_captions_cache.json
+.vercel
