@@ -702,8 +702,8 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
             "Alignment, MarginL, MarginR, MarginV, Encoding\n"
             f"Style: Default,{font},{font_size},"
-            "&H00FFFFFF,&H000000FF,&H00000000,&HFF000000,"
-            f"-1,0,0,0,100,100,0,0,1,3,0,2,"
+            "&H00FFFFFF,&H000000FF,&H00000000,&H80000000,"
+            f"-1,0,0,0,100,100,0,0,1,0,2,2,"
             f"{margin_h},{margin_h},{margin_v},1\n"
             + hook_style_line +
             "\n[Events]\n"
