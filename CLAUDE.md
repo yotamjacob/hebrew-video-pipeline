@@ -47,11 +47,11 @@ python hebrew_video_pipeline.py input.mp4 --enhance elevenlabs --api-key sk_xxx
 python hebrew_video_pipeline.py input.mp4 --font Heebo --font-size 72 --keep-tmp
 
 # Modal (GPU cloud)
-modal deploy app_modal.py      # production
-modal serve  app_modal.py      # live dev
+source .venv/bin/activate && modal deploy app_modal.py   # production
+modal serve app_modal.py                                  # live dev
 
-# Website (Vercel)
-cd site && vercel --prod        # deploy — always run this after any site/ change
+# Website (Vercel) — deploy from project root, NOT from site/
+npx vercel deploy --prod
 ```
 
 ## Non-Obvious Details
@@ -61,6 +61,14 @@ cd site && vercel --prod        # deploy — always run this after any site/ cha
 **CUDA fallback** — `transcribe()` tries float16 on CUDA first; auto-downgrades to int8 on CPU. No manual config needed.
 
 **ASS color format** — `&HAABBGGRR&` (reversed RGB, alpha first). Alpha `00` = opaque, `FF` = transparent.
+
+**Burned caption ASS style (in `burn_captions_fn`)** — current values as of 2026-05-09:
+- `BorderStyle=1, Outline=2, Shadow=6, Alignment=2` (bottom-center)
+- `char_w = font_size * 0.60` for Python re-wrap — Hebrew Heebo/Rubik glyphs average ~60% of em-square. Using 0.50 caused under-wrapping; libass added unexpected extra line-breaks via smart-wrap, making captions appear taller/higher than intended.
+- `Shadow=2` is sub-pixel-tiny at typical video resolution — always use at least `Shadow=6` for visibility.
+- Export font size = `round(sliderFontSize * 1.10)` (captions) — set in `site/index.html` burnUrl.
+
+**Hook ASS rendering** — `BorderStyle=3` (opaque box) draws **one box per hard line-break (`\N`)**. To get a single unified background rectangle, use `{\q1}` soft-wrap in the event text (no `\N`), and set `MarginL=MarginR=h_fsize_base` in the event line so libass constrains wrap width. Hook export font size = `h_fsize_base * 1.30` (set in `burn_captions_fn`).
 
 **Caption timestamp remapping** — ASS cues are generated assuming the full uncut timeline, then shifted by the accumulated duration of preceding cut-out segments. This must stay in sync with the ffmpeg trim list.
 
@@ -87,7 +95,7 @@ cd site && vercel --prod        # deploy — always run this after any site/ cha
 Defined at the top of `app_modal.py` — change and redeploy, no other edits needed:
 
 ```python
-SONNET_MODEL = "claude-sonnet-4-5"          # moment selection (analyze_stock_broll)
+SONNET_MODEL = "claude-sonnet-4-6"           # moment selection (analyze_stock_broll)
 HAIKU_MODEL  = "claude-haiku-4-5-20251001"   # clip scoring (_score_clips)
 OPUS_MODEL   = "claude-opus-4-7"             # Veo B-roll analysis (rarely used)
 
