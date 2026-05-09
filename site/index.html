@@ -845,9 +845,15 @@
     .preview-sliders-col {
       display: flex; flex-direction: column; gap: 8px; align-items: center; flex-shrink: 0;
     }
+    .pos-col {
+      display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1;
+    }
+    .pos-lbl {
+      font-size: 0.6rem; color: var(--purple-400); line-height: 1; user-select: none;
+    }
     .pos-track {
       width: 18px; border-radius: 9px; background: var(--purple-100);
-      position: relative; cursor: pointer; flex: 1;
+      position: relative; cursor: pointer; flex: 1; width: 100%;
     }
     .pos-thumb {
       width: 18px; height: 18px; border-radius: 50%;
@@ -1201,8 +1207,12 @@
             <div id="playerBigPlay">▶</div>
           </div>
           <div class="preview-sliders-col">
-            <div class="pos-track" id="posTrack">
-              <div class="pos-thumb" id="posThumb"></div>
+            <div class="pos-col">
+              <span class="pos-lbl">▲</span>
+              <div class="pos-track" id="posTrack">
+                <div class="pos-thumb" id="posThumb"></div>
+              </div>
+              <span class="pos-lbl">▼</span>
             </div>
             <div class="font-size-track" title="Caption text size in burned video">
               <span class="fs-lbl" style="font-size:0.82rem">A</span>
@@ -2440,7 +2450,7 @@
       const clamped = Math.max(MIN_PCT, Math.min(MAX_PCT, pct));
       captionMarginPct = clamped;
       const ratio = 1 - (clamped - MIN_PCT) / (MAX_PCT - MIN_PCT);
-      thumb.style.top = (ratio * track.clientHeight) + 'px';
+      thumb.style.top = (ratio * 100) + '%';
       updatePreviewCaption();
     }
 
