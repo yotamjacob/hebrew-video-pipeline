@@ -671,7 +671,7 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
                 for ln in (hook_lines or [hook["text"]])
             )
             n_hook_lines = len(hook_lines) if hook_lines else 1
-            block_h      = int(n_hook_lines * h_fsize * 1.35)
+            block_h      = int(n_hook_lines * h_fsize * 1.10)
             h_margin_v   = max(0, h_y - block_h // 2)
             hook_style_line = (
                 f"Style: Hook,{h_font},{h_fsize},"

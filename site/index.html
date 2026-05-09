@@ -2749,7 +2749,7 @@
     const maxW    = W - 2 * edgePad;          // max text width
     const padH    = Math.round(fontSize * 0.55); // horizontal box padding
     const padV    = Math.round(fontSize * 0.35); // vertical box padding
-    const lineH   = Math.round(fontSize * 1.35); // line height
+    const lineH   = Math.round(fontSize * 1.10); // line height — matches ASS renderer (~1.0–1.1×)
 
     // Word-wrap text into lines that fit within maxW
     const words = text.split(' ').filter(Boolean);
@@ -2772,19 +2772,11 @@
     const bx   = W / 2 - boxW / 2;
     const by   = centerY - boxH / 2;
 
-    // Background box (rounded)
+    // Background box (square — matches ASS BorderStyle=3 which has no rounded corners)
     ctx.save();
     ctx.globalAlpha = bgOpacity;
     ctx.fillStyle   = bgColor;
-    const r = 6;
-    ctx.beginPath();
-    ctx.moveTo(bx + r, by);
-    ctx.lineTo(bx + boxW - r, by); ctx.arcTo(bx + boxW, by, bx + boxW, by + r, r);
-    ctx.lineTo(bx + boxW, by + boxH - r); ctx.arcTo(bx + boxW, by + boxH, bx + boxW - r, by + boxH, r);
-    ctx.lineTo(bx + r, by + boxH); ctx.arcTo(bx, by + boxH, bx, by + boxH - r, r);
-    ctx.lineTo(bx, by + r); ctx.arcTo(bx, by, bx + r, by, r);
-    ctx.closePath();
-    ctx.fill();
+    ctx.fillRect(bx, by, boxW, boxH);
     ctx.restore();
 
     // Draw each wrapped line — re-assert all text props after restore
@@ -3828,7 +3820,7 @@
     burnUrl.searchParams.set('filename',   fname);
     burnUrl.searchParams.set('font',       captionFont);
     burnUrl.searchParams.set('margin_v',   captionMarginPct.toFixed(4));
-    burnUrl.searchParams.set('font_size',  Math.round(captionFontSize * 1.10));
+    burnUrl.searchParams.set('font_size',  Math.round(captionFontSize * 1.15));
 
     const burnErrorEl = document.getElementById('burnError');
     runBtn.disabled    = true;
