@@ -2294,6 +2294,29 @@
     return `${m}:${s}`;
   }
 
+  // ── Caption line-wrapping — mirrors Python _rewrap_cap (char_w = fontSize * 0.60) ──
+  function rewrapCaption(text, videoWidth, fontSize) {
+    const words = text.replace(/\\N/g, ' ').split(' ').filter(w => w.length);
+    if (!words.length) return text;
+    const marginH = Math.max(25, Math.floor(videoWidth / 14));
+    const avail   = videoWidth - 2 * marginH;
+    const charW   = fontSize * 0.60;
+    const lines   = [];
+    let cur = [], curW = 0;
+    for (const word of words) {
+      const ww  = word.length * charW;
+      const gap = cur.length ? charW : 0;
+      if (cur.length && curW + gap + ww > avail) {
+        lines.push(cur.join(' '));
+        cur = [word]; curW = ww;
+      } else {
+        cur.push(word); curW += gap + ww;
+      }
+    }
+    if (cur.length) lines.push(cur.join(' '));
+    return lines.join('\n');
+  }
+
   // ── Caption preview & positioning ──
   function updatePreviewCaption() {
     // Called by font/size/position sliders — refreshes player caption overlay immediately
@@ -2307,9 +2330,10 @@
       // before loadedmetadata fires for non-portrait videos.
       const scale = vid.clientWidth / vid.videoWidth;
       capEl.style.fontSize = Math.max(7, Math.round(captionFontSize * scale)) + 'px';
-      // Match the backend margin_h = max(25, width // 14) so preview wraps identically
-      const marginH = Math.max(25, Math.floor(vid.videoWidth / 14));
-      capEl.style.maxWidth = ((vid.videoWidth - 2 * marginH) / vid.videoWidth * 100).toFixed(2) + '%';
+      // Re-wrap current caption text with updated font size
+      const t = vid.currentTime;
+      const cap = captionsData && captionsData.find(c => t >= c.start && t <= c.end + 0.05);
+      if (cap) capEl.textContent = rewrapCaption(cap.text, vid.videoWidth, captionFontSize);
     }
   }
 
@@ -2364,7 +2388,7 @@
 
       // Caption overlay — same font/position as the preview and the burned video
       const cap = captionsData.find(c => t >= c.start && t <= c.end + 0.05);
-      capEl.textContent = cap ? cap.text.replace(/\\N/g, '\n') : '';
+      capEl.textContent = cap ? rewrapCaption(cap.text, vid.videoWidth || 1080, captionFontSize) : '';
       if (cap) {
         capEl.style.fontFamily = `'${captionFont}', sans-serif`;
         capEl.style.bottom     = (captionMarginPct * 100) + '%';
