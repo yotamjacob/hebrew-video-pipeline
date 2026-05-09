@@ -600,15 +600,16 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
 
         # Re-wrap caption text to match the CSS preview's word-wrap behaviour.
         # The preview uses max-width = (videoWidth - 2*marginH)/videoWidth% with
-        # the browser's actual font metrics; we approximate char width at 0.55×fontSize
-        # (same coefficient as the hook word-wrap). This runs AFTER font_size is clamped
-        # and margin_h is computed, so it reflects the user's current slider settings.
+        # the browser's actual font metrics; we approximate char width at 0.60×fontSize
+        # for Hebrew (Heebo/Rubik glyphs average ~60% of em-square). Using 0.50 caused
+        # Python to under-wrap, leaving lines too long for libass → libass added unexpected
+        # extra wraps, making captions appear taller and "too high" than intended.
         def _rewrap_cap(text: str) -> str:
             words = text.replace(r"\N", " ").split()
             if not words:
                 return text
             avail = width - 2 * margin_h
-            char_w = font_size * 0.50
+            char_w = font_size * 0.60
             lines: list[str] = []
             cur: list[str] = []
             cur_w = 0.0
@@ -650,8 +651,10 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             def _hclean(w: str) -> str:
                 return w.strip("،,.-–—!?;:")
 
-            # Python-side word-wrap with \N so libass doesn't need to wrap.
-            h_avail_w = width - 2 * h_fsize
+            # Estimate line count for block-height positioning.
+            # Use h_fsize_base (unbumped) for available width — matches canvas edgePad so
+            # libass wraps at the same points as the canvas preview.
+            h_avail_w = width - 2 * h_fsize_base
             char_w = h_fsize * 0.50
             raw_words = [_hclean(w) for w in hook["text"].split() if _hclean(w)]
             hook_lines, cur, cur_w = [], [], 0.0
@@ -666,31 +669,35 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
                     cur_w += gap + ww
             if cur:
                 hook_lines.append(" ".join(cur))
-            h_text = "\\N".join(
-                ln.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
-                for ln in (hook_lines or [hook["text"]])
-            )
+            # \q1 (simple end-of-line wrap) lets libass wrap as one block → BorderStyle=3
+            # draws a SINGLE unified background box across all lines.  Using \N hard-breaks
+            # caused libass to draw a separate box per line (two disjointed rectangles).
+            h_override = "\\q1"
+            if h_border_size > 0:
+                hbc = h_border_color.lstrip("#")
+                if len(hbc) == 3: hbc = "".join(c * 2 for c in hbc)
+                hr, hg, hb = int(hbc[0:2], 16), int(hbc[2:4], 16), int(hbc[4:6], 16)
+                h_override += f"\\bord{h_border_size}\\3c&H{hb:02X}{hg:02X}{hr:02X}&"
+            h_text_raw = " ".join(raw_words) if raw_words else hook["text"]
+            h_text = ("{" + h_override + "}"
+                      + h_text_raw.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}"))
             n_hook_lines = len(hook_lines) if hook_lines else 1
             block_h      = int(n_hook_lines * h_fsize * 1.10)
             h_margin_v   = max(0, h_y - block_h // 2)
+            # Outline = box padding on all sides; scale to font so it matches canvas padV.
+            hook_outline = max(10, int(h_fsize * 0.25))
             hook_style_line = (
                 f"Style: Hook,{h_font},{h_fsize},"
                 # OutlineColour (field 6) = libass uses this for the BorderStyle=3 opaque box.
                 # BackColour (field 7) = transparent (unused by libass for box rendering).
                 # Spacing=0 matches Default captions style — non-zero spacing can disrupt BiDi.
                 f"{h_primary},&H000000FF,{h_back},&HFF000000,"
-                f"-1,0,0,0,100,100,0,0,3,10,0,8,0,0,0,1\n"  # Spacing=0, Alignment=8
+                f"-1,0,0,0,100,100,0,0,3,{hook_outline},0,8,0,0,0,1\n"  # Spacing=0, Alignment=8
             )
-            h_border_override = ""
-            if h_border_size > 0:
-                hbc = h_border_color.lstrip("#")
-                if len(hbc) == 3: hbc = "".join(c * 2 for c in hbc)
-                hr, hg, hb = int(hbc[0:2], 16), int(hbc[2:4], 16), int(hbc[4:6], 16)
-                h_border_override = ("{\\bord" + str(h_border_size)
-                                     + "\\3c&H" + f"{hb:02X}{hg:02X}{hr:02X}" + "&}")
+            # MarginL/R = h_fsize_base constrains libass wrap width to match canvas maxW.
             hook_event_line = (
                 f"Dialogue: 1,{seconds_to_ass(h_start)},{seconds_to_ass(h_start + h_dur)},"
-                f"Hook,,0,0,{h_margin_v},,{h_border_override}{h_text}\n"
+                f"Hook,,{h_fsize_base},{h_fsize_base},{h_margin_v},,{h_text}\n"
             )
 
         header = (
@@ -704,7 +711,7 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             "Alignment, MarginL, MarginR, MarginV, Encoding\n"
             f"Style: Default,{font},{font_size},"
             "&H00FFFFFF,&H000000FF,&H00000000,&H80000000,"
-            f"-1,0,0,0,100,100,0,0,1,0,2,2,"
+            f"-1,0,0,0,100,100,0,0,1,2,6,2,"
             f"{margin_h},{margin_h},{margin_v},1\n"
             + hook_style_line +
             "\n[Events]\n"
