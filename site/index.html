@@ -3835,18 +3835,16 @@
     }, 1000);
 
     // Lock all editor cards and collapse them while burn is in progress
-    const editorIds = ['captionEditorCard', 'brollCard', 'stockBrollCard'];
-    editorIds.forEach(id => document.getElementById(id).classList.add('burning'));
-    const captionHeader = document.querySelector('#captionEditorCard .card-header');
-    const brollHeader   = document.querySelector('#brollCard .card-header');
-    const sbHeader      = document.querySelector('#stockBrollCard .card-header');
-    const captionBody   = document.getElementById('captionBody');
-    const brollBody     = document.getElementById('brollBody');
-    const sbBody        = document.getElementById('stockBrollBody');
-    [{ h: captionHeader, b: captionBody }, { h: brollHeader, b: brollBody }, { h: sbHeader, b: sbBody }]
-      .forEach(({ h, b }) => {
-        if (h && !h.classList.contains('collapsed')) { h.classList.add('collapsed'); if (b) b.style.display = 'none'; }
-      });
+    const editorIds = ['captionEditorCard', 'hookCard', 'brollCard', 'stockBrollCard'];
+    editorIds.forEach(id => document.getElementById(id)?.classList.add('burning'));
+    [
+      { h: document.querySelector('#captionEditorCard .card-header'), b: document.getElementById('captionBody') },
+      { h: document.querySelector('#hookCard .card-header'),          b: document.getElementById('hookBody') },
+      { h: document.querySelector('#brollCard .card-header'),         b: document.getElementById('brollBody') },
+      { h: document.querySelector('#stockBrollCard .card-header'),    b: document.getElementById('stockBrollBody') },
+    ].forEach(({ h, b }) => {
+      if (h && !h.classList.contains('collapsed')) { h.classList.add('collapsed'); if (b) b.style.display = 'none'; }
+    });
     try {
       // POST captions + selected B-rolls (Veo + stock) → get call_id immediately
       const allBroll = [...selectedBrolls, ...Object.values(stockBrollSelections)];
