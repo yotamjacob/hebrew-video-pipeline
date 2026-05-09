@@ -209,3 +209,58 @@ class TestASSPlayResEqualsVideoHeight:
         assert "margin_v_pct * height" in snippet, (
             "margin_v must be int(margin_v_pct * height)"
         )
+
+    def test_wrapstyle_is_0_not_2(self):
+        snippet = _extract_snippet(MODAL_SRC, "burn_captions_fn")
+        # WrapStyle 0 = smart word wrap — must NOT be 2 (no wrap)
+        # which would cause the burn to never wrap while CSS preview does,
+        # creating a line-break mismatch for long captions.
+        assert "WrapStyle: 0" in snippet, (
+            "WrapStyle must be 0 (smart wrap) so libass wraps at the same points "
+            "as the CSS preview — WrapStyle 2 disables wrap entirely"
+        )
+        assert "WrapStyle: 2" not in snippet, (
+            "WrapStyle: 2 disables line wrapping — burn and preview would disagree"
+        )
+
+
+class TestMarginHFormula:
+    """
+    margin_h = max(25, width // 14) controls the horizontal text area.
+    The JS preview must use the same formula for max-width so wrap points match.
+    """
+
+    def _margin_h(self, width: int) -> int:
+        return max(25, width // 14)
+
+    def _avail_pct(self, width: int) -> float:
+        mh = self._margin_h(width)
+        return (width - 2 * mh) / width * 100
+
+    def test_1080p_margin(self):
+        assert self._margin_h(1080) == 77
+
+    def test_1920p_margin(self):
+        assert self._margin_h(1920) == 137
+
+    def test_small_width_uses_floor(self):
+        # width=240 → 240//14=17 < 25 → clamped to 25
+        assert self._margin_h(240) == 25
+
+    def test_avail_pct_1080(self):
+        pct = self._avail_pct(1080)
+        assert abs(pct - 85.74) < 0.1   # 926/1080 = 85.74%
+
+    def test_avail_pct_1920(self):
+        pct = self._avail_pct(1920)
+        assert abs(pct - 85.73) < 0.1   # 1646/1920 ≈ 85.73%
+
+    def test_avail_pct_always_less_than_86(self):
+        for w in [720, 1080, 1440, 1920, 2160, 3840]:
+            assert self._avail_pct(w) < 86.0, f"avail_pct({w}) = {self._avail_pct(w):.2f} >= 86"
+
+    def test_source_uses_correct_margin_formula(self):
+        snippet = _extract_snippet(MODAL_SRC, "burn_captions_fn")
+        assert "max(25, width  // 14)" in snippet or "max(25, width // 14)" in snippet, (
+            "margin_h formula must be max(25, width // 14)"
+        )

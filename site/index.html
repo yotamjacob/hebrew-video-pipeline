@@ -2305,6 +2305,11 @@
     if (vid && vid.videoHeight) {
       const scale = vid.clientHeight / vid.videoHeight;
       capEl.style.fontSize = Math.max(7, Math.round(captionFontSize * scale)) + 'px';
+      // Match the backend margin_h = max(25, width // 14) so preview wraps identically
+      if (vid.videoWidth) {
+        const marginH = Math.max(25, Math.floor(vid.videoWidth / 14));
+        capEl.style.maxWidth = ((vid.videoWidth - 2 * marginH) / vid.videoWidth * 100).toFixed(2) + '%';
+      }
     }
   }
 
@@ -2363,9 +2368,12 @@
       if (cap) {
         capEl.style.fontFamily = `'${captionFont}', sans-serif`;
         capEl.style.bottom     = (captionMarginPct * 100) + '%';
-        // Scale font size proportionally: same ratio as preview canvas
         const scale = vid.clientHeight / (vid.videoHeight || 1920);
         capEl.style.fontSize   = Math.max(7, Math.round(captionFontSize * scale)) + 'px';
+        if (vid.videoWidth) {
+          const marginH = Math.max(25, Math.floor(vid.videoWidth / 14));
+          capEl.style.maxWidth = ((vid.videoWidth - 2 * marginH) / vid.videoWidth * 100).toFixed(2) + '%';
+        }
       }
 
       // Highlight active row and auto-scroll it into view in the list

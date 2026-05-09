@@ -666,7 +666,7 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
         header = (
             "[Script Info]\nScriptType: v4.00+\n"
             f"PlayResX: {width}\nPlayResY: {height}\n"
-            "WrapStyle: 2\nScaledBorderAndShadow: yes\nYCbCr Matrix: TV.709\n\n"
+            "WrapStyle: 0\nScaledBorderAndShadow: yes\nYCbCr Matrix: TV.709\n\n"
             "[V4+ Styles]\n"
             "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
             "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
