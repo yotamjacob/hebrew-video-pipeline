@@ -2310,7 +2310,7 @@
     if (!words.length) return text;
     const marginH = Math.max(25, Math.floor(videoWidth / 14));
     const avail   = videoWidth - 2 * marginH;
-    const charW   = fontSize * 0.60;
+    const charW   = fontSize * 0.50;
     const lines   = [];
     let cur = [], curW = 0;
     for (const word of words) {
@@ -2708,7 +2708,12 @@
     const canvas = document.getElementById('hookPreviewCanvas');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    const W = canvas.width, H = canvas.height;
+    const W = canvas.width;
+    if (hookThumbnail) {
+      const newH = Math.round(W * hookThumbnail.naturalHeight / hookThumbnail.naturalWidth);
+      if (canvas.height !== newH) canvas.height = newH;
+    }
+    const H = canvas.height;
 
     ctx.clearRect(0, 0, W, H);
     if (hookThumbnail) {
@@ -2734,7 +2739,7 @@
     const vPos       = parseInt(document.getElementById('hookPosition')?.value || '10') / 100;
     const sizePct    = parseInt(document.getElementById('hookFontSize')?.value || '100') / 100;
 
-    const fontSize = Math.max(12, Math.round(H * 0.075 * sizePct));
+    const fontSize = Math.max(12, Math.round(Math.min(W, H) * 0.075 * sizePct));
     ctx.direction   = 'rtl';
     ctx.font        = `bold ${fontSize}px '${fontName}', 'Heebo', sans-serif`;
     ctx.textAlign   = 'center';
@@ -3922,10 +3927,14 @@
       window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
       // Re-enable editors for another round of changes on the same video
       editorIds.forEach(id => document.getElementById(id).classList.remove('burning'));
-      [{ h: captionHeader, b: captionBody }, { h: brollHeader, b: brollBody }, { h: sbHeader, b: sbBody }]
-        .forEach(({ h, b }) => {
-          if (h) { h.classList.remove('collapsed'); if (b) b.style.display = 'block'; }
-        });
+      [
+        { h: document.querySelector('#captionEditorCard .card-header'), b: document.getElementById('captionBody') },
+        { h: document.querySelector('#hookCard .card-header'),          b: document.getElementById('hookBody') },
+        { h: document.querySelector('#brollCard .card-header'),         b: document.getElementById('brollBody') },
+        { h: document.querySelector('#stockBrollCard .card-header'),    b: document.getElementById('stockBrollBody') },
+      ].forEach(({ h, b }) => {
+        if (h) { h.classList.remove('collapsed'); if (b) b.style.display = 'block'; }
+      });
     } catch (err) {
       clearInterval(elapsedTimer);
       clearSavedJob();

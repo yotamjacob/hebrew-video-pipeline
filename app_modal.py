@@ -608,7 +608,7 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             if not words:
                 return text
             avail = width - 2 * margin_h
-            char_w = font_size * 0.60
+            char_w = font_size * 0.50
             lines: list[str] = []
             cur: list[str] = []
             cur_w = 0.0
@@ -633,14 +633,15 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
         if hook.get("text"):
             h_font         = hook.get("font", "Heebo")
             h_size_pct     = max(50, min(200, int(hook.get("font_size_pct", 100))))
-            h_fsize        = max(24, int(height * 0.075 * h_size_pct / 100))
+            h_fsize_base   = max(24, int(min(width, height) * 0.075 * h_size_pct / 100))
+            h_fsize        = max(24, int(h_fsize_base * 1.20))
             h_primary      = hex_to_ass(hook.get("font_color", "#FFFFFF"), 0)
             h_bg_alpha     = int((1.0 - max(0.0, min(1.0, float(hook.get("bg_opacity", 0.6))))) * 255)
             h_back         = hex_to_ass(hook.get("bg_color", "#000000"), h_bg_alpha)
             h_border_size  = max(0, min(20, int(hook.get("border_size", 0))))
             h_border_color = hook.get("border_color", "#000000")
             h_vpos      = max(0, min(100, int(hook.get("vertical_position", 10))))
-            h_pad       = h_fsize
+            h_pad       = h_fsize_base   # use unbumped size for position, matching preview edgePad
             h_y         = int(h_pad + (height - 2 * h_pad) * (h_vpos / 100))
             h_start     = float(hook.get("start_seconds", 1.0))
             h_dur       = float(hook.get("duration_seconds", 4.0))
@@ -651,7 +652,7 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
 
             # Python-side word-wrap with \N so libass doesn't need to wrap.
             h_avail_w = width - 2 * h_fsize
-            char_w = h_fsize * 0.55
+            char_w = h_fsize * 0.50
             raw_words = [_hclean(w) for w in hook["text"].split() if _hclean(w)]
             hook_lines, cur, cur_w = [], [], 0.0
             for word in raw_words:
