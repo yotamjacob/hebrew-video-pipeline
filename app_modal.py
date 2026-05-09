@@ -2881,19 +2881,12 @@ def api():
                         (b"content-range", f"bytes {start}-{end}/{file_size}".encode())
                     )
 
-                await send({"type": "http.response.start", "status": status,
-                            "headers": resp_headers})
-                chunk = 512 * 1024
                 with open(file_path, "rb") as f:
                     f.seek(start)
-                    remaining = content_length
-                    while remaining > 0:
-                        data = f.read(min(chunk, remaining))
-                        if not data:
-                            break
-                        remaining -= len(data)
-                        await send({"type": "http.response.body", "body": data, "more_body": True})
-                await send({"type": "http.response.body", "body": b"", "more_body": False})
+                    body = f.read(content_length)
+                await send({"type": "http.response.start", "status": status,
+                            "headers": resp_headers})
+                await send({"type": "http.response.body", "body": body})
                 if key.endswith("_out.mp4"):
                     file_path.unlink(missing_ok=True)
                     tmp_vol.commit()
