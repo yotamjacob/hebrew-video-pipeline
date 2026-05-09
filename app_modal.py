@@ -2892,11 +2892,9 @@ def api():
                         if not data:
                             break
                         remaining -= len(data)
-                        await send({"type": "http.response.body", "body": data,
-                                    "more_body": remaining > 0})
-                if remaining > 0:
-                    await send({"type": "http.response.body", "body": b"", "more_body": False})
-                if key.endswith("_out.mp4") and status != 206:
+                        await send({"type": "http.response.body", "body": data, "more_body": True})
+                await send({"type": "http.response.body", "body": b"", "more_body": False})
+                if key.endswith("_out.mp4"):
                     file_path.unlink(missing_ok=True)
                     tmp_vol.commit()
             except Exception as e:
