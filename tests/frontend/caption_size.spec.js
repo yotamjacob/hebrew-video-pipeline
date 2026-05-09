@@ -1,7 +1,7 @@
 /**
  * Caption size parity tests
  *
- * Invariant: captionFontSize / videoHeight == css_px / clientHeight  (±1px rounding)
+ * Invariant: captionFontSize / videoWidth == css_px / clientWidth  (exact, no rounding)
  *
  * Notes:
  *  - `captionFontSize` is declared with `let` so it's NOT on window.  The only
@@ -91,48 +91,49 @@ test('font size slider input updates the preview formula', async ({ page }) => {
 
 // ─── Preview formula correctness (with fake videoHeight) ──────────────────────
 
-async function checkPreviewFormula(page, { fontSizeSlider, videoHeight = 1920 }) {
+async function checkPreviewFormula(page, { fontSizeSlider, videoWidth = 1080 }) {
   await setFontSize(page, fontSizeSlider);
   await triggerPreview(page);
 
-  const { cssPx, clientH } = await page.evaluate(() => {
+  const { cssPx, clientW } = await page.evaluate(() => {
     const vid = document.getElementById('cutVideo');
     const cap = document.getElementById('playerCap');
     return {
       cssPx:   parseFloat(window.getComputedStyle(cap).fontSize),
-      clientH: vid.clientHeight,
+      clientW: vid.clientWidth,
     };
   });
 
-  const expected = Math.max(7, Math.round(fontSizeSlider * clientH / videoHeight));
-  expect(Math.abs(cssPx - expected)).toBeLessThanOrEqual(1);
+  const expected = Math.max(7, fontSizeSlider * clientW / videoWidth);
+  // No rounding in new formula — allow ±0.5px for float/subpixel rendering
+  expect(Math.abs(cssPx - expected)).toBeLessThanOrEqual(0.5);
 }
 
 test('preview font-size matches formula — font_size 48, 1920p', async ({ page }) => {
   await runFullUpload(page);
   await withFakeVideoDimensions(page, { videoHeight: 1920, videoWidth: 1080 }, () =>
-    checkPreviewFormula(page, { fontSizeSlider: 48, videoHeight: 1920 })
+    checkPreviewFormula(page, { fontSizeSlider: 48, videoWidth: 1080 })
   );
 });
 
 test('preview font-size matches formula — font_size 64, 1920p', async ({ page }) => {
   await runFullUpload(page);
   await withFakeVideoDimensions(page, { videoHeight: 1920, videoWidth: 1080 }, () =>
-    checkPreviewFormula(page, { fontSizeSlider: 64, videoHeight: 1920 })
+    checkPreviewFormula(page, { fontSizeSlider: 64, videoWidth: 1080 })
   );
 });
 
 test('preview font-size matches formula — font_size 80, 1920p', async ({ page }) => {
   await runFullUpload(page);
   await withFakeVideoDimensions(page, { videoHeight: 1920, videoWidth: 1080 }, () =>
-    checkPreviewFormula(page, { fontSizeSlider: 80, videoHeight: 1920 })
+    checkPreviewFormula(page, { fontSizeSlider: 80, videoWidth: 1080 })
   );
 });
 
 test('preview font-size matches formula — font_size 48, 1080p landscape', async ({ page }) => {
   await runFullUpload(page);
   await withFakeVideoDimensions(page, { videoHeight: 1080, videoWidth: 1920 }, () =>
-    checkPreviewFormula(page, { fontSizeSlider: 48, videoHeight: 1080 })
+    checkPreviewFormula(page, { fontSizeSlider: 48, videoWidth: 1920 })
   );
 });
 
@@ -140,8 +141,8 @@ test('preview scales proportionally when slider changes', async ({ page }) => {
   await runFullUpload(page);
 
   await withFakeVideoDimensions(page, { videoHeight: 1920, videoWidth: 1080 }, async () => {
-    // Get clientHeight once (stable throughout)
-    const clientH = await page.evaluate(() => document.getElementById('cutVideo').clientHeight);
+    // Get clientWidth once (stable throughout)
+    const clientW = await page.evaluate(() => document.getElementById('cutVideo').clientWidth);
 
     await setFontSize(page, 48);
     await triggerPreview(page);
@@ -151,11 +152,11 @@ test('preview scales proportionally when slider changes', async ({ page }) => {
     await triggerPreview(page);
     const px64 = await readCapFontSizePx(page);
 
-    const expected48 = Math.max(7, Math.round(48 * clientH / 1920));
-    const expected64 = Math.max(7, Math.round(64 * clientH / 1920));
+    const expected48 = Math.max(7, 48 * clientW / 1080);
+    const expected64 = Math.max(7, 64 * clientW / 1080);
 
-    expect(Math.abs(px48 - expected48)).toBeLessThanOrEqual(1);
-    expect(Math.abs(px64 - expected64)).toBeLessThanOrEqual(1);
+    expect(Math.abs(px48 - expected48)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(px64 - expected64)).toBeLessThanOrEqual(0.5);
     // 64 must produce a larger (or equal) preview font than 48
     expect(px64).toBeGreaterThanOrEqual(px48);
   });
@@ -163,7 +164,7 @@ test('preview scales proportionally when slider changes', async ({ page }) => {
 
 // ─── ASS-to-preview ratio equivalence ────────────────────────────────────────
 
-test('font_size/videoHeight ratio matches css_px/clientHeight within ±1px rounding', async ({ page }) => {
+test('font_size/videoWidth ratio matches css_px/clientWidth exactly (no rounding)', async ({ page }) => {
   await runFullUpload(page);
 
   await withFakeVideoDimensions(page, { videoHeight: 1920, videoWidth: 1080 }, async () => {
@@ -173,16 +174,17 @@ test('font_size/videoHeight ratio matches css_px/clientHeight within ±1px round
     const result = await page.evaluate(() => {
       const vid   = document.getElementById('cutVideo');
       const cap   = document.getElementById('playerCap');
-      const vh    = vid.videoHeight;          // 1920 (prototype override active)
-      const ch    = vid.clientHeight;
+      const vw    = vid.videoWidth;           // 1080 (prototype override active)
+      const cw    = vid.clientWidth;
       const fs    = parseInt(document.getElementById('captionFontSizeSlider').value, 10);
       const cssPx = parseFloat(window.getComputedStyle(cap).fontSize);
 
-      if (Math.round(fs * ch / vh) < 7) return { floorActive: true };
+      if (fs * cw / vw < 7) return { floorActive: true };
 
-      const assRatio     = fs / vh;
-      const previewRatio = cssPx / ch;
-      const tolerance    = 1 / ch;
+      const assRatio     = fs / vw;
+      const previewRatio = cssPx / cw;
+      // No rounding: ratios should be exactly equal (allow tiny float epsilon)
+      const tolerance    = 0.001 / cw;
       return {
         floorActive: false,
         ok: Math.abs(assRatio - previewRatio) <= tolerance,
