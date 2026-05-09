@@ -34,5 +34,6 @@ test-results/
 # Local test videos and diagnostic outputs
 input_vids/
 test_broll_output/
+exports/
 .diag_captions_cache.json
 .vercel
