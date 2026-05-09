@@ -2855,7 +2855,7 @@ def api():
                 file_size = file_path.stat().st_size
 
                 # Parse Range header so the browser can seek in the preview player
-                req_hdrs = {k.lower(): v for k, v in scope.get("headers", [])}
+                req_hdrs = {bytes(k).lower(): bytes(v) for k, v in scope.get("headers", [])}
                 range_hdr = req_hdrs.get(b"range", b"").decode()
                 start, end, status = 0, file_size - 1, 200
                 if range_hdr.startswith("bytes="):
