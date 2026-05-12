@@ -536,7 +536,7 @@ def process_video(
             captions_list = [{"start": s, "end": e, "text": t} for s, e, t in events]
 
         if cut_silences and words:
-            render(src, clean_wav, segs, None, out_file)
+            t0 = _time.time(); render(src, clean_wav, segs, None, out_file); _t("render", t0)
         else:
             shutil.copy(src, out_file)
 
