@@ -28,7 +28,7 @@
 ## Key Defaults
 
 ```python
-DEFAULT_MIN_SILENCE = 0.5      # gap (s) to treat as silence
+DEFAULT_MIN_SILENCE = 0.3      # gap (s) to treat as silence
 DEFAULT_PADDING     = 0.20     # breathing room around words
 DEFAULT_FONT        = "Rubik"  # Hebrew-friendly
 DEFAULT_FONT_SIZE   = 48

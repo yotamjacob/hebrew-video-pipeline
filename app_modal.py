@@ -235,7 +235,7 @@ def process_video(
     filename: str = "video.mp4",
     cut_silences: bool = True,
     burn_captions: bool = True,
-    min_silence: float = 0.5,
+    min_silence: float = 0.3,
     padding: float = 0.2,
     enhance_audio: bool = True,
     transcribe_for_broll: bool = False,
