@@ -63,12 +63,14 @@ npx vercel deploy --prod
 **ASS color format** — `&HAABBGGRR&` (reversed RGB, alpha first). Alpha `00` = opaque, `FF` = transparent.
 
 **Burned caption ASS style (in `burn_captions_fn`)** — current values as of 2026-05-09:
-- `BorderStyle=1, Outline=2, Shadow=6, Alignment=2` (bottom-center)
+- `BorderStyle=1, Outline=2, Shadow=0, Alignment=2` (bottom-center)
 - `char_w = font_size * 0.60` for Python re-wrap — Hebrew Heebo/Rubik glyphs average ~60% of em-square. Using 0.50 caused under-wrapping; libass added unexpected extra line-breaks via smart-wrap, making captions appear taller/higher than intended.
-- `Shadow=2` is sub-pixel-tiny at typical video resolution — always use at least `Shadow=6` for visibility.
+- Caption shadow is disabled (`Shadow=0`) — the user prefers no shadow on caption text.
 - Export font size = `round(sliderFontSize * 1.10)` (captions) — set in `site/index.html` burnUrl.
 
-**Hook ASS rendering** — `BorderStyle=3` (opaque box) draws **one box per hard line-break (`\N`)**. To get a single unified background rectangle, use `{\q1}` soft-wrap in the event text (no `\N`), and set `MarginL=MarginR=h_fsize_base` in the event line so libass constrains wrap width. Hook export font size = `h_fsize_base * 1.30` (set in `burn_captions_fn`).
+**Hook ASS rendering** — Unified box: use `{\q1}` soft-wrap (no `\N`), `MarginL=MarginR=h_fsize_base`. Hook export font size = `h_fsize_base * 1.30`.
+
+**Hook border color** — Use `BorderStyle=3` when `border_size=0` (OutlineColour = box fill). Use `BorderStyle=4` when `border_size>0` (BackColour = box fill, OutlineColour = border around box, Outline = border_size). Never use `\3c` override in event text to set border color — with BorderStyle=3, `\3c` overrides OutlineColour which IS the box background, turning the whole box the border color instead of drawing a border. Put all colors in the Style line. Always populate both OutlineColour and BackColour with bg_color for BorderStyle=3 (different libass builds use different fields for the opaque box).
 
 **Caption timestamp remapping** — ASS cues are generated assuming the full uncut timeline, then shifted by the accumulated duration of preceding cut-out segments. This must stay in sync with the ffmpeg trim list.
 

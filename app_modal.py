@@ -372,7 +372,7 @@ def process_video(
                              download_root=MODEL_DIR)
             segs, _ = m.transcribe(
                 str(wav), language="he", word_timestamps=True,
-                vad_filter=True, beam_size=5, condition_on_previous_text=True,
+                vad_filter=True, beam_size=3, condition_on_previous_text=True,
             )
             result = []
             for seg in segs:
@@ -417,7 +417,7 @@ def process_video(
         max_chars = max(8, int((w - 2 * margin_h) / (font_size * 0.60)))
 
         def _clean(t):
-            return t.strip("،,.-–—!?;:")
+            return t.strip("،,.-–—;:")
 
         events = []
         cumulative = 0.0
@@ -491,7 +491,7 @@ def process_video(
         run(["ffmpeg", "-y", "-i", str(video), "-i", str(audio),
              "-filter_complex", fc,
              "-map", "[vout]", "-map", "[ac]",
-             "-c:v", "libx264", "-crf", str(crf), "-preset", "fast",
+             "-c:v", "libx264", "-crf", str(crf), "-preset", "veryfast",
              "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
              "-movflags", "+faststart", str(out)])
 
@@ -649,7 +649,7 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             # Strip leading/trailing weak BiDi chars (commas, hyphens) — same fix as captions.
             # These weak chars can disrupt libass's RTL paragraph detection.
             def _hclean(w: str) -> str:
-                return w.strip("،,.-–—!?;:")
+                return w.strip("،,.-–—;:")
 
             # Estimate line count for block-height positioning.
             # Use h_fsize_base (unbumped) for available width — matches canvas edgePad so
@@ -669,30 +669,41 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
                     cur_w += gap + ww
             if cur:
                 hook_lines.append(" ".join(cur))
-            # \q1 (simple end-of-line wrap) lets libass wrap as one block → BorderStyle=3
+            # \q1 (simple end-of-line wrap) lets libass wrap as one block → BorderStyle=3/4
             # draws a SINGLE unified background box across all lines.  Using \N hard-breaks
             # caused libass to draw a separate box per line (two disjointed rectangles).
+            #
+            # BorderStyle=3: OutlineColour = box fill; no outer border — use when border_size=0.
+            # BorderStyle=4: BackColour = box fill, OutlineColour = outline around box, Outline=width
+            #   — use when border_size>0 so box color and border color are independent fields.
+            #   With BorderStyle=3, \3c would override OutlineColour (= box background) instead of
+            #   drawing a separate border, making the box turn the border color rather than bg_color.
             h_override = "\\q1"
             if h_border_size > 0:
                 hbc = h_border_color.lstrip("#")
                 if len(hbc) == 3: hbc = "".join(c * 2 for c in hbc)
                 hr, hg, hb = int(hbc[0:2], 16), int(hbc[2:4], 16), int(hbc[4:6], 16)
-                h_override += f"\\bord{h_border_size}\\3c&H{hb:02X}{hg:02X}{hr:02X}&"
+                h_border_ass = f"&H{hb:02X}{hg:02X}{hr:02X}&"
+                h_border_style = 4  # box(BackColour) + outline(OutlineColour)
+                # Style carries all colors; no per-event override tags needed.
+                h_outline_color = h_border_ass
+                h_box_color     = h_back   # bg_color goes in BackColour for BorderStyle=4
+                hook_outline    = h_border_size
+            else:
+                h_border_style  = 3  # opaque box only; OutlineColour = box fill
+                h_outline_color = h_back   # bg_color in OutlineColour for BorderStyle=3
+                h_box_color     = h_back   # also in BackColour for libass compat
+                hook_outline    = max(10, int(h_fsize * 0.25))
             h_text_raw = " ".join(raw_words) if raw_words else hook["text"]
             h_text = ("{" + h_override + "}"
                       + h_text_raw.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}"))
             n_hook_lines = len(hook_lines) if hook_lines else 1
             block_h      = int(n_hook_lines * h_fsize * 1.10)
             h_margin_v   = max(0, h_y - block_h // 2)
-            # Outline = box padding on all sides; scale to font so it matches canvas padV.
-            hook_outline = max(10, int(h_fsize * 0.25))
             hook_style_line = (
                 f"Style: Hook,{h_font},{h_fsize},"
-                # OutlineColour (field 6) = libass uses this for the BorderStyle=3 opaque box.
-                # BackColour (field 7) = transparent (unused by libass for box rendering).
-                # Spacing=0 matches Default captions style — non-zero spacing can disrupt BiDi.
-                f"{h_primary},&H000000FF,{h_back},&HFF000000,"
-                f"-1,0,0,0,100,100,0,0,3,{hook_outline},0,8,0,0,0,1\n"  # Spacing=0, Alignment=8
+                f"{h_primary},&H000000FF,{h_outline_color},{h_box_color},"
+                f"-1,0,0,0,100,100,0,0,{h_border_style},{hook_outline},0,8,0,0,0,1\n"
             )
             # MarginL/R = h_fsize_base constrains libass wrap width to match canvas maxW.
             hook_event_line = (
@@ -711,7 +722,7 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             "Alignment, MarginL, MarginR, MarginV, Encoding\n"
             f"Style: Default,{font},{font_size},"
             "&H00FFFFFF,&H000000FF,&H00000000,&H80000000,"
-            f"-1,0,0,0,100,100,0,0,1,2,6,2,"
+            f"-1,0,0,0,100,100,0,0,1,2,0,2,"
             f"{margin_h},{margin_h},{margin_v},1\n"
             + hook_style_line +
             "\n[Events]\n"
@@ -763,7 +774,7 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             if captions:
                 run(["ffmpeg", "-y", "-i", str(video_in),
                      "-vf", f"subtitles='{esc}'",
-                     "-c:v", "libx264", "-crf", "18", "-preset", "fast",
+                     "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
                      "-pix_fmt", "yuv420p", "-c:a", "copy",
                      "-movflags", "+faststart", str(video_out)])
             else:
@@ -809,7 +820,7 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             cmd += [
                 "-filter_complex", ";".join(filters),
                 "-map", map_out, "-map", "0:a",
-                "-c:v", "libx264", "-crf", "18", "-preset", "fast",
+                "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
                 "-pix_fmt", "yuv420p", "-c:a", "copy",
                 "-movflags", "+faststart",
                 str(video_out),
@@ -2605,7 +2616,7 @@ def burn_hook_fn(
         run([
             "ffmpeg", "-y", "-i", str(video_in),
             "-vf", f"ass={ass_path}",
-            "-c:v", "libx264", "-crf", "18", "-preset", "fast",
+            "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
             "-c:a", "copy", str(video_out),
         ])
 
