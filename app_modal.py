@@ -365,15 +365,9 @@ def process_video(
     def transcribe(wav):
         import os
         os.environ["HF_HOME"] = MODEL_DIR
-        from faster_whisper import WhisperModel
+        from faster_whisper import WhisperModel, BatchedInferencePipeline
 
-        def _run(device, compute_type):
-            m = WhisperModel(WHISPER_MODEL, device=device, compute_type=compute_type,
-                             download_root=MODEL_DIR)
-            segs, _ = m.transcribe(
-                str(wav), language="he", word_timestamps=True,
-                vad_filter=True, beam_size=3, condition_on_previous_text=True,
-            )
+        def _words(segs):
             result = []
             for seg in segs:
                 for w in (seg.words or []):
@@ -383,9 +377,22 @@ def process_video(
             return result
 
         try:
-            words = _run("cuda", "float16")
+            m = WhisperModel(WHISPER_MODEL, device="cuda", compute_type="float16",
+                             download_root=MODEL_DIR)
+            pipeline = BatchedInferencePipeline(model=m)
+            segs, _ = pipeline.transcribe(
+                str(wav), language="he", word_timestamps=True,
+                vad_filter=True, beam_size=3, batch_size=8,
+            )
+            words = _words(segs)
         except Exception:
-            words = _run("cpu", "int8")
+            m = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8",
+                             download_root=MODEL_DIR)
+            segs, _ = m.transcribe(
+                str(wav), language="he", word_timestamps=True,
+                vad_filter=True, beam_size=3, condition_on_previous_text=True,
+            )
+            words = _words(segs)
         model_volume.commit()
         return words
 
