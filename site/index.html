@@ -2378,6 +2378,9 @@
       const wrap = document.getElementById('playerWrap');
       if (wrap && vid.videoWidth && vid.videoHeight) {
         wrap.style.aspectRatio = `${vid.videoWidth} / ${vid.videoHeight}`;
+        wrap.style.width = vid.videoWidth > vid.videoHeight
+          ? 'min(440px, 88%)'   // landscape
+          : 'min(240px, 72%)';  // portrait
         updatePreviewCaption();
       }
     }, { once: true });
