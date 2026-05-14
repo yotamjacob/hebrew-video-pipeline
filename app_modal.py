@@ -1802,6 +1802,81 @@ def _get_video_context(video_path: str, transcript: str, client) -> dict:
         modal.Secret.from_name("pixabay-secret"),
     ],
 )
+def _process_moment(m: dict, pexels_key: str, pixabay_key: str, client,
+                    video_context: dict, max_candidates: int = 40) -> None:
+    """Search stock libraries + score clips for one B-roll moment. Mutates m in place.
+    Designed to run in a ThreadPoolExecutor — creates its own requests.Session so
+    threads don't share state, and score_clips can safely call asyncio.run()."""
+    import requests as _r
+    http_session = _r.Session()
+    try:
+        broll_dur     = m.get("broll_duration_seconds", 3.0)
+        variants      = m.get("search_variants") or [m.get("broad_search_prompt", m.get("search_query", ""))]
+        variants      = [v for v in variants if v]
+        seen_ids      = set()
+        clips         = []
+        variant_stats = []
+
+        for variant in variants:
+            pex = fetch_pexels(variant, 1, pexels_key, http_session)
+            pix = fetch_pixabay(variant, 1, pixabay_key, http_session)
+            new_clips = []
+            for i in range(max(len(pex), len(pix))):
+                if i < len(pex):
+                    c = dict(pex[i]); vid_id = f"pexels_{c['id']}"
+                    if vid_id not in seen_ids:
+                        seen_ids.add(vid_id); c["_source_variant"] = variant; new_clips.append(c)
+                if i < len(pix):
+                    c = dict(pix[i]); vid_id = f"pixabay_{c['id']}"
+                    if vid_id not in seen_ids:
+                        seen_ids.add(vid_id); c["_source_variant"] = variant; new_clips.append(c)
+            variant_stats.append({"variant": variant, "count": len(new_clips)})
+            clips.extend(new_clips)
+
+        if not clips and variants:
+            first = variants[0]; words = first.split()
+            short = " ".join(words[:2]) if len(words) > 2 else first
+            if short != first:
+                print(f"[stock] 0 candidates across all variants for moment@{m['start']:.0f}s, "
+                      f"retrying with {short!r}")
+                pex2 = fetch_pexels(short, 1, pexels_key, http_session)
+                pix2 = fetch_pixabay(short, 1, pixabay_key, http_session)
+                for i in range(max(len(pex2), len(pix2))):
+                    if i < len(pex2): clips.append(pex2[i])
+                    if i < len(pix2): clips.append(pix2[i])
+
+        clips = clips[:max_candidates]
+        vlog  = ", ".join(f"'{s['variant']}': {s['count']}" for s in variant_stats)
+        print(f"[stock] moment@{m['start']:.0f}s: {len(clips)} candidates "
+              f"({len(variants)} variant(s)) — {vlog}")
+
+        if not clips:
+            print(f"[stock] no portrait candidates for moment@{m['start']:.0f}s — weak_match")
+            m["clips"] = []; m["weak_match"] = True; m["_variant_stats"] = variant_stats
+        else:
+            strict_eval  = m.get("strict_eval_prompt") or m.get("search_query", "")
+            moment_ctx_s = {
+                "transcript_excerpt": m.get("transcript_excerpt", ""),
+                "key_insight":        m.get("key_insight", ""),
+                "visual_anchor":      m.get("visual_anchor", ""),
+                "reasoning":          m.get("reasoning", ""),
+            }
+            scored = score_clips(clips, strict_eval, client,
+                                 video_context=video_context or None,
+                                 moment_ctx=moment_ctx_s)
+            m["clips"]          = [add_clip_window(c, broll_dur) for c in scored]
+            m["_variant_stats"] = variant_stats
+            if scored:
+                w = scored[0]
+                print(f"[stock] winner moment@{m['start']:.0f}s: score={w.get('score')}, "
+                      f"variant='{w.get('_source_variant','?')}', "
+                      f"reason={w.get('score_reason','')[:80]!r}")
+            if not scored:
+                m["weak_match"] = True
+    finally:
+        http_session.close()
+
+
 def analyze_stock_broll(captions_json: str, video_key: str = "") -> list:
     import json, os, requests as _req
 
@@ -2339,82 +2414,20 @@ def analyze_stock_broll(captions_json: str, video_key: str = "") -> list:
 
     _MAX_CANDIDATES = 40
 
-    for m in moments:
-        broll_dur = m.get("broll_duration_seconds", 3.0)
-        variants  = m.get("search_variants") or [m.get("broad_search_prompt", m.get("search_query", ""))]
-        variants  = [v for v in variants if v]
-
-        seen_ids      = set()
-        clips         = []
-        variant_stats = []
-
-        for variant in variants:
-            pex = fetch_pexels(variant, 1, pexels_key, http_session)
-            pix = fetch_pixabay(variant, 1, pixabay_key, http_session)
-            new_clips = []
-            for i in range(max(len(pex), len(pix))):
-                if i < len(pex):
-                    c = dict(pex[i])
-                    vid_id = f"pexels_{c['id']}"
-                    if vid_id not in seen_ids:
-                        seen_ids.add(vid_id)
-                        c["_source_variant"] = variant
-                        new_clips.append(c)
-                if i < len(pix):
-                    c = dict(pix[i])
-                    vid_id = f"pixabay_{c['id']}"
-                    if vid_id not in seen_ids:
-                        seen_ids.add(vid_id)
-                        c["_source_variant"] = variant
-                        new_clips.append(c)
-            variant_stats.append({"variant": variant, "count": len(new_clips)})
-            clips.extend(new_clips)
-
-        # Fallback: if all variants returned zero, retry with truncated first variant
-        if not clips and variants:
-            first = variants[0]
-            words = first.split()
-            short = " ".join(words[:2]) if len(words) > 2 else first
-            if short != first:
-                print(f"[stock] 0 candidates across all variants for moment@{m['start']}s, "
-                      f"retrying with {short!r}")
-                pex2 = fetch_pexels(short, 1, pexels_key, http_session)
-                pix2 = fetch_pixabay(short, 1, pixabay_key, http_session)
-                for i in range(max(len(pex2), len(pix2))):
-                    if i < len(pex2): clips.append(pex2[i])
-                    if i < len(pix2): clips.append(pix2[i])
-
-        # Cap and log
-        clips = clips[:_MAX_CANDIDATES]
-        vlog  = ", ".join(f"'{s['variant']}': {s['count']}" for s in variant_stats)
-        print(f"[stock] moment@{m['start']}s: {len(clips)} candidates "
-              f"({len(variants)} variant(s)) — {vlog}")
-
-        if not clips:
-            print(f"[stock] no portrait candidates for moment@{m['start']}s — weak_match")
-            m["clips"]         = []
-            m["weak_match"]    = True
-            m["_variant_stats"] = variant_stats
-        else:
-            strict_eval  = m.get("strict_eval_prompt") or m.get("search_query", "")
-            moment_ctx_s = {
-                "transcript_excerpt": m.get("transcript_excerpt", ""),
-                "key_insight":        m.get("key_insight", ""),
-                "visual_anchor":      m.get("visual_anchor", ""),
-                "reasoning":          m.get("reasoning", ""),
-            }
-            scored = score_clips(clips, strict_eval, client,
-                                 video_context=video_context or None,
-                                 moment_ctx=moment_ctx_s)
-            m["clips"]  = [add_clip_window(c, broll_dur) for c in scored]
-            m["_variant_stats"] = variant_stats
-            if scored:
-                winner = scored[0]
-                print(f"[stock] winner moment@{m['start']}s: score={winner.get('score')}, "
-                      f"variant='{winner.get('_source_variant','?')}', "
-                      f"reason={winner.get('score_reason','')[:80]!r}")
-            if not scored:
-                m["weak_match"] = True
+    import concurrent.futures as _cf
+    _workers = min(5, len(moments))
+    print(f"[stock] processing {len(moments)} moments in parallel (workers={_workers})")
+    with _cf.ThreadPoolExecutor(max_workers=_workers) as _pool:
+        futs = [
+            _pool.submit(_process_moment, m, pexels_key, pixabay_key,
+                         client, video_context, _MAX_CANDIDATES)
+            for m in moments
+        ]
+        for fut in _cf.as_completed(futs):
+            try:
+                fut.result()
+            except Exception as _exc:
+                print(f"[stock] moment processing error: {_exc}")
 
     return {
         "moments":                 moments,
