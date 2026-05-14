@@ -110,6 +110,35 @@ def _sanitize_transcript(text: str, max_chars: int = 50_000) -> str:
     cleaned = _re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
     return cleaned[:max_chars]
 
+# ---------------------------------------------------------------------------
+# Caption forbidden-word filter (Instagram shadow-ban prevention)
+# ---------------------------------------------------------------------------
+_FORBIDDEN_WORDS = frozenset([
+    # Death / violence
+    "מוות", "מות", "הרג", "הריגה", "רצח", "רוצח", "רצחן",
+    "טבח", "קטל", "גופה", "גוויה", "התאבדות", "ירייה", "דקירה",
+    # Curses
+    "חרא", "זין", "כוס", "מזדיין", "זיון", "לזיין", "מזיין",
+    "זונה", "שרמוטה", "מנייאק", "מניאק",
+    # Sexual
+    "סקס", "פורנו", "ביאה", "אוננות", "זנות",
+])
+_HEBREW_PREFIXES = frozenset("הבלמוכשו")
+
+def _censor_caption_text(text: str) -> str:
+    """Keep first char of each forbidden word, replace rest with ***.
+    Also detects words prefixed with a single Hebrew prefix letter (ה,ב,ל,מ,ו,כ,ש).
+    Example: מוות → מ*** | המוות → המ***
+    """
+    def _replace(m):
+        word = m.group()
+        if word in _FORBIDDEN_WORDS:
+            return word[0] + "***"
+        if len(word) > 2 and word[0] in _HEBREW_PREFIXES and word[1:] in _FORBIDDEN_WORDS:
+            return word[0] + word[1] + "***"
+        return word
+    return _re.sub(r'[א-ת]+', _replace, text)
+
 _rate_limit_lock = _threading.Lock()
 _rate_limit: dict = {}
 _RATE_WINDOW = 60.0
@@ -540,7 +569,7 @@ def process_video(
         captions_list = []
         if (burn_captions or transcribe_for_broll) and words:
             events = generate_ass(segs, ass_file, width, height)
-            captions_list = [{"start": s, "end": e, "text": t} for s, e, t in events]
+            captions_list = [{"start": s, "end": e, "text": _censor_caption_text(t)} for s, e, t in events]
 
         if cut_silences and words:
             t0 = _time.time(); render(src, clean_wav, segs, None, out_file); _t("render", t0)
@@ -633,7 +662,7 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
                 lines.append(" ".join(cur))
             return r"\N".join(lines) if lines else text
 
-        captions = [{"start": c["start"], "end": c["end"], "text": _rewrap_cap(c["text"])} for c in captions]
+        captions = [{"start": c["start"], "end": c["end"], "text": _rewrap_cap(_censor_caption_text(c["text"]))} for c in captions]
 
         # Build hook style + event if a hook was selected
         hook_style_line = ""
