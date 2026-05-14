@@ -2747,7 +2747,7 @@ def api():
             from pathlib import Path as _Path
             chunk_path = _Path(TMP_DIR) / f"{key}_chunk_{idx:04d}"
             chunk_path.write_bytes(chunk_bytes)
-            tmp_vol.commit()
+            # No commit here — all chunks are committed once in /process before job spawn
             body = json.dumps({"ok": True}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
@@ -2768,7 +2768,8 @@ def api():
 
             try:
                 if upload_key:
-                    # Chunked upload path — video already in Volume
+                    # Flush all chunks to persistent storage before spawning the worker
+                    tmp_vol.commit()
                     call = process_video.spawn(
                         upload_key=upload_key,
                         filename=filename,

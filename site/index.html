@@ -1908,14 +1908,16 @@
     }
   }
 
-  // Upload file in 1 MB chunks to avoid Modal's large-body 303 redirect on slow connections.
+  // Upload file in 1 MB chunks, 4 concurrent, to avoid Modal's large-body 303 redirect.
   // Returns the upload key to pass to /process/?key=...
   const CHUNK_SIZE = 1 * 1024 * 1024;
+  const UPLOAD_CONCURRENCY = 4;
   async function chunkedUpload(file, onProgress) {
     const key = crypto.randomUUID().replace(/-/g, '');
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     let bytesUploaded = 0;
-    for (let i = 0; i < totalChunks; i++) {
+
+    async function uploadChunk(i) {
       const start = i * CHUNK_SIZE;
       const end   = Math.min(start + CHUNK_SIZE, file.size);
       const resp  = await fetch(
@@ -1928,6 +1930,15 @@
       }
       bytesUploaded += (end - start);
       onProgress(bytesUploaded / file.size);
+    }
+
+    // Process chunks in batches of UPLOAD_CONCURRENCY
+    for (let i = 0; i < totalChunks; i += UPLOAD_CONCURRENCY) {
+      const batch = [];
+      for (let j = i; j < Math.min(i + UPLOAD_CONCURRENCY, totalChunks); j++) {
+        batch.push(uploadChunk(j));
+      }
+      await Promise.all(batch);
     }
     return key;
   }
