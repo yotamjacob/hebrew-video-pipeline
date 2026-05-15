@@ -650,13 +650,28 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             raise RuntimeError(f"ffmpeg exited {result.returncode}:\n{stderr_tail}")
 
     def probe_dims(path):
+        """Return (width, height, rotation) with w/h already swapped for 90/270°."""
         r = subprocess.run(
             ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=width,height", "-of", "json", str(path)],
+             "-show_entries", "stream=width,height,side_data_list",
+             "-show_entries", "stream_tags=rotate",
+             "-of", "json", str(path)],
             capture_output=True, text=True, check=True,
         )
         s = json.loads(r.stdout)["streams"][0]
-        return int(s["width"]), int(s["height"])
+        w, h = int(s["width"]), int(s["height"])
+        rot = 0
+        tag_rot = s.get("tags", {}).get("rotate")
+        if tag_rot:
+            rot = int(tag_rot)
+        else:
+            for sd in s.get("side_data_list", []):
+                if "rotation" in sd:
+                    rot = (-int(sd["rotation"])) % 360
+                    break
+        if rot in (90, 270):
+            w, h = h, w
+        return w, h, rot
 
     def seconds_to_ass(t):
         h = int(t // 3600); m = int((t % 3600) // 60); s = t % 60
@@ -676,7 +691,18 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
         ass_path  = tmp / "captions.ass"
         shutil.copy(Path(TMP_DIR) / video_key, video_in)
 
-        width, height = probe_dims(video_in)
+        width, height, _rotation = probe_dims(video_in)
+        # Build rotation vf prefix so output is always baked-portrait regardless of metadata
+        if _rotation == 90:
+            _rot_vf = "transpose=cclock,"
+        elif _rotation == 270:
+            _rot_vf = "transpose=clock,"
+        elif _rotation == 180:
+            _rot_vf = "vflip,hflip,"
+        else:
+            _rot_vf = ""
+        _rot_input  = ["-noautorotate"] if _rotation else []
+        _rot_meta   = ["-metadata:s:v:0", "rotate=0"] if _rotation else []
         font_size = max(12, min(200, font_size))
         margin_h  = max(25, width  // 14)
         margin_v  = int(margin_v_pct * height)
@@ -855,21 +881,31 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
         if not broll_files:
             # Simple path: just subtitle burn (or copy if no captions)
             if captions:
-                run(["ffmpeg", "-y", "-i", str(video_in),
-                     "-vf", f"subtitles='{esc}'",
+                run(["ffmpeg", "-y"] + _rot_input + ["-i", str(video_in),
+                     "-vf", f"{_rot_vf}subtitles='{esc}'",
                      "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
                      "-pix_fmt", "yuv420p", "-c:a", "copy",
-                     "-movflags", "+faststart", str(video_out)])
+                     "-movflags", "+faststart"] + _rot_meta + [str(video_out)])
+            elif _rotation:
+                run(["ffmpeg", "-y"] + _rot_input + ["-i", str(video_in),
+                     "-vf", _rot_vf.rstrip(","),
+                     "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
+                     "-pix_fmt", "yuv420p", "-c:a", "copy",
+                     "-movflags", "+faststart"] + _rot_meta + [str(video_out)])
             else:
                 shutil.copy(video_in, video_out)
         else:
             # Complex path: B-roll video overlays first, captions burned on top
-            cmd = ["ffmpeg", "-y", "-i", str(video_in)]
+            cmd = ["ffmpeg", "-y"] + _rot_input + ["-i", str(video_in)]
             for vid_path, *_ in broll_files:
                 cmd += ["-i", str(vid_path)]  # finite video clip — no -loop
 
             filters = []
             prev = "0:v"
+            # Apply rotation to main track first if needed
+            if _rotation:
+                filters.append(f"[0:v]{_rot_vf.rstrip(',')}[vrot]")
+                prev = "vrot"
             for idx, (_, start, end, clip_in_start, clip_in_end) in enumerate(broll_files):
                 vid_idx = idx + 1
                 out_label = f"vbr{idx}"
@@ -2661,11 +2697,25 @@ def burn_hook_fn(
     def probe_dims(path):
         r = subprocess.run(
             ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=width,height", "-of", "json", str(path)],
+             "-show_entries", "stream=width,height,side_data_list",
+             "-show_entries", "stream_tags=rotate",
+             "-of", "json", str(path)],
             capture_output=True, text=True, check=True,
         )
         s = json.loads(r.stdout)["streams"][0]
-        return int(s["width"]), int(s["height"])
+        w, h = int(s["width"]), int(s["height"])
+        rot = 0
+        tag_rot = s.get("tags", {}).get("rotate")
+        if tag_rot:
+            rot = int(tag_rot)
+        else:
+            for sd in s.get("side_data_list", []):
+                if "rotation" in sd:
+                    rot = (-int(sd["rotation"])) % 360
+                    break
+        if rot in (90, 270):
+            w, h = h, w
+        return w, h, rot
 
     def seconds_to_ass(t):
         h = int(t // 3600); m = int((t % 3600) // 60); s = t % 60
@@ -2686,7 +2736,7 @@ def burn_hook_fn(
         ass_path  = tmp_path / "hook.ass"
         shutil.copy(Path(TMP_DIR) / video_key, video_in)
 
-        width, height = probe_dims(video_in)
+        width, height, _rotation = probe_dims(video_in)
         font_size = max(36, min(96, int(height * 0.075)))
 
         primary_col = hex_to_ass(font_color, alpha_byte=0)
