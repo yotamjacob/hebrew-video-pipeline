@@ -315,14 +315,29 @@ def process_video(
     def probe_video(path):
         r = subprocess.run(
             ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=width,height",
+             "-show_entries", "stream=width,height,side_data_list",
+             "-show_entries", "stream_tags=rotate",
              "-show_entries", "format=duration",
              "-of", "json", str(path)],
             capture_output=True, text=True, check=True,
         )
         d = json.loads(r.stdout)
         s = d["streams"][0]
-        return int(s["width"]), int(s["height"]), float(d["format"]["duration"])
+        # Detect rotation from stream tags (older) or side_data_list (newer ffprobe)
+        rotation = 0
+        tag_rot = s.get("tags", {}).get("rotate")
+        if tag_rot:
+            rotation = int(tag_rot)
+        else:
+            for sd in s.get("side_data_list", []):
+                if "rotation" in sd:
+                    rotation = (-int(sd["rotation"])) % 360
+                    break
+        w, h = int(s["width"]), int(s["height"])
+        # Swap to display dimensions when rotated 90/270
+        if rotation in (90, 270):
+            w, h = h, w
+        return w, h, float(d["format"]["duration"]), rotation
 
     def extract_audio(video, out_wav):
         run(["ffmpeg", "-y", "-i", str(video),
@@ -394,7 +409,7 @@ def process_video(
     def transcribe(wav):
         import os
         os.environ["HF_HOME"] = MODEL_DIR
-        from faster_whisper import WhisperModel, BatchedInferencePipeline
+        from faster_whisper import WhisperModel
 
         def _words(segs):
             result = []
@@ -408,18 +423,17 @@ def process_video(
         try:
             m = WhisperModel(WHISPER_MODEL, device="cuda", compute_type="float16",
                              download_root=MODEL_DIR)
-            pipeline = BatchedInferencePipeline(model=m)
-            segs, _ = pipeline.transcribe(
+            segs, _ = m.transcribe(
                 str(wav), language="he", word_timestamps=True,
-                vad_filter=True, beam_size=3, batch_size=8,
+                vad_filter=True, beam_size=5, condition_on_previous_text=True,
             )
-            words = _words(segs)
+            words = _words(segs)  # consume lazy generator inside try — CUDA errors surface here
         except Exception:
             m = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8",
                              download_root=MODEL_DIR)
             segs, _ = m.transcribe(
                 str(wav), language="he", word_timestamps=True,
-                vad_filter=True, beam_size=3, condition_on_previous_text=True,
+                vad_filter=True, beam_size=5, condition_on_previous_text=True,
             )
             words = _words(segs)
         model_volume.commit()
@@ -511,25 +525,41 @@ def process_video(
         path.write_text(header + "".join(lines), encoding="utf-8")
         return events
 
-    def render(video, audio, segs, ass_file, out, crf=18):
+    def _rotation_vf(rotation):
+        """Return an ffmpeg vf filter string (with trailing comma) to bake in rotation metadata.
+        rotate=90  → portrait iPhone selfie → needs 90° CCW (transpose=cclock)
+        rotate=270 → needs 90° CW (transpose=clock)
+        rotate=180 → flip both axes
+        """
+        r = rotation % 360
+        if r == 90:  return "transpose=cclock,"
+        if r == 270: return "transpose=clock,"
+        if r == 180: return "hflip,vflip,"
+        return ""
+
+    def render(video, audio, segs, ass_file, out, crf=18, rotation=0):
         v_parts, a_parts = [], []
         for i, s in enumerate(segs):
             v_parts.append(f"[0:v]trim=start={s.start:.3f}:end={s.end:.3f},setpts=PTS-STARTPTS[v{i}]")
             a_parts.append(f"[1:a]atrim=start={s.start:.3f}:end={s.end:.3f},asetpts=PTS-STARTPTS[a{i}]")
         cin = "".join(f"[v{i}][a{i}]" for i in range(len(segs)))
         concat = f"{cin}concat=n={len(segs)}:v=1:a=1[vc][ac]"
+        rot_vf = _rotation_vf(rotation)
         if ass_file:
             esc = str(ass_file).replace(":", r"\:")
-            last = f"[vc]subtitles='{esc}'[vout]"
+            last = f"[vc]{rot_vf}subtitles='{esc}'[vout]"
         else:
-            last = "[vc]copy[vout]"
+            last = f"[vc]{rot_vf}copy[vout]"
         fc = ";".join(v_parts + a_parts + [concat, last])
-        run(["ffmpeg", "-y", "-i", str(video), "-i", str(audio),
+        # -noautorotate: disable implicit rotation so our explicit transpose is the sole source of truth
+        input_args = ["-noautorotate"] if rotation else []
+        meta_args  = ["-metadata:s:v:0", "rotate=0"] if rotation else []
+        run(["ffmpeg", "-y"] + input_args + ["-i", str(video), "-i", str(audio),
              "-filter_complex", fc,
              "-map", "[vout]", "-map", "[ac]",
              "-c:v", "libx264", "-crf", str(crf), "-preset", "veryfast",
              "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
-             "-movflags", "+faststart", str(out)])
+             "-movflags", "+faststart"] + meta_args + [str(out)])
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
@@ -545,7 +575,7 @@ def process_video(
         else:
             src.write_bytes(video_bytes)
 
-        width, height, duration = probe_video(src)
+        width, height, duration, rotation = probe_video(src)
         raw_wav = tmp / "raw.wav"
         clean_wav = tmp / "clean.wav"
         ass_file = tmp / "captions.ass"
@@ -572,7 +602,15 @@ def process_video(
             captions_list = [{"start": s, "end": e, "text": _censor_caption_text(t)} for s, e, t in events]
 
         if cut_silences and words:
-            t0 = _time.time(); render(src, clean_wav, segs, None, out_file); _t("render", t0)
+            t0 = _time.time(); render(src, clean_wav, segs, None, out_file, rotation=rotation); _t("render", t0)
+        elif rotation:
+            # No silence cut but source has rotation metadata — bake it in so the browser
+            # gets correctly-oriented pixels without relying on display matrix hints.
+            rot_vf = _rotation_vf(rotation).rstrip(",")
+            run(["ffmpeg", "-y", "-noautorotate", "-i", str(src),
+                 "-vf", rot_vf, "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
+                 "-pix_fmt", "yuv420p", "-c:a", "copy",
+                 "-metadata:s:v:0", "rotate=0", "-movflags", "+faststart", str(out_file)])
         else:
             shutil.copy(src, out_file)
 
@@ -2968,12 +3006,19 @@ def api():
                         (b"content-range", f"bytes {start}-{end}/{file_size}".encode())
                     )
 
-                with open(file_path, "rb") as f:
-                    f.seek(start)
-                    body = f.read(content_length)
                 await send({"type": "http.response.start", "status": status,
                             "headers": resp_headers})
-                await send({"type": "http.response.body", "body": body})
+                with open(file_path, "rb") as f:
+                    f.seek(start)
+                    remaining = content_length
+                    CHUNK = 256 * 1024  # 256 KB — small enough to start playback fast
+                    while remaining > 0:
+                        chunk = f.read(min(CHUNK, remaining))
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                        await send({"type": "http.response.body",
+                                    "body": chunk, "more_body": remaining > 0})
                 if key.endswith("_out.mp4"):
                     file_path.unlink(missing_ok=True)
                     tmp_vol.commit()

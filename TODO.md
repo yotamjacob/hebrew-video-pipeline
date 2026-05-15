@@ -51,6 +51,5 @@
 - [ ] Test coverage: stock B-roll flow, `/upload_chunk`, `/download/{key}`, error cases
 
 
-
-add forbiden words filter to avoid instagram shadow banning the video
-add capability to add cupations and split existing caption into separate lines in the caption editor
+subtitles dissapear when the talking ends
+    

@@ -811,22 +811,49 @@
 
     /* ── Caption editor ── */
     .caption-row {
-      display: flex; align-items: center; gap: 10px;
-      padding: 7px 0; border-bottom: 1px solid var(--purple-100);
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 0; border-bottom: 1px solid var(--purple-100);
     }
     .caption-row:last-child { border-bottom: none; }
     .caption-time {
       font-size: 0.7rem; color: var(--purple-400);
       white-space: nowrap; font-variant-numeric: tabular-nums;
-      width: 86px; flex-shrink: 0;
+      flex-shrink: 0;
     }
+    .caption-time-wrap {
+      display: flex; flex-direction: column; gap: 3px; flex-shrink: 0;
+    }
+    .caption-time-row {
+      display: flex; align-items: center; gap: 3px;
+      font-size: 0.68rem; color: var(--purple-400);
+    }
+    .caption-time-row label { white-space: nowrap; }
+    .caption-time-input {
+      width: 68px; border: 1.5px solid var(--purple-100); border-radius: 5px;
+      padding: 2px 5px; font-size: 0.7rem; font-variant-numeric: tabular-nums;
+      text-align: center; color: var(--text); background: var(--white);
+      font-family: inherit;
+    }
+    .caption-time-input:focus { outline: none; border-color: var(--purple-600); }
     .caption-input {
       flex: 1; border: 1.5px solid var(--purple-100); border-radius: 8px;
       padding: 5px 10px; font-size: 0.85rem; direction: rtl;
       font-family: inherit; color: var(--text); background: var(--white);
     }
     .caption-input:focus { outline: none; border-color: var(--purple-600); }
-    .captions-list { max-height: 380px; overflow-y: auto; }
+    .caption-actions {
+      display: flex; flex-direction: column; gap: 3px; flex-shrink: 0;
+    }
+    .cap-btn {
+      width: 24px; height: 24px; border-radius: 5px; border: 1.5px solid var(--purple-200);
+      background: var(--white); color: var(--purple-600); font-size: 0.8rem;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      line-height: 1; padding: 0; transition: background .15s, border-color .15s;
+    }
+    .cap-btn:hover:not(:disabled) { background: var(--purple-50); border-color: var(--purple-400); }
+    .cap-btn:disabled { opacity: 0.3; cursor: default; }
+    .cap-btn-split { font-size: 0.75rem; }
+    .captions-list { max-height: 420px; overflow-y: auto; }
 
     /* Caption preview */
     .preview-row { display: flex; gap: 10px; align-items: stretch; justify-content: center; margin-bottom: 14px; }
@@ -878,9 +905,12 @@
     .player-outer { margin-bottom: 16px; }
     .player-wrap {
       position: relative; background: #000; border-radius: 10px; overflow: hidden;
-      width: min(240px, 72%); aspect-ratio: 9/16; flex-shrink: 0; cursor: pointer;
+      flex-shrink: 0; cursor: pointer; align-self: flex-start;
+      width: min(440px, 88vw);
     }
-    #cutVideo { width: 100%; height: 100%; display: block; object-fit: contain; }
+    #cutVideo {
+      display: block; width: 100%; height: 100%; object-fit: contain;
+    }
     #playerCap {
       position: absolute; left: 50%; transform: translateX(-50%);
       max-width: 92%; color: #fff; font-weight: 700; text-align: center;
@@ -923,9 +953,12 @@
       font-size: 0.7rem; color: var(--muted); white-space: nowrap;
       font-variant-numeric: tabular-nums; flex-shrink: 0;
     }
-    .caption-row-active { background: var(--purple-50) !important; border-radius: 6px; }
-    .caption-time { cursor: pointer; }
-    .caption-time:hover { color: var(--purple-600); text-decoration: underline dotted; }
+    .caption-row { cursor: pointer; }
+    .caption-row-active   { background: var(--purple-50)  !important; border-radius: 6px; }
+    .caption-row-selected { background: var(--purple-100) !important; border-radius: 6px; outline: 1.5px solid var(--purple-300); outline-offset: -1px; }
+    .caption-row-selected .caption-input { border-color: var(--purple-400); }
+    .caption-time-input[data-seek] { cursor: pointer; }
+    .caption-time-input[data-seek]:hover { border-color: var(--purple-400); }
     .caption-controls {
       display: flex; align-items: center; gap: 10px; margin-bottom: 4px;
     }
@@ -1247,6 +1280,12 @@
           onmouseout="if(!this.disabled)this.style.background='none'">
           🎬 Find B-Roll Moments
         </button>
+        <button id="downloadSrtBtn" onclick="downloadSRT()"
+          style="padding:11px 16px;background:none;border:1.5px solid var(--purple-200);color:var(--purple-600);border-radius:12px;font-size:0.88rem;font-weight:600;cursor:pointer;white-space:nowrap;transition:background 0.15s,border-color 0.15s"
+          onmouseover="this.style.background='var(--purple-50)';this.style.borderColor='var(--purple-400)'"
+          onmouseout="this.style.background='none';this.style.borderColor='var(--purple-200)'">
+          ⬇ SRT
+        </button>
       </div>
 
     </div>
@@ -1519,6 +1558,7 @@
   let selectedHookIdx        = -1;
   let hookGenAborted         = false;
   let hookThumbnail          = null;
+  let _playerSetupDone       = false;
 
   // ── Background-job persistence (survives tab close/reload on mobile) ──
   const JOB_KEY = 'hebpipe_job';
@@ -1602,18 +1642,39 @@
     if (burnMode) runBtn.disabled = pendingAnalyses > 0;
   }
 
-  function getEditedCaptions() {
-    const inputs = document.querySelectorAll('#captionsList .caption-input');
-    return captionsData.map((cap, i) => ({
-      start: cap.start,
-      end:   cap.end,
-      text:  inputs[i] ? inputs[i].value : cap.text,
+  function getCaptionsFromEditor() {
+    return Array.from(document.querySelectorAll('#captionsList .caption-row')).map(row => ({
+      start: parseFloat(row.querySelector('.caption-start').value) || 0,
+      end:   parseFloat(row.querySelector('.caption-end').value)   || 0,
+      text:  row.querySelector('.caption-input').value,
     }));
   }
 
+  function getEditedCaptions() { return getCaptionsFromEditor(); }
+
   function getCaptionsSignature() {
-    const inputs = document.querySelectorAll('#captionsList .caption-input');
-    return Array.from(inputs).map(i => i.value).join('|');
+    return getCaptionsFromEditor().map(c => c.text).join('|');
+  }
+
+  function downloadSRT() {
+    const captions = getCaptionsFromEditor();
+    if (!captions.length) return;
+    function toSrtTime(s) {
+      const h   = Math.floor(s / 3600);
+      const m   = Math.floor((s % 3600) / 60);
+      const sec = Math.floor(s % 60);
+      const ms  = Math.round((s % 1) * 1000);
+      return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')},${String(ms).padStart(3,'0')}`;
+    }
+    const srt = captions.map((c, i) =>
+      `${i + 1}\n${toSrtTime(c.start)} --> ${toSrtTime(c.end)}\n${c.text}`
+    ).join('\n\n') + '\n';
+    const blob = new Blob([srt], { type: 'text/plain;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const base = selectedFile ? selectedFile.name.replace(/\.[^.]+$/, '') : 'captions';
+    a.href = url; a.download = base + '.srt'; a.click();
+    URL.revokeObjectURL(url);
   }
 
   function showConfirmModal(title, body, okText) {
@@ -1920,16 +1981,34 @@
     async function uploadChunk(i) {
       const start = i * CHUNK_SIZE;
       const end   = Math.min(start + CHUNK_SIZE, file.size);
-      const resp  = await fetch(
-        `${API_BASE}/upload_chunk/?key=${key}&index=${i}`,
-        { method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: file.slice(start, end) }
-      );
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}));
-        throw new Error(body.error || `Upload failed at chunk ${i} (${resp.status})`);
+      const slice = file.slice(start, end);
+      const MAX_ATTEMPTS = 4;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, attempt * 1500));
+        try {
+          const resp = await fetch(
+            `${API_BASE}/upload_chunk/?key=${key}&index=${i}`,
+            { method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: slice }
+          );
+          if (resp.ok) {
+            bytesUploaded += (end - start);
+            onProgress(bytesUploaded / file.size);
+            return;
+          }
+          // Hard client errors (not 408/429) — don't retry
+          if (resp.status >= 400 && resp.status < 500 && resp.status !== 408 && resp.status !== 429) {
+            const body = await resp.json().catch(() => ({}));
+            throw new Error(body.error || `Upload failed at chunk ${i} (${resp.status})`);
+          }
+          // 408, 429, 5xx — fall through to retry
+          if (attempt === MAX_ATTEMPTS - 1)
+            throw new Error(`Upload failed at chunk ${i} after ${MAX_ATTEMPTS} attempts (${resp.status})`);
+        } catch (e) {
+          // Re-throw terminal errors immediately
+          if (e.message.startsWith('Upload failed') || attempt === MAX_ATTEMPTS - 1) throw e;
+          // Network error or CORS-blocked error response — retry
+        }
       }
-      bytesUploaded += (end - start);
-      onProgress(bytesUploaded / file.size);
     }
 
     // Process chunks in batches of UPLOAD_CONCURRENCY
@@ -2247,6 +2326,7 @@
     captionFontSize  = 48;
     const _vid = document.getElementById('cutVideo');
     if (_vid) { _vid.pause(); _vid.removeAttribute('src'); _vid.load(); }
+    _playerSetupDone = false;
     const _cp = document.getElementById('captionPlayer');
     if (_cp) _cp.style.display = 'none';
     const fs = document.getElementById('fontSelect');
@@ -2359,7 +2439,15 @@
     }
   }
 
+  function _safePlay(vid) {
+    const p = vid.play();
+    if (p) p.catch(e => { if (e.name !== 'AbortError') console.error(e); });
+  }
+
   function setupCaptionPlayer() {
+    if (_playerSetupDone) return;
+    _playerSetupDone = true;
+
     const vid     = document.getElementById('cutVideo');
     const capEl   = document.getElementById('playerCap');
     const bigPlay = document.getElementById('playerBigPlay');
@@ -2373,16 +2461,15 @@
     vid.src = `${API_BASE}/download/${videoKey}`;
     document.getElementById('captionPlayer').style.display = 'block';
 
-    // Match aspect ratio to the actual video once metadata arrives
     vid.addEventListener('loadedmetadata', () => {
       const wrap = document.getElementById('playerWrap');
       if (wrap && vid.videoWidth && vid.videoHeight) {
+        const isPortrait = vid.videoHeight > vid.videoWidth;
+        const maxW = isPortrait ? Math.min(260, window.innerWidth * 0.72) : Math.min(440, window.innerWidth * 0.88);
+        wrap.style.width = maxW + 'px';
         wrap.style.aspectRatio = `${vid.videoWidth} / ${vid.videoHeight}`;
-        wrap.style.width = vid.videoWidth > vid.videoHeight
-          ? 'min(440px, 88%)'   // landscape
-          : 'min(240px, 72%)';  // portrait
-        updatePreviewCaption();
       }
+      updatePreviewCaption();
     }, { once: true });
 
     function fmtT(s) {
@@ -2392,11 +2479,12 @@
     }
 
     function togglePlay() {
-      if (vid.paused || vid.ended) vid.play(); else vid.pause();
+      if (vid.paused || vid.ended) _safePlay(vid); else vid.pause();
     }
 
-    vid.addEventListener('click', togglePlay);
-    playBtn.addEventListener('click', togglePlay);
+    const playerWrap = document.getElementById('playerWrap');
+    if (playerWrap) playerWrap.addEventListener('click', togglePlay);
+    if (playBtn) playBtn.addEventListener('click', togglePlay);
     vid.addEventListener('play',  () => { bigPlay.style.opacity = '0'; playBtn.textContent = '⏸'; });
     vid.addEventListener('pause', () => { bigPlay.style.opacity = '1'; playBtn.textContent = '▶'; });
     vid.addEventListener('ended', () => { bigPlay.style.opacity = '1'; playBtn.textContent = '▶'; });
@@ -2425,11 +2513,11 @@
         }
       }
 
-      // Highlight active row and auto-scroll it into view in the list
-      document.querySelectorAll('.caption-row').forEach((row, i) => {
-        const active = !!captionsData[i] && t >= captionsData[i].start && t <= captionsData[i].end + 0.05;
-        row.classList.toggle('caption-row-active', active);
-        // auto-scroll disabled — user scrolls manually
+      // Highlight active row — reads timestamps from DOM so it stays correct after edits
+      document.querySelectorAll('.caption-row').forEach(row => {
+        const rs = parseFloat(row.querySelector('.caption-start')?.value) || 0;
+        const re = parseFloat(row.querySelector('.caption-end')?.value)   || 0;
+        row.classList.toggle('caption-row-active', t >= rs && t <= re + 0.05);
       });
     });
 
@@ -3074,7 +3162,7 @@
     // Lock the caption editor and button while searching
     findBrollBtn.disabled = true;
     findBrollBtn.textContent = '⏳ Searching…';
-    document.querySelectorAll('#captionsList .caption-input').forEach(el => { el.disabled = true; });
+    document.querySelectorAll('#captionsList .caption-input, #captionsList .caption-time-input, #captionsList .cap-btn').forEach(el => { el.disabled = true; });
 
     bumpPending(+1);
     const stockElapsedEl = document.getElementById('stockBrollElapsed');
@@ -3155,7 +3243,8 @@
     } finally {
       bumpPending(-1);
       // Restore caption editor and button
-      document.querySelectorAll('#captionsList .caption-input').forEach(el => { el.disabled = false; });
+      document.querySelectorAll('#captionsList .caption-input, #captionsList .caption-time-input, #captionsList .cap-btn').forEach(el => { el.disabled = false; });
+      _updateDeleteButtons();
       findBrollBtn.textContent = '🎬 Find B-Roll Moments';
       updateFindBrollBtn();
     }
@@ -3756,6 +3845,146 @@
     });
   }
 
+  function _selectCaption(row, seekSecs) {
+    document.querySelectorAll('#captionsList .caption-row-selected')
+      .forEach(r => r.classList.remove('caption-row-selected'));
+    row.classList.add('caption-row-selected');
+    const vid = document.getElementById('cutVideo');
+    if (vid && vid.src && isFinite(vid.duration)) {
+      vid.currentTime = seekSecs;
+      vid.pause();
+      document.getElementById('playerWrap')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+
+  function _updateDeleteButtons() {
+    const rows = document.querySelectorAll('#captionsList .caption-row');
+    const onlyOne = rows.length === 1;
+    rows.forEach(r => { r.querySelector('.cap-btn-del').disabled = onlyOne; });
+  }
+
+  function _createCaptionRow(cap) {
+    const row = document.createElement('div');
+    row.className = 'caption-row';
+
+    // Time controls
+    const timeWrap = document.createElement('div');
+    timeWrap.className = 'caption-time-wrap';
+
+    function makeTimeRow(labelText, cls, val) {
+      const tr = document.createElement('div');
+      tr.className = 'caption-time-row';
+      const lbl = document.createElement('label');
+      lbl.textContent = labelText;
+      const inp = document.createElement('input');
+      inp.type      = 'number';
+      inp.className = 'caption-time-input ' + cls;
+      inp.value     = val.toFixed(2);
+      inp.step      = '0.1';
+      inp.min       = '0';
+      inp.title     = 'Click to seek player here';
+      inp.dataset.seek = '1';
+      inp.addEventListener('click', e => {
+        e.stopPropagation();
+        _selectCaption(row, parseFloat(inp.value) || 0);
+      });
+      tr.appendChild(lbl);
+      tr.appendChild(inp);
+      return { tr, inp };
+    }
+    const { tr: startRow, inp: startInp } = makeTimeRow('▶', 'caption-start', cap.start);
+    const { tr: endRow,   inp: endInp   } = makeTimeRow('■', 'caption-end',   cap.end);
+    timeWrap.appendChild(startRow);
+    timeWrap.appendChild(endRow);
+
+    // Text input
+    const textInp = document.createElement('input');
+    textInp.type      = 'text';
+    textInp.className = 'caption-input';
+    textInp.value     = cap.text;
+    textInp.dir       = 'rtl';
+    textInp.addEventListener('input', () => {
+      updatePreviewCaption();
+      if (stockBrollAnalyzed && getCaptionsSignature() !== lastAnalyzedSignature) {
+        document.getElementById('stockBrollRerunBanner').style.display = 'flex';
+      }
+    });
+    textInp.addEventListener('click', e => {
+      e.stopPropagation();
+      _selectCaption(row, parseFloat(startInp.value) || 0);
+    });
+
+    // Action buttons
+    const actions = document.createElement('div');
+    actions.className = 'caption-actions';
+
+    // Split button ✂
+    const splitBtn = document.createElement('button');
+    splitBtn.className  = 'cap-btn cap-btn-split';
+    splitBtn.textContent = '✂';
+    splitBtn.title      = 'Split at cursor';
+    splitBtn.addEventListener('click', () => {
+      const pos   = textInp.selectionStart ?? textInp.value.length;
+      const left  = textInp.value.slice(0, pos).trim();
+      const right = textInp.value.slice(pos).trim();
+      const s = parseFloat(startInp.value) || 0;
+      const e = parseFloat(endInp.value)   || 0;
+      const mid = parseFloat(((s + e) / 2).toFixed(2));
+      textInp.value = left;
+      endInp.value  = mid.toFixed(2);
+      updatePreviewCaption();
+      const newRow = _createCaptionRow({ start: mid, end: e, text: right });
+      row.insertAdjacentElement('afterend', newRow);
+      _updateDeleteButtons();
+      newRow.querySelector('.caption-input').focus();
+    });
+
+    // Add button +
+    const addBtn = document.createElement('button');
+    addBtn.className  = 'cap-btn cap-btn-add';
+    addBtn.textContent = '+';
+    addBtn.title      = 'Add caption line below';
+    addBtn.addEventListener('click', () => {
+      const e = parseFloat(endInp.value) || 0;
+      const nextStart = e;
+      const nextRow = row.nextElementSibling;
+      const nextEnd = nextRow
+        ? (parseFloat(nextRow.querySelector('.caption-start')?.value) || e + 2)
+        : e + 2;
+      const newRow = _createCaptionRow({ start: nextStart, end: Math.min(nextEnd, nextStart + 2), text: '' });
+      row.insertAdjacentElement('afterend', newRow);
+      _updateDeleteButtons();
+      newRow.querySelector('.caption-input').focus();
+    });
+
+    // Delete button −
+    const delBtn = document.createElement('button');
+    delBtn.className  = 'cap-btn cap-btn-del';
+    delBtn.textContent = '−';
+    delBtn.title      = 'Remove this line';
+    delBtn.addEventListener('click', () => {
+      row.remove();
+      _updateDeleteButtons();
+      updatePreviewCaption();
+    });
+
+    actions.appendChild(splitBtn);
+    actions.appendChild(addBtn);
+    actions.appendChild(delBtn);
+
+    row.appendChild(timeWrap);
+    row.appendChild(textInp);
+    row.appendChild(actions);
+
+    // Row click → select + seek to start (buttons handle themselves via stopPropagation)
+    row.addEventListener('click', e => {
+      if (e.target.closest('.cap-btn')) return;
+      _selectCaption(row, parseFloat(startInp.value) || 0);
+    });
+
+    return row;
+  }
+
   function showCaptionEditor() {
     // Ensure card body is expanded (may have been collapsed in a previous burn)
     const captionHeader = document.querySelector('#captionEditorCard .card-header');
@@ -3765,37 +3994,8 @@
 
     const list = document.getElementById('captionsList');
     list.innerHTML = '';
-    captionsData.forEach((cap, i) => {
-      const row   = document.createElement('div');
-      row.className = 'caption-row';
-      const time  = document.createElement('span');
-      time.className = 'caption-time';
-      time.textContent = fmtCapTime(cap.start) + ' – ' + fmtCapTime(cap.end);
-      const input = document.createElement('input');
-      input.type      = 'text';
-      input.className = 'caption-input';
-      input.value     = cap.text;
-      input.dir       = 'rtl';
-      input.addEventListener('input', () => {
-        updatePreviewCaption();
-        if (stockBrollAnalyzed && getCaptionsSignature() !== lastAnalyzedSignature) {
-          document.getElementById('stockBrollRerunBanner').style.display = 'flex';
-        }
-      });
-      // Click timestamp → seek player to that caption
-      time.title = 'Click to jump to this caption in the player';
-      time.addEventListener('click', () => {
-        const vid = document.getElementById('cutVideo');
-        if (vid && vid.src && isFinite(vid.duration)) {
-          vid.currentTime = cap.start;
-          vid.play();
-          document.getElementById('playerWrap')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }
-      });
-      row.appendChild(time);
-      row.appendChild(input);
-      list.appendChild(row);
-    });
+    captionsData.forEach(cap => list.appendChild(_createCaptionRow(cap)));
+    _updateDeleteButtons();
     document.getElementById('captionEditorCard').style.display = 'block';
     document.getElementById('hookCard').style.display = 'block';
     document.getElementById('generateHookBtn').disabled = false;
@@ -3821,13 +4021,7 @@
     if (!confirmed) return;
     document.getElementById('burnSuccessBanner').style.display = 'none';
 
-    // Collect edited caption text from inputs
-    const inputs = document.querySelectorAll('#captionsList .caption-input');
-    const edited = captionsData.map((cap, i) => ({
-      start: cap.start,
-      end:   cap.end,
-      text:  inputs[i] ? inputs[i].value : cap.text,
-    }));
+    const edited = getCaptionsFromEditor();
 
     const fname = selectedFile ? selectedFile.name : 'video.mp4';
     const burnUrl = new URL(API_BASE + '/burn/');
