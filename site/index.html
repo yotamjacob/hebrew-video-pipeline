@@ -1559,6 +1559,7 @@
   let hookGenAborted         = false;
   let hookThumbnail          = null;
   let _playerSetupDone       = false;
+  let _playerDispW           = 0;   // detected display width (accounts for browser rotation)
 
   // ── Background-job persistence (survives tab close/reload on mobile) ──
   const JOB_KEY = 'hebpipe_job';
@@ -2327,6 +2328,7 @@
     const _vid = document.getElementById('cutVideo');
     if (_vid) { _vid.pause(); _vid.removeAttribute('src'); _vid.load(); }
     _playerSetupDone = false;
+    _playerDispW = 0;
     const _cp = document.getElementById('captionPlayer');
     if (_cp) _cp.style.display = 'none';
     const fs = document.getElementById('fontSelect');
@@ -2428,14 +2430,14 @@
     capEl.style.fontFamily = `'${captionFont}', sans-serif`;
     capEl.style.bottom     = (captionMarginPct * 100) + '%';
     if (vid && vid.videoWidth) {
-      // Use clientWidth/videoWidth — unaffected by the default 9/16 container
-      // before loadedmetadata fires for non-portrait videos.
-      const scale = vid.clientWidth / vid.videoWidth;
+      // _playerDispW = detected display width (handles browser-auto-rotated videos where
+      // videoWidth reports stream width, not display width)
+      const displayW = _playerDispW || vid.videoWidth;
+      const scale = vid.clientWidth / displayW;
       capEl.style.fontSize = Math.max(7, captionFontSize * scale) + 'px';
-      // Re-wrap current caption text with updated font size
       const t = vid.currentTime;
       const cap = captionsData && captionsData.find(c => t >= c.start && t <= c.end + 0.05);
-      if (cap) capEl.textContent = rewrapCaption(cap.text, vid.videoWidth, captionFontSize);
+      if (cap) capEl.textContent = rewrapCaption(cap.text, displayW, captionFontSize);
     }
   }
 
@@ -2463,13 +2465,32 @@
 
     vid.addEventListener('loadedmetadata', () => {
       const wrap = document.getElementById('playerWrap');
-      if (wrap && vid.videoWidth && vid.videoHeight) {
-        const isPortrait = vid.videoHeight > vid.videoWidth;
+      if (!wrap || !vid.videoWidth || !vid.videoHeight) { updatePreviewCaption(); return; }
+      const sW = vid.videoWidth, sH = vid.videoHeight;
+
+      // videoWidth/videoHeight may reflect stream dimensions (not display dimensions)
+      // for videos that still carry rotation metadata (pre-baked-rotation processing).
+      // Let the browser render one frame at auto-size, then measure rendered orientation.
+      const savedCss = vid.style.cssText;
+      vid.style.cssText = 'display:block;width:auto;height:auto;max-width:440px;max-height:75vh;position:absolute';
+      requestAnimationFrame(() => {
+        const rW = vid.offsetWidth || sW, rH = vid.offsetHeight || sH;
+        vid.style.cssText = savedCss;
+
+        // If stream AR and rendered AR are inverses of each other, browser auto-rotated
+        const streamAR = sW / sH, renderedAR = rW / rH;
+        const autoRotated = (streamAR > 1.2 && renderedAR < 0.84) ||
+                            (streamAR < 0.84 && renderedAR > 1.2);
+        const dispW = autoRotated ? sH : sW;
+        const dispH = autoRotated ? sW : sH;
+
+        const isPortrait = dispH > dispW;
         const maxW = isPortrait ? Math.min(260, window.innerWidth * 0.72) : Math.min(440, window.innerWidth * 0.88);
         wrap.style.width = maxW + 'px';
-        wrap.style.aspectRatio = `${vid.videoWidth} / ${vid.videoHeight}`;
-      }
-      updatePreviewCaption();
+        wrap.style.aspectRatio = `${dispW} / ${dispH}`;
+        _playerDispW = dispW;
+        updatePreviewCaption();
+      });
     }, { once: true });
 
     function fmtT(s) {
