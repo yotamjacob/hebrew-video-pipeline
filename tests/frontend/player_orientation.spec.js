@@ -103,12 +103,13 @@ test('portrait video: playerWrap is taller than wide', async ({ page }) => {
   expect(dims.wrapH).toBeGreaterThan(dims.wrapW);
 });
 
-test('landscape video: playerWrap is wider than tall', async ({ page }) => {
+// Player is forced to portrait (9:16) regardless of video dimensions.
+test('landscape video: playerWrap is still portrait (forced 9:16)', async ({ page }) => {
   await runAndWaitForPlayer(page, LANDSCAPE_MP4);
   await waitForPlayerSized(page);
   const dims = await readVideoDimensions(page);
   console.log('[landscape wrap]', JSON.stringify(dims));
-  expect(dims.wrapW).toBeGreaterThan(dims.wrapH);
+  expect(dims.wrapH).toBeGreaterThan(dims.wrapW);
 });
 
 test('rotated-metadata video: log what Chrome reports', async ({ page }) => {
@@ -119,15 +120,11 @@ test('rotated-metadata video: log what Chrome reports', async ({ page }) => {
   expect(dims).not.toBeNull();
 });
 
-// Chrome does NOT swap videoWidth/videoHeight for format-level rotate= tags (only for
-// tkhd display-matrix rotation as used by real iPhones).  The pipeline's render() bakes
-// rotation in via ffmpeg transpose and clears the tag, so processed videos are always
-// baked-pixel orientation and never reach this code path.
-// Correct browser behaviour: landscape (1920×1080) reported and displayed as landscape.
-test('rotated-metadata video: playerWrap is wider than tall (Chrome treats format-level rotate as landscape)', async ({ page }) => {
+// Player is forced to portrait (9:16) regardless of video dimensions.
+test('rotated-metadata video: playerWrap is still portrait (forced 9:16)', async ({ page }) => {
   await runAndWaitForPlayer(page, ROTATED_META_MP4);
   await waitForPlayerSized(page);
   const dims = await readVideoDimensions(page);
   console.log('[rotated-meta wrap]', JSON.stringify(dims));
-  expect(dims.wrapW).toBeGreaterThan(dims.wrapH);
+  expect(dims.wrapH).toBeGreaterThan(dims.wrapW);
 });
