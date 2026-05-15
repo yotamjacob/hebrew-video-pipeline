@@ -62,9 +62,10 @@ test('caption time spans are rendered', async ({ page }) => {
   await runFullUpload(page);
   const times = page.locator('.caption-time');
   await expect(times).toHaveCount(DEFAULT_CAPTIONS.length);
-  // Each time span should contain a dash separator (e.g. "0:00 – 0:02")
-  const firstTime = await times.first().textContent();
-  expect(firstTime).toMatch(/[\d:]+/);
+  // Each time wrap has a start-time input with a numeric value
+  const firstStartInput = times.first().locator('.caption-start');
+  const val = await firstStartInput.inputValue();
+  expect(parseFloat(val)).toBeGreaterThanOrEqual(0);
 });
 
 test('empty captions response goes straight to download (no editor)', async ({ page }) => {
