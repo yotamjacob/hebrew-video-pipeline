@@ -2982,24 +2982,29 @@ def api():
             filename = qs.get("filename", [key])[0]
             response_started = False
             try:
-                tmp_vol.reload()
+                import asyncio as _asyncio
                 _base = str(_Path(TMP_DIR).resolve())
                 file_path = _Path(TMP_DIR) / key
                 if not str(file_path.resolve()).startswith(_base + "/") and \
                         str(file_path.resolve()) != _base:
                     raise ValueError("Forbidden path")
 
-                # Retry — volume commits from the GPU container may take a moment
-                # to be visible after reload() in a different container instance.
-                import asyncio as _asyncio
-                for _attempt in range(8):
-                    if file_path.exists():
-                        break
-                    print(f"[download] attempt {_attempt}: {key!r} not found, reloading…")
-                    await _asyncio.sleep(2)
-                    tmp_vol.reload()
+                # Reload is inside the loop so "open files" transient errors
+                # (volume still being committed by the GPU container) are retried.
+                for _attempt in range(10):
+                    try:
+                        tmp_vol.reload()
+                        if file_path.exists():
+                            break
+                        print(f"[download] attempt {_attempt}: {key!r} not found")
+                    except RuntimeError as _ve:
+                        if "open files" in str(_ve):
+                            print(f"[download] attempt {_attempt}: volume busy — {_ve}")
+                        else:
+                            raise
+                    if _attempt < 9:
+                        await _asyncio.sleep(1)
                 else:
-                    # Log what IS in the volume to diagnose mis-commit issues
                     _vol_files = [p.name for p in _Path(TMP_DIR).iterdir()] if _Path(TMP_DIR).exists() else []
                     print(f"[download] FAIL key={key!r} vol_files={_vol_files}")
                     raise FileNotFoundError(f"File not found in volume after retries: {key}")
@@ -3068,14 +3073,20 @@ def api():
                 return
             try:
                 import subprocess as _sp, asyncio as _asyncio
-                tmp_vol.reload()
                 file_path = _Path(TMP_DIR) / key
-                for _attempt in range(8):
-                    if file_path.exists():
-                        break
-                    print(f"[thumbnail] attempt {_attempt}: {key!r} not found, reloading…")
-                    await _asyncio.sleep(2)
-                    tmp_vol.reload()
+                for _attempt in range(10):
+                    try:
+                        tmp_vol.reload()
+                        if file_path.exists():
+                            break
+                        print(f"[thumbnail] attempt {_attempt}: {key!r} not found")
+                    except RuntimeError as _ve:
+                        if "open files" in str(_ve):
+                            print(f"[thumbnail] attempt {_attempt}: volume busy — {_ve}")
+                        else:
+                            raise
+                    if _attempt < 9:
+                        await _asyncio.sleep(1)
                 else:
                     _vol_files = [p.name for p in _Path(TMP_DIR).iterdir()] if _Path(TMP_DIR).exists() else []
                     print(f"[thumbnail] FAIL key={key!r} vol_files={_vol_files}")
