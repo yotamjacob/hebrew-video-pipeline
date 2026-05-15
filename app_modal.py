@@ -3057,22 +3057,32 @@ def api():
         # Thumbnail — extract a single JPEG frame at 1s for preview use
         if path.startswith("/thumbnail/") and method == "GET":
             from pathlib import Path as _Path
+            import time as _time_mod
             key = path[len("/thumbnail/"):].rstrip("/")
             if not key or not _SAFE_DOWNLOAD_KEY_RE.match(key):
                 await send_error("Invalid key", 400)
                 return
             try:
                 import subprocess as _sp
+                # Retry volume reload — same propagation lag as download endpoint
                 tmp_vol.reload()
                 file_path = _Path(TMP_DIR) / key
-                if not file_path.exists():
+                for _attempt in range(3):
+                    if file_path.exists():
+                        break
+                    if _attempt < 2:
+                        _time_mod.sleep(1)
+                        tmp_vol.reload()
+                else:
+                    print(f"[thumbnail] file not found after retries: {key}")
                     await send_error("Not found", 404)
                     return
                 def _run_thumb(ss):
+                    # -f mjpeg: correct muxer for JPEG to pipe (image2 is file-only)
                     return _sp.run(
                         ["ffmpeg", "-ss", str(ss), "-i", str(file_path),
                          "-frames:v", "1", "-vf", "scale=400:-2",
-                         "-f", "image2", "-vcodec", "mjpeg", "pipe:1", "-loglevel", "error"],
+                         "-f", "mjpeg", "pipe:1", "-loglevel", "error"],
                         capture_output=True, timeout=15,
                     )
                 r = _run_thumb(1)
@@ -3088,6 +3098,7 @@ def api():
                                                (b"cache-control", b"max-age=300")]})
                 await send({"type": "http.response.body", "body": r.stdout})
             except Exception as e:
+                print(f"[thumbnail] ERROR key={key!r} err={e!r}")
                 await send_error(str(e))
             return
 
