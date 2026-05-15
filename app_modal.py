@@ -461,7 +461,7 @@ def process_video(
         s = t % 60
         return f"{h}:{m:02d}:{s:05.2f}"
 
-    def generate_ass(segs, path, w, h, font_size=48):
+    def generate_ass(segs, path, w, h, font_size=48, min_sil=0.3):
         margin_h = max(25, w // 14)
         margin_v = h // 4
         max_chars = max(8, int((w - 2 * margin_h) / (font_size * 0.60)))
@@ -488,7 +488,16 @@ def process_video(
                 events.append((ns, ne, text))
                 lines_in_cue.clear()
 
+            prev_end = None
             for ww in seg.words:
+                # Split on silence gap — necessary when cut_silences=False puts all words
+                # in one segment; also catches any sub-min_sil gaps left in segments.
+                if prev_end is not None and (ww.start - prev_end) >= min_sil and line_buf:
+                    lines_in_cue.append(line_buf)
+                    line_buf, line_chars = [], 0
+                    flush()
+                prev_end = ww.end
+
                 proj = line_chars + len(ww.text) + (1 if line_buf else 0)
                 if proj > max_chars and line_buf:
                     lines_in_cue.append(line_buf)
@@ -598,7 +607,7 @@ def process_video(
 
         captions_list = []
         if (burn_captions or transcribe_for_broll) and words:
-            events = generate_ass(segs, ass_file, width, height)
+            events = generate_ass(segs, ass_file, width, height, min_sil=min_silence)
             captions_list = [{"start": s, "end": e, "text": _censor_caption_text(t)} for s, e, t in events]
 
         if cut_silences and words:
@@ -3040,13 +3049,19 @@ def api():
                 if not file_path.exists():
                     await send_error("Not found", 404)
                     return
-                r = _sp.run(
-                    ["ffmpeg", "-ss", "1", "-i", str(file_path),
-                     "-frames:v", "1", "-vf", "scale=400:-2",
-                     "-f", "image2", "-vcodec", "mjpeg", "pipe:1", "-loglevel", "error"],
-                    capture_output=True, timeout=15,
-                )
+                def _run_thumb(ss):
+                    return _sp.run(
+                        ["ffmpeg", "-ss", str(ss), "-i", str(file_path),
+                         "-frames:v", "1", "-vf", "scale=400:-2",
+                         "-f", "image2", "-vcodec", "mjpeg", "pipe:1", "-loglevel", "error"],
+                        capture_output=True, timeout=15,
+                    )
+                r = _run_thumb(1)
                 if r.returncode != 0 or not r.stdout:
+                    print(f"[thumbnail] ss=1 failed (rc={r.returncode}): {r.stderr.decode(errors='replace')}")
+                    r = _run_thumb(0)
+                if r.returncode != 0 or not r.stdout:
+                    print(f"[thumbnail] ss=0 failed (rc={r.returncode}): {r.stderr.decode(errors='replace')}")
                     await send_error("Thumbnail extraction failed", 500)
                     return
                 await send({"type": "http.response.start", "status": 200,
