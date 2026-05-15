@@ -1,0 +1,11 @@
+input_vids/
+exports/
+test_output_edited.mp4
+test_broll_output/
+node_modules/
+tests/
+.venv/
+__pycache__/
+*.pyc
+*.py
+*.sh
