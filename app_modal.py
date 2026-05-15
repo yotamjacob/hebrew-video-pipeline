@@ -2989,15 +2989,19 @@ def api():
                         str(file_path.resolve()) != _base:
                     raise ValueError("Forbidden path")
 
-                # Retry once — volume commits from the GPU container may take a moment
+                # Retry — volume commits from the GPU container may take a moment
                 # to be visible after reload() in a different container instance.
-                for _attempt in range(3):
+                import asyncio as _asyncio
+                for _attempt in range(8):
                     if file_path.exists():
                         break
-                    if _attempt < 2:
-                        _time_mod.sleep(1)
-                        tmp_vol.reload()
+                    print(f"[download] attempt {_attempt}: {key!r} not found, reloading…")
+                    await _asyncio.sleep(2)
+                    tmp_vol.reload()
                 else:
+                    # Log what IS in the volume to diagnose mis-commit issues
+                    _vol_files = [p.name for p in _Path(TMP_DIR).iterdir()] if _Path(TMP_DIR).exists() else []
+                    print(f"[download] FAIL key={key!r} vol_files={_vol_files}")
                     raise FileNotFoundError(f"File not found in volume after retries: {key}")
 
                 file_size = file_path.stat().st_size
@@ -3063,18 +3067,18 @@ def api():
                 await send_error("Invalid key", 400)
                 return
             try:
-                import subprocess as _sp
-                # Retry volume reload — same propagation lag as download endpoint
+                import subprocess as _sp, asyncio as _asyncio
                 tmp_vol.reload()
                 file_path = _Path(TMP_DIR) / key
-                for _attempt in range(3):
+                for _attempt in range(8):
                     if file_path.exists():
                         break
-                    if _attempt < 2:
-                        _time_mod.sleep(1)
-                        tmp_vol.reload()
+                    print(f"[thumbnail] attempt {_attempt}: {key!r} not found, reloading…")
+                    await _asyncio.sleep(2)
+                    tmp_vol.reload()
                 else:
-                    print(f"[thumbnail] file not found after retries: {key}")
+                    _vol_files = [p.name for p in _Path(TMP_DIR).iterdir()] if _Path(TMP_DIR).exists() else []
+                    print(f"[thumbnail] FAIL key={key!r} vol_files={_vol_files}")
                     await send_error("Not found", 404)
                     return
                 def _run_thumb(ss):
