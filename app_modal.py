@@ -2973,12 +2973,14 @@ def api():
         # Download a file from the pipeline volume by key
         if path.startswith("/download/") and method == "GET":
             from pathlib import Path as _Path
+            import time as _time_mod
             key = path[len("/download/"):].rstrip("/")
             if not key or not _SAFE_DOWNLOAD_KEY_RE.match(key):
                 await send_error("Invalid key", 400)
                 return
             qs  = parse_qs(scope.get("query_string", b"").decode())
             filename = qs.get("filename", [key])[0]
+            response_started = False
             try:
                 tmp_vol.reload()
                 _base = str(_Path(TMP_DIR).resolve())
@@ -2986,6 +2988,18 @@ def api():
                 if not str(file_path.resolve()).startswith(_base + "/") and \
                         str(file_path.resolve()) != _base:
                     raise ValueError("Forbidden path")
+
+                # Retry once — volume commits from the GPU container may take a moment
+                # to be visible after reload() in a different container instance.
+                for _attempt in range(3):
+                    if file_path.exists():
+                        break
+                    if _attempt < 2:
+                        _time_mod.sleep(1)
+                        tmp_vol.reload()
+                else:
+                    raise FileNotFoundError(f"File not found in volume after retries: {key}")
+
                 file_size = file_path.stat().st_size
 
                 # Parse Range header so the browser can seek in the preview player
@@ -3015,6 +3029,7 @@ def api():
                         (b"content-range", f"bytes {start}-{end}/{file_size}".encode())
                     )
 
+                response_started = True
                 await send({"type": "http.response.start", "status": status,
                             "headers": resp_headers})
                 with open(file_path, "rb") as f:
@@ -3032,7 +3047,11 @@ def api():
                     file_path.unlink(missing_ok=True)
                     tmp_vol.commit()
             except Exception as e:
-                await send_error(str(e))
+                print(f"[download] ERROR key={key!r} response_started={response_started} err={e!r}")
+                if not response_started:
+                    await send_error(str(e))
+                # If response already started, the connection will close ungracefully —
+                # nothing useful we can send at this point.
             return
 
         # Thumbnail — extract a single JPEG frame at 1s for preview use
