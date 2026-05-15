@@ -677,7 +677,7 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
         shutil.copy(Path(TMP_DIR) / video_key, video_in)
 
         width, height = probe_dims(video_in)
-        font_size = max(12, min(120, font_size))
+        font_size = max(12, min(200, font_size))
         margin_h  = max(25, width  // 14)
         margin_v  = int(margin_v_pct * height)
 
