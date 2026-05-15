@@ -108,6 +108,14 @@ async function mockAllApis(page, {
   await page.route(`${API_BASE}/stock-broll-clips-poll/**`, r =>
     r.fulfill({ status: 200, contentType: 'application/json',
                 body: JSON.stringify({ clips: [] }) }));
+
+  // Thumbnail — return a minimal valid JPEG so drawHookPreview doesn't hit the real API
+  await page.route(`${API_BASE}/thumbnail/**`, r =>
+    r.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'max-age=300' },
+      body: Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/APvSiigD/9k=', 'base64'),
+    }));
 }
 
 // Select a fake video file via the file input, triggering handleFile()
