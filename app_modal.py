@@ -412,16 +412,16 @@ def process_video(
         from faster_whisper import WhisperModel
 
         def _segments(segs):
-            # Return List[List[Word]] — one inner list per Whisper segment.
-            # Cuts are only allowed between segments, never within one, so
-            # words that Whisper considers part of the same utterance are
-            # never split by the silence cutter.
+            # Return List[(List[Word], seg_end)] — one tuple per Whisper segment.
+            # seg_end is Whisper's segment-level end timestamp, which is more
+            # generous than the last word's end — it captures trailing vowels
+            # (e.g. the "oooo" of ו) that fall below word-detection threshold.
             result = []
             for seg in segs:
                 seg_words = [Word(w.start, w.end, w.word.strip())
                              for w in (seg.words or []) if w.word.strip()]
                 if seg_words:
-                    result.append(seg_words)
+                    result.append((seg_words, seg.end))
             return result
 
         # Less aggressive VAD: lower threshold + longer speech padding so weak
@@ -466,9 +466,8 @@ def process_video(
         cur = None
         prev_end = None  # raw (unpadded) end timestamp of last added Whisper segment
 
-        for seg_words in whisper_segs:
+        for seg_words, seg_end in whisper_segs:
             seg_start = seg_words[0].start
-            seg_end   = seg_words[-1].end
 
             if cur is None:
                 cur = KeepSegment(start=max(0.0, seg_start - pad), end=0.0)
@@ -481,7 +480,7 @@ def process_video(
                 # else gap too small — merge into current segment
 
             cur.words.extend(seg_words)
-            prev_end = seg_end
+            prev_end = seg_end  # segment-level end, not last word's end
 
         cur.end = min(total_dur, prev_end + pad)
         out.append(cur)
@@ -636,7 +635,7 @@ def process_video(
 
         need_transcription = cut_silences or burn_captions or transcribe_for_broll
         whisper_segs = transcribe(clean_wav) if need_transcription else []
-        flat_words   = [w for seg in whisper_segs for w in seg]
+        flat_words   = [w for seg_words, _end in whisper_segs for w in seg_words]
 
         segs = (
             compute_keep_segments(whisper_segs, duration, min_silence, padding)
