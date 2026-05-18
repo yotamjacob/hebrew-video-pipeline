@@ -2019,6 +2019,16 @@ def _process_moment(m: dict, pexels_key: str, pixabay_key: str, client,
         http_session.close()
 
 
+@app.function(
+    image=image,
+    timeout=600,
+    volumes={TMP_DIR: tmp_vol},
+    secrets=[
+        modal.Secret.from_name("anthropic-secret"),
+        modal.Secret.from_name("pexels-secret"),
+        modal.Secret.from_name("pixabay-secret"),
+    ],
+)
 def analyze_stock_broll(captions_json: str, video_key: str = "") -> list:
     import json, os, requests as _req
 
