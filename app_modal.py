@@ -285,7 +285,7 @@ def process_video(
     if upload_key is not None:
         tmp_vol.reload()
         chunk_paths = sorted(Path(TMP_DIR).glob(f"{upload_key}_chunk_*"))
-        if not chunk_paths:
+        if not chunk_paths and not (Path(TMP_DIR) / f"{upload_key}_src.mp4").exists():
             raise ValueError(f"No upload chunks found for key {upload_key}")
     elif not video_bytes:
         raise ValueError("No video data provided")
@@ -574,13 +574,19 @@ def process_video(
         tmp = Path(tmp)
         src = tmp / filename
         if upload_key is not None:
-            # Stream chunks to disk one at a time — avoids loading entire video into RAM
-            with open(src, "wb") as _out:
-                for p in chunk_paths:
-                    with open(p, "rb") as _in:
-                        shutil.copyfileobj(_in, _out)
-                    p.unlink()
-            tmp_vol.commit()
+            src_cache = Path(TMP_DIR) / f"{upload_key}_src.mp4"
+            if chunk_paths:
+                # First run: assemble chunks, cache assembled video, delete chunks
+                with open(src, "wb") as _out:
+                    for p in chunk_paths:
+                        with open(p, "rb") as _in:
+                            shutil.copyfileobj(_in, _out)
+                        p.unlink()
+                shutil.copy(src, src_cache)
+                tmp_vol.commit()
+            else:
+                # Re-run: use cached assembled video from volume
+                shutil.copy(src_cache, src)
         else:
             src.write_bytes(video_bytes)
 
