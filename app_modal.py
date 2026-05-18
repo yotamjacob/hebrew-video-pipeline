@@ -2327,34 +2327,53 @@ def analyze_stock_broll(captions_json: str, video_key: str = "") -> list:
         }
     ]
 
-    resp = client.messages.create(
-        model=SONNET_MODEL,
-        max_tokens=4096,
-        temperature=SONNET_MOMENT_TEMPERATURE,
-        system=system_content,
-        messages=[{
-            "role": "user",
-            "content": f"Transcript (Hebrew with timestamps):\n<transcript>\n{transcript}\n</transcript>",
-        }]
-    )
-    raw = resp.content[0].text.strip()
-    if "```" in raw:
-        for part in raw.split("```"):
-            part = part.strip().lstrip("json").strip()
-            if part.startswith("["):
-                raw = part
-                break
+    def _call_sonnet_for_moments():
+        r = client.messages.create(
+            model=SONNET_MODEL,
+            max_tokens=4096,
+            temperature=SONNET_MOMENT_TEMPERATURE,
+            system=system_content,
+            messages=[{
+                "role": "user",
+                "content": f"Transcript (Hebrew with timestamps):\n<transcript>\n{transcript}\n</transcript>",
+            }]
+        )
+        raw = r.content[0].text.strip()
+        if "```" in raw:
+            for part in raw.split("```"):
+                part = part.strip().lstrip("json").strip()
+                if part.startswith("["):
+                    raw = part
+                    break
+        # Fallback: find first '[' in case Claude prefixed with explanatory text
+        if not raw.startswith("["):
+            idx = raw.find("[")
+            if idx >= 0:
+                raw = raw[idx:]
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            print(f"[stock] JSON parse failed: {raw[:300]}")
+            return None
+        if not isinstance(parsed, list):
+            print(f"[stock] unexpected JSON type ({type(parsed).__name__}): {raw[:200]}")
+            return None
+        return parsed
 
-    try:
-        moments = json.loads(raw)
-    except json.JSONDecodeError:
-        print(f"[stock] JSON parse failed: {raw[:300]}")
+    moments = _call_sonnet_for_moments()
+    if moments is None or len(moments) == 0:
+        # Retry once on parse failure or empty response (cold-container / transient Claude issue)
+        print(f"[stock] first Sonnet call returned {'None' if moments is None else 'empty []'} — retrying")
+        import time as _time
+        _time.sleep(2)
+        moments = _call_sonnet_for_moments()
+
+    if moments is None:
         return {"moments": [], "total_moments_identified": 0, "moments_processed": 0,
                 "cost_limit_hit": False, "video_context": video_context,
                 "filter_stats": {"sonnet_moments_raw": 0, "buf_drops": 0,
                                  "spacing_drops": 0, "cost_cap_drops": 0}}
-
-    if not isinstance(moments, list):
+    if not moments:
         return {"moments": [], "total_moments_identified": 0, "moments_processed": 0,
                 "cost_limit_hit": False, "video_context": video_context,
                 "filter_stats": {"sonnet_moments_raw": 0, "buf_drops": 0,

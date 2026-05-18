@@ -3946,7 +3946,7 @@
     if (vid && vid.src && isFinite(vid.duration)) {
       vid.currentTime = seekSecs;
       vid.pause();
-      document.getElementById('playerWrap')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      // removed scrollIntoView — don't auto-scroll to preview when selecting a caption
     }
   }
 
