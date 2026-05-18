@@ -967,6 +967,8 @@
     .caption-row-selected .caption-input { border-color: var(--purple-400); }
     .caption-time-input[data-seek] { cursor: pointer; }
     .caption-time-input[data-seek]:hover { border-color: var(--purple-400); }
+    .caption-time-input.time-invalid { border-color: #ef4444 !important; background: #fff5f5; }
+    .caption-time-input.time-invalid:focus { border-color: #dc2626 !important; }
     .caption-controls {
       display: flex; align-items: center; gap: 10px; margin-bottom: 4px;
     }
@@ -1650,7 +1652,7 @@
 
   function bumpPending(delta) {
     pendingAnalyses = Math.max(0, pendingAnalyses + delta);
-    if (burnMode) runBtn.disabled = pendingAnalyses > 0;
+    validateCaptionTimes();
   }
 
   function getCaptionsFromEditor() {
@@ -2717,6 +2719,43 @@
     runBtn.textContent = n > 0
       ? `▶  Burn & Download  (+${n} B-roll${n > 1 ? 's' : ''})`
       : '▶  Burn & Download';
+  }
+  function validateCaptionTimes() {
+    if (!burnMode) return;
+    const rows = Array.from(document.querySelectorAll('#captionsList .caption-row'));
+    const vid  = document.getElementById('cutVideo');
+    const videoDur = (vid && isFinite(vid.duration) && vid.duration > 0) ? vid.duration : Infinity;
+    let hasError = false;
+
+    rows.forEach((row, i) => {
+      const startInp  = row.querySelector('.caption-start');
+      const endInp    = row.querySelector('.caption-end');
+      const start     = parseFloat(startInp.value) || 0;
+      const end       = parseFloat(endInp.value)   || 0;
+      const prevEnd   = i > 0
+        ? (parseFloat(rows[i - 1].querySelector('.caption-end').value)   || 0) : 0;
+      const nextStart = i < rows.length - 1
+        ? (parseFloat(rows[i + 1].querySelector('.caption-start').value) || 0) : Infinity;
+
+      const startBad = start < 0 || start < prevEnd;
+      const endBad   = end <= start || end > videoDur || end > nextStart;
+
+      startInp.classList.toggle('time-invalid', startBad);
+      endInp.classList.toggle('time-invalid',   endBad);
+      startInp.title = startBad
+        ? (start < 0 ? 'Start time cannot be negative'
+                     : `Start overlaps previous caption (ends at ${prevEnd.toFixed(2)}s)`)
+        : 'Click to seek player here';
+      endInp.title = endBad
+        ? (end <= start   ? 'End must be after start'
+         : end > videoDur ? `End exceeds video duration (${videoDur.toFixed(2)}s)`
+                          : `End overlaps next caption (starts at ${nextStart.toFixed(2)}s)`)
+        : 'Click to seek player here';
+
+      if (startBad || endBad) hasError = true;
+    });
+
+    if (burnMode) runBtn.disabled = hasError || pendingAnalyses > 0;
   }
 
   document.getElementById('suggestBrolls').addEventListener('change', e => {
@@ -3984,6 +4023,7 @@
       inp.addEventListener('input', () => {
         captionsData = getCaptionsFromEditor();
         updatePreviewCaption();
+        validateCaptionTimes();
       });
       tr.appendChild(lbl);
       tr.appendChild(inp);
@@ -4035,6 +4075,7 @@
       _updateDeleteButtons();
       captionsData = getCaptionsFromEditor();
       updatePreviewCaption();
+      validateCaptionTimes();
       newRow.querySelector('.caption-input').focus();
     });
 
@@ -4053,6 +4094,7 @@
       const newRow = _createCaptionRow({ start: nextStart, end: Math.min(nextEnd, nextStart + 2), text: '' });
       row.insertAdjacentElement('afterend', newRow);
       _updateDeleteButtons();
+      validateCaptionTimes();
       newRow.querySelector('.caption-input').focus();
     });
 
@@ -4064,7 +4106,9 @@
     delBtn.addEventListener('click', () => {
       row.remove();
       _updateDeleteButtons();
+      captionsData = getCaptionsFromEditor();
       updatePreviewCaption();
+      validateCaptionTimes();
     });
 
     actions.appendChild(splitBtn);
@@ -4109,7 +4153,7 @@
     runBtn.style.display = 'block';
     updateBurnBtn();
     setupCaptionPlayer();
-    setTimeout(() => { initPositionTrack(); updatePreviewCaption(); }, 50);
+    setTimeout(() => { initPositionTrack(); updatePreviewCaption(); validateCaptionTimes(); }, 50);
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
   }
 
