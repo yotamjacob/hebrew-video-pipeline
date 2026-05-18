@@ -466,6 +466,11 @@ def process_video(
         cur = None
         prev_end = None  # raw (unpadded) end timestamp of last added Whisper segment
 
+        # Whisper (especially CUDA) consistently underestimates segment end
+        # timestamps for Hebrew trailing vowels (ו, י, ה) by 150–300ms.
+        # Add a fixed trailing buffer on top of pad to compensate.
+        TRAIL = 0.25
+
         for seg_words, seg_end in whisper_segs:
             seg_start = seg_words[0].start
 
@@ -474,15 +479,14 @@ def process_video(
             else:
                 gap = seg_start - prev_end
                 if gap >= min_sil:
-                    cur.end = min(total_dur, prev_end + pad)
+                    cur.end = min(total_dur, prev_end + pad + TRAIL)
                     out.append(cur)
                     cur = KeepSegment(start=max(cur.end, seg_start - pad), end=0.0)
-                # else gap too small — merge into current segment
 
             cur.words.extend(seg_words)
             prev_end = seg_end  # segment-level end, not last word's end
 
-        cur.end = min(total_dur, prev_end + pad)
+        cur.end = min(total_dur, prev_end + pad + TRAIL)
         out.append(cur)
         return out
 
