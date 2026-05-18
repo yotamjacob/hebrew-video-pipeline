@@ -3981,6 +3981,10 @@
         e.stopPropagation();
         _selectCaption(row, parseFloat(inp.value) || 0);
       });
+      inp.addEventListener('input', () => {
+        captionsData = getCaptionsFromEditor();
+        updatePreviewCaption();
+      });
       tr.appendChild(lbl);
       tr.appendChild(inp);
       return { tr, inp };
