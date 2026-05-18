@@ -611,7 +611,7 @@ def process_video(
             captions_list = [{"start": s, "end": e, "text": _censor_caption_text(t)} for s, e, t in events]
 
         if cut_silences and words:
-            t0 = _time.time(); render(src, clean_wav, segs, None, out_file, rotation=rotation); _t("render", t0)
+            render(src, clean_wav, segs, None, out_file, rotation=rotation)
         elif rotation:
             # No silence cut but source has rotation metadata — bake it in so the browser
             # gets correctly-oriented pixels without relying on display matrix hints.
