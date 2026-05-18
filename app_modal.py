@@ -424,12 +424,20 @@ def process_video(
                     result.append(seg_words)
             return result
 
+        # Less aggressive VAD: lower threshold + longer speech padding so weak
+        # Hebrew consonants (ע, ח, ה at word ends) aren't mistaken for silence.
+        vad_params = {
+            "threshold": 0.35,           # default 0.5 — lower catches quieter phonemes
+            "min_silence_duration_ms": 600,  # default 2000 — allow shorter pauses within speech
+            "speech_pad_ms": 600,            # default 400 — more buffer around speech boundaries
+        }
         try:
             m = WhisperModel(WHISPER_MODEL, device="cuda", compute_type="float16",
                              download_root=MODEL_DIR)
             segs, _ = m.transcribe(
                 str(wav), language="he", word_timestamps=True,
-                vad_filter=True, beam_size=5, condition_on_previous_text=True,
+                vad_filter=True, vad_parameters=vad_params,
+                beam_size=5, condition_on_previous_text=True,
             )
             whisper_segs = _segments(segs)
         except Exception:
@@ -437,7 +445,8 @@ def process_video(
                              download_root=MODEL_DIR)
             segs, _ = m.transcribe(
                 str(wav), language="he", word_timestamps=True,
-                vad_filter=True, beam_size=5, condition_on_previous_text=True,
+                vad_filter=True, vad_parameters=vad_params,
+                beam_size=5, condition_on_previous_text=True,
             )
             whisper_segs = _segments(segs)
         model_volume.commit()
