@@ -411,13 +411,17 @@ def process_video(
         os.environ["HF_HOME"] = MODEL_DIR
         from faster_whisper import WhisperModel
 
-        def _words(segs):
+        def _segments(segs):
+            # Return List[List[Word]] — one inner list per Whisper segment.
+            # Cuts are only allowed between segments, never within one, so
+            # words that Whisper considers part of the same utterance are
+            # never split by the silence cutter.
             result = []
             for seg in segs:
-                for w in (seg.words or []):
-                    txt = w.word.strip()
-                    if txt:
-                        result.append(Word(w.start, w.end, txt))
+                seg_words = [Word(w.start, w.end, w.word.strip())
+                             for w in (seg.words or []) if w.word.strip()]
+                if seg_words:
+                    result.append(seg_words)
             return result
 
         try:
@@ -427,7 +431,7 @@ def process_video(
                 str(wav), language="he", word_timestamps=True,
                 vad_filter=True, beam_size=5, condition_on_previous_text=True,
             )
-            words = _words(segs)  # consume lazy generator inside try — CUDA errors surface here
+            whisper_segs = _segments(segs)
         except Exception:
             m = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8",
                              download_root=MODEL_DIR)
@@ -435,25 +439,44 @@ def process_video(
                 str(wav), language="he", word_timestamps=True,
                 vad_filter=True, beam_size=5, condition_on_previous_text=True,
             )
-            words = _words(segs)
+            whisper_segs = _segments(segs)
         model_volume.commit()
-        return words
+        return whisper_segs
 
-    def compute_keep_segments(words, total_dur, min_sil, pad):
-        if not words:
+    def compute_keep_segments(whisper_segs, total_dur, min_sil, pad):
+        """Cut only between Whisper segments, never within one.
+
+        whisper_segs: List[List[Word]] — each inner list is one Whisper segment.
+        Cuts happen only when the gap between two consecutive segments >= min_sil.
+        Words within a segment are always kept together, preventing mid-word cuts
+        caused by Whisper tokenization or VAD boundary artefacts.
+        """
+        if not whisper_segs:
             return [KeepSegment(0.0, total_dur)]
-        segs = []
-        cur = KeepSegment(start=max(0.0, words[0].start - pad), end=0.0)
-        cur.words.append(words[0])
-        for pw, nw in zip(words, words[1:]):
-            if nw.start - pw.end >= min_sil:
-                cur.end = pw.end + pad
-                segs.append(cur)
-                cur = KeepSegment(start=max(cur.end, nw.start - pad), end=0.0)
-            cur.words.append(nw)
-        cur.end = min(total_dur, words[-1].end + pad)
-        segs.append(cur)
-        return segs
+        out = []
+        cur = None
+        prev_end = None  # raw (unpadded) end timestamp of last added Whisper segment
+
+        for seg_words in whisper_segs:
+            seg_start = seg_words[0].start
+            seg_end   = seg_words[-1].end
+
+            if cur is None:
+                cur = KeepSegment(start=max(0.0, seg_start - pad), end=0.0)
+            else:
+                gap = seg_start - prev_end
+                if gap >= min_sil:
+                    cur.end = min(total_dur, prev_end + pad)
+                    out.append(cur)
+                    cur = KeepSegment(start=max(cur.end, seg_start - pad), end=0.0)
+                # else gap too small — merge into current segment
+
+            cur.words.extend(seg_words)
+            prev_end = seg_end
+
+        cur.end = min(total_dur, prev_end + pad)
+        out.append(cur)
+        return out
 
     def seconds_to_ass(t):
         h = int(t // 3600)
@@ -603,20 +626,21 @@ def process_video(
             shutil.copy(raw_wav, clean_wav)
 
         need_transcription = cut_silences or burn_captions or transcribe_for_broll
-        words = transcribe(clean_wav) if need_transcription else []
+        whisper_segs = transcribe(clean_wav) if need_transcription else []
+        flat_words   = [w for seg in whisper_segs for w in seg]
 
         segs = (
-            compute_keep_segments(words, duration, min_silence, padding)
-            if cut_silences and words
-            else [KeepSegment(0.0, duration, words)]
+            compute_keep_segments(whisper_segs, duration, min_silence, padding)
+            if cut_silences and whisper_segs
+            else [KeepSegment(0.0, duration, flat_words)]
         )
 
         captions_list = []
-        if (burn_captions or transcribe_for_broll) and words:
+        if (burn_captions or transcribe_for_broll) and flat_words:
             events = generate_ass(segs, ass_file, width, height, min_sil=min_silence)
             captions_list = [{"start": s, "end": e, "text": _censor_caption_text(t)} for s, e, t in events]
 
-        if cut_silences and words:
+        if cut_silences and whisper_segs:
             render(src, clean_wav, segs, None, out_file, rotation=rotation)
         elif rotation:
             # No silence cut but source has rotation metadata — bake it in so the browser
