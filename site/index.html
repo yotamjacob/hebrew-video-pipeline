@@ -3997,6 +3997,7 @@
     textInp.value     = cap.text;
     textInp.dir       = 'rtl';
     textInp.addEventListener('input', () => {
+      captionsData = getCaptionsFromEditor();
       updatePreviewCaption();
       if (stockBrollAnalyzed && getCaptionsSignature() !== lastAnalyzedSignature) {
         document.getElementById('stockBrollRerunBanner').style.display = 'flex';
@@ -4025,10 +4026,11 @@
       const mid = parseFloat(((s + e) / 2).toFixed(2));
       textInp.value = left;
       endInp.value  = mid.toFixed(2);
-      updatePreviewCaption();
       const newRow = _createCaptionRow({ start: mid, end: e, text: right });
       row.insertAdjacentElement('afterend', newRow);
       _updateDeleteButtons();
+      captionsData = getCaptionsFromEditor();
+      updatePreviewCaption();
       newRow.querySelector('.caption-input').focus();
     });
 
