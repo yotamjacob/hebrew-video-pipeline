@@ -341,7 +341,7 @@ def process_video(
 
     def extract_audio(video, out_wav):
         run(["ffmpeg", "-y", "-i", str(video),
-             "-vn", "-acodec", "pcm_s16le", "-ar", "48000", "-ac", "1",
+             "-vn", "-af", "loudnorm", "-acodec", "pcm_s16le", "-ar", "48000", "-ac", "1",
              str(out_wav)])
 
     def enhance_deepfilter(in_wav, out_wav):
