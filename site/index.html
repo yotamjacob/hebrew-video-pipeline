@@ -2114,9 +2114,9 @@
       while (Date.now() < deadline) {
         try {
           const resp = await fetch(pollUrl, { signal });
-          networkRetries = 0;
-          if (resp.status === 200) { _resolve(await resp.json()); return; }
+          if (resp.status === 200) { networkRetries = 0; _resolve(await resp.json()); return; }
           if (resp.status === 202) {
+            networkRetries = 0;
             await new Promise((res, rej) => {
               const t = setTimeout(res, Math.min(3000, deadline - Date.now()));
               signal.addEventListener('abort', () => { clearTimeout(t); rej(new DOMException('aborted', 'AbortError')); });
