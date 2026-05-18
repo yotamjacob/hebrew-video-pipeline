@@ -282,6 +282,14 @@
       box-shadow: 0 10px 36px rgba(109, 40, 217, 0.45);
     }
     .run-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+    .reprocess-btn {
+      width: 100%; padding: 11px 16px; margin-bottom: 10px;
+      background: white; color: var(--purple-700);
+      border: 2px solid var(--purple-300); border-radius: 14px;
+      font-size: 0.9rem; font-weight: 600; cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .reprocess-btn:hover { background: var(--purple-50); border-color: var(--purple-500); }
 
     /* ── Status card ── */
     .status { display: none; }
@@ -1427,6 +1435,7 @@
     </div>
   </div>
 
+  <button class="reprocess-btn" id="reprocessBtn" style="display:none">↻&nbsp; Re-process with new settings</button>
   <button class="run-btn" id="runBtn" disabled>▶&nbsp; Run Pipeline</button>
   <div id="burnError" style="display:none; color:var(--red); font-size:0.85rem; text-align:center; margin-bottom:16px; padding:10px 14px; background:#FEF2F2; border:1.5px solid #FECACA; border-radius:12px;"></div>
 
@@ -1552,6 +1561,7 @@
   let captionMarginPct = 0.08;
   let captionFontSize  = 48;
   let burnMode        = false;
+  let currentUploadKey = null;
   let pendingAnalyses        = 0;
   let stockBrollAnalyzed     = false;
   let lastAnalyzedSignature  = '';
@@ -1915,6 +1925,8 @@
         progressLabel.textContent = `Uploading…  ${(pct * 100).toFixed(0)}%`;
       });
 
+      currentUploadKey = uploadKey;
+
       // Phase 2: spawn processing job (tiny request — just params, no body)
       runStartTime = Date.now();
       showProcessing(getProcMessages(videoDuration));
@@ -1969,6 +1981,84 @@
       }
     }
   }
+
+  async function rerun() {
+    if (!currentUploadKey || !selectedFile) return;
+
+    // Hide editor cards and reset to pre-caption state
+    burnMode = false;
+    captionsData = [];
+    videoKey = null;
+    resultBlob = null;
+    ['captionEditorCard', 'hookCard', 'brollCard', 'stockBrollCard'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+    document.getElementById('reprocessBtn').style.display = 'none';
+    document.getElementById('burnSuccessBanner').style.display = 'none';
+    setSetupLocked(true);
+
+    const aggr = AGGR_MAP[aggrSlider.value - 1];
+    const brollOn        = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
+    const stockBrollOn   = document.getElementById('stockBroll').checked;
+    const needTranscript = (brollOn || stockBrollOn) && !document.getElementById('burnCaptions').checked;
+    const params = new URLSearchParams({
+      filename:             selectedFile.name,
+      cut_silences:         document.getElementById('cutSilences').checked  ? 'true' : 'false',
+      burn_captions:        document.getElementById('burnCaptions').checked ? 'true' : 'false',
+      enhance_audio:        document.getElementById('enhanceAudio').checked ? 'true' : 'false',
+      transcribe_for_broll: needTranscript ? 'true' : 'false',
+      min_silence:          aggr.silence,
+      padding:              aggr.padding,
+      key:                  currentUploadKey,
+    });
+
+    runStartTime = Date.now();
+    showProcessing(getProcMessages(videoDuration));
+    runBtn.style.display = 'none';
+
+    try {
+      const spawnResp = await fetch(`${API_BASE}/process/?${params}`, { method: 'POST' });
+      if (spawnResp.status !== 202) {
+        const body = await spawnResp.json().catch(() => ({}));
+        throw new Error(body.error || `Spawn failed (${spawnResp.status})`);
+      }
+      const { call_id } = await spawnResp.json();
+
+      currentCallId = call_id;
+      saveJob('process', call_id, { filename: selectedFile.name });
+      const result = await pollForJSON(`${API_BASE}/process_poll/${call_id}/`, 900_000, call_id);
+      clearInterval(elapsedTimer);
+      clearSavedJob();
+
+      captionsData = result.captions;
+      videoKey     = result.video_key;
+      cutFilename  = (selectedFile.name || 'video').replace(/\.[^/.]+$/, '') + '_cut.mp4';
+
+      const brollActive      = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
+      const stockBrollActive = document.getElementById('stockBroll').checked;
+      if (captionsData.length > 0 || brollActive) {
+        statusCard.classList.remove('visible');
+        statusProc.style.display = 'none';
+        showCaptionEditor();
+        startBrollAnalysis();
+      } else {
+        statusMsg.textContent = 'Downloading…';
+        const dlResp = await fetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
+        resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
+        resultName = cutFilename;
+        showDone();
+      }
+    } catch (err) {
+      clearInterval(elapsedTimer);
+      if (err.name === 'AbortError') return;
+      console.error('Re-process error:', err.message);
+      clearSavedJob();
+      showError(err.message);
+    }
+  }
+
+  document.getElementById('reprocessBtn').addEventListener('click', rerun);
 
   // Upload file in 1 MB chunks, 4 concurrent, to avoid Modal's large-body 303 redirect.
   // Returns the upload key to pass to /process/?key=...
@@ -2310,6 +2400,8 @@
     stockBrollAnalyzed    = false;
     lastAnalyzedSignature = '';
     burnMode = false;
+    currentUploadKey = null;
+    document.getElementById('reprocessBtn').style.display = 'none';
     setSetupLocked(false);
     document.getElementById('burnSuccessBanner').style.display = 'none';
     document.getElementById('stockBrollRerunBanner').style.display = 'none';
@@ -4002,7 +4094,11 @@
     document.getElementById('generateHookBtn').disabled = false;
     fetchHookThumbnail();
     burnMode = true;
-    setSetupLocked(true);
+    document.getElementById('uploadCard').classList.add('setup-locked');
+    document.getElementById('optionsCard').classList.remove('setup-locked');
+    if (currentUploadKey) {
+      document.getElementById('reprocessBtn').style.display = 'block';
+    }
     runBtn.disabled = false;
     runBtn.style.display = 'block';
     updateBurnBtn();
