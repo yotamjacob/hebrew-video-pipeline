@@ -2062,10 +2062,10 @@
 
   document.getElementById('reprocessBtn').addEventListener('click', rerun);
 
-  // Upload file in 1 MB chunks, 4 concurrent, to avoid Modal's large-body 303 redirect.
+  // Upload file in chunks to the Modal ASGI endpoint (streaming body, no 303 redirect issue).
   // Returns the upload key to pass to /process/?key=...
-  const CHUNK_SIZE = 1 * 1024 * 1024;
-  const UPLOAD_CONCURRENCY = 4;
+  const CHUNK_SIZE = 5 * 1024 * 1024;
+  const UPLOAD_CONCURRENCY = 8;
   async function chunkedUpload(file, onProgress) {
     const key = crypto.randomUUID().replace(/-/g, '');
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
