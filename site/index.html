@@ -2065,7 +2065,7 @@
   // Upload file in chunks to the Modal ASGI endpoint (streaming body, no 303 redirect issue).
   // Returns the upload key to pass to /process/?key=...
   const CHUNK_SIZE = 5 * 1024 * 1024;
-  const UPLOAD_CONCURRENCY = 8;
+  const UPLOAD_CONCURRENCY = 16;
   async function chunkedUpload(file, onProgress) {
     const key = crypto.randomUUID().replace(/-/g, '');
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
@@ -2104,14 +2104,27 @@
       }
     }
 
-    // Process chunks in batches of UPLOAD_CONCURRENCY
-    for (let i = 0; i < totalChunks; i += UPLOAD_CONCURRENCY) {
-      const batch = [];
-      for (let j = i; j < Math.min(i + UPLOAD_CONCURRENCY, totalChunks); j++) {
-        batch.push(uploadChunk(j));
-      }
-      await Promise.all(batch);
+    // Sliding window — always keep UPLOAD_CONCURRENCY requests in-flight.
+    // Avoids the batch barrier where the slowest chunk of a batch of N
+    // blocks all subsequent chunks from starting.
+    let nextChunk = 0;
+    const inFlight = new Map(); // index -> promise
+
+    function launchNext() {
+      if (nextChunk >= totalChunks) return;
+      const i = nextChunk++;
+      const p = uploadChunk(i).then(() => inFlight.delete(i), err => { inFlight.delete(i); throw err; });
+      inFlight.set(i, p);
     }
+
+    // Fill the window
+    while (nextChunk < totalChunks && inFlight.size < UPLOAD_CONCURRENCY) launchNext();
+
+    while (inFlight.size > 0) {
+      await Promise.race(inFlight.values());
+      while (nextChunk < totalChunks && inFlight.size < UPLOAD_CONCURRENCY) launchNext();
+    }
+
     return key;
   }
 

@@ -2873,6 +2873,7 @@ def burn_hook_fn(
 @modal.concurrent(max_inputs=20)
 @modal.asgi_app()
 def api():
+    import asyncio
     import json
     from urllib.parse import parse_qs
 
@@ -2956,7 +2957,9 @@ def api():
             chunk_bytes = await _read_body(receive)
             from pathlib import Path as _Path
             chunk_path = _Path(TMP_DIR) / f"{key}_chunk_{idx:04d}"
-            chunk_path.write_bytes(chunk_bytes)
+            # asyncio.to_thread so the blocking FUSE write doesn't freeze the event loop
+            # (which would serialize all concurrent chunk requests despite max_inputs=20)
+            await asyncio.to_thread(chunk_path.write_bytes, chunk_bytes)
             # No commit here — all chunks are committed once in /process before job spawn
             body = json.dumps({"ok": True}).encode()
             await send({"type": "http.response.start", "status": 200,
