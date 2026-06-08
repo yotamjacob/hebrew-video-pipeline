@@ -1265,7 +1265,7 @@
         </div></div>
       </div>
 
-      <div class="check-item pending" id="checkBurn">
+      <div class="check-item pending" id="checkBurn" style="display:none">
         <div class="check-icon-col">
           <span class="ci-pending">○</span>
           <div class="ci-spinner"></div>
@@ -2423,6 +2423,7 @@
   function _stepActivate(name) {
     const item = checkItems[name];
     if (!item || item.classList.contains('done')) return;
+    item.style.display = '';   // show row if it was hidden (e.g. burn starts hidden)
     item.className = 'check-item active';
     const timeEl = checkTimeEls[name];
     if (timeEl) timeEl.textContent = '0:00';
@@ -2460,11 +2461,16 @@
     if (stepTimers[name]) { clearInterval(stepTimers[name].id); stepTimers[name] = null; }
   }
 
+  const HIDDEN_BY_DEFAULT = new Set(['burn']); // rows hidden until triggered
+
   function _resetChecklist() {
     Object.keys(checkItems).forEach(name => {
       if (stepTimers[name]) { clearInterval(stepTimers[name].id); stepTimers[name] = null; }
       const item = checkItems[name];
-      if (item) { item.className = 'check-item pending'; item.style.display = ''; }
+      if (item) {
+        item.className = 'check-item pending';
+        item.style.display = HIDDEN_BY_DEFAULT.has(name) ? 'none' : '';
+      }
       const t = checkTimeEls[name];
       if (t) t.textContent = '';
     });
@@ -4393,18 +4399,18 @@
     burnErrorEl.style.display = 'none';
     let burnBtnTimer = null;
 
-    // Show checklist with burn step active (steps 1-3 already done)
+    // Ensure steps 1-3 are shown as done (in case checklist was reset)
     statusCard.classList.add('visible');
     checklistEl.style.display = 'block';
     statusDone.classList.remove('visible');
-    if (checkItems.upload.className === 'check-item pending') {
-      // Reconnect case: we don't know prior step times, mark as done
-      checkItems.upload.className = 'check-item done';
-      checkItems.enhance.className = 'check-item done';
-      checkItems.cut.className = 'check-item done';
-    }
+    ['upload', 'enhance', 'cut'].forEach(name => {
+      if (checkItems[name] && !checkItems[name].classList.contains('done')) {
+        checkItems[name].style.display = '';
+        checkItems[name].className = 'check-item done';
+      }
+    });
     _stepActivate('burn');
-    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: 'smooth' }); // scroll UP to show checklist
 
     // Lock all editor cards and collapse them while burn is in progress
     const editorIds = ['captionEditorCard', 'hookCard', 'brollCard', 'stockBrollCard'];
