@@ -295,35 +295,64 @@
     .status { display: none; }
     .status.visible { display: block; }
 
-    /* Upload progress */
-    .upload-progress { padding: 24px 20px 8px; }
-    .progress-track {
-      height: 6px; background: var(--purple-100); border-radius: 3px; overflow: hidden; margin-bottom: 10px;
-    }
-    .progress-fill {
-      height: 100%; width: 0%; background: linear-gradient(90deg, var(--purple-700), var(--purple-400));
-      border-radius: 3px; transition: width 0.3s ease;
-    }
-    .progress-meta {
-      display: flex; justify-content: space-between; align-items: center;
-    }
-    .progress-label { font-size: 0.82rem; font-weight: 600; color: var(--purple-700); }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* Processing spinner */
-    .status-processing {
-      display: flex; flex-direction: column; align-items: center;
-      padding: 28px 20px; gap: 14px;
+    /* Step checklist (upload + processing) */
+    .status-checklist { padding: 16px 20px 4px; }
+    .check-item {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 11px 0; border-bottom: 1px solid var(--purple-100);
     }
-    .spinner {
-      width: 44px; height: 44px;
-      border: 3px solid var(--purple-100); border-top-color: var(--purple-600);
+    .check-item:last-of-type { border-bottom: none; }
+    .check-icon-col {
+      width: 22px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; padding-top: 1px;
+    }
+    .ci-pending { font-size: 1rem; color: var(--purple-200); line-height: 1; }
+    .ci-spinner {
+      display: none; width: 17px; height: 17px;
+      border: 2px solid var(--purple-100); border-top-color: var(--purple-600);
       border-radius: 50%; animation: spin 0.9s linear infinite;
     }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .proc-meta { display: flex; align-items: center; gap: 10px; }
-    .status-msg { font-size: 0.92rem; font-weight: 600; color: var(--purple-800); text-align: center; }
-    .status-submsg { font-size: 0.78rem; color: var(--muted); text-align: center; }
-    .elapsed { font-size: 0.82rem; font-weight: 600; color: var(--purple-400); font-variant-numeric: tabular-nums; }
+    .ci-done { display: none; font-size: 1rem; font-weight: 700; color: var(--green); line-height: 1; }
+
+    .check-item.active  .ci-pending { display: none; }
+    .check-item.active  .ci-spinner { display: block; }
+    .check-item.done    .ci-pending, .check-item.done .ci-spinner { display: none; }
+    .check-item.done    .ci-done    { display: inline; }
+
+    .check-body { flex: 1; min-width: 0; }
+    .check-row  { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .check-label {
+      font-size: 0.88rem; font-weight: 600;
+      color: var(--muted);
+    }
+    .check-item.active .check-label { color: var(--purple-800); }
+    .check-item.done   .check-label { color: var(--text); }
+    .check-time {
+      font-size: 0.78rem; font-weight: 600; color: var(--purple-400);
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    .check-item.active .check-time { color: var(--purple-600); }
+    .check-item.done   .check-time { color: var(--green); }
+
+    /* Inline upload progress bar inside the upload step */
+    .upload-bar-row {
+      display: flex; align-items: center; gap: 8px; margin-top: 5px;
+    }
+    .upload-bar-track {
+      flex: 1; height: 4px; background: var(--purple-100); border-radius: 2px; overflow: hidden;
+    }
+    .upload-bar-fill {
+      height: 100%; width: 0%;
+      background: linear-gradient(90deg, var(--purple-700), var(--purple-400));
+      border-radius: 2px; transition: width 0.3s ease;
+    }
+    .upload-bar-pct { font-size: 0.72rem; font-weight: 600; color: var(--purple-600); min-width: 28px; }
+
+    .checklist-footer {
+      padding: 10px 0 4px; font-size: 0.75rem; color: var(--muted); text-align: center;
+    }
 
     /* Done */
     .status-done { display: none; flex-direction: column; align-items: center; gap: 16px; padding: 28px 20px; }
@@ -1191,22 +1220,65 @@
   <!-- Status -->
   <div class="card status" id="statusCard">
 
-    <div class="upload-progress" id="uploadProgressEl" style="display:none">
-      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
-      <div class="progress-meta">
-        <div class="progress-label" id="progressLabel">Uploading…  0%</div>
-        <div class="elapsed" id="uploadElapsed">0:00</div>
-      </div>
-    </div>
+    <!-- Step checklist: upload + processing + burn -->
+    <div class="status-checklist" id="statusChecklist" style="display:none">
 
-    <div class="status-processing" id="statusProcessing" style="display:none">
-      <div class="spinner"></div>
-      <div class="proc-meta">
-        <div class="status-msg" id="statusMsg">Processing…</div>
-        <div class="elapsed" id="elapsed">0:00</div>
+      <div class="check-item pending" id="checkUpload">
+        <div class="check-icon-col">
+          <span class="ci-pending">○</span>
+          <div class="ci-spinner"></div>
+          <span class="ci-done">✓</span>
+        </div>
+        <div class="check-body">
+          <div class="check-row">
+            <span class="check-label">Upload video</span>
+            <span class="check-time" id="checkUploadTime"></span>
+          </div>
+          <div class="upload-bar-row" id="uploadBarRow" style="display:none">
+            <div class="upload-bar-track"><div class="upload-bar-fill" id="uploadBarFill"></div></div>
+            <span class="upload-bar-pct" id="uploadBarPct">0%</span>
+          </div>
+        </div>
       </div>
-      <div class="status-submsg">Keep this page open while processing</div>
-      <button class="cancel-btn" id="cancelBtn">Cancel</button>
+
+      <div class="check-item pending" id="checkEnhance">
+        <div class="check-icon-col">
+          <span class="ci-pending">○</span>
+          <div class="ci-spinner"></div>
+          <span class="ci-done">✓</span>
+        </div>
+        <div class="check-body"><div class="check-row">
+          <span class="check-label">Enhance audio</span>
+          <span class="check-time" id="checkEnhanceTime"></span>
+        </div></div>
+      </div>
+
+      <div class="check-item pending" id="checkCut">
+        <div class="check-icon-col">
+          <span class="ci-pending">○</span>
+          <div class="ci-spinner"></div>
+          <span class="ci-done">✓</span>
+        </div>
+        <div class="check-body"><div class="check-row">
+          <span class="check-label">Cut silences</span>
+          <span class="check-time" id="checkCutTime"></span>
+        </div></div>
+      </div>
+
+      <div class="check-item pending" id="checkBurn">
+        <div class="check-icon-col">
+          <span class="ci-pending">○</span>
+          <div class="ci-spinner"></div>
+          <span class="ci-done">✓</span>
+        </div>
+        <div class="check-body"><div class="check-row">
+          <span class="check-label">Burn captions</span>
+          <span class="check-time" id="checkBurnTime"></span>
+        </div></div>
+      </div>
+
+      <div class="checklist-footer">Keep this page open while processing</div>
+      <button class="cancel-btn" id="cancelBtn" style="margin: 4px auto 12px; display:none">Cancel</button>
     </div>
 
     <div class="status-done" id="statusDone">
@@ -1516,16 +1588,26 @@
   const clearFile    = document.getElementById('clearFile');
   const runBtn       = document.getElementById('runBtn');
   const statusCard   = document.getElementById('statusCard');
-  const uploadProgEl   = document.getElementById('uploadProgressEl');
-  const progressFill   = document.getElementById('progressFill');
-  const progressLabel  = document.getElementById('progressLabel');
-  const uploadElapsedEl= document.getElementById('uploadElapsed');
-  const statusProc     = document.getElementById('statusProcessing');
+  const checklistEl    = document.getElementById('statusChecklist');
   const statusDone     = document.getElementById('statusDone');
   const statusError    = document.getElementById('statusError');
-  const statusMsg      = document.getElementById('statusMsg');
-  const elapsedEl      = document.getElementById('elapsed');
   const errorMsg       = document.getElementById('errorMsg');
+
+  // Checklist step elements
+  const checkItems = {
+    upload:  document.getElementById('checkUpload'),
+    enhance: document.getElementById('checkEnhance'),
+    cut:     document.getElementById('checkCut'),
+    burn:    document.getElementById('checkBurn'),
+  };
+  const checkTimeEls = {
+    upload:  document.getElementById('checkUploadTime'),
+    enhance: document.getElementById('checkEnhanceTime'),
+    cut:     document.getElementById('checkCutTime'),
+    burn:    document.getElementById('checkBurnTime'),
+  };
+  let stepTimers = {};         // step name → { start, intervalId }
+  let stepEndSecs = {};        // step name → seconds taken (persists across hide/show)
   const downloadBtn  = document.getElementById('downloadBtn');
   const retryBtn     = document.getElementById('retryBtn');
   const advToggle    = document.getElementById('advancedToggle');
@@ -1547,8 +1629,8 @@
   let videoDuration = null;
   let resultBlob      = null;
   let resultName      = 'edited_video.mp4';
-  let uploadTimer     = null;
-  let elapsedTimer    = null;
+  let uploadTimer     = null;  // drives the upload step's elapsed clock
+  let elapsedTimer    = null;  // drives enhance→cut transition timer
   let blocked         = false;
   let videoKey        = null;
   let captionsData    = [];
@@ -1599,16 +1681,26 @@
     if (!job) return;
 
     if (job.type === 'process') {
-      showProcessing([[0, 'Reconnecting — waiting for processing result…']]);
+      // Reconnect: can't know which processing step we're in — show enhance as active
+      statusCard.classList.add('visible');
+      checklistEl.style.display = 'block';
+      statusDone.classList.remove('visible');
+      statusError.classList.remove('visible');
+      _resetChecklist();
+      checkItems.upload.className = 'check-item done';
+      checkTimeEls.upload.textContent = 'cached';
+      _stepActivate('enhance');
       try {
         const result = await pollForJSON(`${API_BASE}/process_poll/${job.callId}/`, 900_000, job.callId);
+        clearInterval(elapsedTimer);
+        _stepDone('enhance');
+        _stepDone('cut');
         clearSavedJob();
         captionsData = result.captions || [];
         videoKey     = result.video_key;
         cutFilename  = (job.filename || 'video').replace(/\.[^/.]+$/, '') + '_cut.mp4';
         if (captionsData.length > 0) {
-          statusCard.classList.remove('visible');
-          statusProc.style.display = 'none';
+          document.getElementById('cancelBtn').style.display = 'none';
           showCaptionEditor();
         } else {
           const dlResp = await fetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
@@ -1624,12 +1716,19 @@
 
     } else if (job.type === 'burn') {
       statusCard.classList.add('visible');
-      statusProc.style.display = 'flex';
-      statusMsg.textContent = 'Reconnecting — waiting for burn result…';
+      checklistEl.style.display = 'block';
+      statusDone.classList.remove('visible');
+      statusError.classList.remove('visible');
+      _resetChecklist();
+      checkItems.upload.className = 'check-item done';
+      checkItems.enhance.className = 'check-item done';
+      checkItems.cut.className = 'check-item done';
+      _stepActivate('burn');
       runBtn.style.display = 'block';
       runBtn.disabled = true;
       try {
         const burnResult = await pollForJSON(`${API_BASE}/burn_poll/${job.callId}/`, 600_000, job.callId);
+        _stepDone('burn');
         clearSavedJob();
         const dlResp = await fetch(
           `${API_BASE}/download/${burnResult.output_key}/?filename=${encodeURIComponent(job.outputFilename)}`
@@ -1637,7 +1736,7 @@
         if (!dlResp.ok) throw new Error(`Download failed (${dlResp.status})`);
         resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
         resultName = job.outputFilename;
-        statusProc.style.display = 'none';
+        checklistEl.style.display = 'none';
         triggerDownload();
         document.getElementById('burnSuccessBanner').style.display = 'flex';
       } catch (err) {
@@ -1921,11 +2020,13 @@
     });
 
     try {
-      // Phase 1: upload video in 1 MB chunks to avoid Modal's large-body 303 redirect
+      // Phase 1: upload video in chunks
       const uploadKey = await chunkedUpload(selectedFile, (pct) => {
-        progressFill.style.width = (pct * 100).toFixed(0) + '%';
-        progressLabel.textContent = `Uploading…  ${(pct * 100).toFixed(0)}%`;
+        document.getElementById('uploadBarFill').style.width = (pct * 100).toFixed(0) + '%';
+        document.getElementById('uploadBarPct').textContent  = (pct * 100).toFixed(0) + '%';
       });
+      _stepDone('upload');
+      document.getElementById('uploadBarRow').style.display = 'none';
 
       currentUploadKey = uploadKey;
 
@@ -1946,6 +2047,9 @@
       const pollUrl = `${API_BASE}/process_poll/${call_id}/`;
       const result = await pollForJSON(pollUrl, 900_000, call_id);
       clearInterval(elapsedTimer);
+      // Mark whichever of enhance/cut is still active as done
+      _stepDone('enhance');
+      _stepDone('cut');
       clearSavedJob();
 
       captionsData = result.captions;
@@ -1955,13 +2059,12 @@
       const brollActive      = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
       const stockBrollActive = document.getElementById('stockBroll').checked;
       if (captionsData.length > 0 || brollActive) {
-        statusCard.classList.remove('visible');
-        statusProc.style.display = 'none';
+        // Keep checklist visible (steps 1-3 done) while user edits captions
+        document.getElementById('cancelBtn').style.display = 'none';
         showCaptionEditor();
         startBrollAnalysis();
       } else {
         // No captions, no B-roll — download directly
-        statusMsg.textContent = 'Downloading…';
         const dlResp = await fetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
         resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
         resultName = cutFilename;
@@ -1973,9 +2076,9 @@
       console.error('Process error:', err.message);
       clearSavedJob();
       if (!isRetry && err.message.includes('Network error')) {
-        statusMsg.textContent = 'GPU warming up — retrying…';
-        uploadProgEl.style.display = 'none';
-        statusProc.style.display = 'flex';
+        // GPU warmup retry — keep checklist, just update upload step label
+        checkItems.upload.className = 'check-item done';
+        _stepActivate('enhance');
         await new Promise(r => setTimeout(r, 8000));
         run(true);
       } else {
@@ -2016,8 +2119,17 @@
     });
 
     runStartTime = Date.now();
-    showProcessing(getProcMessages(videoDuration));
     runBtn.style.display = 'none';
+
+    // Show checklist: upload already done (cached), enhance + cut pending
+    statusCard.classList.add('visible');
+    checklistEl.style.display = 'block';
+    statusDone.classList.remove('visible');
+    statusError.classList.remove('visible');
+    _resetChecklist();
+    checkItems.upload.className = 'check-item done';
+    checkTimeEls.upload.textContent = 'cached';
+    showProcessing(getProcMessages(videoDuration));
 
     try {
       const spawnResp = await fetch(`${API_BASE}/process/?${params}`, { method: 'POST' });
@@ -2031,6 +2143,8 @@
       saveJob('process', call_id, { filename: selectedFile.name });
       const result = await pollForJSON(`${API_BASE}/process_poll/${call_id}/`, 900_000, call_id);
       clearInterval(elapsedTimer);
+      _stepDone('enhance');
+      _stepDone('cut');
       clearSavedJob();
 
       captionsData = result.captions;
@@ -2040,12 +2154,10 @@
       const brollActive      = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
       const stockBrollActive = document.getElementById('stockBroll').checked;
       if (captionsData.length > 0 || brollActive) {
-        statusCard.classList.remove('visible');
-        statusProc.style.display = 'none';
+        document.getElementById('cancelBtn').style.display = 'none';
         showCaptionEditor();
         startBrollAnalysis();
       } else {
-        statusMsg.textContent = 'Downloading…';
         const dlResp = await fetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
         resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
         resultName = cutFilename;
@@ -2313,50 +2425,113 @@
   }
 
   // ── State helpers ──
+  // ── Checklist helpers ──────────────────────────────────────────────────────
+  function _stepActivate(name) {
+    const item = checkItems[name];
+    if (!item || item.classList.contains('done')) return;
+    item.className = 'check-item active';
+    const timeEl = checkTimeEls[name];
+    if (timeEl) timeEl.textContent = '0:00';
+    const start = Date.now();
+    if (stepTimers[name]) clearInterval(stepTimers[name].id);
+    stepTimers[name] = {
+      start,
+      id: setInterval(() => {
+        const s = Math.floor((Date.now() - start) / 1000);
+        if (timeEl) timeEl.textContent = formatTime(s);
+      }, 500)
+    };
+    document.getElementById('cancelBtn').style.display = 'block';
+  }
+
+  function _stepDone(name) {
+    if (stepTimers[name]) { clearInterval(stepTimers[name].id); }
+    const elapsed = stepTimers[name] ? Math.round((Date.now() - stepTimers[name].start) / 1000) : null;
+    stepTimers[name] = null;
+    const item = checkItems[name];
+    if (!item) return;
+    item.className = 'check-item done';
+    const timeEl = checkTimeEls[name];
+    if (timeEl && elapsed !== null) {
+      timeEl.textContent = formatTime(elapsed);
+      stepEndSecs[name] = elapsed;
+    } else if (timeEl && stepEndSecs[name] != null) {
+      timeEl.textContent = formatTime(stepEndSecs[name]);
+    }
+  }
+
+  function _stepSkip(name) {
+    const item = checkItems[name];
+    if (item) item.style.display = 'none';
+    if (stepTimers[name]) { clearInterval(stepTimers[name].id); stepTimers[name] = null; }
+  }
+
+  function _resetChecklist() {
+    Object.keys(checkItems).forEach(name => {
+      if (stepTimers[name]) { clearInterval(stepTimers[name].id); stepTimers[name] = null; }
+      const item = checkItems[name];
+      if (item) { item.className = 'check-item pending'; item.style.display = ''; }
+      const t = checkTimeEls[name];
+      if (t) t.textContent = '';
+    });
+    stepEndSecs = {};
+    document.getElementById('cancelBtn').style.display = 'none';
+  }
+
+  // ── State display ──────────────────────────────────────────────────────────
   function showUploadProgress() {
     isUploading = true;
     setSetupLocked(true);
     statusCard.classList.add('visible');
-    uploadProgEl.style.display = 'block';
-    statusProc.style.display   = 'none';
+    checklistEl.style.display = 'block';
     statusDone.classList.remove('visible');
     statusError.classList.remove('visible');
-    progressFill.style.width  = '0%';
-    progressLabel.textContent = 'Uploading…  0%';
-    uploadElapsedEl.textContent = '0:00';
+    _resetChecklist();
+
+    // Upload step: active + inline progress bar
+    _stepActivate('upload');
+    document.getElementById('uploadBarRow').style.display = 'flex';
+    document.getElementById('uploadBarFill').style.width = '0%';
+    document.getElementById('uploadBarPct').textContent = '0%';
+
     runBtn.disabled = true;
     runBtn.style.display = 'none';
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-    clearInterval(uploadTimer);
-    const uploadStart = Date.now();
-    uploadTimer = setInterval(() => {
-      const secs = Math.floor((Date.now() - uploadStart) / 1000);
-      uploadElapsedEl.textContent = formatTime(secs);
-    }, 500);
   }
 
   function showProcessing(msgs) {
     isUploading = false;
     statusCard.classList.add('visible');
-    const messages = msgs || PROC_MESSAGES;
     clearInterval(uploadTimer);
-    uploadProgEl.style.display = 'none';
-    statusProc.style.display   = 'flex';
-    statusMsg.textContent      = messages[0][1];
-    elapsedEl.textContent      = '0:00';
+    // Upload step is already done (called right after chunkedUpload resolves)
+    // Transition: enhance active, start timer for enhance→cut threshold
+    _stepActivate('enhance');
+    const messages = msgs || [];
+    // enhanceEnd is messages[1] threshold (index of 'Cutting silences…' entry minus 1)
+    // We derive it from messages array: find the threshold for the 'Cutting silences' message
+    let enhanceEndSec = 9999;
+    for (let i = 0; i < messages.length; i++) {
+      if (typeof messages[i][1] === 'string' && messages[i][1].includes('Cutting')) {
+        enhanceEndSec = messages[i][0];
+        break;
+      }
+    }
     clearInterval(elapsedTimer);
     const procStart = Date.now();
+    let cutActivated = false;
     elapsedTimer = setInterval(() => {
       const secs = Math.floor((Date.now() - procStart) / 1000);
-      elapsedEl.textContent = formatTime(secs);
-      for (let i = messages.length - 1; i >= 0; i--) {
-        if (secs >= messages[i][0]) { statusMsg.textContent = messages[i][1]; break; }
+      if (!cutActivated && secs >= enhanceEndSec) {
+        cutActivated = true;
+        _stepDone('enhance');
+        _stepActivate('cut');
       }
     }, 500);
   }
 
   function showDone() {
-    statusProc.style.display = 'none';
+    clearInterval(elapsedTimer);
+    checklistEl.style.display = 'none';
     statusDone.classList.add('visible');
     if (!burnMode) runBtn.style.display = 'none';
     const doneTimeEl = document.getElementById('doneTime');
@@ -2373,8 +2548,8 @@
     setSetupLocked(false);
     clearInterval(uploadTimer);
     clearInterval(elapsedTimer);
-    uploadProgEl.style.display = 'none';
-    statusProc.style.display   = 'none';
+    Object.keys(stepTimers).forEach(k => { if (stepTimers[k]) { clearInterval(stepTimers[k].id); stepTimers[k] = null; } });
+    checklistEl.style.display = 'none';
     statusError.classList.add('visible');
     errorMsg.textContent = msg.length > 200 ? msg.slice(0, 200) + '…' : msg;
     runBtn.disabled = false;
@@ -2387,12 +2562,13 @@
     currentCallId = null;
     clearInterval(uploadTimer);
     clearInterval(elapsedTimer);
+    Object.keys(stepTimers).forEach(k => { if (stepTimers[k]) { clearInterval(stepTimers[k].id); stepTimers[k] = null; } });
     runStartTime = null;
     const doneTimeEl = document.getElementById('doneTime');
     if (doneTimeEl) doneTimeEl.style.display = 'none';
     statusCard.classList.remove('visible');
-    uploadProgEl.style.display = 'none';
-    statusProc.style.display   = 'none';
+    checklistEl.style.display = 'none';
+    _resetChecklist();
     statusDone.classList.remove('visible');
     statusError.classList.remove('visible');
     document.getElementById('captionEditorCard').style.display = 'none';
@@ -4193,12 +4369,22 @@
 
     const burnErrorEl = document.getElementById('burnError');
     runBtn.disabled    = true;
-    runBtn.textContent = '⏳ Burning… 0:00';
+    runBtn.textContent = '⏳ Burning…';
     burnErrorEl.style.display = 'none';
-    let burnSecs = 0;
-    let burnBtnTimer = setInterval(() => {
-      runBtn.textContent = `⏳ Burning… ${formatTime(++burnSecs)}`;
-    }, 1000);
+    let burnBtnTimer = null;
+
+    // Show checklist with burn step active (steps 1-3 already done)
+    statusCard.classList.add('visible');
+    checklistEl.style.display = 'block';
+    statusDone.classList.remove('visible');
+    if (checkItems.upload.className === 'check-item pending') {
+      // Reconnect case: we don't know prior step times, mark as done
+      checkItems.upload.className = 'check-item done';
+      checkItems.enhance.className = 'check-item done';
+      checkItems.cut.className = 'check-item done';
+    }
+    _stepActivate('burn');
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 
     // Lock all editor cards and collapse them while burn is in progress
     const editorIds = ['captionEditorCard', 'hookCard', 'brollCard', 'stockBrollCard'];
@@ -4253,15 +4439,9 @@
       saveJob('burn', call_id, { outputFilename: outFilename });
       const burnResult = await pollForJSON(`${API_BASE}/burn_poll/${call_id}/`, 600_000, call_id);
       clearInterval(elapsedTimer);
+      _stepDone('burn');
       clearSavedJob();
-
-      // Switch button to download phase
-      clearInterval(burnBtnTimer);
-      let dlSecs = 0;
-      runBtn.textContent = `⏳ Downloading… 0:00`;
-      burnBtnTimer = setInterval(() => {
-        runBtn.textContent = `⏳ Downloading… ${formatTime(++dlSecs)}`;
-      }, 1000);
+      runBtn.textContent = '⏳ Downloading…';
 
       // Download final video from volume — 10-minute hard timeout covers both headers AND body
       const dlAbort  = new AbortController();
@@ -4311,7 +4491,6 @@
         burnErrorEl.style.display = 'block';
       }
     } finally {
-      clearInterval(burnBtnTimer);
       runBtn.disabled = false;
       updateBurnBtn();
     }
