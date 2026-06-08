@@ -2488,6 +2488,11 @@
     statusError.classList.remove('visible');
     _resetChecklist();
 
+    // Show burn step only when burn_captions is enabled
+    if (document.getElementById('burnCaptions')?.checked) {
+      checkItems.burn.style.display = '';
+    }
+
     // Upload step: active + inline progress bar
     _stepActivate('upload');
     document.getElementById('uploadBarRow').style.display = 'flex';
@@ -2499,8 +2504,9 @@
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
   }
 
-  let _procStartMs   = null;  // set in showProcessing, used as fallback in _stepsDoneAll
-  let _enhanceEndSec = 9999;  // set in showProcessing
+  let _procStartMs    = null;
+  let _enhanceEndSec  = 9999;
+  let _renderStartSec = 9999;
 
   function showProcessing(msgs) {
     isUploading = false;
@@ -2508,17 +2514,16 @@
     clearInterval(uploadTimer);
     _stepActivate('enhance');
     const messages = msgs || [];
-    // Find the threshold marking end of enhance ("Transcrib…" → that's when deepfilter is done)
     _enhanceEndSec = 9999;
-    for (let i = 0; i < messages.length; i++) {
-      if (typeof messages[i][1] === 'string' && messages[i][1].includes('Transcrib')) {
-        _enhanceEndSec = messages[i][0];
-        break;
-      }
+    _renderStartSec = 9999;
+    for (const [t, label] of messages) {
+      if (label.includes('Transcrib')) _enhanceEndSec  = t;
+      if (label.includes('Rendering')) _renderStartSec = t;
     }
     clearInterval(elapsedTimer);
     _procStartMs = Date.now();
-    let cutActivated = false;
+    const burnVisible = checkItems.burn && checkItems.burn.style.display !== 'none';
+    let cutActivated = false, burnActivated = false;
     elapsedTimer = setInterval(() => {
       const secs = Math.floor((Date.now() - _procStartMs) / 1000);
       if (!cutActivated && secs >= _enhanceEndSec) {
@@ -2526,32 +2531,56 @@
         _stepDone('enhance');
         _stepActivate('cut');
       }
+      if (burnVisible && cutActivated && !burnActivated && secs >= _renderStartSec) {
+        burnActivated = true;
+        _stepDone('cut');
+        _stepActivate('burn');
+      }
     }, 500);
   }
 
-  // Call this when process_poll returns. Handles the case where the process finished
-  // before the enhance→cut timer fired (GPU is faster than the estimated threshold).
+  // Force a step done with an explicit elapsed-seconds value (used when splitting estimated time).
+  function _forceDone(name, secs) {
+    if (stepTimers[name]) { clearInterval(stepTimers[name].id); stepTimers[name] = null; }
+    const item = checkItems[name];
+    if (!item) return;
+    item.className = 'check-item done';
+    const timeEl = checkTimeEls[name];
+    if (timeEl) { timeEl.textContent = formatTime(secs); stepEndSecs[name] = secs; }
+  }
+
+  // Called when process_poll returns. Marks all remaining active/pending steps done.
+  // Handles proportional splits when the process finishes before timer transitions fire.
   function _stepsDoneProcessing() {
     clearInterval(elapsedTimer);
+    const burnVisible = checkItems.burn && checkItems.burn.style.display !== 'none';
+    const total = Math.max(1, Math.round((Date.now() - _procStartMs) / 1000));
+
     if (checkItems.enhance.classList.contains('active')) {
-      // enhance→cut transition never fired — process was faster than estimate.
-      // Split actual elapsed proportionally: give enhance _enhanceEndSec / (_enhanceEndSec + expected_cut).
-      const totalMs     = Date.now() - _procStartMs;
-      const totalSecs   = Math.round(totalMs / 1000);
-      const enhanceSecs = Math.min(totalSecs - 1, Math.round(totalSecs * 0.55));
-      const cutSecs     = Math.max(1, totalSecs - enhanceSecs);
-      if (stepTimers.enhance) clearInterval(stepTimers.enhance.id);
-      stepTimers.enhance = null;
-      checkItems.enhance.className = 'check-item done';
-      checkTimeEls.enhance.textContent = formatTime(enhanceSecs);
-      stepEndSecs.enhance = enhanceSecs;
-      checkItems.cut.className = 'check-item done';
-      checkTimeEls.cut.textContent = formatTime(cutSecs);
-      stepEndSecs.cut = cutSecs;
+      // All steps still pending — split total time proportionally
+      if (burnVisible) {
+        _forceDone('enhance', Math.round(total * 0.40));
+        _forceDone('cut',     Math.round(total * 0.35));
+        _forceDone('burn',    Math.max(1, total - Math.round(total * 0.40) - Math.round(total * 0.35)));
+      } else {
+        _forceDone('enhance', Math.min(total - 1, Math.round(total * 0.55)));
+        _forceDone('cut',     Math.max(1, total - Math.min(total - 1, Math.round(total * 0.55))));
+      }
+    } else if (checkItems.cut && checkItems.cut.classList.contains('active')) {
+      // enhance done, cut (and possibly burn) still running
+      _stepDone('enhance');
+      if (burnVisible) {
+        const rem = stepTimers.cut ? Math.max(1, Math.round((Date.now() - stepTimers.cut.start) / 1000)) : 1;
+        _forceDone('cut',  Math.max(1, Math.round(rem * 0.60)));
+        _forceDone('burn', Math.max(1, rem - Math.round(rem * 0.60)));
+      } else {
+        _stepDone('cut');
+      }
     } else {
-      // Normal path: enhance already done, cut is active
+      // Timer transitions already fired — just close whatever is still open
       _stepDone('enhance');
       _stepDone('cut');
+      if (burnVisible) _stepDone('burn');
     }
   }
 
@@ -4399,19 +4428,6 @@
     burnErrorEl.style.display = 'none';
     let burnBtnTimer = null;
 
-    // Ensure steps 1-3 are shown as done (in case checklist was reset)
-    statusCard.classList.add('visible');
-    checklistEl.style.display = 'block';
-    statusDone.classList.remove('visible');
-    ['upload', 'enhance', 'cut'].forEach(name => {
-      if (checkItems[name] && !checkItems[name].classList.contains('done')) {
-        checkItems[name].style.display = '';
-        checkItems[name].className = 'check-item done';
-      }
-    });
-    _stepActivate('burn');
-    window.scrollTo({ top: 0, behavior: 'smooth' }); // scroll UP to show checklist
-
     // Lock all editor cards and collapse them while burn is in progress
     const editorIds = ['captionEditorCard', 'hookCard', 'brollCard', 'stockBrollCard'];
     editorIds.forEach(id => document.getElementById(id)?.classList.add('burning'));
@@ -4464,8 +4480,6 @@
       const outFilename = fname.replace(/\.[^/.]+$/, '') + '_edited.mp4';
       saveJob('burn', call_id, { outputFilename: outFilename });
       const burnResult = await pollForJSON(`${API_BASE}/burn_poll/${call_id}/`, 600_000, call_id);
-      clearInterval(elapsedTimer);
-      _stepDone('burn');
       clearSavedJob();
       runBtn.textContent = '⏳ Downloading…';
 
