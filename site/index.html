@@ -1690,11 +1690,10 @@
       checkItems.upload.className = 'check-item done';
       checkTimeEls.upload.textContent = 'cached';
       _stepActivate('enhance');
+      _procStartMs = Date.now();
       try {
         const result = await pollForJSON(`${API_BASE}/process_poll/${job.callId}/`, 900_000, job.callId);
-        clearInterval(elapsedTimer);
-        _stepDone('enhance');
-        _stepDone('cut');
+        _stepsDoneProcessing();
         clearSavedJob();
         captionsData = result.captions || [];
         videoKey     = result.video_key;
@@ -1976,17 +1975,17 @@
     }
   });
 
-  // Dynamic phase thresholds — DeepFilterNet ≈ 3× realtime on T4, Whisper ≈ 8× faster
+  // Phase thresholds calibrated for T4 GPU: deepfilter ~10× realtime, Whisper turbo ~12× realtime
   function getProcMessages(dur) {
     dur = dur || 60;
-    const enhanceEnd    = Math.round(dur * 2.8);
-    const transcribeEnd = Math.round(enhanceEnd + Math.max(30, dur / 8));
-    const renderStart   = transcribeEnd + 20;
-    const encodeEnd     = renderStart + Math.max(60, Math.round(dur * 0.3));
+    const enhanceEnd    = Math.max(25, Math.round(dur * 0.12)); // deepfilter on T4
+    const transcribeEnd = Math.max(50, Math.round(enhanceEnd + dur * 0.10)); // whisper turbo
+    const renderStart   = transcribeEnd + 10;
+    const encodeEnd     = renderStart + Math.max(30, Math.round(dur * 0.22));
     return [
       [0,            'Starting up…'],
       [18,           'Enhancing audio…'],
-      [enhanceEnd,   'Transcribing audio…'],
+      [enhanceEnd,   'Transcribing…'],
       [transcribeEnd,'Cutting silences…'],
       [renderStart,  'Rendering…'],
       [encodeEnd,    'Almost there…'],
@@ -2046,10 +2045,7 @@
       saveJob('process', call_id, { filename: selectedFile.name });
       const pollUrl = `${API_BASE}/process_poll/${call_id}/`;
       const result = await pollForJSON(pollUrl, 900_000, call_id);
-      clearInterval(elapsedTimer);
-      // Mark whichever of enhance/cut is still active as done
-      _stepDone('enhance');
-      _stepDone('cut');
+      _stepsDoneProcessing();
       clearSavedJob();
 
       captionsData = result.captions;
@@ -2142,9 +2138,7 @@
       currentCallId = call_id;
       saveJob('process', call_id, { filename: selectedFile.name });
       const result = await pollForJSON(`${API_BASE}/process_poll/${call_id}/`, 900_000, call_id);
-      clearInterval(elapsedTimer);
-      _stepDone('enhance');
-      _stepDone('cut');
+      _stepsDoneProcessing();
       clearSavedJob();
 
       captionsData = result.captions;
@@ -2499,34 +2493,60 @@
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
   }
 
+  let _procStartMs   = null;  // set in showProcessing, used as fallback in _stepsDoneAll
+  let _enhanceEndSec = 9999;  // set in showProcessing
+
   function showProcessing(msgs) {
     isUploading = false;
     statusCard.classList.add('visible');
     clearInterval(uploadTimer);
-    // Upload step is already done (called right after chunkedUpload resolves)
-    // Transition: enhance active, start timer for enhance→cut threshold
     _stepActivate('enhance');
     const messages = msgs || [];
-    // enhanceEnd is messages[1] threshold (index of 'Cutting silences…' entry minus 1)
-    // We derive it from messages array: find the threshold for the 'Cutting silences' message
-    let enhanceEndSec = 9999;
+    // Find the threshold marking end of enhance ("Transcrib…" → that's when deepfilter is done)
+    _enhanceEndSec = 9999;
     for (let i = 0; i < messages.length; i++) {
-      if (typeof messages[i][1] === 'string' && messages[i][1].includes('Cutting')) {
-        enhanceEndSec = messages[i][0];
+      if (typeof messages[i][1] === 'string' && messages[i][1].includes('Transcrib')) {
+        _enhanceEndSec = messages[i][0];
         break;
       }
     }
     clearInterval(elapsedTimer);
-    const procStart = Date.now();
+    _procStartMs = Date.now();
     let cutActivated = false;
     elapsedTimer = setInterval(() => {
-      const secs = Math.floor((Date.now() - procStart) / 1000);
-      if (!cutActivated && secs >= enhanceEndSec) {
+      const secs = Math.floor((Date.now() - _procStartMs) / 1000);
+      if (!cutActivated && secs >= _enhanceEndSec) {
         cutActivated = true;
         _stepDone('enhance');
         _stepActivate('cut');
       }
     }, 500);
+  }
+
+  // Call this when process_poll returns. Handles the case where the process finished
+  // before the enhance→cut timer fired (GPU is faster than the estimated threshold).
+  function _stepsDoneProcessing() {
+    clearInterval(elapsedTimer);
+    if (checkItems.enhance.classList.contains('active')) {
+      // enhance→cut transition never fired — process was faster than estimate.
+      // Split actual elapsed proportionally: give enhance _enhanceEndSec / (_enhanceEndSec + expected_cut).
+      const totalMs     = Date.now() - _procStartMs;
+      const totalSecs   = Math.round(totalMs / 1000);
+      const enhanceSecs = Math.min(totalSecs - 1, Math.round(totalSecs * 0.55));
+      const cutSecs     = Math.max(1, totalSecs - enhanceSecs);
+      if (stepTimers.enhance) clearInterval(stepTimers.enhance.id);
+      stepTimers.enhance = null;
+      checkItems.enhance.className = 'check-item done';
+      checkTimeEls.enhance.textContent = formatTime(enhanceSecs);
+      stepEndSecs.enhance = enhanceSecs;
+      checkItems.cut.className = 'check-item done';
+      checkTimeEls.cut.textContent = formatTime(cutSecs);
+      stepEndSecs.cut = cutSecs;
+    } else {
+      // Normal path: enhance already done, cut is active
+      _stepDone('enhance');
+      _stepDone('cut');
+    }
   }
 
   function showDone() {
