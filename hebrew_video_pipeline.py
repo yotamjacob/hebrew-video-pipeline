@@ -34,6 +34,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -41,6 +42,13 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
+
+_RTL_LEAD_PUNCT_RE = re.compile(r'^([?!.،؟]+)\s+(.+)$', re.DOTALL)
+
+def _fix_rtl_punct(line: str) -> str:
+    """Move leading sentence-final punctuation to the end of an RTL caption line."""
+    m = _RTL_LEAD_PUNCT_RE.match(line.strip())
+    return (m.group(2) + m.group(1)) if m else line
 
 # ------------------------- Defaults -------------------------
 DEFAULT_MIN_SILENCE = 0.5       # seconds of gap before we consider cutting
@@ -255,7 +263,7 @@ def generate_ass(
                 return t.strip("،,.-–—!?;:")
 
             text = r"\N".join(
-                " ".join(_clean(w.text) for w in ln).strip()
+                _fix_rtl_punct(" ".join(_clean(w.text) for w in ln).strip())
                 for ln in lines_in_cue
             )
             events.append((new_start, new_end, text))

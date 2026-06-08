@@ -125,6 +125,20 @@ _FORBIDDEN_WORDS = frozenset([
 ])
 _HEBREW_PREFIXES = frozenset("הבלמוכשו")
 
+_RTL_LEAD_PUNCT_RE = _re.compile(r'^([?!.،؟]+)\s+(.+)$', _re.DOTALL)
+
+def _fix_rtl_punct(line: str) -> str:
+    """Move leading sentence-final punctuation to the end of an RTL caption line.
+
+    The ivrit-ai Whisper model sometimes emits '? שלום' where the punctuation
+    token precedes the Hebrew word in logical order. In RTL display the first
+    logical character is placed at the visual-right (start of reading), so the
+    question mark appears on the wrong side. Moving it to the end yields
+    'שלום?' which renders correctly in RTL.
+    """
+    m = _RTL_LEAD_PUNCT_RE.match(line.strip())
+    return (m.group(2) + m.group(1)) if m else line
+
 def _censor_caption_text(text: str) -> str:
     """Keep first char of each forbidden word, replace rest with ***.
     Also detects words prefixed with a single Hebrew prefix letter (ה,ב,ל,מ,ו,כ,ש).
@@ -517,7 +531,7 @@ def process_video(
                 ns = cumulative + (first.start - seg.start)
                 ne = cumulative + (last.end - seg.start)
                 text = r"\N".join(
-                    " ".join(_clean(ww.text) for ww in ln).strip()
+                    _fix_rtl_punct(" ".join(_clean(ww.text) for ww in ln).strip())
                     for ln in lines_in_cue
                 )
                 events.append((ns, ne, text))
@@ -777,7 +791,9 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
                 lines.append(" ".join(cur))
             return r"\N".join(lines) if lines else text
 
-        captions = [{"start": c["start"], "end": c["end"], "text": _rewrap_cap(_censor_caption_text(c["text"]))} for c in captions]
+        def _fix_cap_lines(t):
+            return r'\N'.join(_fix_rtl_punct(l) for l in t.split(r'\N'))
+        captions = [{"start": c["start"], "end": c["end"], "text": _fix_cap_lines(_rewrap_cap(_censor_caption_text(c["text"])))} for c in captions]
 
         # Build hook style + event if a hook was selected
         hook_style_line = ""
