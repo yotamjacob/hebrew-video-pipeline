@@ -90,8 +90,8 @@ test('upload chunking: large file triggers multiple upload_chunk requests', asyn
   });
 
   await mockAllApis(page);
-  // 3 MB file → 3 chunks of 1 MB each
-  await selectFile(page, { sizeMB: 3 });
+  // 16 MB file → 4 chunks of 5 MB (CHUNK_SIZE = 5 MB)
+  await selectFile(page, { sizeMB: 16 });
   await page.waitForSelector('#runBtn:not([disabled])');
   await page.click('#runBtn');
   await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 10_000 });
