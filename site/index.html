@@ -290,6 +290,7 @@
       transition: background 0.15s, border-color 0.15s;
     }
     .reprocess-btn:hover { background: var(--purple-50); border-color: var(--purple-500); }
+    .reprocess-btn:disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
 
     /* ── Status card ── */
     .status { display: none; }
@@ -4423,10 +4424,12 @@
     burnUrl.searchParams.set('margin_v',   captionMarginPct.toFixed(4));
     burnUrl.searchParams.set('font_size',  Math.round(captionFontSize * 1.10));
 
-    const burnErrorEl = document.getElementById('burnError');
-    runBtn.disabled    = true;
-    runBtn.textContent = '⏳ Burning…';
-    burnErrorEl.style.display = 'none';
+    const burnErrorEl   = document.getElementById('burnError');
+    const reprocessBtn  = document.getElementById('reprocessBtn');
+    runBtn.disabled     = true;
+    runBtn.textContent  = '⏳ Burning…';
+    burnErrorEl.style.display    = 'none';
+    if (reprocessBtn) reprocessBtn.disabled = true;
     let burnBtnTimer = null;
 
     // Lock all editor cards and collapse them while burn is in progress
@@ -4533,6 +4536,7 @@
       }
     } finally {
       runBtn.disabled = false;
+      if (reprocessBtn) reprocessBtn.disabled = false;
       updateBurnBtn();
     }
   }
