@@ -125,7 +125,9 @@ _FORBIDDEN_WORDS = frozenset([
 ])
 _HEBREW_PREFIXES = frozenset("הבלמוכשו")
 
-_RTL_LEAD_PUNCT_RE = _re.compile(r'^([?!.،؟]+)\s+(.+)$', _re.DOTALL)
+_RLM                = chr(0x200F)  # Unicode Right-to-Left Mark — invisible, strong RTL
+_RTL_LEAD_PUNCT_RE  = _re.compile(r'^([?!.،؟]+)\s+(.+)$', _re.DOTALL)
+_RTL_TRAIL_PUNCT_RE = _re.compile(r'([?!]+)(\\N|$)')
 
 def _fix_rtl_punct(line: str) -> str:
     """Move leading sentence-final punctuation to the end of an RTL caption line.
@@ -138,6 +140,22 @@ def _fix_rtl_punct(line: str) -> str:
     """
     m = _RTL_LEAD_PUNCT_RE.match(line.strip())
     return (m.group(2) + m.group(1)) if m else line
+
+def _rtl_ass_text(text: str) -> str:
+    """Wrap caption text with Unicode RTL markers for correct libass rendering.
+
+    libass does not reliably anchor neutral characters (?, !) to the RTL run
+    when they appear at the end of an ASS Dialogue string — they can float to
+    the visual-right instead of staying at the visual-left where Hebrew sentence
+    punctuation belongs.
+
+    Two fixes applied only to the ASS text (not the HTML editor copy):
+      1. Prepend U+200F (RLM) — forces RTL paragraph base direction in libass.
+      2. Insert U+200F after each ? or ! before a \\N line-break or end-of-string —
+         acts as a strong RTL anchor, pulling the punctuation to the visual-left.
+    """
+    marked = _RTL_TRAIL_PUNCT_RE.sub(lambda m: m.group(1) + _RLM + (m.group(2) or ''), text)
+    return _RLM + marked
 
 def _censor_caption_text(text: str) -> str:
     """Keep first char of each forbidden word, replace rest with ***.
@@ -577,7 +595,7 @@ def process_video(
         )
         lines = [
             f"Dialogue: 0,{seconds_to_ass(s)},{seconds_to_ass(e)},"
-            f"Default,,0,0,0,,{t}\n"
+            f"Default,,0,0,0,,{_rtl_ass_text(t)}\n"
             for s, e, t in events
         ]
         path.write_text(header + "".join(lines), encoding="utf-8")
@@ -897,7 +915,7 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
         )
         lines = [
             f"Dialogue: 0,{seconds_to_ass(c['start'])},{seconds_to_ass(c['end'])},"
-            f"Default,,0,0,0,,{c['text']}\n"
+            f"Default,,0,0,0,,{_rtl_ass_text(c['text'])}\n"
             for c in captions
         ]
         ass_path.write_text(header + "".join(lines) + hook_event_line, encoding="utf-8")

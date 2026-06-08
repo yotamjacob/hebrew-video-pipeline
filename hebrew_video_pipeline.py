@@ -43,12 +43,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
 
-_RTL_LEAD_PUNCT_RE = re.compile(r'^([?!.،؟]+)\s+(.+)$', re.DOTALL)
+_RLM                = chr(0x200F)  # Unicode Right-to-Left Mark — invisible, strong RTL
+_RTL_LEAD_PUNCT_RE  = re.compile(r'^([?!.،؟]+)\s+(.+)$', re.DOTALL)
+_RTL_TRAIL_PUNCT_RE = re.compile(r'([?!]+)(\\N|$)')
 
 def _fix_rtl_punct(line: str) -> str:
     """Move leading sentence-final punctuation to the end of an RTL caption line."""
     m = _RTL_LEAD_PUNCT_RE.match(line.strip())
     return (m.group(2) + m.group(1)) if m else line
+
+def _rtl_ass_text(text: str) -> str:
+    """Wrap caption text with Unicode RTL markers for correct libass rendering."""
+    marked = _RTL_TRAIL_PUNCT_RE.sub(lambda m: m.group(1) + _RLM + (m.group(2) or ''), text)
+    return _RLM + marked
 
 # ------------------------- Defaults -------------------------
 DEFAULT_MIN_SILENCE = 0.5       # seconds of gap before we consider cutting
@@ -318,7 +325,7 @@ def generate_ass(
     for start, end, text in events:
         body_lines.append(
             f"Dialogue: 0,{seconds_to_ass(start)},{seconds_to_ass(end)},"
-            f"Default,,0,0,0,,{text}\n"
+            f"Default,,0,0,0,,{_rtl_ass_text(text)}\n"
         )
 
     out_path.write_text(header + "".join(body_lines), encoding="utf-8")
