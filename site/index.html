@@ -2557,22 +2557,23 @@
     const total = Math.max(1, Math.round((Date.now() - _procStartMs) / 1000));
 
     if (checkItems.enhance.classList.contains('active')) {
-      // All steps still pending — split total time proportionally
+      // All steps still pending — split proportionally based on observed GPU timings:
+      // enhance ~20%, cut ~25%, burn ~55% (burn includes ffmpeg re-encode, takes longest)
       if (burnVisible) {
-        _forceDone('enhance', Math.round(total * 0.40));
-        _forceDone('cut',     Math.round(total * 0.35));
-        _forceDone('burn',    Math.max(1, total - Math.round(total * 0.40) - Math.round(total * 0.35)));
+        _forceDone('enhance', Math.round(total * 0.20));
+        _forceDone('cut',     Math.round(total * 0.25));
+        _forceDone('burn',    Math.max(1, total - Math.round(total * 0.20) - Math.round(total * 0.25)));
       } else {
-        _forceDone('enhance', Math.min(total - 1, Math.round(total * 0.55)));
-        _forceDone('cut',     Math.max(1, total - Math.min(total - 1, Math.round(total * 0.55))));
+        _forceDone('enhance', Math.min(total - 1, Math.round(total * 0.40)));
+        _forceDone('cut',     Math.max(1, total - Math.min(total - 1, Math.round(total * 0.40))));
       }
     } else if (checkItems.cut && checkItems.cut.classList.contains('active')) {
       // enhance done, cut (and possibly burn) still running
       _stepDone('enhance');
       if (burnVisible) {
         const rem = stepTimers.cut ? Math.max(1, Math.round((Date.now() - stepTimers.cut.start) / 1000)) : 1;
-        _forceDone('cut',  Math.max(1, Math.round(rem * 0.60)));
-        _forceDone('burn', Math.max(1, rem - Math.round(rem * 0.60)));
+        _forceDone('cut',  Math.max(1, Math.round(rem * 0.35)));
+        _forceDone('burn', Math.max(1, rem - Math.round(rem * 0.35)));
       } else {
         _stepDone('cut');
       }
