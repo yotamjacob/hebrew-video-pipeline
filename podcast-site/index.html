@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>שיחות על יוגה · פודקאסט</title>
+  <meta name="description" content="שיחות על יוגה — פודקאסט על נשימה, תנועה ושקט. האזינו ביוטיוב, ספוטיפיי ואפל." />
+  <meta property="og:title" content="שיחות על יוגה · פודקאסט" />
+  <meta property="og:description" content="פודקאסט על נשימה, תנועה ושקט." />
+  <meta property="og:type" content="website" />
+  <link rel="icon" href="img/cover.webp" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;800&family=Assistant:wght@300;400;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --purple-900: #3B0764;
+      --purple-800: #4C1D95;
+      --purple-700: #6D28D9;
+      --purple-600: #7C3AED;
+      --purple-500: #8B5CF6;
+      --purple-400: #A78BFA;
+      --purple-300: #C4B5FD;
+      --purple-100: #EDE9FE;
+      --purple-50:  #F5F3FF;
+      --bg:         #F2EEF8;
+      --white:      #FFFFFF;
+      --text:       #1E1033;
+      --muted:      #6B7080;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      overflow-x: hidden;
+      max-width: 100%;
+    }
+
+    body {
+      font-family: 'Heebo', 'Assistant', system-ui, -apple-system, sans-serif;
+      color: var(--text);
+      min-height: 100svh;
+      width: 100%;
+      max-width: 100%;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow-x: hidden;
+      background:
+        radial-gradient(120% 80% at 50% -10%, #EADcff 0%, var(--bg) 55%),
+        var(--bg);
+    }
+
+    /* ── Ambient soft glows (yoga calm) ── */
+    .glow {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.55;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .glow-1 { width: 460px; height: 460px; top: -160px; right: -120px;
+      background: radial-gradient(circle, rgba(167,139,250,0.55), transparent 70%); }
+    .glow-2 { width: 420px; height: 420px; bottom: -160px; left: -120px;
+      background: radial-gradient(circle, rgba(196,181,253,0.5), transparent 70%); }
+    .glow-3 { width: 340px; height: 340px; top: 40%; left: 50%; transform: translateX(-50%);
+      background: radial-gradient(circle, rgba(237,233,254,0.7), transparent 70%); }
+
+    /* ── Layout ── */
+    .wrap {
+      position: relative;
+      z-index: 1;
+      flex: 1;
+      width: 100%;
+      max-width: 540px;
+      margin: 0 auto;
+      padding: 56px 22px 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    /* ── Cover art ── */
+    .cover {
+      width: 100%;
+      max-width: 380px;
+      aspect-ratio: 3 / 2;
+      border-radius: 24px;
+      object-fit: cover;
+      object-position: center;
+      box-shadow:
+        0 18px 50px rgba(109, 40, 217, 0.30),
+        0 2px 0 rgba(255,255,255,0.5) inset;
+      border: 4px solid rgba(255,255,255,0.7);
+      animation: floaty 7s ease-in-out infinite;
+    }
+    @keyframes floaty {
+      0%, 100% { transform: translateY(0); }
+      50%      { transform: translateY(-9px); }
+    }
+
+    /* ── Title block ── */
+    .eyebrow {
+      margin-top: 26px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.22em;
+      color: var(--purple-600);
+      text-transform: none;
+    }
+    .title {
+      margin-top: 8px;
+      font-size: clamp(2rem, 9vw, 2.9rem);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+      background: linear-gradient(120deg, var(--purple-800), var(--purple-500));
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .tagline {
+      margin-top: 16px;
+      max-width: 30ch;
+      font-size: 1.02rem;
+      font-weight: 300;
+      line-height: 1.7;
+      color: var(--muted);
+    }
+
+    /* ── Listen buttons ── */
+    .listen {
+      width: 100%;
+      margin-top: 38px;
+      display: flex;
+      flex-direction: column;
+      gap: 13px;
+    }
+    .listen-label {
+      font-size: 0.74rem;
+      font-weight: 600;
+      letter-spacing: 0.2em;
+      color: var(--purple-400);
+      margin-bottom: 2px;
+    }
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      width: 100%;
+      padding: 17px 22px;
+      border-radius: 16px;
+      font-family: inherit;
+      font-size: 1.04rem;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+      transition: transform 0.18s, box-shadow 0.18s, opacity 0.18s;
+      color: #fff;
+      background: linear-gradient(130deg, var(--purple-700) 0%, var(--purple-500) 100%);
+      box-shadow: 0 8px 26px rgba(109, 40, 217, 0.30);
+    }
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 14px 38px rgba(109, 40, 217, 0.40);
+      opacity: 0.97;
+    }
+    .btn:active { transform: translateY(0); }
+    .btn svg { width: 24px; height: 24px; flex-shrink: 0; }
+
+    /* Per-platform accent (subtle brand tint over the purple base) */
+    .btn-youtube {
+      background: linear-gradient(130deg, #b1186b 0%, #7C3AED 100%);
+      box-shadow: 0 8px 26px rgba(190, 30, 90, 0.28);
+    }
+    .btn-spotify {
+      background: linear-gradient(130deg, #1a9c6b 0%, #6D28D9 100%);
+      box-shadow: 0 8px 26px rgba(26, 156, 107, 0.26);
+    }
+    .btn-apple {
+      background: linear-gradient(130deg, #8B5CF6 0%, #4C1D95 100%);
+      box-shadow: 0 8px 26px rgba(76, 29, 149, 0.30);
+    }
+
+    /* ── Footer ── */
+    .footer {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 540px;
+      margin: 0 auto;
+      padding: 26px 22px 34px;
+      text-align: center;
+    }
+    .footer-divider {
+      width: 56px;
+      height: 3px;
+      border-radius: 3px;
+      background: var(--purple-300);
+      margin: 0 auto 20px;
+    }
+    .socials {
+      display: flex;
+      justify-content: center;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+    .social {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      background: var(--white);
+      border: 1.5px solid var(--purple-100);
+      box-shadow: 0 4px 16px rgba(109, 40, 217, 0.08);
+      color: var(--purple-600);
+      transition: transform 0.18s, box-shadow 0.18s, color 0.18s, border-color 0.18s;
+    }
+    .social:hover {
+      transform: translateY(-3px);
+      color: var(--purple-800);
+      border-color: var(--purple-300);
+      box-shadow: 0 8px 22px rgba(109, 40, 217, 0.18);
+    }
+    .social svg { width: 22px; height: 22px; }
+    .name-accent {
+      color: var(--purple-600);
+      font-weight: 600;
+    }
+    .credit {
+      margin-top: 14px;
+      font-size: 0.74rem;
+      font-weight: 500;
+      color: var(--purple-700);
+    }
+    .copyright {
+      font-size: 0.78rem;
+      font-weight: 300;
+      color: var(--muted);
+    }
+
+    /* ── Scroll-down indicator ── */
+    .scroll-indicator {
+      position: fixed;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      color: var(--purple-600);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+    .scroll-indicator.show { opacity: 0.85; }
+    .scroll-indicator span {
+      font-size: 0.64rem;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+    }
+    .scroll-indicator svg {
+      width: 22px;
+      height: 22px;
+      animation: bob 1.6s ease-in-out infinite;
+    }
+    @keyframes bob {
+      0%, 100% { transform: translateY(0); opacity: 0.55; }
+      50%      { transform: translateY(6px); opacity: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .scroll-indicator svg, .cover { animation: none; }
+    }
+
+    @media (max-width: 380px) {
+      .wrap { padding-top: 40px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="glow glow-1"></div>
+  <div class="glow glow-2"></div>
+  <div class="glow glow-3"></div>
+
+  <main class="wrap">
+    <img class="cover" src="img/cover-photo.webp" alt="שיחות על יוגה" />
+
+    <p class="eyebrow">פּוֹדְקָאסְט</p>
+    <h1 class="title">שיחות על יוגה</h1>
+    <p class="tagline">שיחות לא מנומסות על יוגה, עם המורות והמורים הכי טובים בישראל ופרקים אישיים על החיים בדרך היוגה.<br>עם <span class="name-accent">אלינה גרינשפון יעקב (יוגאלינה)</span></p>
+    <p class="credit">מפיקה: ענת הנקין</p>
+
+    <nav class="listen" aria-label="האזנה לפודקאסט">
+      <span class="listen-label">להאזנה</span>
+
+      <a class="btn btn-youtube" href="https://www.youtube.com/playlist?list=PLHJ24GdnGGJoqXN4RPRUc-9BX-IONYuyN" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+        <span>YouTube</span>
+      </a>
+
+      <a class="btn btn-spotify" href="https://open.spotify.com/show/745FPffk9eKyKAPzBgixkY?si=996d75dc0afa408a" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.18-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.42 1.56-.299.421-1.02.599-1.561.3z"/></svg>
+        <span>Spotify</span>
+      </a>
+
+      <a class="btn btn-apple" href="https://podcasts.apple.com/us/podcast/שיחות-על-יוגה/id1896925244" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5.34 0A5.328 5.328 0 0 0 0 5.34v13.32A5.328 5.328 0 0 0 5.34 24h13.32A5.328 5.328 0 0 0 24 18.66V5.34A5.328 5.328 0 0 0 18.66 0H5.34zm6.525 2.568c2.336 0 4.448.902 6.056 2.587 1.224 1.272 1.912 2.619 2.264 4.392.12.59.12 2.2.007 2.864-.4 2.336-1.68 4.288-3.711 5.664-.84.567-2.624 1.344-2.928 1.272-.16-.04-.16-.135.04-2.183.184-1.92.232-2.255.36-2.376.072-.072.376-.215.664-.32 1.704-.583 2.864-2.272 2.864-4.144 0-2.84-2.336-5.176-5.176-5.176-2.84 0-5.176 2.336-5.176 5.176 0 1.872 1.16 3.561 2.864 4.144.288.105.592.248.664.32.128.121.176.456.36 2.376.2 2.048.2 2.143.04 2.183-.304.072-2.088-.705-2.928-1.272-2.031-1.376-3.311-3.328-3.711-5.664-.113-.664-.113-2.274.007-2.864.352-1.773 1.04-3.12 2.264-4.392 1.608-1.685 3.72-2.587 6.056-2.587zm.135 6.272a2.6 2.6 0 0 1 1.832.736c.464.448.688.92.792 1.624.224 1.552-1.024 3.024-2.624 3.024s-2.848-1.472-2.624-3.024c.104-.704.328-1.176.792-1.624a2.6 2.6 0 0 1 1.832-.736zm-.011 5.92c.984 0 1.776.792 1.776 1.776 0 .12-.048.736-.112 1.36-.184 1.84-.32 2.32-.704 2.704-.52.52-1.4.52-1.92 0-.384-.384-.52-.864-.704-2.704-.064-.624-.112-1.24-.112-1.36 0-.984.792-1.776 1.776-1.776z"/></svg>
+        <span>Apple&nbsp;Podcasts</span>
+      </a>
+    </nav>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-divider"></div>
+    <div class="socials">
+      <a class="social" href="https://www.instagram.com/yogalina_yoga/" target="_blank" rel="noopener" aria-label="Instagram">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.8.25 2.23.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.06.41 2.23.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.25 1.8-.41 2.23-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.16-1.06.36-2.23.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.8-.25-2.23-.41a3.7 3.7 0 0 1-1.38-.9 3.7 3.7 0 0 1-.9-1.38c-.16-.42-.36-1.06-.41-2.23-.06-1.27-.07-1.65-.07-4.85s.01-3.58.07-4.85c.05-1.17.25-1.8.41-2.23.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.16 1.06-.36 2.23-.41 1.27-.06 1.65-.07 4.85-.07M12 0C8.74 0 8.33.01 7.05.07 5.78.13 4.9.33 4.14.63c-.79.3-1.46.72-2.12 1.38C1.36 2.67.94 3.34.63 4.14.33 4.9.13 5.78.07 7.05.01 8.33 0 8.74 0 12s.01 3.67.07 4.95c.06 1.27.26 2.15.56 2.91.3.8.72 1.47 1.38 2.13.66.66 1.33 1.08 2.12 1.38.76.3 1.64.5 2.91.56C8.33 23.99 8.74 24 12 24s3.67-.01 4.95-.07c1.27-.06 2.15-.26 2.91-.56a5.7 5.7 0 0 0 2.13-1.38 5.7 5.7 0 0 0 1.38-2.13c.3-.76.5-1.64.56-2.91.06-1.28.07-1.69.07-4.95s-.01-3.67-.07-4.95c-.06-1.27-.26-2.15-.56-2.91a5.7 5.7 0 0 0-1.38-2.12A5.7 5.7 0 0 0 19.86.63c-.76-.3-1.64-.5-2.91-.56C15.67.01 15.26 0 12 0zm0 5.84a6.16 6.16 0 1 0 0 12.32 6.16 6.16 0 0 0 0-12.32zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.41-10.85a1.44 1.44 0 1 0 0 2.88 1.44 1.44 0 0 0 0-2.88z"/></svg>
+      </a>
+      <a class="social" href="https://www.facebook.com/alina.grinshpoon" target="_blank" rel="noopener" aria-label="Facebook">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07c0 6.02 4.39 11.01 10.13 11.93v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.69.24 2.69.24v2.97h-1.52c-1.49 0-1.96.93-1.96 1.89v2.25h3.33l-.53 3.49h-2.8v8.44C19.61 23.08 24 18.09 24 12.07z"/></svg>
+      </a>
+      <a class="social" href="https://www.youtube.com/@yogalina_yoga" target="_blank" rel="noopener" aria-label="YouTube">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8zM9.6 15.6V8.4l6.3 3.6-6.3 3.6z"/></svg>
+      </a>
+    </div>
+    <p class="copyright">© <span id="year">2026</span> שיחות על יוגה · כל הזכויות שמורות</p>
+  </footer>
+
+  <div class="scroll-indicator" id="scrollHint" aria-hidden="true">
+    <span>גללו</span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+  </div>
+
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+
+    // Scroll-down indicator: show only when there's more below and user is near the top.
+    (function () {
+      var hint = document.getElementById('scrollHint');
+      function update() {
+        var scrollable = document.documentElement.scrollHeight - window.innerHeight;
+        var show = scrollable > 40 && window.scrollY < scrollable - 60;
+        hint.classList.toggle('show', show);
+      }
+      update();
+      window.addEventListener('scroll', update, { passive: true });
+      window.addEventListener('resize', update);
+    })();
+  </script>
+</body>
+</html>
