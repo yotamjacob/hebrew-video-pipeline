@@ -2,7 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>שיחות על יוגה · פודקאסט</title>
   <meta name="description" content="שיחות על יוגה — פודקאסט על נשימה, תנועה ושקט. האזינו ביוטיוב, ספוטיפיי ואפל." />
   <meta property="og:title" content="שיחות על יוגה · פודקאסט" />
@@ -35,6 +35,8 @@
       scroll-behavior: smooth;
       overflow-x: hidden;
       max-width: 100%;
+      touch-action: pan-y;
+      -webkit-text-size-adjust: 100%;
     }
 
     body {
@@ -356,7 +358,7 @@
     <p class="copyright">© <span id="year">2026</span> שיחות על יוגה · כל הזכויות שמורות</p>
   </footer>
 
-  <div class="scroll-indicator" id="scrollHint" aria-hidden="true">
+  <div class="scroll-indicator show" id="scrollHint" aria-hidden="true">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="6 13 12 19 18 13"></polyline></svg>
   </div>
 
@@ -367,14 +369,24 @@
     (function () {
       var hint = document.getElementById('scrollHint');
       function update() {
-        var scrollable = document.documentElement.scrollHeight - window.innerHeight;
-        var show = scrollable > 40 && window.scrollY < scrollable - 60;
+        // Visible on first load (top of page); hide once the user has scrolled down.
+        var show = window.scrollY < 40;
         hint.classList.toggle('show', show);
       }
       update();
       window.addEventListener('scroll', update, { passive: true });
       window.addEventListener('resize', update);
     })();
+
+    // Disable pinch- and double-tap-zoom on iOS Safari (which ignores user-scalable=no).
+    document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+    document.addEventListener('gesturechange', function (e) { e.preventDefault(); });
+    var lastTouch = 0;
+    document.addEventListener('touchend', function (e) {
+      var now = Date.now();
+      if (now - lastTouch <= 300) { e.preventDefault(); }
+      lastTouch = now;
+    }, { passive: false });
   </script>
 </body>
 </html>
