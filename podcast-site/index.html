@@ -53,13 +53,19 @@
     }
 
     /* ── Ambient soft glows (yoga calm) ── */
-    .glow {
+    /* Clipped to the viewport so off-screen glows can't create horizontal scroll. */
+    .bg {
       position: fixed;
+      inset: 0;
+      overflow: hidden;
+      z-index: 0;
+      pointer-events: none;
+    }
+    .glow {
+      position: absolute;
       border-radius: 50%;
       filter: blur(80px);
       opacity: 0.55;
-      pointer-events: none;
-      z-index: 0;
     }
     .glow-1 { width: 460px; height: 460px; top: -160px; right: -120px;
       background: radial-gradient(circle, rgba(167,139,250,0.55), transparent 70%); }
@@ -248,25 +254,24 @@
     /* ── Scroll-down indicator ── */
     .scroll-indicator {
       position: fixed;
-      bottom: 18px;
-      left: 50%;
-      transform: translateX(-50%);
+      bottom: 20px;
+      right: 16px;
+      left: auto;
       z-index: 5;
       display: flex;
-      flex-direction: column;
       align-items: center;
-      gap: 4px;
+      justify-content: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: var(--white);
+      box-shadow: 0 6px 20px rgba(109, 40, 217, 0.20);
       color: var(--purple-600);
       pointer-events: none;
       opacity: 0;
       transition: opacity 0.4s ease;
     }
-    .scroll-indicator.show { opacity: 0.85; }
-    .scroll-indicator span {
-      font-size: 0.64rem;
-      font-weight: 600;
-      letter-spacing: 0.18em;
-    }
+    .scroll-indicator.show { opacity: 0.92; }
     .scroll-indicator svg {
       width: 22px;
       height: 22px;
@@ -286,9 +291,11 @@
   </style>
 </head>
 <body>
-  <div class="glow glow-1"></div>
-  <div class="glow glow-2"></div>
-  <div class="glow glow-3"></div>
+  <div class="bg" aria-hidden="true">
+    <div class="glow glow-1"></div>
+    <div class="glow glow-2"></div>
+    <div class="glow glow-3"></div>
+  </div>
 
   <main class="wrap">
     <img class="cover" src="img/cover-photo.webp" alt="שיחות על יוגה" />
@@ -335,8 +342,7 @@
   </footer>
 
   <div class="scroll-indicator" id="scrollHint" aria-hidden="true">
-    <span>גללו</span>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="6 13 12 19 18 13"></polyline></svg>
   </div>
 
   <script>
