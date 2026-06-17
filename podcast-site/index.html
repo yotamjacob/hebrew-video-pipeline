@@ -285,8 +285,23 @@
       .scroll-indicator svg, .cover { animation: none; }
     }
 
-    @media (max-width: 380px) {
-      .wrap { padding-top: 40px; }
+    /* ── Mobile: scale the whole layout down so it feels as compact/airy as desktop ── */
+    @media (max-width: 600px) {
+      .wrap { padding: 30px 20px 24px; }
+      .cover { max-width: 300px; border-radius: 20px; border-width: 3px; }
+      .eyebrow { margin-top: 20px; font-size: 0.72rem; }
+      .title { font-size: 2.15rem; }
+      .tagline { margin-top: 12px; font-size: 0.92rem; line-height: 1.55; }
+      .credit { margin-top: 10px; font-size: 0.7rem; }
+      .listen { margin-top: 26px; gap: 11px; }
+      .listen-label { font-size: 0.7rem; }
+      .btn { padding: 14px 20px; font-size: 0.96rem; border-radius: 14px; }
+      .btn svg { width: 21px; height: 21px; }
+    }
+
+    @media (max-width: 360px) {
+      .cover { max-width: 260px; }
+      .title { font-size: 1.95rem; }
     }
   </style>
 </head>
