@@ -1084,6 +1084,14 @@
       align-items: center; gap: 6px; min-width: 0;
     }
     .stats-asof::before { content: '🕒'; font-size: 0.82rem; }
+    .stats-note {
+      display: flex; gap: 8px; align-items: flex-start;
+      margin-top: 10px; padding: 10px 12px;
+      background: var(--purple-50); border: 1px solid var(--purple-100);
+      border-radius: 10px; font-size: 0.76rem; color: var(--muted); line-height: 1.5;
+    }
+    .stats-note-icon { flex-shrink: 0; }
+    .stats-note b { color: var(--purple-700); font-weight: 700; }
 
     .net-card { padding: 18px 20px; }
     .net-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
@@ -1700,6 +1708,10 @@
       <p class="stats-period" id="statsPeriod"></p>
       <div class="stats-refresh-row">
         <span class="stats-asof" id="statsAsOf"></span>
+      </div>
+      <div class="stats-note">
+        <span class="stats-note-icon">ℹ️</span>
+        <span>These numbers are a manual snapshot, current as of the date above. To refresh them, ask <b>Yotam</b> to run an update — or upgrade the Metricool plan to unlock automatic live stats.</span>
       </div>
     </div>
 
