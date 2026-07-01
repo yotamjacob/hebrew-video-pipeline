@@ -2069,6 +2069,13 @@
         checklistEl.style.display = 'none';
         triggerDownload();
         document.getElementById('burnSuccessBanner').style.display = 'flex';
+        // Reveal the schedule card for resumed/background-completed jobs too
+        window._schedCtx = {
+          outputKey: burnResult.output_key,
+          filename:  job.outputFilename,
+          videoKey:  (typeof videoKey !== 'undefined' ? videoKey : null),
+        };
+        if (typeof revealScheduleCard === 'function') revealScheduleCard();
       } catch (err) {
         clearSavedJob();
         if (err.name !== 'AbortError')
