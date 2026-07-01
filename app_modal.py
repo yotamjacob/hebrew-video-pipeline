@@ -3184,13 +3184,13 @@ def api():
         # ── Metricool OAuth: start (redirect user to authorize) ──
         if path in ("/oauth/start", "/oauth/start/") and method == "GET":
             import secrets, hashlib, base64
-            from urllib.parse import urlencode
+            import urllib.parse as _up
             verifier = secrets.token_urlsafe(64)
             challenge = base64.urlsafe_b64encode(
                 hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
             state = secrets.token_urlsafe(24)
             oauth_store[f"pkce:{state}"] = verifier
-            q = urlencode({
+            q = _up.urlencode({
                 "response_type": "code", "client_id": MC_CLIENT_ID,
                 "redirect_uri": MC_REDIRECT, "scope": MC_SCOPE, "state": state,
                 "code_challenge": challenge, "code_challenge_method": "S256",
@@ -3202,7 +3202,8 @@ def api():
 
         # ── Metricool OAuth: callback (exchange code, store refresh token) ──
         if path in ("/oauth/callback", "/oauth/callback/") and method == "GET":
-            from urllib.parse import parse_qs
+            # NOTE: don't re-import parse_qs here — binding it locally would shadow
+            # the api()-scope closure and UnboundLocalError every other route.
             import urllib.request, urllib.parse as _up
             qs = parse_qs(scope.get("query_string", b"").decode())
             code = qs.get("code", [""])[0]
