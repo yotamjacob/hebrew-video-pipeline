@@ -2060,22 +2060,28 @@
         const burnResult = await pollForJSON(`${API_BASE}/burn_poll/${job.callId}/`, 600_000, job.callId);
         _stepDone('burn');
         clearSavedJob();
-        const dlResp = await fetch(
-          `${API_BASE}/download/${burnResult.output_key}/?filename=${encodeURIComponent(job.outputFilename)}`
-        );
-        if (!dlResp.ok) throw new Error(`Download failed (${dlResp.status})`);
-        resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
-        resultName = job.outputFilename;
+        // Video is ready — show success + schedule card immediately (no download needed)
         checklistEl.style.display = 'none';
-        triggerDownload();
         document.getElementById('burnSuccessBanner').style.display = 'flex';
-        // Reveal the schedule card for resumed/background-completed jobs too
         window._schedCtx = {
           outputKey: burnResult.output_key,
           filename:  job.outputFilename,
           videoKey:  (typeof videoKey !== 'undefined' ? videoKey : null),
         };
         if (typeof revealScheduleCard === 'function') revealScheduleCard();
+        // Device download is optional and non-blocking
+        try {
+          const dlResp = await fetch(
+            `${API_BASE}/download/${burnResult.output_key}/?filename=${encodeURIComponent(job.outputFilename)}`
+          );
+          if (!dlResp.ok) throw new Error(`Download failed (${dlResp.status})`);
+          resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
+          resultName = job.outputFilename;
+          triggerDownload();
+        } catch (dlErr) {
+          if (dlErr.name !== 'AbortError')
+            console.warn('Device download failed (video is still scheduled-ready):', dlErr.message);
+        }
       } catch (err) {
         clearSavedJob();
         if (err.name !== 'AbortError')
@@ -4825,23 +4831,10 @@
       saveJob('burn', call_id, { outputFilename: outFilename });
       const burnResult = await pollForJSON(`${API_BASE}/burn_poll/${call_id}/`, 600_000, call_id);
       clearSavedJob();
-      runBtn.textContent = '⏳ Downloading…';
 
-      // Download final video from volume — 10-minute hard timeout covers both headers AND body
-      const dlAbort  = new AbortController();
-      const dlKillId = setTimeout(() => dlAbort.abort(), 10 * 60 * 1000);
-      try {
-        const dlResp = await fetch(
-          `${API_BASE}/download/${burnResult.output_key}/?filename=${encodeURIComponent(outFilename)}`,
-          { signal: dlAbort.signal }
-        );
-        if (!dlResp.ok) throw new Error(`Download failed (${dlResp.status})`);
-        resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
-      } finally {
-        clearTimeout(dlKillId);
-      }
-      resultName = outFilename;
-      triggerDownload();
+      // Video is ready on the server — reveal success + the schedule card NOW.
+      // Scheduling uses the server-side video URL, so it never waits on (or
+      // requires) the device download that follows.
       const successBanner = document.getElementById('burnSuccessBanner');
       const successTime   = document.getElementById('burnSuccessTime');
       if (runStartTime) {
@@ -4849,14 +4842,31 @@
         successTime.textContent = `Total time: ${formatTime(totalSec)}`;
       }
       successBanner.style.display = 'flex';
-      // Reveal the "Schedule this video" handoff card with this burn's public video URL
-      window._schedCtx = {
-        outputKey: burnResult.output_key,
-        filename:  outFilename,
-        videoKey:  videoKey,
-      };
+      window._schedCtx = { outputKey: burnResult.output_key, filename: outFilename, videoKey: videoKey };
       if (typeof revealScheduleCard === 'function') revealScheduleCard();
       window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+
+      // Download to the device (optional — does NOT gate scheduling)
+      runBtn.textContent = '⏳ Downloading…';
+      try {
+        const dlAbort  = new AbortController();
+        const dlKillId = setTimeout(() => dlAbort.abort(), 10 * 60 * 1000);
+        try {
+          const dlResp = await fetch(
+            `${API_BASE}/download/${burnResult.output_key}/?filename=${encodeURIComponent(outFilename)}`,
+            { signal: dlAbort.signal }
+          );
+          if (!dlResp.ok) throw new Error(`Download failed (${dlResp.status})`);
+          resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
+          resultName = outFilename;
+          triggerDownload();
+        } finally {
+          clearTimeout(dlKillId);
+        }
+      } catch (dlErr) {
+        if (dlErr.name !== 'AbortError')
+          console.warn('Device download failed (video is still scheduled-ready):', dlErr.message);
+      }
       // Re-enable editors for another round of changes on the same video
       editorIds.forEach(id => document.getElementById(id).classList.remove('burning'));
       [
