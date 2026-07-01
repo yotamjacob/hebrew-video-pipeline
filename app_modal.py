@@ -2965,6 +2965,166 @@ def burn_hook_fn(
 
 
 # ---------------------------------------------------------------------------
+# Metricool scheduling — OAuth 2.1 to the hosted MCP + createScheduledPost
+#
+# Free-tier path: the MCP (https://ai.metricool.com/mcp) authorizes via OAuth
+# (no Advanced-plan API token needed). This backend is the MCP client.
+#   /oauth/start    → redirect Alina to Metricool to authorize (one-time)
+#   /oauth/callback → exchange code, persist refresh token
+#   /schedule       → refresh token → call createScheduledPost over MCP
+# ---------------------------------------------------------------------------
+
+MC_MCP_URL     = "https://ai.metricool.com/mcp"
+MC_AUTHZ_URL   = "https://app.metricool.com/oauth/authorize"
+MC_TOKEN_URL   = "https://app.metricool.com/oauth/token"
+MC_CLIENT_ID   = "client_f7eb964add83410caaa9bf16812da4da"  # dynamically registered
+MC_REDIRECT    = "https://yotamjacob--hebrew-video-pipeline-api.modal.run/oauth/callback"
+MC_SCOPE       = "mcp:read mcp:write"
+MC_BLOG_ID     = "4497778"
+MC_PROTO       = "2025-06-18"  # MCP protocol version we request
+
+# Persistent store for OAuth PKCE state + tokens (survives redeploys)
+oauth_store = modal.Dict.from_name("metricool-oauth", create_if_missing=True)
+
+
+def _mc_refresh_access_token() -> str:
+    """Swap the stored refresh token for a fresh access token; rotate if returned."""
+    import json, urllib.request, urllib.parse
+    toks = oauth_store.get("tokens")
+    if not toks or not toks.get("refresh_token"):
+        raise RuntimeError("not_connected")
+    data = urllib.parse.urlencode({
+        "grant_type": "refresh_token",
+        "refresh_token": toks["refresh_token"],
+        "client_id": MC_CLIENT_ID,
+    }).encode()
+    req = urllib.request.Request(MC_TOKEN_URL, data=data,
+                                 headers={"Content-Type": "application/x-www-form-urlencoded"})
+    tr = json.loads(urllib.request.urlopen(req, timeout=30).read())
+    access = tr.get("access_token")
+    if not access:
+        raise RuntimeError("no_access_token")
+    if tr.get("refresh_token"):  # rotation
+        toks["refresh_token"] = tr["refresh_token"]
+        oauth_store["tokens"] = toks
+    return access
+
+
+def _mcp_tool_call(access: str, tool: str, arguments: dict) -> dict:
+    """Minimal MCP Streamable-HTTP client: initialize → initialized → tools/call."""
+    import json, requests
+    s = requests.Session()
+
+    def rpc(payload, extra_headers=None):
+        h = {
+            "Authorization": f"Bearer {access}",
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
+        if extra_headers:
+            h.update(extra_headers)
+        return s.post(MC_MCP_URL, headers=h, data=json.dumps(payload), timeout=90)
+
+    def parse(resp):
+        ct = resp.headers.get("Content-Type", "")
+        if "text/event-stream" in ct:
+            obj = None
+            for line in resp.text.splitlines():
+                line = line.strip()
+                if line.startswith("data:"):
+                    d = line[5:].strip()
+                    if d and d != "[DONE]":
+                        try:
+                            obj = json.loads(d)
+                        except json.JSONDecodeError:
+                            pass
+            return obj or {}
+        try:
+            return json.loads(resp.text)
+        except json.JSONDecodeError:
+            return {"raw": resp.text}
+
+    init = rpc({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "protocolVersion": MC_PROTO, "capabilities": {},
+        "clientInfo": {"name": "hebrew-video-pipeline", "version": "1.0"}}})
+    if init.status_code == 401:
+        raise RuntimeError("unauthorized")
+    sid = init.headers.get("Mcp-Session-Id") or init.headers.get("mcp-session-id")
+    negotiated = (parse(init).get("result", {}) or {}).get("protocolVersion", MC_PROTO)
+    sess = {"MCP-Protocol-Version": negotiated}
+    if sid:
+        sess["Mcp-Session-Id"] = sid
+
+    rpc({"jsonrpc": "2.0", "method": "notifications/initialized"}, sess)
+    resp = rpc({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "params": {"name": tool, "arguments": arguments}}, sess)
+    return parse(resp)
+
+
+def _build_metricool_info(p: dict) -> dict:
+    """Assemble the Metricool `info` object from the site payload."""
+    platforms = p.get("platforms", [])
+    info = {
+        "autoPublish": False,           # schedule only — never auto-post
+        "draft": bool(p.get("draft", False)),
+        "text": p.get("caption", ""),
+        "media": [p["videoUrl"]] if p.get("videoUrl") else [],
+        "mediaAltText": [],
+        "descendants": [],
+        "providers": [{"network": n} for n in platforms],
+        "publicationDate": {"dateTime": p["dateTime"], "timezone": p.get("timezone", "Asia/Jerusalem")},
+    }
+    if "instagram" in platforms:
+        info["instagramData"] = {"type": "REEL", "showReelOnFeed": True}
+    if "facebook" in platforms:
+        info["facebookData"] = {"type": "REEL"}
+    if "tiktok" in platforms:
+        info["tiktokData"] = {"privacyOption": "PUBLIC_TO_EVERYONE"}
+    if "youtube" in platforms:
+        info["youtubeData"] = {
+            "title": p.get("ytTitle", ""), "type": "short",
+            "privacy": p.get("ytPrivacy", "public"),
+            "madeForKids": bool(p.get("ytKids", False)),
+        }
+    return info
+
+
+@app.function(image=image, timeout=120)
+def schedule_post_fn(payload_json: str) -> dict:
+    import json
+    p = json.loads(payload_json)
+    try:
+        access = _mc_refresh_access_token()
+    except Exception as e:
+        return {"error": f"auth: {e}"}
+
+    # Build date (with Israel offset) + info
+    dt = p["dateTime"]                       # "YYYY-MM-DDTHH:MM:SS"
+    date_with_tz = dt + "+03:00"
+    info = _build_metricool_info(p)
+
+    try:
+        res = _mcp_tool_call(access, "createScheduledPost",
+                             {"date": date_with_tz, "blogId": MC_BLOG_ID,
+                              "info": json.dumps(info, ensure_ascii=False)})
+    except Exception as e:
+        return {"error": f"mcp: {e}"}
+
+    if res.get("error"):
+        return {"error": f"metricool: {json.dumps(res['error'])[:300]}"}
+    result = res.get("result", {})
+    if result.get("isError"):
+        txt = "".join(c.get("text", "") for c in result.get("content", []))
+        return {"error": f"metricool: {txt[:300]}"}
+    txt = "".join(c.get("text", "") for c in result.get("content", []))
+    try:
+        parsed = json.loads(txt)
+    except (json.JSONDecodeError, TypeError):
+        parsed = {"raw": txt}
+    return {"ok": True, "post": parsed}
+
+
+# ---------------------------------------------------------------------------
 # HTTP API — raw ASGI, zero external dependencies, dispatches to process_video
 #
 # POST /process?filename=x&cut_silences=true&burn_captions=true&min_silence=0.5&padding=0.2
@@ -3019,6 +3179,123 @@ def api():
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── Metricool OAuth: start (redirect user to authorize) ──
+        if path in ("/oauth/start", "/oauth/start/") and method == "GET":
+            import secrets, hashlib, base64
+            from urllib.parse import urlencode
+            verifier = secrets.token_urlsafe(64)
+            challenge = base64.urlsafe_b64encode(
+                hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+            state = secrets.token_urlsafe(24)
+            oauth_store[f"pkce:{state}"] = verifier
+            q = urlencode({
+                "response_type": "code", "client_id": MC_CLIENT_ID,
+                "redirect_uri": MC_REDIRECT, "scope": MC_SCOPE, "state": state,
+                "code_challenge": challenge, "code_challenge_method": "S256",
+            })
+            await send({"type": "http.response.start", "status": 302,
+                        "headers": [(b"location", f"{MC_AUTHZ_URL}?{q}".encode())]})
+            await send({"type": "http.response.body", "body": b""})
+            return
+
+        # ── Metricool OAuth: callback (exchange code, store refresh token) ──
+        if path in ("/oauth/callback", "/oauth/callback/") and method == "GET":
+            from urllib.parse import parse_qs
+            import urllib.request, urllib.parse as _up
+            qs = parse_qs(scope.get("query_string", b"").decode())
+            code = qs.get("code", [""])[0]
+            state = qs.get("state", [""])[0]
+            verifier = oauth_store.get(f"pkce:{state}") if state else None
+
+            def _html(msg, ok=True):
+                color = "#059669" if ok else "#DC2626"
+                return (f"<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+                        f"<body style='font-family:system-ui;background:#F2EEF8;color:#1E1033;display:flex;"
+                        f"align-items:center;justify-content:center;height:100vh;margin:0;text-align:center'>"
+                        f"<div style='background:#fff;border:1.5px solid #EDE9FE;border-radius:20px;padding:36px 28px;max-width:360px'>"
+                        f"<div style='font-size:44px'>{'✅' if ok else '⚠️'}</div>"
+                        f"<h2 style='color:{color};margin:12px 0 6px'>{'Metricool connected' if ok else 'Connection failed'}</h2>"
+                        f"<p style='color:#6B7080;font-size:14px'>{msg}</p></div></body>").encode()
+
+            if not code or not verifier:
+                await send({"type": "http.response.start", "status": 400,
+                            "headers": [(b"content-type", b"text/html; charset=utf-8")]})
+                await send({"type": "http.response.body", "body": _html("Missing or expired authorization. Please try connecting again.", ok=False)})
+                return
+            try:
+                data = _up.urlencode({
+                    "grant_type": "authorization_code", "code": code,
+                    "redirect_uri": MC_REDIRECT, "client_id": MC_CLIENT_ID,
+                    "code_verifier": verifier,
+                }).encode()
+                req = urllib.request.Request(MC_TOKEN_URL, data=data,
+                                             headers={"Content-Type": "application/x-www-form-urlencoded"})
+                tr = json.loads(await asyncio.to_thread(lambda: urllib.request.urlopen(req, timeout=30).read()))
+                if not tr.get("refresh_token"):
+                    raise RuntimeError("no refresh_token in response")
+                oauth_store["tokens"] = {"refresh_token": tr["refresh_token"],
+                                         "access_token": tr.get("access_token")}
+                try:
+                    del oauth_store[f"pkce:{state}"]
+                except KeyError:
+                    pass
+                page = _html("You can close this tab. Scheduling from the app is now enabled.")
+            except Exception as e:
+                page = _html(f"Token exchange failed: {str(e)[:120]}", ok=False)
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": [(b"content-type", b"text/html; charset=utf-8")]})
+            await send({"type": "http.response.body", "body": page})
+            return
+
+        # ── Metricool connection status ──
+        if path in ("/oauth/status", "/oauth/status/") and method == "GET":
+            connected = bool(oauth_store.get("tokens"))
+            body = json.dumps({"connected": connected}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── Schedule a post (spawn) ──
+        if path in ("/schedule", "/schedule/") and method == "POST":
+            if not _check_rate_limit(_get_client_ip(scope)):
+                await send_error("Rate limit exceeded. Try again in a minute.", 429)
+                return
+            if not oauth_store.get("tokens"):
+                await send_error("not_connected", 400)
+                return
+            body = await _read_body(receive)
+            try:
+                data = json.loads(body.decode("utf-8"))
+                call = schedule_post_fn.spawn(json.dumps(data))
+                resp = json.dumps({"call_id": call.object_id}).encode()
+                await send({"type": "http.response.start", "status": 202,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": resp})
+            except Exception as e:
+                await send_error(str(e))
+            return
+
+        if path.startswith("/schedule-poll/") and method == "GET":
+            call_id = path[len("/schedule-poll/"):].rstrip("/")
+            try:
+                import modal as _modal
+                fn_call = _modal.functions.FunctionCall.from_id(call_id)
+                result, still_running = _poll_fn_call(fn_call)
+                if still_running:
+                    body = json.dumps({"status": "running"}).encode()
+                    await send({"type": "http.response.start", "status": 202,
+                                "headers": CORS + [(b"content-type", b"application/json")]})
+                    await send({"type": "http.response.body", "body": body})
+                    return
+                body = json.dumps(result).encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": body})
+            except Exception as e:
+                await send_error(str(e))
             return
 
         # GPU warmup — fire-and-forget, wakes the GPU container so the next

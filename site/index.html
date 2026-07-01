@@ -1086,6 +1086,14 @@
       margin-top: 12px; color: var(--red); font-size: 0.82rem; text-align: center;
       padding: 10px 12px; background: #FEF2F2; border: 1.5px solid #FECACA; border-radius: 10px;
     }
+    .sched-connect-note { font-size: 0.82rem; color: var(--muted); line-height: 1.5; margin-bottom: 10px; text-align: center; }
+    .sched-status {
+      margin-top: 12px; font-size: 0.85rem; text-align: center; line-height: 1.5;
+      padding: 12px 14px; border-radius: 12px;
+    }
+    .sched-status.ok   { color: var(--green); background: #ECFDF5; border: 1.5px solid #A7F3D0; }
+    .sched-status.busy { color: var(--purple-700); background: var(--purple-50); border: 1.5px solid var(--purple-200); }
+    .sched-status a { color: var(--purple-700); font-weight: 700; }
 
     /* ── Tab bar ── */
     .tabs {
@@ -1758,7 +1766,7 @@
   <!-- Schedule this video (handoff helper) -->
   <div class="card" id="scheduleCard" style="display:none">
     <p class="options-title">📅 Schedule this video</p>
-    <p class="sched-intro">Prepare a post for Metricool. This builds a ready-to-send request — <b>copy it and send to Yotam</b>, who queues it in Metricool. (The site can't post directly on the current plan.)</p>
+    <p class="sched-intro">Schedule this video straight to Metricool. It's added as a <b>scheduled draft (not auto-published)</b> — you approve the final publish inside Metricool.</p>
 
     <label class="sched-label">Platforms</label>
     <div class="platform-grid">
@@ -1791,7 +1799,13 @@
       </div>
     </div>
 
-    <button id="copyScheduleBtn" class="run-btn" onclick="copyScheduleRequest()" style="margin-top:16px">📋&nbsp; Copy scheduling request</button>
+    <div id="schedConnect" style="display:none;margin-top:16px">
+      <p class="sched-connect-note">🔗 Connect your Metricool account once to schedule straight from here.</p>
+      <button class="run-btn" onclick="connectMetricool()">Connect Metricool</button>
+      <button class="sched-suggest-btn" style="margin-top:8px" onclick="checkMetricoolStatus()">I've connected — check again</button>
+    </div>
+    <button id="scheduleBtn" class="run-btn" onclick="scheduleNow()" style="display:none;margin-top:16px">🚀&nbsp; Schedule on Metricool</button>
+    <div id="schedStatus" class="sched-status" style="display:none"></div>
     <div id="schedError" class="sched-error" style="display:none"></div>
   </div>
 
@@ -5122,6 +5136,25 @@
       sb.disabled = !_hasTranscript();
       sb.textContent = _hasTranscript() ? '✨ Suggest caption from video' : '✨ Suggest caption (turn captions on to enable)';
     }
+    checkMetricoolStatus();
+  }
+
+  async function checkMetricoolStatus() {
+    const connectEl = document.getElementById('schedConnect');
+    const schedBtn = document.getElementById('scheduleBtn');
+    try {
+      const r = await fetch(`${API_BASE}/oauth/status`, { cache: 'no-store' });
+      const { connected } = await r.json();
+      connectEl.style.display = connected ? 'none' : 'block';
+      schedBtn.style.display = connected ? 'block' : 'none';
+    } catch {
+      connectEl.style.display = 'block';
+      schedBtn.style.display = 'none';
+    }
+  }
+
+  function connectMetricool() {
+    window.open(`${API_BASE}/oauth/start`, '_blank', 'noopener');
   }
 
   // Show YouTube-only required fields when YouTube is selected
@@ -5175,9 +5208,12 @@
     }
   }
 
-  function copyScheduleRequest() {
+  async function scheduleNow() {
     const errEl = document.getElementById('schedError');
-    errEl.style.display = 'none'; errEl.style.whiteSpace = ''; errEl.style.textAlign = '';
+    const statusEl = document.getElementById('schedStatus');
+    const btn = document.getElementById('scheduleBtn');
+    errEl.style.display = 'none'; statusEl.style.display = 'none';
+
     const platforms = _schedPlatforms();
     const caption = document.getElementById('schedCaption').value.trim();
     const date = document.getElementById('schedDate').value;
@@ -5198,33 +5234,49 @@
       return;
     }
 
-    const videoUrl = `${API_BASE}/download/${ctx.outputKey}/?filename=${encodeURIComponent(ctx.filename || 'video.mp4')}`;
-    const lines = [
-      '📅 SCHEDULE REQUEST — Yogalina (send to Yotam to queue in Metricool)',
-      '',
-      'Video: ' + videoUrl,
-      'Platforms: ' + platforms.map(p => SCHED_PLATFORM_LABELS[p]).join(', '),
-      'Publish: ' + date + ' ' + time + ' (Israel time)',
-      'Mode: schedule only — autoPublish = false',
-    ];
-    if (ytOn) {
-      const priv = document.getElementById('ytPrivacy').value;
-      const kids = document.getElementById('ytKids').checked ? 'yes' : 'no';
-      lines.push(`YouTube: title="${ytTitle}", privacy=${priv}, madeForKids=${kids}`);
-    }
-    lines.push('', 'Caption:', caption);
-    const text = lines.join('\n');
+    const payload = {
+      platforms,
+      caption,
+      videoUrl: `${API_BASE}/download/${ctx.outputKey}/?filename=${encodeURIComponent(ctx.filename || 'video.mp4')}`,
+      dateTime: `${date}T${time}:00`,
+      timezone: 'Asia/Jerusalem',
+      ytTitle,
+      ytPrivacy: document.getElementById('ytPrivacy').value,
+      ytKids: document.getElementById('ytKids').checked,
+    };
 
-    const btn = document.getElementById('copyScheduleBtn');
-    navigator.clipboard.writeText(text).then(() => {
-      const o = btn.textContent;
-      btn.textContent = '✅ Copied — send it to Yotam';
-      setTimeout(() => { btn.textContent = o; }, 2500);
-    }).catch(() => {
-      errEl.textContent = 'Copy failed — select and copy this manually:\n\n' + text;
-      errEl.style.whiteSpace = 'pre-wrap'; errEl.style.textAlign = 'left';
+    const orig = btn.textContent;
+    btn.disabled = true; btn.textContent = '⏳ Scheduling…';
+    statusEl.className = 'sched-status busy'; statusEl.textContent = 'Sending to Metricool…'; statusEl.style.display = 'block';
+    try {
+      const spawn = await fetch(`${API_BASE}/schedule/`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      });
+      if (spawn.status === 400) { checkMetricoolStatus(); throw new Error('Metricool isn\'t connected. Tap Connect Metricool first.'); }
+      if (!spawn.ok) throw new Error(`HTTP ${spawn.status}`);
+      const { call_id } = await spawn.json();
+
+      let result = null;
+      while (true) {
+        const poll = await fetch(`${API_BASE}/schedule-poll/${call_id}/`);
+        if (poll.status === 200) { result = await poll.json(); break; }
+        if (poll.status === 202) { await new Promise(r => setTimeout(r, 2500)); continue; }
+        throw new Error(`Server error ${poll.status}`);
+      }
+      if (result.error) throw new Error(result.error);
+
+      const plannerUrl = result.post && result.post.plannerUrl;
+      statusEl.className = 'sched-status ok';
+      statusEl.innerHTML = `✅ Scheduled on Metricool for ${date} ${time} (Israel time).` +
+        (plannerUrl ? ` <a href="${plannerUrl}" target="_blank" rel="noopener">Open in Metricool ↗</a>` : ' Approve the final publish in Metricool.');
+      btn.textContent = '✅ Scheduled';
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);
+    } catch (e) {
+      statusEl.style.display = 'none';
+      errEl.textContent = `Couldn't schedule: ${String(e.message).slice(0, 160)}`;
       errEl.style.display = 'block';
-    });
+      btn.textContent = orig; btn.disabled = false;
+    }
   }
 </script>
 </body>
