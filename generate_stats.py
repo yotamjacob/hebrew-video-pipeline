@@ -3,8 +3,15 @@
 Raw rows were pulled via the Metricool MCP for brand 4497778 (Yogalina),
 period 2026-04-02 .. 2026-06-30. To refresh: re-pull and replace the arrays."""
 import json, statistics
+from datetime import datetime, timezone, timedelta
 
-PERIOD = {"from": "2026-04-02", "to": "2026-06-30", "updated": "2026-07-01", "label": "Apr 2 – Jun 30, 2026"}
+_IL = timezone(timedelta(hours=3))  # Asia/Jerusalem
+_now = datetime.now(_IL)
+PERIOD = {
+    "from": "2026-04-02", "to": "2026-06-30", "label": "Apr 2 – Jun 30, 2026",
+    "generatedAt": _now.isoformat(timespec="seconds"),
+    "generatedAtLabel": _now.strftime("%b %-d, %Y · %H:%M"),
+}
 
 def f(v):  # parse "12.0"/None -> float/None
     return None if v is None else float(v)
