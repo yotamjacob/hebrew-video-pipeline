@@ -25,8 +25,9 @@ FB = [["1821","1","1",None,"11","1","0","20260511"],["1822","1",None,None,"14","
 # ---- TikTok: [followers, videos, views, interactions, reach, newFollowers, profileViews, date] ----
 TK = [["315",None,None,None,None,"0","0","20260509"],["304",None,None,None,None,"0","0","20260629"],["320",None,None,None,None,"0","0","20260402"],["304",None,None,None,None,"0",None,"20260630"],["318",None,None,None,None,"0","0","20260409"],["313",None,None,None,None,"0","0","20260520"],["308",None,None,None,None,"0","0","20260601"]]
 
-# ---- YouTube: [subscribers, videoViews, videos, gained, lost, pubViews, comments, date] ----
-YT = [["216","1",None,"0","0",None,None,"20260402"],["211","1",None,"0","0",None,None,"20260629"],["211","0","0",None,None,"0","0","20260701"],["215","0",None,"0","1",None,None,"20260403"],["211","1",None,"0","0",None,None,"20260630"]]
+# ---- YouTube (channel UCwaTl-mBfjXqLsxFWojL6EQ): [videoViews, subsGained, subsLost] per day ----
+YT_SUBSCRIBERS = 993  # current subscribers (YTEV01, LAST)
+YT = [[17,0,0],[116,0,0],[638,3,1],[12,0,0],[287,0,0],[10,0,0],[391,0,0],[240,3,0],[19,0,0],[16,0,0],[43,0,0],[485,0,0],[125,2,0],[17,0,0],[32,0,0],[770,0,1],[6,0,0],[771,2,0],[424,0,0],[24,0,0],[302,0,0],[174,0,0],[86,0,0],[16,0,0],[464,1,0],[51,0,0],[934,1,1],[61,0,0],[964,2,0],[122,0,0],[41,0,0],[1087,3,2],[31,0,0],[206,1,0],[56,0,0],[688,0,0],[26,0,0],[1929,7,1],[303,1,0],[184,2,0],[1372,0,0],[439,0,0],[123,1,0],[181,0,0],[166,2,0],[202,0,0],[258,0,0],[251,0,0],[360,1,1],[296,4,0],[1401,5,0],[668,3,0],[250,1,0],[535,4,0],[524,2,0],[258,0,0],[151,0,0],[53,0,0],[544,2,2],[715,1,0],[334,0,0],[142,0,0],[385,0,0],[362,1,0],[355,0,0],[203,0,0],[81,0,0],[349,1,0],[32,0,0],[426,0,0],[1168,1,1],[1402,8,0],[198,0,0],[0,0,0],[76,0,0],[201,0,0],[551,1,1],[342,0,0],[206,0,0],[277,1,0],[871,3,0],[563,1,0],[766,1,0],[23,1,0],[519,1,0],[237,1,1],[260,0,0],[120,0,0],[141,0,0]]
 
 # ---- Top posts: [network, datetime, impressions, interactions, engagement, type] ----
 POSTS = [["INSTAGRAM","20260624190049","4159","52",None,"REEL"],["INSTAGRAM","20260621080042","3050","42",None,"REEL"],["INSTAGRAM","20260618190045","3118","24",None,"REEL"],["INSTAGRAM","20260622190228","2941","40",None,"REEL"],["INSTAGRAM","20260617145222","2737","51",None,"REEL"],["INSTAGRAM","20260610193144","2035","39",None,"REEL"],["INSTAGRAM","20260629190317","237","10",None,"REEL"],["INSTAGRAM","20260628190257","227","11",None,"REEL"],["INSTAGRAM","20260616190143","403","5",None,"REEL"],["INSTAGRAM","20260602080223","404","5",None,"REEL"],["FACEBOOK","20260622194932","1572","22",None,"REEL"],["FACEBOOK","20260623194754","453","8",None,"REEL"],["FACEBOOK","20260604082536","347","2",None,"REEL"]]
@@ -63,10 +64,10 @@ tk = {
     "views": int(total(TK, 2)), "posts": int(total(TK, 1)),
 }
 # YouTube
-yt_first, yt_last = first_last(YT, 0)
 yt = {
-    "subscribers": int(yt_last), "subscribersChange": int(yt_last - yt_first),
-    "videoViews": int(total(YT, 1)), "posts": int(total(YT, 2)),
+    "subscribers": YT_SUBSCRIBERS,
+    "subscribersChange": int(sum(r[1] for r in YT) - sum(r[2] for r in YT)),
+    "videoViews": int(sum(r[0] for r in YT)),
 }
 
 # Top posts (all networks) sorted by impressions
@@ -87,6 +88,13 @@ networks = [
         {"label": "Reel views (90d)", "value": ig["reelViews"]},
         {"label": "Interactions (90d)", "value": ig["interactions"]},
      ]},
+    {"key": "youtube", "name": "YouTube", "handle": "Yogalina channel", "icon": "YT",
+     "status": "strong", "statusLabel": "Growing",
+     "verdict": "The quiet surprise: 31.5K views and +63 net subscribers in 90 days — more real growth than Instagram, with almost no new uploads. That means your back catalogue is being found through search and recommendations and keeps earning views for months, the opposite of a Reel that spikes and dies in 48 hours. This is compounding, evergreen reach. Lever: publish more searchable, class-length videos ('20-minute morning yoga', 'yoga for lower-back pain') — each one becomes a small annuity, not a one-day event.",
+     "metrics": [
+        {"label": "Subscribers", "value": yt["subscribers"], "change": yt["subscribersChange"]},
+        {"label": "Video views (90d)", "value": yt["videoViews"]},
+     ]},
     {"key": "facebook", "name": "Facebook", "handle": "Yogalina Page", "icon": "FB",
      "status": "warn", "statusLabel": "Underused",
      "verdict": "Your largest audience (1,827) yet barely 80 interactions in a quarter — it's real but dormant, and Facebook actively throttles cross-posted Reels so they land at a fraction of Instagram's reach. This isn't worth fresh energy: keep the auto-crosspost running for the free residual reach, but treat Facebook as an archive, not a channel to grow. Reviving it would mean native posts and Stories, not Instagram reruns.",
@@ -104,13 +112,6 @@ networks = [
         {"label": "Videos (90d)", "value": tk["posts"]},
         {"label": "Views (90d)", "value": tk["views"]},
      ]},
-    {"key": "youtube", "name": "YouTube", "handle": "Yogalina channel", "icon": "YT",
-     "status": "warn", "statusLabel": "Dormant",
-     "verdict": "Effectively asleep — 211 subscribers drifting down, 3 views in a quarter. YouTube runs on search intent and long-form (full classes, 'yoga for lower-back pain'), the opposite of a 30-second Reel, so Shorts alone will never move it. Park it until you're ready to commit to class-length video; unlike TikTok, there's no low-effort win hiding here.",
-     "metrics": [
-        {"label": "Subscribers", "value": yt["subscribers"], "change": yt["subscribersChange"]},
-        {"label": "Video views (90d)", "value": yt["videoViews"]},
-     ]},
 ]
 
 # Best time to post (Instagram) — peak is 20:00 every day
@@ -121,7 +122,7 @@ best_time = {"network": "Instagram", "peakHour": "20:00", "window": "19:00–21:
 
 out = {
     "period": PERIOD,
-    "headline": "Your Reels reach far past your following — the wins are converting that reach into followers, and reviving TikTok, where it would travel furthest.",
+    "headline": "You have two engines running — Instagram's reach and YouTube's quiet, compounding growth. The one real gap is TikTok, sitting idle while it would travel furthest.",
     "networks": networks,
     "topPosts": top_posts,
     "bestTime": best_time,

@@ -3,10 +3,10 @@
     "from": "2026-04-02",
     "to": "2026-06-30",
     "label": "Apr 2 – Jun 30, 2026",
-    "generatedAt": "2026-07-01T14:52:44+03:00",
-    "generatedAtLabel": "Jul 1, 2026 · 14:52"
+    "generatedAt": "2026-07-01T15:08:18+03:00",
+    "generatedAtLabel": "Jul 1, 2026 · 15:08"
   },
-  "headline": "Your Reels reach far past your following — the wins are converting that reach into followers, and reviving TikTok, where it would travel furthest.",
+  "headline": "You have two engines running — Instagram's reach and YouTube's quiet, compounding growth. The one real gap is TikTok, sitting idle while it would travel furthest.",
   "networks": [
     {
       "key": "instagram",
@@ -33,6 +33,26 @@
         {
           "label": "Interactions (90d)",
           "value": 744
+        }
+      ]
+    },
+    {
+      "key": "youtube",
+      "name": "YouTube",
+      "handle": "Yogalina channel",
+      "icon": "YT",
+      "status": "strong",
+      "statusLabel": "Growing",
+      "verdict": "The quiet surprise: 31.5K views and +63 net subscribers in 90 days — more real growth than Instagram, with almost no new uploads. That means your back catalogue is being found through search and recommendations and keeps earning views for months, the opposite of a Reel that spikes and dies in 48 hours. This is compounding, evergreen reach. Lever: publish more searchable, class-length videos ('20-minute morning yoga', 'yoga for lower-back pain') — each one becomes a small annuity, not a one-day event.",
+      "metrics": [
+        {
+          "label": "Subscribers",
+          "value": 993,
+          "change": 63
+        },
+        {
+          "label": "Video views (90d)",
+          "value": 31505
         }
       ]
     },
@@ -85,26 +105,6 @@
         {
           "label": "Views (90d)",
           "value": 0
-        }
-      ]
-    },
-    {
-      "key": "youtube",
-      "name": "YouTube",
-      "handle": "Yogalina channel",
-      "icon": "YT",
-      "status": "warn",
-      "statusLabel": "Dormant",
-      "verdict": "Effectively asleep — 211 subscribers drifting down, 3 views in a quarter. YouTube runs on search intent and long-form (full classes, 'yoga for lower-back pain'), the opposite of a 30-second Reel, so Shorts alone will never move it. Park it until you're ready to commit to class-length video; unlike TikTok, there's no low-effort win hiding here.",
-      "metrics": [
-        {
-          "label": "Subscribers",
-          "value": 211,
-          "change": -5
-        },
-        {
-          "label": "Video views (90d)",
-          "value": 3
         }
       ]
     }
