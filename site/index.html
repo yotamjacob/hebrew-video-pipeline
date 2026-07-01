@@ -1078,32 +1078,12 @@
     }
     .stats-period .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--purple-300); }
 
-    .stats-refresh-row {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 12px; margin-top: 12px;
-    }
+    .stats-refresh-row { margin-top: 12px; }
     .stats-asof {
       font-size: 0.76rem; color: var(--muted); display: inline-flex;
       align-items: center; gap: 6px; min-width: 0;
     }
     .stats-asof::before { content: '🕒'; font-size: 0.82rem; }
-    .stats-asof.fresh { color: var(--green); }
-    .stats-refresh-btn {
-      appearance: none; flex-shrink: 0; cursor: pointer;
-      display: inline-flex; align-items: center; gap: 6px;
-      font-family: inherit; font-size: 0.8rem; font-weight: 700;
-      color: var(--purple-700); background: var(--white);
-      border: 1.5px solid var(--purple-300); border-radius: 20px;
-      padding: 7px 14px; transition: background 0.15s, border-color 0.15s, opacity 0.15s;
-    }
-    .stats-refresh-btn:hover { background: var(--purple-50); border-color: var(--purple-500); }
-    .stats-refresh-btn:disabled { opacity: 0.55; cursor: default; }
-    .stats-refresh-btn .refresh-icon { font-size: 0.95rem; line-height: 1; display: inline-block; }
-    .stats-refresh-btn.loading .refresh-icon { animation: spin 0.7s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    @media (prefers-reduced-motion: reduce) {
-      .stats-refresh-btn.loading .refresh-icon { animation: none; }
-    }
 
     .net-card { padding: 18px 20px; }
     .net-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
@@ -1720,10 +1700,6 @@
       <p class="stats-period" id="statsPeriod"></p>
       <div class="stats-refresh-row">
         <span class="stats-asof" id="statsAsOf"></span>
-        <button class="stats-refresh-btn" id="statsRefreshBtn" onclick="loadStats(true)">
-          <span class="refresh-icon" aria-hidden="true">↻</span>
-          <span class="refresh-label">Refresh</span>
-        </button>
       </div>
     </div>
 
@@ -4985,42 +4961,21 @@
       `Source: Metricool · organic + paid. Numbers are a snapshot generated ${d.period.generatedAtLabel}, not live.`;
   }
 
-  let _lastGen = null;
-
-  async function loadStats(manual) {
+  async function loadStats() {
     const loading = document.getElementById('statsLoading');
     const content = document.getElementById('statsContent');
     const errBox  = document.getElementById('statsError');
-    const btn     = document.getElementById('statsRefreshBtn');
-    const btnLabel = btn.querySelector('.refresh-label');
-
-    if (manual) { btn.classList.add('loading'); btn.disabled = true; btnLabel.textContent = 'Refreshing…'; }
-
     try {
       const resp = await fetch('stats.json?v=' + Date.now(), { cache: 'no-store' });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const data = await resp.json();
-      const changed = _lastGen && data.period.generatedAt !== _lastGen;
-      _lastGen = data.period.generatedAt;
       renderStats(data);
       _statsLoaded = true;
       loading.style.display = 'none';
       errBox.style.display = 'none';
       content.style.display = '';
-
-      if (manual) {
-        btnLabel.textContent = changed ? 'Updated ✓' : 'Up to date ✓';
-        if (changed) document.getElementById('statsAsOf').classList.add('fresh');
-        setTimeout(() => {
-          btnLabel.textContent = 'Refresh';
-          document.getElementById('statsAsOf').classList.remove('fresh');
-        }, 2200);
-      }
     } catch (e) {
       if (!_statsLoaded) { loading.style.display = 'none'; errBox.style.display = ''; }
-      if (manual) btnLabel.textContent = 'Try again';
-    } finally {
-      if (manual) { btn.classList.remove('loading'); btn.disabled = false; }
     }
   }
 </script>
