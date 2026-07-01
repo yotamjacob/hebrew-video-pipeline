@@ -6,8 +6,10 @@
 |------|---------|
 | `hebrew_video_pipeline.py` | Local CLI — 6-step pipeline (extract → enhance → transcribe → segments → ASS → render) |
 | `app_modal.py` | Modal serverless API — same pipeline running on T4 GPU, exposed as HTTP |
-| `site/index.html` | Single-page Vercel frontend — upload, process, download; no framework |
+| `site/index.html` | Single-page Vercel frontend — two tabs: **Hebrew Pipeline** (upload/process/download) and **Statistics** (Metricool snapshot); no framework |
 | `site/vercel.json` | SPA rewrite rule (all routes → index.html) |
+| `site/stats.json` | Committed Metricool stats snapshot the Statistics tab renders (generated, not hand-edited) |
+| `generate_stats.py` | Regenerates `site/stats.json` from a Metricool MCP pull — the refresh tool for the Statistics tab |
 | `captions_template.ass` | ASS subtitle format reference and style examples |
 | `requirements.txt` | `faster-whisper`, `requests` |
 | `README.md` | Full usage docs, architecture, "how to add a stock source", "how to swap models" |
@@ -104,6 +106,26 @@ OPUS_MODEL   = "claude-opus-4-7"             # Veo B-roll analysis (rarely used)
 TRANSCRIPT_ANALYSIS_MODEL = "gemini-2.5-flash"
 VIDEO_GENERATION_MODEL    = "veo-3.0-generate-001"
 ```
+
+## Statistics Tab (site)
+
+The site's second tab shows a social-media performance snapshot for the Yogalina brand, pulled from Metricool. Its goal: let Alina see at a glance **what performs and what doesn't** across her channels.
+
+**Data flow (snapshot model, not live):**
+1. `generate_stats.py` holds the raw per-network numbers (hardcoded arrays from a Metricool pull) + hand-written strategist verdicts, computes summaries, and writes `site/stats.json` (stamping `period.generatedAt` in Asia/Jerusalem).
+2. `site/index.html` fetches `stats.json` on tab open and renders network cards (status pill + metrics + verdict), best time to post, and top posts.
+3. Deploy publishes the new `stats.json`. The page shows a "🕒 Stats from <date>" timestamp + a note telling users to ask Yotam for a refresh.
+
+**Why it's a snapshot, not live:** the account is on Metricool's **free tier** → no API token → no server-side pull possible (a Modal `/stats` proxy would need an Advanced-plan token). The Metricool MCP that produces the data is only available in an interactive Claude session — **not** in cloud/cron routines — so automatic refresh isn't possible either.
+
+**To refresh the stats** (on request — "refresh the Yogalina stats"):
+1. Re-pull via the Metricool MCP for brand `4497778` (see `[[project_metricool_stats]]` memory for IDs/field IDs): network `evolution` metrics over the trailing ~90 days, `brandSummary posts` for top posts, `getBestTimeToPostByNetwork` for timing.
+2. Update the data arrays in `generate_stats.py`; rewrite a verdict/status only if a channel's standing materially changed.
+3. `python3 generate_stats.py` → regenerates `site/stats.json`.
+4. `npx vercel deploy --prod` from the project root, then commit + push.
+
+- Verdicts are curated strategic prose — refresh the **numbers** each time, but don't auto-rewrite the prose unless a status pill flips.
+- Card order is intentional: strongest channels first (currently Instagram, YouTube, then Facebook, TikTok).
 
 ## Conventions
 
