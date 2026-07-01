@@ -1028,6 +1028,65 @@
       font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; padding-top: 8px;
     }
 
+    /* ── Schedule card ── */
+    .sched-intro { font-size: 0.82rem; color: var(--muted); line-height: 1.5; margin-bottom: 16px; }
+    .sched-intro b { color: var(--purple-700); }
+    .sched-label {
+      display: block; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase;
+      font-weight: 700; color: var(--purple-500); margin: 16px 0 8px;
+    }
+    .sched-label:first-of-type { margin-top: 0; }
+    .sched-hint { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted); }
+    .platform-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .platform-opt {
+      display: flex; align-items: center; gap: 8px; cursor: pointer;
+      border: 1.5px solid var(--purple-100); border-radius: 12px; padding: 10px 12px;
+      font-size: 0.9rem; font-weight: 600; color: var(--text); transition: border-color 0.15s, background 0.15s;
+    }
+    .platform-opt:hover { border-color: var(--purple-300); background: var(--purple-50); }
+    .platform-opt input { accent-color: var(--purple-600); width: 16px; height: 16px; }
+    .platform-opt:has(input:checked) { border-color: var(--purple-400); background: var(--purple-50); }
+    .pf-badge {
+      width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 0.62rem; font-weight: 800; color: #fff;
+    }
+    .pf-badge.instagram { background: linear-gradient(135deg, #F58529, #DD2A7B 55%, #8134AF); }
+    .pf-badge.facebook  { background: #1877F2; }
+    .pf-badge.tiktok    { background: #111; }
+    .pf-badge.youtube   { background: #FF0000; }
+    .sched-datetime { display: flex; gap: 8px; }
+    .sched-input {
+      font-family: inherit; font-size: 0.9rem; color: var(--text);
+      border: 1.5px solid var(--purple-100); border-radius: 10px; padding: 10px 12px;
+      background: var(--white); outline: none; width: 100%; transition: border-color 0.15s;
+    }
+    .sched-input:focus { border-color: var(--purple-400); }
+    .sched-datetime .sched-input { flex: 1; }
+    .sched-caption {
+      font-family: inherit; font-size: 0.9rem; color: var(--text); line-height: 1.55;
+      border: 1.5px solid var(--purple-100); border-radius: 12px; padding: 12px 14px;
+      background: var(--white); outline: none; width: 100%; resize: vertical; direction: rtl;
+    }
+    .sched-caption:focus { border-color: var(--purple-400); }
+    .sched-suggest-btn {
+      margin-top: 10px; appearance: none; cursor: pointer; width: 100%;
+      font-family: inherit; font-size: 0.85rem; font-weight: 700; color: var(--purple-700);
+      background: var(--purple-50); border: 1.5px solid var(--purple-200); border-radius: 12px; padding: 11px;
+      transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+    }
+    .sched-suggest-btn:hover { background: var(--purple-100); border-color: var(--purple-400); }
+    .sched-suggest-btn:disabled { opacity: 0.6; cursor: default; }
+    .yt-fields { margin-top: 4px; }
+    .yt-row { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+    .yt-row .sched-input { flex: 1; }
+    .yt-kids { display: flex; align-items: center; gap: 7px; font-size: 0.85rem; color: var(--text); white-space: nowrap; cursor: pointer; }
+    .yt-kids input { accent-color: var(--purple-600); width: 16px; height: 16px; }
+    .sched-error {
+      margin-top: 12px; color: var(--red); font-size: 0.82rem; text-align: center;
+      padding: 10px 12px; background: #FEF2F2; border: 1.5px solid #FECACA; border-radius: 10px;
+    }
+
     /* ── Tab bar ── */
     .tabs {
       max-width: 560px;
@@ -1696,6 +1755,46 @@
     <button id="startOverBtn" style="width:100%;margin-top:6px;padding:10px;border-radius:12px;border:1.5px solid #D1D5DB;background:white;color:var(--text);font-size:0.9rem;font-weight:600;cursor:pointer;transition:background 0.15s">↩ Start over</button>
   </div>
 
+  <!-- Schedule this video (handoff helper) -->
+  <div class="card" id="scheduleCard" style="display:none">
+    <p class="options-title">📅 Schedule this video</p>
+    <p class="sched-intro">Prepare a post for Metricool. This builds a ready-to-send request — <b>copy it and send to Yotam</b>, who queues it in Metricool. (The site can't post directly on the current plan.)</p>
+
+    <label class="sched-label">Platforms</label>
+    <div class="platform-grid">
+      <label class="platform-opt"><input type="checkbox" class="sched-platform" value="instagram" checked><span class="pf-badge instagram">IG</span>Instagram</label>
+      <label class="platform-opt"><input type="checkbox" class="sched-platform" value="facebook"><span class="pf-badge facebook">FB</span>Facebook</label>
+      <label class="platform-opt"><input type="checkbox" class="sched-platform" value="tiktok"><span class="pf-badge tiktok">TT</span>TikTok</label>
+      <label class="platform-opt"><input type="checkbox" class="sched-platform" value="youtube"><span class="pf-badge youtube">YT</span>YouTube</label>
+    </div>
+
+    <label class="sched-label">Publish time <span class="sched-hint">Israel time · best slot ~20:00</span></label>
+    <div class="sched-datetime">
+      <input type="date" id="schedDate" class="sched-input">
+      <input type="time" id="schedTime" class="sched-input" value="20:00">
+    </div>
+
+    <label class="sched-label">Caption</label>
+    <textarea id="schedCaption" class="sched-caption" rows="5" placeholder="Write a caption, or generate a suggestion from the video…"></textarea>
+    <button id="suggestCaptionBtn" class="sched-suggest-btn" onclick="suggestCaption()">✨ Suggest caption from video</button>
+
+    <div id="ytFields" class="yt-fields" style="display:none">
+      <label class="sched-label">YouTube details <span class="sched-hint">required</span></label>
+      <input type="text" id="ytTitle" class="sched-input" placeholder="Video title (required for YouTube)">
+      <div class="yt-row">
+        <select id="ytPrivacy" class="sched-input">
+          <option value="public">Public</option>
+          <option value="unlisted">Unlisted</option>
+          <option value="private">Private</option>
+        </select>
+        <label class="yt-kids"><input type="checkbox" id="ytKids">Made for kids</label>
+      </div>
+    </div>
+
+    <button id="copyScheduleBtn" class="run-btn" onclick="copyScheduleRequest()" style="margin-top:16px">📋&nbsp; Copy scheduling request</button>
+    <div id="schedError" class="sched-error" style="display:none"></div>
+  </div>
+
   <p class="footer">יוגלינה &nbsp;·&nbsp; School of Quiet Yoga</p>
 </div>
 
@@ -2315,6 +2414,7 @@
     });
     document.getElementById('reprocessBtn').style.display = 'none';
     document.getElementById('burnSuccessBanner').style.display = 'none';
+    { const _sc = document.getElementById('scheduleCard'); if (_sc) _sc.style.display = 'none'; }
     setSetupLocked(true);
 
     const aggr = AGGR_MAP[aggrSlider.value - 1];
@@ -2869,6 +2969,7 @@
     document.getElementById('reprocessBtn').style.display = 'none';
     setSetupLocked(false);
     document.getElementById('burnSuccessBanner').style.display = 'none';
+    { const _sc = document.getElementById('scheduleCard'); if (_sc) _sc.style.display = 'none'; }
     document.getElementById('stockBrollRerunBanner').style.display = 'none';
     document.getElementById('stockCostLimitBanner').style.display  = 'none';
     runBtn.textContent = '▶  Run Pipeline';
@@ -4630,6 +4731,7 @@
     );
     if (!confirmed) return;
     document.getElementById('burnSuccessBanner').style.display = 'none';
+    { const _sc = document.getElementById('scheduleCard'); if (_sc) _sc.style.display = 'none'; }
 
     const edited = getCaptionsFromEditor();
 
@@ -4726,6 +4828,13 @@
         successTime.textContent = `Total time: ${formatTime(totalSec)}`;
       }
       successBanner.style.display = 'flex';
+      // Reveal the "Schedule this video" handoff card with this burn's public video URL
+      window._schedCtx = {
+        outputKey: burnResult.output_key,
+        filename:  outFilename,
+        videoKey:  videoKey,
+      };
+      if (typeof revealScheduleCard === 'function') revealScheduleCard();
       window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
       // Re-enable editors for another round of changes on the same video
       editorIds.forEach(id => document.getElementById(id).classList.remove('burning'));
@@ -4989,6 +5098,133 @@
     } catch (e) {
       if (!_statsLoaded) { loading.style.display = 'none'; errBox.style.display = ''; }
     }
+  }
+</script>
+
+<!-- ── Schedule this video (Metricool handoff helper) ── -->
+<script>
+  const SCHED_PLATFORM_LABELS = { instagram: 'Instagram', facebook: 'Facebook', tiktok: 'TikTok', youtube: 'YouTube' };
+
+  function _hasTranscript() {
+    return typeof captionsData !== 'undefined' && Array.isArray(captionsData) && captionsData.length > 0;
+  }
+
+  function revealScheduleCard() {
+    const card = document.getElementById('scheduleCard');
+    if (!card) return;
+    card.style.display = 'block';
+    const d = new Date();
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const dateEl = document.getElementById('schedDate');
+    if (dateEl && !dateEl.value) { dateEl.value = iso; dateEl.min = iso; }
+    const sb = document.getElementById('suggestCaptionBtn');
+    if (sb) {
+      sb.disabled = !_hasTranscript();
+      sb.textContent = _hasTranscript() ? '✨ Suggest caption from video' : '✨ Suggest caption (turn captions on to enable)';
+    }
+  }
+
+  // Show YouTube-only required fields when YouTube is selected
+  document.addEventListener('change', (e) => {
+    if (e.target && e.target.classList && e.target.classList.contains('sched-platform')) {
+      const ytOn = !!document.querySelector('.sched-platform[value="youtube"]:checked');
+      const yt = document.getElementById('ytFields');
+      if (yt) yt.style.display = ytOn ? 'block' : 'none';
+    }
+  });
+
+  function _schedPlatforms() {
+    return [...document.querySelectorAll('.sched-platform:checked')].map(c => c.value);
+  }
+
+  async function suggestCaption() {
+    if (!_hasTranscript()) return;
+    const btn = document.getElementById('suggestCaptionBtn');
+    const ta = document.getElementById('schedCaption');
+    const errEl = document.getElementById('schedError');
+    const orig = btn.textContent;
+    btn.disabled = true; btn.textContent = '✨ Generating…';
+    errEl.style.display = 'none';
+    try {
+      const resp = await fetch(`${API_BASE}/generate-caption/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          captions_json: JSON.stringify(captionsData),
+          video_key: (window._schedCtx && window._schedCtx.videoKey) || '',
+          platforms: _schedPlatforms().map(p => SCHED_PLATFORM_LABELS[p]).join(', '),
+        }),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const { call_id } = await resp.json();
+      while (true) {
+        const poll = await fetch(`${API_BASE}/generate-caption-poll/${call_id}/`);
+        if (poll.status === 200) {
+          const result = await poll.json();
+          if (result.caption) ta.value = result.caption; else throw new Error('empty caption');
+          break;
+        }
+        if (poll.status === 202) { await new Promise(r => setTimeout(r, 3000)); continue; }
+        throw new Error(`Server error ${poll.status}`);
+      }
+    } catch (e) {
+      errEl.textContent = `Couldn't generate a caption (${String(e.message).slice(0, 80)}). You can write one manually.`;
+      errEl.style.display = 'block';
+    } finally {
+      btn.disabled = false; btn.textContent = orig;
+    }
+  }
+
+  function copyScheduleRequest() {
+    const errEl = document.getElementById('schedError');
+    errEl.style.display = 'none'; errEl.style.whiteSpace = ''; errEl.style.textAlign = '';
+    const platforms = _schedPlatforms();
+    const caption = document.getElementById('schedCaption').value.trim();
+    const date = document.getElementById('schedDate').value;
+    const time = document.getElementById('schedTime').value;
+    const ctx = window._schedCtx || {};
+    const ytOn = platforms.includes('youtube');
+    const ytTitle = document.getElementById('ytTitle').value.trim();
+
+    const problems = [];
+    if (!platforms.length) problems.push('pick at least one platform');
+    if (!caption) problems.push('add a caption');
+    if (!date || !time) problems.push('set a publish date and time');
+    if (ytOn && !ytTitle) problems.push('add a YouTube title');
+    if (!ctx.outputKey) problems.push('burn a video first');
+    if (problems.length) {
+      errEl.textContent = 'Please ' + problems.join(', ') + '.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    const videoUrl = `${API_BASE}/download/${ctx.outputKey}/?filename=${encodeURIComponent(ctx.filename || 'video.mp4')}`;
+    const lines = [
+      '📅 SCHEDULE REQUEST — Yogalina (send to Yotam to queue in Metricool)',
+      '',
+      'Video: ' + videoUrl,
+      'Platforms: ' + platforms.map(p => SCHED_PLATFORM_LABELS[p]).join(', '),
+      'Publish: ' + date + ' ' + time + ' (Israel time)',
+      'Mode: schedule only — autoPublish = false',
+    ];
+    if (ytOn) {
+      const priv = document.getElementById('ytPrivacy').value;
+      const kids = document.getElementById('ytKids').checked ? 'yes' : 'no';
+      lines.push(`YouTube: title="${ytTitle}", privacy=${priv}, madeForKids=${kids}`);
+    }
+    lines.push('', 'Caption:', caption);
+    const text = lines.join('\n');
+
+    const btn = document.getElementById('copyScheduleBtn');
+    navigator.clipboard.writeText(text).then(() => {
+      const o = btn.textContent;
+      btn.textContent = '✅ Copied — send it to Yotam';
+      setTimeout(() => { btn.textContent = o; }, 2500);
+    }).catch(() => {
+      errEl.textContent = 'Copy failed — select and copy this manually:\n\n' + text;
+      errEl.style.whiteSpace = 'pre-wrap'; errEl.style.textAlign = 'left';
+      errEl.style.display = 'block';
+    });
   }
 </script>
 </body>

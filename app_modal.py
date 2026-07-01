@@ -2772,6 +2772,74 @@ def generate_hook_options(captions_json: str, video_key: str = "") -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Caption generator — suggest a Hebrew social caption from the transcript
+# ---------------------------------------------------------------------------
+
+@app.function(
+    image=image,
+    timeout=120,
+    volumes={TMP_DIR: tmp_vol},
+    secrets=[modal.Secret.from_name("anthropic-secret")],
+)
+def generate_caption_options(captions_json: str, video_key: str = "", platforms: str = "") -> dict:
+    import os, json, base64 as _b64, anthropic as _anthropic
+    from pathlib import Path
+
+    client = _anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+    captions = json.loads(captions_json)
+    transcript = " ".join(c.get("text", "") for c in captions).strip()
+    if not transcript:
+        return {"caption": ""}
+
+    frames = []
+    if video_key:
+        tmp_vol.reload()
+        vpath = Path(TMP_DIR) / video_key
+        if vpath.exists():
+            frames = sample_frames(str(vpath), n_frames=6, strategy="evenly_spaced")
+
+    content = []
+    for _t, jpeg in frames:
+        b64 = _b64.b64encode(jpeg).decode()
+        content.append({"type": "image",
+                         "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}})
+
+    plat_note = f" It will be posted on: {platforms}." if platforms else ""
+    content.append({"type": "text", "text": (
+        "You are the social-media manager for a Hebrew-speaking yoga teacher (Yogalina). "
+        "Write ONE caption in Hebrew for a short vertical video (Reel), based on the transcript"
+        + (" and the video frames" if frames else "") + "." + plat_note + "\n\n"
+        f"TRANSCRIPT (Hebrew):\n{transcript}\n\n"
+        "The caption must:\n"
+        "- Be warm, calm and inviting — a yoga / wellness brand voice\n"
+        "- Open with a scroll-stopping first line\n"
+        "- Be 2-4 short sentences\n"
+        "- End with a gentle call to action (save / follow / comment)\n"
+        "- Use a few tasteful emojis, not many\n"
+        "- Put 4-6 relevant hashtags (Hebrew + a couple of English) on the final line\n\n"
+        "Return JSON only — no markdown, no explanation:\n"
+        "{\"caption\": \"...\"}"
+    )})
+
+    resp = client.messages.create(
+        model=SONNET_MODEL, max_tokens=700, temperature=0.8,
+        messages=[{"role": "user", "content": content}],
+    )
+    raw = resp.content[0].text.strip()
+    if "```" in raw:
+        for part in raw.split("```"):
+            part = part.strip().lstrip("json").strip()
+            if part.startswith("{"):
+                raw = part
+                break
+    try:
+        result = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"caption": raw}  # fallback: hand back the raw text
+    return {"caption": result.get("caption", "")}
+
+
+# ---------------------------------------------------------------------------
 # Hook burn — overlay hook text on processed video using ASS subtitle
 # ---------------------------------------------------------------------------
 
@@ -3466,6 +3534,47 @@ def api():
 
         if path.startswith("/generate-hook-poll/") and method == "GET":
             call_id = path[len("/generate-hook-poll/"):].rstrip("/")
+            try:
+                import modal as _modal
+                fn_call = _modal.functions.FunctionCall.from_id(call_id)
+                result, still_running = _poll_fn_call(fn_call)
+                if still_running:
+                    body = json.dumps({"status": "running"}).encode()
+                    await send({"type": "http.response.start", "status": 202,
+                                "headers": CORS + [(b"content-type", b"application/json")]})
+                    await send({"type": "http.response.body", "body": body})
+                    return
+                body = json.dumps(result).encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": body})
+            except Exception as e:
+                await send_error(str(e))
+            return
+
+        # Caption generation (suggested social caption from transcript)
+        if path in ("/generate-caption", "/generate-caption/") and method == "POST":
+            if not _check_rate_limit(_get_client_ip(scope)):
+                await send_error("Rate limit exceeded. Try again in a minute.", 429)
+                return
+            body = await _read_body(receive)
+            data = json.loads(body.decode("utf-8"))
+            try:
+                call = generate_caption_options.spawn(
+                    data.get("captions_json", "[]"),
+                    data.get("video_key", ""),
+                    data.get("platforms", ""),
+                )
+                resp = json.dumps({"call_id": call.object_id}).encode()
+                await send({"type": "http.response.start", "status": 202,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": resp})
+            except Exception as e:
+                await send_error(str(e))
+            return
+
+        if path.startswith("/generate-caption-poll/") and method == "GET":
+            call_id = path[len("/generate-caption-poll/"):].rstrip("/")
             try:
                 import modal as _modal
                 fn_call = _modal.functions.FunctionCall.from_id(call_id)
