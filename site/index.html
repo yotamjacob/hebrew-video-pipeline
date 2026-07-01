@@ -1160,14 +1160,24 @@
       color: var(--purple-500); font-weight: 700; margin: 26px 4px 10px;
     }
 
-    .besttime-card { display: flex; align-items: center; gap: 16px; padding: 18px 20px; }
+    .besttime-card { display: flex; align-items: flex-start; gap: 16px; padding: 18px 20px; }
+    .besttime-clock { flex-shrink: 0; text-align: center; }
     .besttime-hour {
       font-size: 2rem; font-weight: 800; color: var(--purple-700);
       font-variant-numeric: tabular-nums; letter-spacing: -0.03em; line-height: 1;
     }
-    .besttime-text { flex: 1; }
+    .besttime-city {
+      font-size: 0.64rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+      color: var(--purple-400); margin-top: 5px; white-space: nowrap;
+    }
+    .besttime-text { flex: 1; min-width: 0; }
     .besttime-lead { font-size: 0.9rem; font-weight: 700; color: var(--text); margin-bottom: 3px; }
     .besttime-note { font-size: 0.78rem; color: var(--muted); line-height: 1.45; }
+    .besttime-why {
+      font-size: 0.78rem; color: #44405A; line-height: 1.5; margin-top: 8px;
+      padding-top: 8px; border-top: 1px solid var(--purple-100);
+    }
+    .besttime-why b { color: var(--purple-700); font-weight: 700; }
 
     .post-row {
       display: flex; align-items: center; gap: 12px;
@@ -1722,10 +1732,14 @@
 
     <p class="stats-section-title">Best time to post</p>
     <div class="card besttime-card">
-      <div class="besttime-hour" id="btHour"></div>
+      <div class="besttime-clock">
+        <div class="besttime-hour" id="btHour"></div>
+        <div class="besttime-city" id="btCity"></div>
+      </div>
       <div class="besttime-text">
         <div class="besttime-lead" id="btLead"></div>
         <div class="besttime-note" id="btNote"></div>
+        <div class="besttime-why" id="btWhy"></div>
       </div>
     </div>
 
@@ -4948,8 +4962,10 @@
 
     // Best time
     document.getElementById('btHour').textContent = d.bestTime.peakHour;
+    document.getElementById('btCity').textContent = d.bestTime.timezone || d.bestTime.city || '';
     document.getElementById('btLead').textContent = `Post on ${d.bestTime.network} around ${d.bestTime.window}`;
     document.getElementById('btNote').textContent = d.bestTime.note;
+    document.getElementById('btWhy').innerHTML = d.bestTime.why ? `<b>Why:</b> ${d.bestTime.why}` : '';
 
     // Top posts
     document.getElementById('statsTopPosts').innerHTML = d.topPosts.map((p, i) => `

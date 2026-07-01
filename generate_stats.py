@@ -79,8 +79,8 @@ top_posts = [{
 
 networks = [
     {"key": "instagram", "name": "Instagram", "handle": "@yogalina_yoga", "icon": "IG",
-     "status": "strong", "statusLabel": "Growing",
-     "verdict": "Your engine. Growing followers, and Reels drive nearly all the reach. Keep posting Reels — this is where your audience is.",
+     "status": "strong", "statusLabel": "Working",
+     "verdict": "22K reach against 1,300 followers means most of your reach is strangers finding you through the algorithm — and 3–4 breakout Reels drove the bulk of it while the rest idled. Distribution isn't the problem; conversion is. Reach barely moved your follower count (+19), so reverse-engineer what made those few Reels travel (the hook, the first 3 seconds, the topic), turn it into a repeatable series, and give viewers one clear reason to follow.",
      "metrics": [
         {"label": "Followers", "value": ig["followers"], "change": ig["followersChange"]},
         {"label": "Reach (90d)", "value": ig["reach"]},
@@ -89,7 +89,7 @@ networks = [
      ]},
     {"key": "facebook", "name": "Facebook", "handle": "Yogalina Page", "icon": "FB",
      "status": "warn", "statusLabel": "Underused",
-     "verdict": "Your biggest audience (1,820) but it's mostly asleep. The same Reels get a fraction of Instagram's views here. Low effort to keep cross-posting, but don't expect much.",
+     "verdict": "Your largest audience (1,827) yet barely 80 interactions in a quarter — it's real but dormant, and Facebook actively throttles cross-posted Reels so they land at a fraction of Instagram's reach. This isn't worth fresh energy: keep the auto-crosspost running for the free residual reach, but treat Facebook as an archive, not a channel to grow. Reviving it would mean native posts and Stories, not Instagram reruns.",
      "metrics": [
         {"label": "Followers", "value": fb["followers"], "change": fb["followersChange"]},
         {"label": "Reel views (90d)", "value": fb["reelViews"]},
@@ -98,15 +98,15 @@ networks = [
      ]},
     {"key": "tiktok", "name": "TikTok", "handle": "@alinainnermastery", "icon": "TT",
      "status": "bad", "statusLabel": "Declining",
-     "verdict": "Losing followers and no new videos in 90 days. Either commit to posting Reels here too, or drop it — right now it only shrinks.",
+     "verdict": "You lost 16 followers by going silent — zero videos in 90 days. This is your biggest missed opportunity, not your weakest platform: TikTok rewards small, consistent accounts more than anywhere else, and you already produce the Reels. Cross-posting them 3–4× a week costs almost nothing and would likely out-reach Instagram in the calm-yoga niche. Either commit to that cadence or formally close it — a shrinking ghost account only dilutes the brand.",
      "metrics": [
         {"label": "Followers", "value": tk["followers"], "change": tk["followersChange"]},
         {"label": "Videos (90d)", "value": tk["posts"]},
         {"label": "Views (90d)", "value": tk["views"]},
      ]},
     {"key": "youtube", "name": "YouTube", "handle": "Yogalina channel", "icon": "YT",
-     "status": "warn", "statusLabel": "Flat",
-     "verdict": "Small and flat — subscribers slowly drifting down. Not hurting you, but not working yet. Would need dedicated video to matter.",
+     "status": "warn", "statusLabel": "Dormant",
+     "verdict": "Effectively asleep — 211 subscribers drifting down, 3 views in a quarter. YouTube runs on search intent and long-form (full classes, 'yoga for lower-back pain'), the opposite of a 30-second Reel, so Shorts alone will never move it. Park it until you're ready to commit to class-length video; unlike TikTok, there's no low-effort win hiding here.",
      "metrics": [
         {"label": "Subscribers", "value": yt["subscribers"], "change": yt["subscribersChange"]},
         {"label": "Video views (90d)", "value": yt["videoViews"]},
@@ -115,11 +115,13 @@ networks = [
 
 # Best time to post (Instagram) — peak is 20:00 every day
 best_time = {"network": "Instagram", "peakHour": "20:00", "window": "19:00–21:00",
-             "note": "Every day of the week peaks in the evening. Mornings before 5am are dead."}
+             "city": "Jerusalem", "timezone": "Israel · Jerusalem time",
+             "note": "Every day of the week peaks in the evening. Mornings before 5am are dead.",
+             "why": "A Reel's first hour decides how far it spreads. Posting when your audience is already online earns the early views, saves and watch-time that tell the algorithm to push it onto Explore."}
 
 out = {
     "period": PERIOD,
-    "headline": "Instagram is working. Reels are what move the needle — everywhere else is coasting.",
+    "headline": "Your Reels reach far past your following — the wins are converting that reach into followers, and reviving TikTok, where it would travel furthest.",
     "networks": networks,
     "topPosts": top_posts,
     "bestTime": best_time,
