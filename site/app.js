@@ -383,10 +383,19 @@
   function getVideoDuration(file) {
     return new Promise(resolve => {
       const video = document.createElement('video');
+      const url   = URL.createObjectURL(file);
+      // Detach src before revoking — Chrome keeps fetching the blob after
+      // loadedmetadata and logs ERR_FILE_NOT_FOUND if it's already revoked.
+      const done = d => {
+        video.removeAttribute('src');
+        video.load();
+        URL.revokeObjectURL(url);
+        resolve(d);
+      };
       video.preload = 'metadata';
-      video.onloadedmetadata = () => { URL.revokeObjectURL(video.src); resolve(video.duration); };
-      video.onerror = () => resolve(null);
-      video.src = URL.createObjectURL(file);
+      video.onloadedmetadata = () => done(video.duration);
+      video.onerror = () => done(null);
+      video.src = url;
     });
   }
 
