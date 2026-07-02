@@ -129,7 +129,6 @@
         videoKey     = result.video_key;
         cutFilename  = (job.filename || 'video').replace(/\.[^/.]+$/, '') + '_cut.mp4';
         if (captionsData.length > 0) {
-          document.getElementById('cancelBtn').style.display = 'none';
           showCaptionEditor();
         } else {
           const dlResp = await fetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
@@ -249,7 +248,7 @@
   // own button (spinner text etc.), so activeBtn is exempted.
   const LOCK_BTN_IDS  = ['runBtn', 'reprocessBtn', 'generateHookBtn',
                          'findBrollBtn', 'suggestCaptionBtn', 'scheduleBtn',
-                         'burnDownloadBtn', 'startOverBtn'];
+                         'burnDownloadBtn'];   // startOverBtn stays clickable always
   const LOCK_CARD_IDS = ['optionsCard', 'captionEditorCard', 'hookCard', 'brollCard',
                          'stockBrollCard', 'scheduleCard'];
   let _actionLockDepth = 0;
@@ -426,16 +425,6 @@
   runBtn.addEventListener('click', () => { if (burnMode) doBurn(); else run(); });
   retryBtn.addEventListener('click', run);
 
-  document.getElementById('cancelBtn').addEventListener('click', () => {
-    if (!confirm('Cancel processing? The job on the server will be stopped.')) return;
-    const idToCancel = currentCallId;
-    resetStatus();
-    runBtn.disabled = false;
-    if (idToCancel) {
-      fetch(`${API_BASE}/cancel/${idToCancel}/`).catch(() => {});
-    }
-  });
-
   window.addEventListener('beforeunload', (e) => {
     const editing = document.getElementById('captionEditorCard').style.display !== 'none';
     const hasBrollWork = selectedBrolls.length > 0 || Object.keys(stockBrollSelections).length > 0;
@@ -503,7 +492,6 @@
       const stockBrollActive = document.getElementById('stockBroll').checked;
       if (captionsData.length > 0 || brollActive) {
         // Keep checklist visible (steps 1-3 done) while user edits captions
-        document.getElementById('cancelBtn').style.display = 'none';
         showCaptionEditor();
         startBrollAnalysis();
       } else {
@@ -598,7 +586,6 @@
       const stockBrollActive = document.getElementById('stockBroll').checked;
       unlockPipelineActions();
       if (captionsData.length > 0 || brollActive) {
-        document.getElementById('cancelBtn').style.display = 'none';
         showCaptionEditor();
         startBrollAnalysis();
       } else {
@@ -825,10 +812,13 @@
   document.getElementById('startOverBtn').addEventListener('click', async () => {
     const confirmed = await showConfirmModal(
       'Start over?',
-      'This will clear the current video and all edits. Your downloaded file is safe.',
+      'This will clear the current video and all edits, and stop any job still running on the server. Downloaded files are safe.',
       'Start over'
     );
-    if (confirmed) location.reload();
+    if (!confirmed) return;
+    if (currentCallId) fetch(`${API_BASE}/cancel/${currentCallId}/`, { keepalive: true }).catch(() => {});
+    clearSavedJob();
+    location.reload();
   });
 
   // Find B-Roll Moments button
@@ -890,7 +880,6 @@
         if (timeEl) timeEl.textContent = formatTime(s);
       }, 500)
     };
-    document.getElementById('cancelBtn').style.display = 'block';
   }
 
   function _stepDone(name) {
@@ -929,7 +918,6 @@
       if (t) t.textContent = '';
     });
     stepEndSecs = {};
-    document.getElementById('cancelBtn').style.display = 'none';
   }
 
   // ── State display ──────────────────────────────────────────────────────────
@@ -2856,6 +2844,7 @@
     { const _sc = document.getElementById('scheduleCard'); if (_sc) _sc.style.display = 'none'; }
 
     const edited = getCaptionsFromEditor();
+    const burnStartMs = Date.now();
 
     const fname = selectedFile ? selectedFile.name : 'video.mp4';
     const burnUrl = new URL(API_BASE + '/burn/');
@@ -2933,10 +2922,7 @@
       // requires) the device download that follows.
       const successBanner = document.getElementById('burnSuccessBanner');
       const successTime   = document.getElementById('burnSuccessTime');
-      if (runStartTime) {
-        const totalSec = Math.round((Date.now() - runStartTime) / 1000);
-        successTime.textContent = `Total time: ${formatTime(totalSec)}`;
-      }
+      successTime.textContent = `Burn time: ${formatTime(Math.round((Date.now() - burnStartMs) / 1000))}`;
       successBanner.style.display = 'flex';
       window._schedCtx = { outputKey: burnResult.output_key, filename: outFilename, videoKey: videoKey };
 

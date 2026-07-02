@@ -37,7 +37,7 @@
   <!-- Upload -->
   <div class="card" id="uploadCard">
     <div class="card-header" onclick="toggleCard('uploadBody', this)">
-      <p class="options-title">Upload Video</p>
+      <p class="options-title">🎬 Upload Video</p>
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="uploadBody" style="padding-top:14px">
@@ -86,7 +86,7 @@
   <!-- Options -->
   <div class="card" id="optionsCard">
     <div class="card-header" onclick="toggleCard('optionsBody', this)">
-      <p class="options-title">Options</p>
+      <p class="options-title">⚙️ Options</p>
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="optionsBody" style="padding-top:14px">
@@ -203,95 +203,10 @@
   </div>
   <button class="reprocess-btn" id="reprocessBtn" style="display:none">↻&nbsp; Re-process with new settings</button>
 
-  <!-- Status -->
-  <div class="card status" id="statusCard">
-    <div class="card-header" onclick="toggleCard('statusBody', this)">
-      <p class="options-title">Progress</p>
-      <i class="collapse-chevron">⌄</i>
-    </div>
-    <div id="statusBody" style="padding-top:14px">
-
-    <!-- Step checklist: upload + processing + burn -->
-    <div class="status-checklist" id="statusChecklist" style="display:none">
-
-      <div class="check-item pending" id="checkUpload">
-        <div class="check-icon-col">
-          <span class="ci-pending">○</span>
-          <div class="ci-spinner"></div>
-          <span class="ci-done">✓</span>
-        </div>
-        <div class="check-body">
-          <div class="check-row">
-            <span class="check-label">Upload video</span>
-            <span class="check-time" id="checkUploadTime"></span>
-          </div>
-          <div class="upload-bar-row" id="uploadBarRow" style="display:none">
-            <div class="upload-bar-track"><div class="upload-bar-fill" id="uploadBarFill"></div></div>
-            <span class="upload-bar-pct" id="uploadBarPct">0%</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="check-item pending" id="checkEnhance">
-        <div class="check-icon-col">
-          <span class="ci-pending">○</span>
-          <div class="ci-spinner"></div>
-          <span class="ci-done">✓</span>
-        </div>
-        <div class="check-body"><div class="check-row">
-          <span class="check-label">Enhance audio</span>
-          <span class="check-time" id="checkEnhanceTime"></span>
-        </div></div>
-      </div>
-
-      <div class="check-item pending" id="checkCut">
-        <div class="check-icon-col">
-          <span class="ci-pending">○</span>
-          <div class="ci-spinner"></div>
-          <span class="ci-done">✓</span>
-        </div>
-        <div class="check-body"><div class="check-row">
-          <span class="check-label">Cut silences</span>
-          <span class="check-time" id="checkCutTime"></span>
-        </div></div>
-      </div>
-
-      <div class="check-item pending" id="checkBurn" style="display:none">
-        <div class="check-icon-col">
-          <span class="ci-pending">○</span>
-          <div class="ci-spinner"></div>
-          <span class="ci-done">✓</span>
-        </div>
-        <div class="check-body"><div class="check-row">
-          <span class="check-label">Burn captions</span>
-          <span class="check-time" id="checkBurnTime"></span>
-        </div></div>
-      </div>
-
-      <div class="checklist-footer">Keep this page open while processing</div>
-      <button class="cancel-btn" id="cancelBtn" style="margin: 4px auto 12px; display:none">Cancel</button>
-    </div>
-
-    <div class="status-done" id="statusDone">
-      <div class="done-icon">✅</div>
-      <div class="done-label">Done! Your video is ready.</div>
-      <div class="done-time" id="doneTime" style="display:none"></div>
-      <button class="download-btn" id="downloadBtn">⬇&nbsp; Download video</button>
-    </div>
-
-    <div class="status-error" id="statusError">
-      <div class="error-icon">❌</div>
-      <div class="error-msg" id="errorMsg">Something went wrong.</div>
-      <button class="retry-btn" id="retryBtn">Try again</button>
-    </div>
-
-    </div>
-  </div>
-
   <!-- Caption editor — shown after /process when burn_captions is on -->
   <div class="card" id="captionEditorCard" style="display:none">
     <div class="card-header" onclick="toggleCard('captionBody', this)">
-      <p class="options-title">Edit Captions</p>
+      <p class="options-title">✏️ Edit Captions</p>
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="captionBody" style="padding-top:16px">
@@ -363,7 +278,7 @@
   <!-- B-roll suggestions — shown after caption editor when toggle is on -->
   <div class="card" id="brollCard" style="display:none">
     <div class="card-header" onclick="toggleCard('brollBody', this)">
-      <p class="options-title">B-roll Suggestions</p>
+      <p class="options-title">🎥 B-roll Suggestions</p>
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="brollBody" style="padding-top:16px">
@@ -378,7 +293,7 @@
   <!-- Stock B-roll suggestions — shown after processing when toggle is on -->
   <div class="card" id="stockBrollCard" style="display:none">
     <div class="card-header" onclick="toggleCard('stockBrollBody', this)">
-      <p class="options-title">Stock B-Roll Suggestions</p>
+      <p class="options-title">🎞️ Stock B-Roll Suggestions</p>
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="stockBrollBody" style="padding-top:16px">
@@ -404,7 +319,7 @@
 
   <div class="card" id="hookCard" style="display:none">
     <div class="card-header" onclick="toggleCard('hookBody', this)">
-      <p class="options-title">Hook Generator</p>
+      <p class="options-title">🪝 Hook Generator</p>
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="hookBody" style="padding-top:16px">
@@ -510,13 +425,12 @@
     <div class="burn-success-label">Done! Your video is ready.</div>
     <div class="burn-success-time" id="burnSuccessTime"></div>
     <button class="download-btn" id="burnDownloadBtn" style="width:100%;margin-top:4px">⬇&nbsp; Download again</button>
-    <button id="startOverBtn" style="width:100%;margin-top:6px;padding:10px;border-radius:12px;border:1.5px solid #D1D5DB;background:white;color:var(--text);font-size:0.9rem;font-weight:600;cursor:pointer;transition:background 0.15s">↩ Start over</button>
   </div>
 
   <!-- Schedule this video (handoff helper) -->
   <div class="card" id="scheduleCard" style="display:none">
     <div class="card-header" onclick="toggleCard('scheduleBody', this)">
-      <p class="options-title">Schedule This Video</p>
+      <p class="options-title">📅 Schedule This Video</p>
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="scheduleBody" style="padding-top:14px">
@@ -564,6 +478,92 @@
     </div>
   </div>
 
+  <!-- Status -->
+  <div class="card status" id="statusCard">
+    <div class="card-header" onclick="toggleCard('statusBody', this)">
+      <p class="options-title">⏳ Progress</p>
+      <i class="collapse-chevron">⌄</i>
+    </div>
+    <div id="statusBody" style="padding-top:14px">
+
+    <!-- Step checklist: upload + processing + burn -->
+    <div class="status-checklist" id="statusChecklist" style="display:none">
+
+      <div class="check-item pending" id="checkUpload">
+        <div class="check-icon-col">
+          <span class="ci-pending">○</span>
+          <div class="ci-spinner"></div>
+          <span class="ci-done">✓</span>
+        </div>
+        <div class="check-body">
+          <div class="check-row">
+            <span class="check-label">Upload video</span>
+            <span class="check-time" id="checkUploadTime"></span>
+          </div>
+          <div class="upload-bar-row" id="uploadBarRow" style="display:none">
+            <div class="upload-bar-track"><div class="upload-bar-fill" id="uploadBarFill"></div></div>
+            <span class="upload-bar-pct" id="uploadBarPct">0%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="check-item pending" id="checkEnhance">
+        <div class="check-icon-col">
+          <span class="ci-pending">○</span>
+          <div class="ci-spinner"></div>
+          <span class="ci-done">✓</span>
+        </div>
+        <div class="check-body"><div class="check-row">
+          <span class="check-label">Enhance audio</span>
+          <span class="check-time" id="checkEnhanceTime"></span>
+        </div></div>
+      </div>
+
+      <div class="check-item pending" id="checkCut">
+        <div class="check-icon-col">
+          <span class="ci-pending">○</span>
+          <div class="ci-spinner"></div>
+          <span class="ci-done">✓</span>
+        </div>
+        <div class="check-body"><div class="check-row">
+          <span class="check-label">Cut silences</span>
+          <span class="check-time" id="checkCutTime"></span>
+        </div></div>
+      </div>
+
+      <div class="check-item pending" id="checkBurn" style="display:none">
+        <div class="check-icon-col">
+          <span class="ci-pending">○</span>
+          <div class="ci-spinner"></div>
+          <span class="ci-done">✓</span>
+        </div>
+        <div class="check-body"><div class="check-row">
+          <span class="check-label">Burn captions</span>
+          <span class="check-time" id="checkBurnTime"></span>
+        </div></div>
+      </div>
+
+      <div class="checklist-footer">Keep this page open while processing</div>
+    </div>
+
+    <div class="status-done" id="statusDone">
+      <div class="done-icon">✅</div>
+      <div class="done-label">Done! Your video is ready.</div>
+      <div class="done-time" id="doneTime" style="display:none"></div>
+      <button class="download-btn" id="downloadBtn">⬇&nbsp; Download video</button>
+    </div>
+
+    <div class="status-error" id="statusError">
+      <div class="error-icon">❌</div>
+      <div class="error-msg" id="errorMsg">Something went wrong.</div>
+      <button class="retry-btn" id="retryBtn">Try again</button>
+    </div>
+
+    </div>
+  </div>
+
+  <button id="startOverBtn" class="start-over-btn">↩&nbsp; Start over</button>
+
   <p class="footer">יוגלינה &nbsp;·&nbsp; School of Quiet Yoga</p>
 </div>
 
@@ -571,7 +571,7 @@
 <div class="container" id="historyView" style="display:none">
   <div class="card">
     <div class="card-header" onclick="toggleCard('historyBody', this)">
-      <p class="options-title">Previous Videos</p>
+      <p class="options-title">🗂️ Previous Videos</p>
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="historyBody" style="padding-top:14px">

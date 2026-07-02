@@ -830,12 +830,13 @@
       border-radius: 10px; box-shadow: 0 8px 48px rgba(0,0,0,0.6);
     }
 
-    .cancel-btn {
-      background: none; border: 1.5px solid var(--muted); color: var(--muted);
-      border-radius: 10px; padding: 6px 18px; font-size: 0.82rem; font-weight: 600; cursor: pointer;
-      margin-top: 10px; transition: border-color 0.15s, color 0.15s;
+    .start-over-btn {
+      width: 100%; padding: 12px; margin-top: 16px;
+      background: #FEF2F2; border: 1.5px solid #FECACA; color: #B91C1C;
+      border-radius: 12px; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
     }
-    .cancel-btn:hover { border-color: var(--red); color: var(--red); }
+    .start-over-btn:hover { background: #FEE2E2; border-color: #FCA5A5; }
 
     /* ── Caption editor ── */
     .caption-row {
