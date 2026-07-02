@@ -12,7 +12,7 @@ import textwrap
 from pathlib import Path
 
 ROOT      = Path(__file__).parent.parent.parent
-MODAL_SRC = (ROOT / "app_modal.py").read_text()
+MODAL_SRC = "\n".join((ROOT / f).read_text() for f in ("pipeline_core.py", "pipeline_fns.py"))
 
 
 # ─── Extract helpers ──────────────────────────────────────────────────────────

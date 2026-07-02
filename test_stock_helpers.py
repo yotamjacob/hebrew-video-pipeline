@@ -1,5 +1,5 @@
 """
-Unit tests for module-level stock helpers in app_modal.py.
+Unit tests for module-level stock helpers in stock_helpers.py.
 Run with:  python -m pytest test_stock_helpers.py -v
 No network calls, no Modal runtime needed.
 """
@@ -17,8 +17,9 @@ def _load_helpers():
     import ast as _ast
     import re as _re
 
-    src_path = os.path.join(os.path.dirname(__file__), "app_modal.py")
-    src = open(src_path).read()
+    here = os.path.dirname(__file__)
+    src = "\n".join(open(os.path.join(here, f)).read()
+                    for f in ("pipeline_core.py", "stock_helpers.py"))
     lines = src.splitlines()
 
     tree = _ast.parse(src)

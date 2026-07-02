@@ -14,7 +14,9 @@ from unittest.mock import MagicMock
 
 ROOT = Path(__file__).parent.parent.parent
 PIPELINE_SRC = (ROOT / "hebrew_video_pipeline.py").read_text()
-MODAL_SRC    = (ROOT / "app_modal.py").read_text()
+_MODAL_FILES = ["pipeline_core.py", "pipeline_fns.py", "stock_helpers.py",
+                "broll_fns.py", "content_fns.py", "metricool_fns.py", "app_modal.py"]
+MODAL_SRC    = "\n".join((ROOT / f).read_text() for f in _MODAL_FILES)
 
 
 def _build_ns():

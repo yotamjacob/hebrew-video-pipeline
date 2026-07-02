@@ -5,8 +5,17 @@
 | File | Purpose |
 |------|---------|
 | `hebrew_video_pipeline.py` | Local CLI — 6-step pipeline (extract → enhance → transcribe → segments → ASS → render) |
-| `app_modal.py` | Modal serverless API — same pipeline running on T4 GPU, exposed as HTTP |
-| `site/index.html` | Single-page Vercel frontend — two tabs: **Hebrew Pipeline** (upload/process/download) and **Statistics** (Metricool snapshot); no framework |
+| `app_modal.py` | **Deploy entrypoint** — imports all backend modules + the `api()` ASGI router (all HTTP routes) |
+| `pipeline_core.py` | Modal app/images/volumes, model constants, pure helpers (security, RTL text, rate limiting, `_poll_fn_call`) |
+| `pipeline_fns.py` | `process_video` (GPU), `burn_captions_fn`, `burn_hook_fn` |
+| `stock_helpers.py` | Pure stock-footage helpers: Pexels/Pixabay fetch, frame sampling, `score_clips`, `add_clip_window` |
+| `broll_fns.py` | Veo generation + `analyze_broll`, `analyze_stock_broll`, `search_stock_clips`, `_process_moment` |
+| `content_fns.py` | `generate_hook_options`, `generate_caption_options` |
+| `metricool_fns.py` | Metricool OAuth store, MCP client, `schedule_post_fn` |
+| `site/index.html` | Vercel frontend markup — two tabs: **Hebrew Pipeline** (upload/process/download) and **Statistics** (Metricool snapshot); no framework |
+| `site/app.js` | All frontend logic (upload, polling, editor, burn, debug panel, stats tab, scheduling) |
+| `site/app.css` | All frontend styles |
+| `site/sw.js` | Service worker — background job polling only (no asset caching) |
 | `site/vercel.json` | SPA rewrite rule (all routes → index.html) |
 | `site/stats.json` | Committed Metricool stats snapshot the Statistics tab renders (generated, not hand-edited) |
 | `generate_stats.py` | Regenerates `site/stats.json` from a Metricool MCP pull — the refresh tool for the Statistics tab |
@@ -14,9 +23,13 @@
 | `requirements.txt` | `faster-whisper`, `requests` |
 | `README.md` | Full usage docs, architecture, "how to add a stock source", "how to swap models" |
 | `TODO.md` | Active feature roadmap |
-| `test_api.py` | End-to-end API tests (upload → process → burn) |
+| `test_api.py` | End-to-end API tests (upload → process → burn) — costs GPU time, run only when asked |
 | `test_stock_helpers.py` | Unit tests for stock helpers — runs locally, no network or Modal |
-| `docs/optimization-audit.md` | Phase 0 audit — 18 findings across security, tokens, code quality, memory |
+| `tests/backend/`, `tests/frontend/` | pytest (AST-extraction, no Modal import) + Playwright suites |
+
+**Token tip:** read only the module you're changing. Backend modules import shared
+names from `pipeline_core`; new backend files must be added to
+`add_local_python_source(...)` on **both** images in `pipeline_core.py`.
 
 ## Pipeline Steps (both CLI and Modal share this logic)
 
@@ -68,7 +81,7 @@ npx vercel deploy --prod
 - `BorderStyle=1, Outline=2, Shadow=0, Alignment=2` (bottom-center)
 - `char_w = font_size * 0.60` for Python re-wrap — Hebrew Heebo/Rubik glyphs average ~60% of em-square. Using 0.50 caused under-wrapping; libass added unexpected extra line-breaks via smart-wrap, making captions appear taller/higher than intended.
 - Caption shadow is disabled (`Shadow=0`) — the user prefers no shadow on caption text.
-- Export font size = `round(sliderFontSize * 1.10)` (captions) — set in `site/index.html` burnUrl.
+- Export font size = `round(sliderFontSize * 1.10)` (captions) — set in `site/app.js` burnUrl.
 
 **Hook ASS rendering** — Unified box: use `{\q1}` soft-wrap (no `\N`), `MarginL=MarginR=h_fsize_base`. Hook export font size = `h_fsize_base * 1.30`.
 
@@ -80,7 +93,7 @@ npx vercel deploy --prod
 
 **Whisper model cache** — first run downloads ~1.5 GB to the local faster-whisper cache; Modal uses a persistent volume so it survives redeployments.
 
-**Web API base** — `https://yotamjacob--hebrew-video-pipeline-api.modal.run` (hardcoded in `site/index.html`).
+**Web API base** — `https://yotamjacob--hebrew-video-pipeline-api.modal.run` (hardcoded in `site/app.js`).
 
 **Font size auto-scaling** — the pipeline reads video resolution and adjusts `--font-size` and `--margin-v` proportionally so captions look consistent across 1080p and 4K.
 
@@ -96,7 +109,7 @@ npx vercel deploy --prod
 
 ## Model Constants
 
-Defined at the top of `app_modal.py` — change and redeploy, no other edits needed:
+Defined at the top of `pipeline_core.py` — change and redeploy, no other edits needed:
 
 ```python
 SONNET_MODEL = "claude-sonnet-4-6"           # moment selection (analyze_stock_broll)
@@ -113,7 +126,7 @@ The site's second tab shows a social-media performance snapshot for the Yogalina
 
 **Data flow (snapshot model, not live):**
 1. `generate_stats.py` holds the raw per-network numbers (hardcoded arrays from a Metricool pull) + hand-written strategist verdicts, computes summaries, and writes `site/stats.json` (stamping `period.generatedAt` in Asia/Jerusalem).
-2. `site/index.html` fetches `stats.json` on tab open and renders network cards (status pill + metrics + verdict), best time to post, and top posts.
+2. `site/app.js` fetches `stats.json` on tab open and renders network cards (status pill + metrics + verdict), best time to post, and top posts.
 3. Deploy publishes the new `stats.json`. The page shows a "🕒 Stats from <date>" timestamp + a note telling users to ask Yotam for a refresh.
 
 **Why it's a snapshot, not live:** the account is on Metricool's **free tier** → no API token → no server-side pull possible (a Modal `/stats` proxy would need an Advanced-plan token). The Metricool MCP that produces the data is only available in an interactive Claude session — **not** in cloud/cron routines — so automatic refresh isn't possible either.
@@ -129,10 +142,11 @@ The site's second tab shows a social-media performance snapshot for the Yogalina
 
 ## Conventions
 
-- Both `hebrew_video_pipeline.py` and `app_modal.py` contain copies of the core dataclasses (`Word`, `KeepSegment`) and pipeline helpers — keep them in sync when changing shared logic.
-- **Stock search helpers** (`fetch_pexels`, `fetch_pixabay`, `score_clips`, `add_clip_window`) are module-level in `app_modal.py`. Both `analyze_stock_broll` and `search_stock_clips` call them — do not re-inline them.
+- Both `hebrew_video_pipeline.py` (CLI) and `pipeline_fns.py` (Modal) contain copies of the core dataclasses (`Word`, `KeepSegment`) and pipeline helpers — keep them in sync when changing shared logic.
+- **Stock search helpers** (`fetch_pexels`, `fetch_pixabay`, `score_clips`, `add_clip_window`) live in `stock_helpers.py`. Both `analyze_stock_broll` and `search_stock_clips` call them — do not re-inline them.
 - Pass `http_session` (a `requests.Session`) to `fetch_pexels`/`fetch_pixabay` when making multiple calls in one function invocation — reuses TCP connections.
+- Backend unit tests never import the Modal modules — they AST-extract functions from source (`tests/backend/conftest.py` concatenates all backend `.py` files into `MODAL_SRC`). Renaming/moving a backend file means updating the file lists in `conftest.py`, `test_ass_generation.py`, and `test_stock_helpers.py`.
 - Temp files land in `hebpipe_<timestamp>/`; auto-deleted unless `--keep-tmp` is passed.
 - Output files are named `<input_stem>_edited.mp4` by default.
-- The site is pure HTML/CSS/JS — no build step, no bundler.
-- Run `python -m pytest test_stock_helpers.py` before deploying after any change to stock helpers, moment normalization, or `_sanitize_transcript`.
+- The site is pure HTML/CSS/JS — no build step, no bundler. `index.html` loads `app.css` + `app.js`.
+- Run `python -m pytest test_stock_helpers.py tests/backend/` before deploying backend changes; run `npx playwright test` after `site/` changes.

@@ -7,12 +7,12 @@ end keeps quality high.
 
 Two deployment modes:
 - **Local CLI** (`hebrew_video_pipeline.py`) — run on your own machine
-- **Cloud / Web** (`app_modal.py` + `site/index.html`) — Modal GPU backend + Vercel frontend
+- **Cloud / Web** (`app_modal.py` + backend modules + `site/`) — Modal GPU backend + Vercel frontend
 
 ## Files
 
 - `hebrew_video_pipeline.py` — local CLI orchestrator
-- `app_modal.py` — Modal serverless API (GPU pipeline + stock B-roll finder)
+- `app_modal.py` — Modal deploy entrypoint (ASGI routes); pipeline code lives in `pipeline_core.py`, `pipeline_fns.py`, `stock_helpers.py`, `broll_fns.py`, `content_fns.py`, `metricool_fns.py`
 - `site/index.html` — single-page web UI (upload, process, download, B-roll)
 - `site/vercel.json` — Vercel SPA rewrite rule
 - `captions_template.ass` — standalone caption template (reference / override)
@@ -162,7 +162,7 @@ The Sonnet system prompt is cached with `cache_control: ephemeral` — ~50 % che
 
 ## How to add a stock source
 
-All stock-fetch logic is in two module-level functions at the top of `app_modal.py`:
+All stock-fetch logic is in two module-level functions in `stock_helpers.py`:
 `fetch_pexels` and `fetch_pixabay`. Both return a uniform clip dict:
 
 ```python
@@ -183,7 +183,7 @@ All stock-fetch logic is in two module-level functions at the top of `app_modal.
 
 To add a third source (e.g. Storyblocks):
 
-1. Add `fetch_storyblocks(query, page, key, session=None) -> list` in `app_modal.py`
+1. Add `fetch_storyblocks(query, page, key, session=None) -> list` in `stock_helpers.py`
    following the same return shape.
 
 2. In both `analyze_stock_broll` and `search_stock_clips`, add the new fetch call to
@@ -202,7 +202,7 @@ To add a third source (e.g. Storyblocks):
 
 ## How to swap AI models
 
-Anthropic model IDs are defined as module-level constants near the top of `app_modal.py`:
+Anthropic model IDs are defined as module-level constants near the top of `pipeline_core.py`:
 
 ```python
 SONNET_MODEL = "claude-sonnet-4-5"       # moment selection
