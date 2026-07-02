@@ -2042,8 +2042,7 @@
     list.innerHTML       = '';
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 
-    // Lock the caption editor and button while searching
-    lockPipelineActions({ activeBtn: 'findBrollBtn', activeCard: 'captionEditorCard' });
+    lockPipelineActions({ activeBtn: 'findBrollBtn', activeCard: 'stockBrollCard' });
     findBrollBtn.disabled = true;
     findBrollBtn.textContent = '⏳ Searching…';
     document.querySelectorAll('#captionsList .caption-input, #captionsList .caption-time-input, #captionsList .cap-btn').forEach(el => { el.disabled = true; });
@@ -2894,6 +2893,10 @@
     _updateDeleteButtons();
     document.getElementById('captionEditorCard').style.display = 'block';
     document.getElementById('hookCard').style.display = 'block';
+    // Stock B-roll card hosts the Find B-Roll Moments button — show it so
+    // the search can be started (button greys itself when the toggle is off)
+    document.getElementById('stockBrollCard').style.display = 'block';
+    updateFindBrollBtn();
     document.getElementById('generateHookBtn').disabled = false;
     fetchHookThumbnail();
     burnMode = true;

@@ -337,12 +337,6 @@
       <div class="captions-list" id="captionsList"></div>
 
       <div style="margin-top:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <button id="findBrollBtn"
-          style="flex:1;min-width:160px;padding:11px 18px;background:none;border:1.5px solid var(--purple-400);color:var(--purple-700);border-radius:12px;font-size:0.88rem;font-weight:700;cursor:pointer;transition:background 0.15s,color 0.15s"
-          onmouseover="if(!this.disabled)this.style.background='var(--purple-50)'"
-          onmouseout="if(!this.disabled)this.style.background='none'">
-          🎬 Find B-Roll Moments
-        </button>
         <button id="downloadSrtBtn" onclick="downloadSRT()"
           style="padding:11px 16px;background:none;border:1.5px solid var(--purple-200);color:var(--purple-600);border-radius:12px;font-size:0.88rem;font-weight:600;cursor:pointer;white-space:nowrap;transition:background 0.15s,border-color 0.15s"
           onmouseover="this.style.background='var(--purple-50)';this.style.borderColor='var(--purple-400)'"
@@ -376,6 +370,12 @@
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="stockBrollBody" style="padding-top:16px">
+      <button id="findBrollBtn"
+        style="width:100%;margin-bottom:12px;padding:11px 18px;background:none;border:1.5px solid var(--purple-400);color:var(--purple-700);border-radius:12px;font-size:0.88rem;font-weight:700;cursor:pointer;transition:background 0.15s,color 0.15s"
+        onmouseover="if(!this.disabled)this.style.background='var(--purple-50)'"
+        onmouseout="if(!this.disabled)this.style.background='none'">
+        🎬 Find B-Roll Moments
+      </button>
       <div id="stockBrollRerunBanner" style="display:none;margin-bottom:12px;padding:10px 14px;background:#FFF7ED;border:1.5px solid #FDE68A;border-radius:12px;font-size:0.82rem;color:#92400E;display:none;align-items:center;gap:10px">
         <span style="flex:1">Captions changed since last analysis — re-run to update B-roll suggestions.</span>
         <button onclick="triggerStockBroll()" style="padding:5px 12px;border-radius:8px;border:1.5px solid #D97706;background:none;color:#B45309;font-size:0.8rem;font-weight:600;cursor:pointer;white-space:nowrap">Re-run</button>
