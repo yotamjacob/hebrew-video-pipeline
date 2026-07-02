@@ -39,8 +39,6 @@
   let stepEndSecs = {};        // step name → seconds taken (persists across hide/show)
   const downloadBtn  = document.getElementById('downloadBtn');
   const retryBtn     = document.getElementById('retryBtn');
-  const advToggle    = document.getElementById('advancedToggle');
-  const advPanel     = document.getElementById('advancedPanel');
   const aggrSlider   = document.getElementById('aggrSlider');
   const aggrDesc     = document.getElementById('aggrDesc');
   const AGGR_MAP = [
@@ -400,11 +398,6 @@
     });
   }
 
-  // ── Advanced ──
-  advToggle.addEventListener('click', () => {
-    advToggle.classList.toggle('open'); advPanel.classList.toggle('open');
-  });
-
   function checkToolsEnabled() {
     if (!selectedFile || burnMode) return;
     const ids = ['cutSilences', 'burnCaptions', 'enhanceAudio'];
@@ -420,6 +413,13 @@
     aggrDesc.textContent = a.label;
     aggrVal.textContent  = a.silence + ' s';
   });
+
+  // The aggressiveness slider only matters while Cut silences is on
+  function updateAggrVisibility() {
+    document.getElementById('aggrPanel').classList.toggle('hidden', !document.getElementById('cutSilences').checked);
+  }
+  document.getElementById('cutSilences').addEventListener('change', updateAggrVisibility);
+  updateAggrVisibility();
 
   // ── Run ──
   runBtn.addEventListener('click', () => { if (burnMode) doBurn(); else run(); });

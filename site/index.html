@@ -91,7 +91,7 @@
     </div>
     <div id="optionsBody" style="padding-top:14px">
 
-    <div class="option-row">
+    <div class="option-row" style="border-bottom:none">
       <div class="option-icon">✂️</div>
       <div class="option-text">
         <div class="option-label">Cut silences</div>
@@ -103,6 +103,17 @@
           <div class="toggle-track"></div>
           <div class="toggle-thumb"></div>
         </label>
+      </div>
+    </div>
+    <div class="aggr-panel" id="aggrPanel">
+      <div class="slider-row" style="margin-top:0">
+        <div class="slider-label"><span>How aggressively to cut silences</span><span class="slider-val" id="aggrVal">0.3 s</span></div>
+        <div class="aggr-track">
+          <span class="aggr-end">Gentle</span>
+          <input type="range" id="aggrSlider" min="1" max="5" step="1" value="4" />
+          <span class="aggr-end">Aggressive</span>
+        </div>
+        <div class="slider-desc" id="aggrDesc">Aggressive — cuts pauses over 0.3 s</div>
       </div>
     </div>
 
@@ -167,21 +178,6 @@
         <label for="ar916">Portrait</label>
         <input type="radio" name="brollAspect" id="ar11" value="1:1">
         <label for="ar11">Square</label>
-      </div>
-    </div>
-
-    <button class="advanced-toggle" id="advancedToggle">
-      <i class="chevron">⌄</i> Advanced settings
-    </button>
-    <div class="advanced-panel" id="advancedPanel">
-      <div class="slider-row">
-        <div class="slider-label"><span>How aggressively to cut silences</span><span class="slider-val" id="aggrVal">0.3 s</span></div>
-        <div class="aggr-track">
-          <span class="aggr-end">Gentle</span>
-          <input type="range" id="aggrSlider" min="1" max="5" step="1" value="4" />
-          <span class="aggr-end">Aggressive</span>
-        </div>
-        <div class="slider-desc" id="aggrDesc">Aggressive — cuts pauses over 0.3 s</div>
       </div>
     </div>
     </div>

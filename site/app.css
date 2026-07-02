@@ -235,17 +235,9 @@
       border-radius: 6px; padding: 2px 6px;
     }
 
-    /* ── Advanced ── */
-    .advanced-toggle {
-      display: flex; align-items: center; gap: 6px;
-      background: none; border: none; cursor: pointer;
-      color: var(--purple-600); font-size: 0.82rem; font-weight: 600;
-      padding: 0; margin-top: 6px;
-    }
-    .advanced-toggle .chevron { display: inline-block; transition: transform 0.2s; font-style: normal; }
-    .advanced-toggle.open .chevron { transform: rotate(180deg); }
-    .advanced-panel { display: none; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--purple-100); }
-    .advanced-panel.open { display: block; }
+    /* ── Silence-cut aggressiveness (under the Cut silences toggle) ── */
+    .aggr-panel { padding: 0 0 14px 42px; border-bottom: 1px solid var(--purple-100); }
+    .aggr-panel.hidden { display: none; }
 
     .slider-row { margin-bottom: 18px; }
     .slider-row:last-child { margin-bottom: 0; }
