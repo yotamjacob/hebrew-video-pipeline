@@ -43,7 +43,7 @@ from metricool_fns import (
 # ---------------------------------------------------------------------------
 @app.function(image=light_image, timeout=900, volumes={TMP_DIR: tmp_vol},
               secrets=[modal.Secret.from_name("hebpipe-auth")])
-@modal.concurrent(max_inputs=20)
+@modal.concurrent(max_inputs=50)   # headroom: chunk uploads + their CORS preflights + polls
 @modal.asgi_app()
 def api():
     import asyncio

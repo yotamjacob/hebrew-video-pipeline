@@ -17,6 +17,11 @@ const DEFAULT_HOOKS = [
 // Seed a signed-in session and mock the session check, then load the app.
 // Must run BEFORE page.goto so the boot-time /auth/me check is intercepted.
 async function bootApp(page) {
+  // External Google Fonts block the page 'load' event under bad network
+  // conditions and flake the whole suite — serve an empty stylesheet instead.
+  await page.route(/fonts\.googleapis\.com/, r =>
+    r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
+  await page.route(/fonts\.gstatic\.com/, r => r.abort());
   await page.addInitScript(() => localStorage.setItem('hebpipe_token', 'test-token'));
   await page.route(/\/auth\/me/, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"username":"tester"}' }));

@@ -713,7 +713,11 @@
   // Upload file in chunks to the Modal ASGI endpoint (streaming body, no 303 redirect issue).
   // Returns the upload key to pass to /process/?key=...
   const CHUNK_SIZE = 5 * 1024 * 1024;
-  const UPLOAD_CONCURRENCY = 16;
+  // Modest parallelism: 16 in-flight chunks (each with a CORS preflight since
+  // auth) exceeded the API container's concurrent-input cap, and Modal's
+  // ingress reroutes the overflow with a 303 that browsers can't follow for
+  // POSTs. 6 stays comfortably under the cap and saturates most uplinks.
+  const UPLOAD_CONCURRENCY = 6;
   async function chunkedUpload(file, onProgress) {
     const key = crypto.randomUUID().replace(/-/g, '');
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
