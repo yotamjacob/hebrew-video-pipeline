@@ -264,14 +264,25 @@
       box-shadow: 0 10px 36px rgba(109, 40, 217, 0.45);
     }
     .run-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+    /* Shared secondary action button — full width, outlined purple */
+    .action-btn {
+      display: block; width: 100%; padding: 11px 18px;
+      background: none; border: 1.5px solid var(--purple-400); color: var(--purple-700);
+      border-radius: 12px; font-size: 0.88rem; font-weight: 700; cursor: pointer;
+      font-family: inherit;
+      transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+    }
+    .action-btn:hover:not(:disabled) { background: var(--purple-50); }
+    .action-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
     .reprocess-btn {
-      width: 100%; padding: 11px 16px; margin-bottom: 10px;
+      width: 100%; padding: 11px 18px; margin-bottom: 10px;
       background: white; color: var(--purple-700);
-      border: 2px solid var(--purple-300); border-radius: 14px;
-      font-size: 0.9rem; font-weight: 600; cursor: pointer;
+      border: 1.5px solid var(--purple-400); border-radius: 12px;
+      font-size: 0.88rem; font-weight: 700; cursor: pointer;
       transition: background 0.15s, border-color 0.15s;
     }
-    .reprocess-btn:hover { background: var(--purple-50); border-color: var(--purple-500); }
+    .reprocess-btn:hover { background: var(--purple-50); }
     .reprocess-btn:disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
 
     /* ── Status card ── */
@@ -1052,14 +1063,6 @@
       background: var(--white); outline: none; width: 100%; resize: vertical; direction: rtl;
     }
     .sched-caption:focus { border-color: var(--purple-400); }
-    .sched-suggest-btn {
-      margin-top: 10px; appearance: none; cursor: pointer; width: 100%;
-      font-family: inherit; font-size: 0.85rem; font-weight: 700; color: var(--purple-700);
-      background: var(--purple-50); border: 1.5px solid var(--purple-200); border-radius: 12px; padding: 11px;
-      transition: background 0.15s, border-color 0.15s, opacity 0.15s;
-    }
-    .sched-suggest-btn:hover { background: var(--purple-100); border-color: var(--purple-400); }
-    .sched-suggest-btn:disabled { opacity: 0.6; cursor: default; }
     .yt-fields { margin-top: 4px; }
     .yt-row { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
     .yt-row .sched-input { flex: 1; }

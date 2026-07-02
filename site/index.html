@@ -244,14 +244,7 @@
       <p style="font-size:0.78rem;color:var(--muted);margin:10px 0 4px">Edit captions below, then burn.</p>
       <div class="captions-list" id="captionsList"></div>
 
-      <div style="margin-top:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <button id="downloadSrtBtn" onclick="downloadSRT()"
-          style="padding:11px 16px;background:none;border:1.5px solid var(--purple-200);color:var(--purple-600);border-radius:12px;font-size:0.88rem;font-weight:600;cursor:pointer;white-space:nowrap;transition:background 0.15s,border-color 0.15s"
-          onmouseover="this.style.background='var(--purple-50)';this.style.borderColor='var(--purple-400)'"
-          onmouseout="this.style.background='none';this.style.borderColor='var(--purple-200)'">
-          ⬇ SRT
-        </button>
-      </div>
+      <button id="downloadSrtBtn" class="action-btn" style="margin-top:16px" onclick="downloadSRT()">⬇&nbsp; Download SRT</button>
 
     </div>
   </div>
@@ -278,10 +271,7 @@
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="stockBrollBody" style="padding-top:16px">
-      <button id="findBrollBtn"
-        style="width:100%;margin-bottom:12px;padding:11px 18px;background:none;border:1.5px solid var(--purple-400);color:var(--purple-700);border-radius:12px;font-size:0.88rem;font-weight:700;cursor:pointer;transition:background 0.15s,color 0.15s"
-        onmouseover="if(!this.disabled)this.style.background='var(--purple-50)'"
-        onmouseout="if(!this.disabled)this.style.background='none'">
+      <button id="findBrollBtn" class="action-btn" style="margin-bottom:12px">
         🎬 Find B-Roll Moments
       </button>
       <div id="stockBrollRerunBanner" style="display:none;margin-bottom:12px;padding:10px 14px;background:#FFF7ED;border:1.5px solid #FDE68A;border-radius:12px;font-size:0.82rem;color:#92400E;display:none;align-items:center;gap:10px">
@@ -306,8 +296,7 @@
     <div id="hookBody" style="padding-top:16px">
       <p style="font-size:0.82rem;color:var(--muted);margin-bottom:14px">Generate a short opening caption that appears in the first seconds of your video to stop the scroll.</p>
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
-        <button id="generateHookBtn" onclick="triggerGenerateHook()" disabled
-          style="padding:8px 18px;border-radius:10px;border:1.5px solid var(--purple-300);background:var(--purple-50);color:var(--purple-700);font-size:0.85rem;font-weight:600;cursor:pointer">
+        <button id="generateHookBtn" class="action-btn" onclick="triggerGenerateHook()" disabled>
           ✨ Generate Hook Options
         </button>
         <div id="hookStatus" style="display:none;align-items:center;gap:8px">
@@ -433,7 +422,7 @@
 
     <label class="sched-label">Caption</label>
     <textarea id="schedCaption" class="sched-caption" rows="5" placeholder="Write a caption, or generate a suggestion from the video…"></textarea>
-    <button id="suggestCaptionBtn" class="sched-suggest-btn" onclick="suggestCaption()">✨ Suggest caption from video</button>
+    <button id="suggestCaptionBtn" class="action-btn" style="margin-top:10px" onclick="suggestCaption()">✨ Suggest caption from video</button>
 
     <div id="ytFields" class="yt-fields" style="display:none">
       <label class="sched-label">YouTube details <span class="sched-hint">required</span></label>
@@ -451,7 +440,7 @@
     <div id="schedConnect" style="display:none;margin-top:16px">
       <p class="sched-connect-note">🔗 Connect your Metricool account once to schedule straight from here.</p>
       <button class="run-btn" onclick="connectMetricool()">Connect Metricool</button>
-      <button class="sched-suggest-btn" style="margin-top:8px" onclick="checkMetricoolStatus()">I've connected — check again</button>
+      <button class="action-btn" style="margin-top:8px" onclick="checkMetricoolStatus()">I've connected — check again</button>
     </div>
     <button id="scheduleBtn" class="run-btn" onclick="scheduleNow()" style="display:none;margin-top:16px">🚀&nbsp; Schedule on Metricool</button>
     <div id="schedStatus" class="sched-status" style="display:none"></div>
