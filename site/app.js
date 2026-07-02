@@ -111,6 +111,7 @@
     if (job.type === 'process') {
       // Reconnect: real progress from the poll tells us which step is running
       statusCard.classList.add('visible');
+      expandCard('statusBody');
       checklistEl.style.display = 'block';
       statusDone.classList.remove('visible');
       statusError.classList.remove('visible');
@@ -144,6 +145,7 @@
 
     } else if (job.type === 'burn') {
       statusCard.classList.add('visible');
+      expandCard('statusBody');
       checklistEl.style.display = 'block';
       statusDone.classList.remove('visible');
       statusError.classList.remove('visible');
@@ -565,6 +567,7 @@
 
     // Show checklist: upload already done (cached), enhance + cut pending
     statusCard.classList.add('visible');
+      expandCard('statusBody');
     checklistEl.style.display = 'block';
     statusDone.classList.remove('visible');
     statusError.classList.remove('visible');
@@ -934,6 +937,7 @@
     isUploading = true;
     setSetupLocked(true);
     statusCard.classList.add('visible');
+    expandCard('statusBody');
     checklistEl.style.display = 'block';
     statusDone.classList.remove('visible');
     statusError.classList.remove('visible');
@@ -955,6 +959,7 @@
   function showProcessing() {
     isUploading = false;
     statusCard.classList.add('visible');
+    expandCard('statusBody');
     clearInterval(uploadTimer);
     _procStartMs = Date.now();
     // Real backend progress (via /process_poll) drives the transitions and the
@@ -1347,6 +1352,15 @@
     const isCollapsed = headerEl.classList.contains('collapsed');
     headerEl.classList.toggle('collapsed');
     body.style.display = isCollapsed ? 'block' : 'none';
+  }
+
+  // Re-expand a collapsible card body when its card is programmatically revealed
+  function expandCard(bodyId) {
+    const body = document.getElementById(bodyId);
+    if (!body) return;
+    const header = body.parentElement.querySelector('.card-header');
+    if (header) header.classList.remove('collapsed');
+    body.style.display = 'block';
   }
 
   // ── B-roll ──
@@ -3266,6 +3280,7 @@
     const card = document.getElementById('scheduleCard');
     if (!card) return;
     card.style.display = 'block';
+    expandCard('scheduleBody');
     const d = new Date();
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const dateEl = document.getElementById('schedDate');

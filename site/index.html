@@ -36,6 +36,11 @@
 
   <!-- Upload -->
   <div class="card" id="uploadCard">
+    <div class="card-header" onclick="toggleCard('uploadBody', this)">
+      <p class="options-title">Upload Video</p>
+      <i class="collapse-chevron">⌄</i>
+    </div>
+    <div id="uploadBody" style="padding-top:14px">
     <div class="upload-zone" id="uploadZone">
       <input type="file" id="fileInput" accept="video/*" />
       <div class="upload-icon">🎬</div>
@@ -75,11 +80,16 @@
         <div id="noticeNetBody"></div>
       </div>
     </div>
+    </div>
   </div>
 
   <!-- Options -->
   <div class="card" id="optionsCard">
-    <p class="options-title">Options</p>
+    <div class="card-header" onclick="toggleCard('optionsBody', this)">
+      <p class="options-title">Options</p>
+      <i class="collapse-chevron">⌄</i>
+    </div>
+    <div id="optionsBody" style="padding-top:14px">
 
     <div class="option-row">
       <div class="option-icon">✂️</div>
@@ -189,11 +199,17 @@
         <div class="slider-desc" id="aggrDesc">Aggressive — cuts pauses over 0.3 s</div>
       </div>
     </div>
+    </div>
   </div>
   <button class="reprocess-btn" id="reprocessBtn" style="display:none">↻&nbsp; Re-process with new settings</button>
 
   <!-- Status -->
   <div class="card status" id="statusCard">
+    <div class="card-header" onclick="toggleCard('statusBody', this)">
+      <p class="options-title">Progress</p>
+      <i class="collapse-chevron">⌄</i>
+    </div>
+    <div id="statusBody" style="padding-top:14px">
 
     <!-- Step checklist: upload + processing + burn -->
     <div class="status-checklist" id="statusChecklist" style="display:none">
@@ -269,6 +285,7 @@
       <button class="retry-btn" id="retryBtn">Try again</button>
     </div>
 
+    </div>
   </div>
 
   <!-- Caption editor — shown after /process when burn_captions is on -->
@@ -387,7 +404,7 @@
 
   <div class="card" id="hookCard" style="display:none">
     <div class="card-header" onclick="toggleCard('hookBody', this)">
-      <p class="options-title">🪝 Hook Generator</p>
+      <p class="options-title">Hook Generator</p>
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="hookBody" style="padding-top:16px">
@@ -498,7 +515,11 @@
 
   <!-- Schedule this video (handoff helper) -->
   <div class="card" id="scheduleCard" style="display:none">
-    <p class="options-title">📅 Schedule this video</p>
+    <div class="card-header" onclick="toggleCard('scheduleBody', this)">
+      <p class="options-title">Schedule This Video</p>
+      <i class="collapse-chevron">⌄</i>
+    </div>
+    <div id="scheduleBody" style="padding-top:14px">
     <p class="sched-intro">Schedule this video straight to Metricool. It's added as a <b>scheduled draft (not auto-published)</b> — you approve the final publish inside Metricool.</p>
 
     <label class="sched-label">Platforms</label>
@@ -540,6 +561,7 @@
     <button id="scheduleBtn" class="run-btn" onclick="scheduleNow()" style="display:none;margin-top:16px">🚀&nbsp; Schedule on Metricool</button>
     <div id="schedStatus" class="sched-status" style="display:none"></div>
     <div id="schedError" class="sched-error" style="display:none"></div>
+    </div>
   </div>
 
   <p class="footer">יוגלינה &nbsp;·&nbsp; School of Quiet Yoga</p>
@@ -548,11 +570,16 @@
 <!-- ── History view ── -->
 <div class="container" id="historyView" style="display:none">
   <div class="card">
-    <p class="options-title">🗂️ Previous videos</p>
+    <div class="card-header" onclick="toggleCard('historyBody', this)">
+      <p class="options-title">Previous Videos</p>
+      <i class="collapse-chevron">⌄</i>
+    </div>
+    <div id="historyBody" style="padding-top:14px">
     <p class="history-note">Finished videos are kept for 30 days, then deleted automatically.</p>
     <div id="historyLoading" class="history-loading" style="display:none">Loading…</div>
     <div id="historyEmpty" class="history-empty" style="display:none">No videos yet — burn your first video and it will show up here.</div>
     <div id="historyList"></div>
+    </div>
   </div>
   <p class="footer">יוגלינה &nbsp;·&nbsp; School of Quiet Yoga</p>
 </div>
