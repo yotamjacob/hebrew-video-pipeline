@@ -158,6 +158,7 @@
       _stepActivate('burn');
       runBtn.style.display = 'block';
       runBtn.disabled = true;
+      lockPipelineActions({ activeBtn: 'runBtn', lockCards: true });
       try {
         const burnResult = await pollForJSON(`${API_BASE}/burn_poll/${job.callId}/`, 600_000, job.callId);
         _stepDone('burn');
@@ -189,6 +190,7 @@
         if (err.name !== 'AbortError')
           showError('Could not reconnect — job may have expired. Please start again.');
       } finally {
+        unlockPipelineActions();
         runBtn.disabled = false;
       }
     }
@@ -232,6 +234,46 @@
     const base = selectedFile ? selectedFile.name.replace(/\.[^.]+$/, '') : 'captions';
     a.href = url; a.download = base + '.srt'; a.click();
     URL.revokeObjectURL(url);
+  }
+
+  // ── Global action lock ──
+  // While one long operation is in flight, every other control that could
+  // change its inputs or interrupt it (burn vs. cut-restore vs. re-process vs.
+  // hook/b-roll generation) is disabled. Heavy ops also grey out whole cards;
+  // generator ops lock buttons only so caption editing stays available.
+  const LOCK_BTN_IDS  = ['runBtn', 'reprocessBtn', 'applyCutsBtn', 'generateHookBtn',
+                         'findBrollBtn', 'suggestCaptionBtn', 'scheduleBtn',
+                         'burnDownloadBtn', 'startOverBtn'];
+  const LOCK_CARD_IDS = ['cutsCard', 'captionEditorCard', 'hookCard', 'brollCard',
+                         'stockBrollCard', 'scheduleCard'];
+  let _actionLockDepth = 0;
+  const _actionLockSaved = new Map();
+
+  function lockPipelineActions({ activeBtn = null, activeCard = null, lockCards = false } = {}) {
+    if (++_actionLockDepth > 1) return;
+    LOCK_BTN_IDS.forEach(id => {
+      if (id === activeBtn) return;               // the active flow manages its own button
+      const el = document.getElementById(id);
+      if (!el) return;
+      _actionLockSaved.set(id, el.disabled);
+      el.disabled = true;
+    });
+    if (lockCards) {
+      LOCK_CARD_IDS.forEach(id => {
+        if (id === activeCard) return;            // keep the active card interactive (cancel, etc.)
+        document.getElementById(id)?.classList.add('action-locked');
+      });
+    }
+  }
+
+  function unlockPipelineActions() {
+    if (_actionLockDepth === 0 || --_actionLockDepth > 0) return;
+    LOCK_BTN_IDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el && _actionLockSaved.has(id)) el.disabled = _actionLockSaved.get(id);
+    });
+    _actionLockSaved.clear();
+    LOCK_CARD_IDS.forEach(id => document.getElementById(id)?.classList.remove('action-locked'));
   }
 
   function showConfirmModal(title, body, okText) {
@@ -563,6 +605,7 @@
       key:                  currentUploadKey,
     });
 
+    lockPipelineActions({ lockCards: true });
     runStartTime = Date.now();
     runBtn.style.display = 'none';
 
@@ -597,6 +640,7 @@
 
       const brollActive      = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
       const stockBrollActive = document.getElementById('stockBroll').checked;
+      unlockPipelineActions();
       if (captionsData.length > 0 || brollActive) {
         document.getElementById('cancelBtn').style.display = 'none';
         showCaptionEditor();
@@ -608,6 +652,7 @@
         showDone();
       }
     } catch (err) {
+      unlockPipelineActions();
       clearInterval(elapsedTimer);
       if (err.name === 'AbortError') return;
       console.error('Re-process error:', err.message);
@@ -1851,6 +1896,7 @@
     const errEl      = document.getElementById('hookError');
 
     hookGenAborted        = false;
+    lockPipelineActions({ activeBtn: 'generateHookBtn' });
     btn.disabled          = true;
     status.style.display  = 'flex';
     optionsEl.style.display   = 'none';
@@ -1895,6 +1941,7 @@
         errEl.style.display = 'block';
       }
     } finally {
+      unlockPipelineActions();
       btn.disabled         = false;
       status.style.display = 'none';
       hookGenAborted       = false;
@@ -1989,6 +2036,7 @@
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 
     // Lock the caption editor and button while searching
+    lockPipelineActions({ activeBtn: 'findBrollBtn' });
     findBrollBtn.disabled = true;
     findBrollBtn.textContent = '⏳ Searching…';
     document.querySelectorAll('#captionsList .caption-input, #captionsList .caption-time-input, #captionsList .cap-btn').forEach(el => { el.disabled = true; });
@@ -2071,6 +2119,7 @@
       list.innerHTML = `<p style="color:var(--red);font-size:0.85rem;padding:8px 0">Failed: ${e.message.slice(0, 160)} <button onclick="triggerStockBroll()" style="margin-left:8px;font-size:0.8rem;padding:3px 10px;border-radius:6px;border:1px solid var(--red);background:none;color:var(--red);cursor:pointer">Retry</button></p>`;
     } finally {
       bumpPending(-1);
+      unlockPipelineActions();
       // Restore caption editor and button
       document.querySelectorAll('#captionsList .caption-input, #captionsList .caption-time-input, #captionsList .cap-btn').forEach(el => { el.disabled = false; });
       _updateDeleteButtons();
@@ -2865,6 +2914,7 @@
     const errBox = document.getElementById('cutsError');
     const restored = [...restoredCuts];
     const orig = btn.textContent;
+    lockPipelineActions({ activeBtn: 'applyCutsBtn', activeCard: 'cutsCard', lockCards: true });
     btn.disabled = true;
     btn.textContent = '\u23F3 Re-rendering\u2026';
     errBox.style.display = 'none';
@@ -2885,6 +2935,7 @@
       errBox.textContent = 'Re-render failed: ' + (e.message || e);
       errBox.style.display = 'block';
     } finally {
+      unlockPipelineActions();
       btn.disabled = false;
       btn.textContent = orig;
       renderCutsCard();
@@ -2930,6 +2981,7 @@
       'Burn & Download'
     );
     if (!confirmed) return;
+    lockPipelineActions({ activeBtn: 'runBtn', lockCards: true });
     document.getElementById('burnSuccessBanner').style.display = 'none';
     { const _sc = document.getElementById('scheduleCard'); if (_sc) _sc.style.display = 'none'; }
 
@@ -3065,6 +3117,7 @@
         burnErrorEl.style.display = 'block';
       }
     } finally {
+      unlockPipelineActions();
       runBtn.disabled = false;
       if (reprocessBtn) reprocessBtn.disabled = false;
       updateBurnBtn();
@@ -3391,6 +3444,7 @@
     const ta = document.getElementById('schedCaption');
     const errEl = document.getElementById('schedError');
     const orig = btn.textContent;
+    lockPipelineActions({ activeBtn: 'suggestCaptionBtn' });
     btn.disabled = true; btn.textContent = '✨ Generating…';
     errEl.style.display = 'none';
     try {
@@ -3419,6 +3473,7 @@
       errEl.textContent = `Couldn't generate a caption (${String(e.message).slice(0, 80)}). You can write one manually.`;
       errEl.style.display = 'block';
     } finally {
+      unlockPipelineActions();
       btn.disabled = false; btn.textContent = orig;
     }
   }
@@ -3461,6 +3516,7 @@
     };
 
     const orig = btn.textContent;
+    lockPipelineActions({ activeBtn: 'scheduleBtn' });
     btn.disabled = true; btn.textContent = '⏳ Scheduling…';
     statusEl.className = 'sched-status busy'; statusEl.textContent = 'Sending to Metricool…'; statusEl.style.display = 'block';
     try {
@@ -3485,8 +3541,10 @@
       statusEl.innerHTML = `✅ Scheduled on Metricool for ${date} ${time} (Israel time).` +
         (plannerUrl ? ` <a href="${plannerUrl}" target="_blank" rel="noopener">Open in Metricool ↗</a>` : ' Approve the final publish in Metricool.');
       btn.textContent = '✅ Scheduled';
+      unlockPipelineActions();
       setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);
     } catch (e) {
+      unlockPipelineActions();
       statusEl.style.display = 'none';
       errEl.textContent = `Couldn't schedule: ${String(e.message).slice(0, 160)}`;
       errEl.style.display = 'block';

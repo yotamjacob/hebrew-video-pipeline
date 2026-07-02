@@ -1351,3 +1351,6 @@
 }
 .history-btn:hover { background: var(--purple-50); }
 .history-btn-danger:hover { background: #FEF2F2; border-color: #FECACA; }
+
+/* Cards greyed out while another operation is in flight */
+.action-locked { pointer-events: none; opacity: 0.5; transition: opacity 0.15s; }
