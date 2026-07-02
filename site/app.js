@@ -244,7 +244,7 @@
   const LOCK_BTN_IDS  = ['runBtn', 'reprocessBtn', 'generateHookBtn',
                          'findBrollBtn', 'suggestCaptionBtn', 'scheduleBtn',
                          'burnDownloadBtn', 'startOverBtn'];
-  const LOCK_CARD_IDS = ['captionEditorCard', 'hookCard', 'brollCard',
+  const LOCK_CARD_IDS = ['optionsCard', 'captionEditorCard', 'hookCard', 'brollCard',
                          'stockBrollCard', 'scheduleCard'];
   let _actionLockDepth = 0;
   const _actionLockSaved = new Map();

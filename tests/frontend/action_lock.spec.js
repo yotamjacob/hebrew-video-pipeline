@@ -23,12 +23,14 @@ test('burn locks hooks and the caption editor until done', async ({ page }) => {
   await page.click('#runBtn');           // burnMode → doBurn
   await page.click('#confirmOk');        // confirm modal
 
-  // In flight: hook generation disabled, caption editor greyed out
+  // In flight: hook generation disabled, caption editor + options greyed out
   await expect(page.locator('#captionEditorCard')).toHaveClass(/action-locked/, { timeout: 5_000 });
+  await expect(page.locator('#optionsCard')).toHaveClass(/action-locked/);
   await expect(page.locator('#generateHookBtn')).toBeDisabled();
 
   // Done: everything usable again
   await expect(page.locator('#captionEditorCard')).not.toHaveClass(/action-locked/, { timeout: 15_000 });
+  await expect(page.locator('#optionsCard')).not.toHaveClass(/action-locked/);
   await expect(page.locator('#generateHookBtn')).toBeEnabled();
 });
 
