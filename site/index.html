@@ -277,19 +277,6 @@
   </div>
 
   <!-- Caption editor — shown after /process when burn_captions is on -->
-  <div class="card" id="cutsCard" style="display:none">
-    <div class="card-header" onclick="toggleCard('cutsBody', this)">
-      <p class="options-title">✂️ Silence cuts <span id="cutsSummary" class="cuts-summary"></span></p>
-      <i class="collapse-chevron">⌄</i>
-    </div>
-    <div id="cutsBody" style="padding-top:12px">
-      <p class="cuts-hint">These pauses were removed automatically. If a cut clipped a word or a breath you want back, restore it and re-render.</p>
-      <div id="cutsList"></div>
-      <button class="run-btn" id="applyCutsBtn" style="display:none;margin-top:12px" onclick="applyCutRestore()">↩️&nbsp; Restore selected &amp; re-render</button>
-      <div id="cutsError" class="cuts-error" style="display:none"></div>
-    </div>
-  </div>
-
   <div class="card" id="captionEditorCard" style="display:none">
     <div class="card-header" onclick="toggleCard('captionBody', this)">
       <p class="options-title">Edit Captions</p>

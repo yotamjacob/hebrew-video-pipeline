@@ -22,7 +22,6 @@ async function mockAllApis(page, {
   burnStatus    = 200,
   hookStatus    = 200,
   uploadStatus  = 200,
-  cuts          = [],
 } = {}) {
   // Warmup — always succeeds
   await page.route(`${API_BASE}/warmup/`, r =>
@@ -52,18 +51,16 @@ async function mockAllApis(page, {
   // Process poll — resolves immediately with captions
   await page.route(`${API_BASE}/process_poll/**`, r =>
     r.fulfill({ status: 200, contentType: 'application/json',
-                body: JSON.stringify({ captions, video_key: 'mock-video-key_cut.mp4', cuts }) }));
+                body: JSON.stringify({ captions, video_key: 'mock-video-key_cut.mp4' }) }));
 
-  // Burn spawn
-  await page.route(`${API_BASE}/burn/`, r =>
+  // Burn spawn — regex because the app appends query params (glob patterns
+  // without wildcards match the full URL and would fall through to the network)
+  await page.route(/\/burn\/?(\?|$)/, r =>
     burnStatus === 200
       ? r.fulfill({ status: 202, contentType: 'application/json',
                     body: JSON.stringify({ call_id: 'mock-burn-call-id' }) })
       : r.fulfill({ status: burnStatus, contentType: 'application/json',
                     body: JSON.stringify({ error: `Burn error ${burnStatus}` }) }));
-  await page.route(`${API_BASE}/burn`, r =>
-    r.fulfill({ status: 202, contentType: 'application/json',
-                body: JSON.stringify({ call_id: 'mock-burn-call-id' }) }));
 
   // Burn poll
   await page.route(`${API_BASE}/burn_poll/**`, r =>

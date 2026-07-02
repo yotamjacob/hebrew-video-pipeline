@@ -11,7 +11,7 @@ from pipeline_core import (
 )
 
 # ---------------------------------------------------------------------------
-# Shared pure helpers — used by process_video and rerender_cuts_fn
+# Shared pure helpers
 # ---------------------------------------------------------------------------
 import json
 import subprocess
@@ -219,38 +219,6 @@ def render(video, audio, segs, ass_file, out, crf=18, rotation=0):
          "-c:v", "libx264", "-crf", str(crf), "-preset", "veryfast",
          "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
          "-movflags", "+faststart"] + meta_args + [str(out)])
-
-
-def compute_cuts(segs):
-    """Describe gaps removed between consecutive keep segments (original timeline).
-
-    ``index`` is the boundary position (between segs[i] and segs[i+1]) so it stays
-    stable for merge_restored even when tiny gaps are filtered from the list.
-    """
-    cuts = []
-    for i in range(len(segs) - 1):
-        gap_start, gap_end = segs[i].end, segs[i + 1].start
-        if gap_end - gap_start < 0.05:
-            continue
-        cuts.append({
-            "index": i,
-            "start": round(gap_start, 3),
-            "end": round(gap_end, 3),
-            "duration": round(gap_end - gap_start, 2),
-            "before": segs[i].words[-1].text if segs[i].words else "",
-            "after": segs[i + 1].words[0].text if segs[i + 1].words else "",
-        })
-    return cuts
-
-
-def merge_restored(segs, restored):
-    """Merge keep segments across restored gap boundaries so the silence stays in."""
-    for i in sorted({int(r) for r in restored}, reverse=True):
-        if 0 <= i < len(segs) - 1:
-            a, b = segs[i], segs[i + 1]
-            segs[i] = KeepSegment(a.start, b.end, a.words + b.words)
-            del segs[i + 1]
-    return segs
 
 
 # ---------------------------------------------------------------------------
@@ -466,25 +434,11 @@ def process_video(
         else:
             shutil.copy(src, out_file)
 
-        cuts = compute_cuts(segs) if (cut_silences and whisper_segs) else []
-        if upload_key is not None and cuts:
-            # Persist what rerender_cuts_fn needs to restore cuts without re-transcribing
-            sidecar = {
-                "segments": [{"words": [[w.start, w.end, w.text] for w in seg_words],
-                              "seg_end": seg_end}
-                             for seg_words, seg_end in whisper_segs],
-                "duration": duration, "width": width, "height": height,
-                "rotation": rotation, "min_silence": min_silence, "padding": padding,
-            }
-            (Path(TMP_DIR) / f"{upload_key}_words.json").write_text(json.dumps(sidecar))
-            shutil.copy(clean_wav, Path(TMP_DIR) / f"{upload_key}_audio.wav")
-
         import uuid
         video_key = uuid.uuid4().hex + "_cut.mp4"
         shutil.copy(out_file, Path(TMP_DIR) / video_key)
         tmp_vol.commit()
-        return {"captions": captions_list, "video_key": video_key,
-                "cuts": cuts if upload_key is not None else []}
+        return {"captions": captions_list, "video_key": video_key}
 
 
 # ---------------------------------------------------------------------------
@@ -843,7 +797,7 @@ def _record_job(output_key, source_name, out_path):
 
 def prune_volume():
     """Retention sweep, best-effort: burned outputs past JOB_RETENTION_DAYS and
-    scratch files (_src/_words/_audio/_cut/chunks) past SCRATCH_RETENTION_HOURS."""
+    scratch files (_src/_cut/chunks) past SCRATCH_RETENTION_HOURS."""
     import time
     from pathlib import Path
     now = time.time()
@@ -861,48 +815,6 @@ def prune_volume():
                 p.unlink(missing_ok=True)
     except Exception as e:
         print(f"[prune] skipped: {e!r}")
-
-
-# ---------------------------------------------------------------------------
-# Cut restore — re-render from cached source with selected silences kept in.
-# CPU-only: reuses the persisted transcription, no GPU / no re-transcribe.
-# ---------------------------------------------------------------------------
-@app.function(image=burn_image, timeout=600, volumes={TMP_DIR: tmp_vol})
-def rerender_cuts_fn(upload_key: str, restored_json: str = "[]") -> dict:
-    import shutil, tempfile, uuid
-    from pathlib import Path
-
-    if not upload_key or not _SAFE_KEY_RE.match(upload_key):
-        raise ValueError("Invalid upload key")
-
-    tmp_vol.reload()
-    src_path   = Path(TMP_DIR) / f"{upload_key}_src.mp4"
-    words_path = Path(TMP_DIR) / f"{upload_key}_words.json"
-    audio_path = Path(TMP_DIR) / f"{upload_key}_audio.wav"
-    if not (src_path.exists() and words_path.exists() and audio_path.exists()):
-        raise ValueError("Source files for this session have expired — run the pipeline again to restore cuts.")
-
-    meta = json.loads(words_path.read_text())
-    whisper_segs = [([Word(s, e, t) for s, e, t in seg["words"]], seg["seg_end"])
-                    for seg in meta["segments"]]
-    segs = compute_keep_segments(whisper_segs, meta["duration"],
-                                 meta["min_silence"], meta["padding"])
-    cuts = compute_cuts(segs)
-    merge_restored(segs, json.loads(restored_json))
-
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp = Path(tmp)
-        ass_file = tmp / "captions.ass"
-        out_file = tmp / "out.mp4"
-        events = generate_ass(segs, ass_file, meta["width"], meta["height"],
-                              min_sil=meta["min_silence"])
-        captions = [{"start": s, "end": e, "text": _censor_caption_text(t)}
-                    for s, e, t in events]
-        render(src_path, audio_path, segs, None, out_file, rotation=meta["rotation"])
-        video_key = uuid.uuid4().hex + "_cut.mp4"
-        shutil.copy(out_file, Path(TMP_DIR) / video_key)
-        tmp_vol.commit()
-    return {"captions": captions, "video_key": video_key, "cuts": cuts}
 
 
 # ---------------------------------------------------------------------------

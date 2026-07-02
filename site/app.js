@@ -62,9 +62,6 @@
   let elapsedTimer    = null;  // drives enhance→cut transition timer
   let blocked         = false;
   let videoKey        = null;
-  let cutsData        = [];            // gaps removed by silence cutting (from /process result)
-  let restoredCuts    = new Set();     // gap indexes the user wants back
-  let appliedRestored = new Set();     // gap indexes already applied via /rerender
   let captionsData    = [];
   let cutFilename     = '';
   let pollController  = null;
@@ -129,7 +126,6 @@
         clearSavedJob();
         captionsData = result.captions || [];
         videoKey     = result.video_key;
-        cutsData = result.cuts || []; restoredCuts = new Set(); appliedRestored = new Set();
         cutFilename  = (job.filename || 'video').replace(/\.[^/.]+$/, '') + '_cut.mp4';
         if (captionsData.length > 0) {
           document.getElementById('cancelBtn').style.display = 'none';
@@ -241,10 +237,10 @@
   // change its inputs or interrupt it (burn vs. cut-restore vs. re-process vs.
   // hook/b-roll generation) is disabled. Heavy ops also grey out whole cards;
   // generator ops lock buttons only so caption editing stays available.
-  const LOCK_BTN_IDS  = ['runBtn', 'reprocessBtn', 'applyCutsBtn', 'generateHookBtn',
+  const LOCK_BTN_IDS  = ['runBtn', 'reprocessBtn', 'generateHookBtn',
                          'findBrollBtn', 'suggestCaptionBtn', 'scheduleBtn',
                          'burnDownloadBtn', 'startOverBtn'];
-  const LOCK_CARD_IDS = ['cutsCard', 'captionEditorCard', 'hookCard', 'brollCard',
+  const LOCK_CARD_IDS = ['captionEditorCard', 'hookCard', 'brollCard',
                          'stockBrollCard', 'scheduleCard'];
   let _actionLockDepth = 0;
   const _actionLockSaved = new Map();
@@ -547,7 +543,6 @@
 
       captionsData = result.captions;
       videoKey     = result.video_key;
-      cutsData = result.cuts || []; restoredCuts = new Set(); appliedRestored = new Set();
       cutFilename  = (selectedFile.name || 'video').replace(/\.[^/.]+$/, '') + '_cut.mp4';
 
       const brollActive      = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
@@ -588,7 +583,6 @@
     burnMode = false;
     captionsData = [];
     videoKey = null;
-    cutsData = []; restoredCuts = new Set(); appliedRestored = new Set();
     resultBlob = null;
     ['captionEditorCard', 'hookCard', 'brollCard', 'stockBrollCard'].forEach(id => {
       const el = document.getElementById(id);
@@ -644,7 +638,6 @@
 
       captionsData = result.captions;
       videoKey     = result.video_key;
-      cutsData = result.cuts || []; restoredCuts = new Set(); appliedRestored = new Set();
       cutFilename  = (selectedFile.name || 'video').replace(/\.[^/.]+$/, '') + '_cut.mp4';
 
       const brollActive      = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
@@ -1165,7 +1158,6 @@
     selectedBrolls = [];
     captionsData = [];
     videoKey    = null;
-    cutsData = []; restoredCuts = new Set(); appliedRestored = new Set();
     cutFilename = '';
     captionFont      = 'Heebo';
     captionMarginPct = 0.08;
@@ -2883,76 +2875,7 @@
     return row;
   }
 
-  function renderCutsCard() {
-    const card = document.getElementById('cutsCard');
-    if (!card) return;
-    if (!cutsData.length || !currentUploadKey) { card.style.display = 'none'; return; }
-    const secsRemoved = cutsData
-      .filter(c => !appliedRestored.has(c.index))
-      .reduce((a, c) => a + c.duration, 0);
-    document.getElementById('cutsSummary').textContent =
-      `· ${cutsData.length} pauses · ${secsRemoved.toFixed(1)}s removed`;
-    const list = document.getElementById('cutsList');
-    list.innerHTML = '';
-    cutsData.forEach(cut => {
-      const row = document.createElement('label');
-      row.className = 'cut-row' + (restoredCuts.has(cut.index) ? ' restored' : '');
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.className = 'cut-check';
-      cb.checked = restoredCuts.has(cut.index);
-      cb.addEventListener('change', () => {
-        if (cb.checked) restoredCuts.add(cut.index); else restoredCuts.delete(cut.index);
-        renderCutsCard();
-      });
-      const desc = document.createElement('span');
-      desc.className = 'cut-desc';
-      desc.dir = 'rtl';
-      desc.textContent = `\u2026${cut.before}\u2003\u2702\uFE0F ${cut.duration.toFixed(1)}s\u2003${cut.after}\u2026`;
-      row.append(cb, desc);
-      list.appendChild(row);
-    });
-    const applyBtn = document.getElementById('applyCutsBtn');
-    const dirty = JSON.stringify([...restoredCuts].sort()) !== JSON.stringify([...appliedRestored].sort());
-    applyBtn.style.display = dirty ? '' : 'none';
-    card.style.display = 'block';
-  }
-
-  async function applyCutRestore() {
-    const btn = document.getElementById('applyCutsBtn');
-    const errBox = document.getElementById('cutsError');
-    const restored = [...restoredCuts];
-    const orig = btn.textContent;
-    lockPipelineActions({ activeBtn: 'applyCutsBtn', activeCard: 'cutsCard', lockCards: true });
-    btn.disabled = true;
-    btn.textContent = '\u23F3 Re-rendering\u2026';
-    errBox.style.display = 'none';
-    try {
-      const resp = await fetch(`${API_BASE}/rerender/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ upload_key: currentUploadKey, restored }),
-      });
-      if (!resp.ok) throw new Error((await resp.json()).error || `HTTP ${resp.status}`);
-      const { call_id } = await resp.json();
-      const result = await pollForJSON(`${API_BASE}/rerender_poll/${call_id}/`, 600_000, call_id);
-      captionsData    = result.captions || [];
-      videoKey        = result.video_key;
-      appliedRestored = new Set(restored);
-      showCaptionEditor();
-    } catch (e) {
-      errBox.textContent = 'Re-render failed: ' + (e.message || e);
-      errBox.style.display = 'block';
-    } finally {
-      unlockPipelineActions();
-      btn.disabled = false;
-      btn.textContent = orig;
-      renderCutsCard();
-    }
-  }
-
   function showCaptionEditor() {
-    renderCutsCard();
     // Ensure card body is expanded (may have been collapsed in a previous burn)
     const captionHeader = document.querySelector('#captionEditorCard .card-header');
     if (captionHeader) captionHeader.classList.remove('collapsed');
@@ -3118,10 +3041,14 @@
         console.error('Burn error:', err.message);
         editorIds.forEach(id => document.getElementById(id).classList.remove('burning'));
         // Expand editors back so user can retry
-        [{ h: captionHeader, b: captionBody }, { h: brollHeader, b: brollBody }, { h: sbHeader, b: sbBody }]
-          .forEach(({ h, b }) => {
-            if (h) { h.classList.remove('collapsed'); if (b) b.style.display = 'block'; }
-          });
+        [
+          { h: document.querySelector('#captionEditorCard .card-header'), b: document.getElementById('captionBody') },
+          { h: document.querySelector('#hookCard .card-header'),          b: document.getElementById('hookBody') },
+          { h: document.querySelector('#brollCard .card-header'),         b: document.getElementById('brollBody') },
+          { h: document.querySelector('#stockBrollCard .card-header'),    b: document.getElementById('stockBrollBody') },
+        ].forEach(({ h, b }) => {
+          if (h) { h.classList.remove('collapsed'); if (b) b.style.display = 'block'; }
+        });
         burnErrorEl.textContent = err.message.length > 200 ? err.message.slice(0, 200) + '…' : err.message;
         burnErrorEl.style.display = 'block';
       }

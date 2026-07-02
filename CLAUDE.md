@@ -7,7 +7,7 @@
 | `hebrew_video_pipeline.py` | Local CLI — 6-step pipeline (extract → enhance → transcribe → segments → ASS → render) |
 | `app_modal.py` | **Deploy entrypoint** — imports all backend modules + the `api()` ASGI router (all HTTP routes) |
 | `pipeline_core.py` | Modal app/images/volumes, model constants, pure helpers (security, RTL text, rate limiting, `_poll_fn_call`) |
-| `pipeline_fns.py` | `process_video` (GPU), `burn_captions_fn`, `burn_hook_fn`, `rerender_cuts_fn` (CPU cut-restore), job history + retention pruning |
+| `pipeline_fns.py` | `process_video` (GPU), `burn_captions_fn`, `burn_hook_fn`, job history + retention pruning |
 | `stock_helpers.py` | Pure stock-footage helpers: Pexels/Pixabay fetch, frame sampling, `score_clips`, `add_clip_window` |
 | `broll_fns.py` | Veo generation + `analyze_broll`, `analyze_stock_broll`, `search_stock_clips`, `_process_moment` |
 | `content_fns.py` | `generate_hook_options`, `generate_caption_options` |
@@ -111,9 +111,7 @@ npx vercel deploy --prod
 
 **Rate limiting scope** — `_check_rate_limit` uses an in-memory dict per Modal container instance (10 req/60 s per IP). Multiple concurrent container instances each have their own limit — effective limit is `10 × N_instances` per minute. Sufficient for abuse prevention; not a per-user quota.
 
-**Job history & retention** — every successful `burn_captions_fn` records `{name, ts, size, duration}` in the `hebpipe-jobs` modal.Dict (key = `…_out.mp4` output key) and runs `prune_volume()`: burned outputs deleted after `JOB_RETENTION_DAYS` (30), scratch files (`_src.mp4`, `_words.json`, `_audio.wav`, `_cut.mp4`, chunks) after `SCRATCH_RETENTION_HOURS` (48). Nothing else deletes volume files — the old delete-on-download and delete-after-schedule behaviors are gone. History tab uses `GET /jobs`, `DELETE /jobs/{key}` and the existing `/thumbnail/` + `/download/` routes.
-
-**Cut restore (re-render)** — `process_video` returns `cuts` (removed silence gaps, boundary-indexed) and persists `{upload_key}_words.json` (whisper segments + dims + min_silence/padding) and `{upload_key}_audio.wav` (enhanced audio). `POST /rerender {upload_key, restored:[i]}` spawns `rerender_cuts_fn` on the cheap `burn_image` (no GPU, no re-transcribe): recomputes keep-segments with `merge_restored()`, re-renders from `_src.mp4`, returns fresh `captions` + `video_key`. Cut `index` = boundary between keep-segments i and i+1 — stable because min_silence/padding come from the sidecar, not the request.
+**Job history & retention** — every successful `burn_captions_fn` records `{name, ts, size, duration}` in the `hebpipe-jobs` modal.Dict (key = `…_out.mp4` output key) and runs `prune_volume()`: burned outputs deleted after `JOB_RETENTION_DAYS` (30), scratch files (`_src.mp4`, `_cut.mp4`, chunks) after `SCRATCH_RETENTION_HOURS` (48). Nothing else deletes volume files — the old delete-on-download and delete-after-schedule behaviors are gone. History tab uses `GET /jobs`, `DELETE /jobs/{key}` and the existing `/thumbnail/` + `/download/` routes.
 
 **Key validation pattern** — `_SAFE_KEY_RE` and `_SAFE_DOWNLOAD_KEY_RE` at module level validate upload keys and download keys before any filesystem access. Keys must be `[a-zA-Z0-9_\-]` (plus `.` for downloads), max 128 chars.
 
