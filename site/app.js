@@ -1048,6 +1048,9 @@
     // idle until the first poll; skip steps whose toggle is off.
     const enhanceOn = document.getElementById('enhanceAudio').checked;
     if (!enhanceOn) _stepSkip('enhance');
+    // The enhancement row reports the selected mode (backend stage: 'upscale')
+    const _upLabel = document.querySelector('#checkUpscale .check-label');
+    if (_upLabel) _upLabel.textContent = _enhanceVideoMode() === 'esrgan' ? 'AI upscale' : 'Enhance video';
     _stepActivate(enhanceOn ? 'enhance' : 'cut');
   }
 

@@ -568,6 +568,11 @@ def process_video(
             render(src, clean_wav, segs, None, out_file, rotation=rotation, extra_vf=enh_vf)
         elif rotation or enh_vf:
             # Re-encode: bake rotation into pixels and/or apply the enhancement chain.
+            # When not already covered by the 'cut' stage, report it as the
+            # enhancement stage so the checklist shows a real line for it.
+            _standalone_enh = bool(enh_vf) and not need_transcription
+            if _standalone_enh:
+                _mark(stage="upscale")
             rot_vf = _rotation_vf(rotation)
             vf = (rot_vf + enh_vf).strip(",") or "null"
             input_args = ["-noautorotate"] if rotation else []
@@ -576,6 +581,8 @@ def process_video(
                  "-vf", vf, "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
                  "-pix_fmt", "yuv420p", "-c:a", "copy"] + meta_args +
                 ["-movflags", "+faststart", str(out_file)])
+            if _standalone_enh:
+                _mark(done="upscale")
         else:
             shutil.copy(src, out_file)
 

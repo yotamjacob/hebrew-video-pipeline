@@ -66,3 +66,35 @@ test('steps that never ran are hidden, not estimated', async ({ page }) => {
   await expect(page.locator('#checkCutTime')).toHaveText('0:09');
   await expect(page.locator('#checkEnhance')).toBeHidden();
 });
+
+test('AI upscale gets its own live progress row with real times', async ({ page }) => {
+  await mockAllApis(page);
+  let polls = 0;
+  await page.unroute(`${API_BASE}/process_poll/**`);
+  await page.route(`${API_BASE}/process_poll/**`, r => {
+    polls += 1;
+    if (polls < 3) {
+      return r.fulfill({ status: 202, contentType: 'application/json',
+        body: JSON.stringify({ status: 'running',
+                               progress: { stage: 'upscale', done: { enhance: 5.0, cut: 9.2 } } }) });
+    }
+    return r.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ captions: DEFAULT_CAPTIONS, video_key: 'mock-video-key_cut.mp4',
+                             step_times: { enhance: 5.0, cut: 9.2, upscale: 33.4 } }) });
+  });
+
+  await page.click('label[for="ev_esrgan"]');
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+
+  // While running: upscale row visible, labelled, spinning; earlier steps closed real
+  await expect(page.locator('#checkUpscale')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('#checkUpscale')).toHaveClass(/active/);
+  await expect(page.locator('#checkUpscale .check-label')).toHaveText('AI upscale');
+  await expect(page.locator('#checkCutTime')).toHaveText('0:09');
+
+  // Done: closed with the backend's real duration
+  await expect(page.locator('#checkUpscale')).toHaveClass(/done/, { timeout: 15_000 });
+  await expect(page.locator('#checkUpscaleTime')).toHaveText('0:33');
+});
