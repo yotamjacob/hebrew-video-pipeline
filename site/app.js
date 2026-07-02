@@ -62,6 +62,9 @@
   let elapsedTimer    = null;  // drives enhance→cut transition timer
   let blocked         = false;
   let videoKey        = null;
+  let cutsData        = [];            // gaps removed by silence cutting (from /process result)
+  let restoredCuts    = new Set();     // gap indexes the user wants back
+  let appliedRestored = new Set();     // gap indexes already applied via /rerender
   let captionsData    = [];
   let cutFilename     = '';
   let pollController  = null;
@@ -126,6 +129,7 @@
         clearSavedJob();
         captionsData = result.captions || [];
         videoKey     = result.video_key;
+        cutsData = result.cuts || []; restoredCuts = new Set(); appliedRestored = new Set();
         cutFilename  = (job.filename || 'video').replace(/\.[^/.]+$/, '') + '_cut.mp4';
         if (captionsData.length > 0) {
           document.getElementById('cancelBtn').style.display = 'none';
@@ -492,6 +496,7 @@
 
       captionsData = result.captions;
       videoKey     = result.video_key;
+      cutsData = result.cuts || []; restoredCuts = new Set(); appliedRestored = new Set();
       cutFilename  = (selectedFile.name || 'video').replace(/\.[^/.]+$/, '') + '_cut.mp4';
 
       const brollActive      = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
@@ -532,6 +537,7 @@
     burnMode = false;
     captionsData = [];
     videoKey = null;
+    cutsData = []; restoredCuts = new Set(); appliedRestored = new Set();
     resultBlob = null;
     ['captionEditorCard', 'hookCard', 'brollCard', 'stockBrollCard'].forEach(id => {
       const el = document.getElementById(id);
@@ -586,6 +592,7 @@
 
       captionsData = result.captions;
       videoKey     = result.video_key;
+      cutsData = result.cuts || []; restoredCuts = new Set(); appliedRestored = new Set();
       cutFilename  = (selectedFile.name || 'video').replace(/\.[^/.]+$/, '') + '_cut.mp4';
 
       const brollActive      = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
@@ -1104,6 +1111,7 @@
     selectedBrolls = [];
     captionsData = [];
     videoKey    = null;
+    cutsData = []; restoredCuts = new Set(); appliedRestored = new Set();
     cutFilename = '';
     captionFont      = 'Heebo';
     captionMarginPct = 0.08;
@@ -2817,7 +2825,74 @@
     return row;
   }
 
+  function renderCutsCard() {
+    const card = document.getElementById('cutsCard');
+    if (!card) return;
+    if (!cutsData.length || !currentUploadKey) { card.style.display = 'none'; return; }
+    const secsRemoved = cutsData
+      .filter(c => !appliedRestored.has(c.index))
+      .reduce((a, c) => a + c.duration, 0);
+    document.getElementById('cutsSummary').textContent =
+      `· ${cutsData.length} pauses · ${secsRemoved.toFixed(1)}s removed`;
+    const list = document.getElementById('cutsList');
+    list.innerHTML = '';
+    cutsData.forEach(cut => {
+      const row = document.createElement('label');
+      row.className = 'cut-row' + (restoredCuts.has(cut.index) ? ' restored' : '');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'cut-check';
+      cb.checked = restoredCuts.has(cut.index);
+      cb.addEventListener('change', () => {
+        if (cb.checked) restoredCuts.add(cut.index); else restoredCuts.delete(cut.index);
+        renderCutsCard();
+      });
+      const desc = document.createElement('span');
+      desc.className = 'cut-desc';
+      desc.dir = 'rtl';
+      desc.textContent = `\u2026${cut.before}\u2003\u2702\uFE0F ${cut.duration.toFixed(1)}s\u2003${cut.after}\u2026`;
+      row.append(cb, desc);
+      list.appendChild(row);
+    });
+    const applyBtn = document.getElementById('applyCutsBtn');
+    const dirty = JSON.stringify([...restoredCuts].sort()) !== JSON.stringify([...appliedRestored].sort());
+    applyBtn.style.display = dirty ? '' : 'none';
+    card.style.display = 'block';
+  }
+
+  async function applyCutRestore() {
+    const btn = document.getElementById('applyCutsBtn');
+    const errBox = document.getElementById('cutsError');
+    const restored = [...restoredCuts];
+    const orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '\u23F3 Re-rendering\u2026';
+    errBox.style.display = 'none';
+    try {
+      const resp = await fetch(`${API_BASE}/rerender/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ upload_key: currentUploadKey, restored }),
+      });
+      if (!resp.ok) throw new Error((await resp.json()).error || `HTTP ${resp.status}`);
+      const { call_id } = await resp.json();
+      const result = await pollForJSON(`${API_BASE}/rerender_poll/${call_id}/`, 600_000, call_id);
+      captionsData    = result.captions || [];
+      videoKey        = result.video_key;
+      appliedRestored = new Set(restored);
+      showCaptionEditor();
+    } catch (e) {
+      errBox.textContent = 'Re-render failed: ' + (e.message || e);
+      errBox.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = orig;
+      renderCutsCard();
+    }
+  }
+
   function showCaptionEditor() {
+    renderCutsCard();
     // Ensure card body is expanded (may have been collapsed in a previous burn)
     const captionHeader = document.querySelector('#captionEditorCard .card-header');
     if (captionHeader) captionHeader.classList.remove('collapsed');
@@ -3059,14 +3134,102 @@
   let _statsLoaded = false;
 
   function switchTab(which) {
-    const isStats = which === 'stats';
-    document.getElementById('pipelineView').style.display = isStats ? 'none' : '';
-    document.getElementById('statsView').style.display    = isStats ? '' : 'none';
-    document.getElementById('tabPipeline').classList.toggle('active', !isStats);
-    document.getElementById('tabStats').classList.toggle('active', isStats);
-    document.getElementById('tabPipeline').setAttribute('aria-selected', String(!isStats));
-    document.getElementById('tabStats').setAttribute('aria-selected', String(isStats));
-    if (isStats && !_statsLoaded) loadStats();
+    const views = { pipeline: 'pipelineView', history: 'historyView', stats: 'statsView' };
+    const tabs  = { pipeline: 'tabPipeline',  history: 'tabHistory',  stats: 'tabStats' };
+    for (const k of Object.keys(views)) {
+      document.getElementById(views[k]).style.display = (k === which) ? '' : 'none';
+      document.getElementById(tabs[k]).classList.toggle('active', k === which);
+      document.getElementById(tabs[k]).setAttribute('aria-selected', String(k === which));
+    }
+    if (which === 'stats' && !_statsLoaded) loadStats();
+    if (which === 'history') loadHistory();
+  }
+
+  // ── History tab ──
+  async function loadHistory() {
+    const list    = document.getElementById('historyList');
+    const empty   = document.getElementById('historyEmpty');
+    const loading = document.getElementById('historyLoading');
+    loading.style.display = '';
+    empty.style.display   = 'none';
+    list.innerHTML = '';
+    try {
+      const resp = await fetch(`${API_BASE}/jobs/`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const { jobs } = await resp.json();
+      loading.style.display = 'none';
+      if (!jobs || !jobs.length) { empty.style.display = ''; return; }
+      jobs.forEach(job => list.appendChild(_historyCard(job)));
+    } catch (e) {
+      loading.style.display = 'none';
+      empty.textContent = 'Could not load history \u2014 try again in a moment.';
+      empty.style.display = '';
+    }
+  }
+
+  function _fmtJobDate(ts) {
+    if (!ts) return '';
+    return new Date(ts * 1000).toLocaleString('en-GB',
+      { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function _fmtJobDuration(secs) {
+    if (!secs) return '';
+    const m = Math.floor(secs / 60), sSec = Math.round(secs % 60);
+    return `${m}:${String(sSec).padStart(2, '0')}`;
+  }
+
+  function _historyCard(job) {
+    const card = document.createElement('div');
+    card.className = 'history-card';
+
+    const thumb = document.createElement('img');
+    thumb.className = 'history-thumb';
+    thumb.loading = 'lazy';
+    thumb.alt = '';
+    thumb.src = `${API_BASE}/thumbnail/${job.key}/`;
+    thumb.onerror = () => { thumb.style.visibility = 'hidden'; };
+
+    const info = document.createElement('div');
+    info.className = 'history-info';
+    const name = document.createElement('div');
+    name.className = 'history-name';
+    name.textContent = job.name || 'video';
+    const meta = document.createElement('div');
+    meta.className = 'history-meta';
+    const bits = [_fmtJobDate(job.ts)];
+    if (job.duration) bits.push(_fmtJobDuration(job.duration));
+    if (job.size) bits.push(`${(job.size / 1048576).toFixed(0)} MB`);
+    meta.textContent = bits.filter(Boolean).join(' \u00B7 ');
+    info.append(name, meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'history-actions';
+    const dl = document.createElement('button');
+    dl.className = 'history-btn';
+    dl.textContent = '\u2B07\uFE0F';
+    dl.title = 'Download';
+    dl.onclick = () => {
+      const fname = (job.name || 'video').replace(/\.mp4$/i, '') + '_edited.mp4';
+      window.location.href = `${API_BASE}/download/${job.key}/?filename=${encodeURIComponent(fname)}`;
+    };
+    const del = document.createElement('button');
+    del.className = 'history-btn history-btn-danger';
+    del.textContent = '\uD83D\uDDD1\uFE0F';
+    del.title = 'Delete';
+    del.onclick = async () => {
+      const ok = await showConfirmModal('Delete this video?',
+        `\u201C${job.name}\u201D will be removed from history and can no longer be downloaded.`, 'Delete');
+      if (!ok) return;
+      try {
+        await fetch(`${API_BASE}/jobs/${job.key}/`, { method: 'DELETE' });
+      } catch (_) {}
+      loadHistory();
+    };
+    actions.append(dl, del);
+
+    card.append(thumb, info, actions);
+    return card;
   }
 
   const _fmt = n => (n == null ? '—' : Number(n).toLocaleString('en-US'));

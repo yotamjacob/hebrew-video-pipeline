@@ -103,5 +103,16 @@ sanitize_transcript = _modal_helpers["_sanitize_transcript"]
 add_clip_window     = _modal_helpers["add_clip_window"]
 
 
+# ─── Extract Modal-side cut helpers (module-level in pipeline_fns.py) ────────
+
+_modal_cut_ns = _build_ns()
+ModalWord        = _extract_class(MODAL_SRC, "Word",        _modal_cut_ns)
+ModalKeepSegment = _extract_class(MODAL_SRC, "KeepSegment", _modal_cut_ns)
+_cut_helpers = _extract_fn(MODAL_SRC, "compute_cuts", "merge_restored",
+                           extra_ns=_modal_cut_ns)
+compute_cuts   = _cut_helpers["compute_cuts"]
+merge_restored = _cut_helpers["merge_restored"]
+
+
 def make_word(text: str, start: float, end: float) -> object:
     return Word(text=text, start=start, end=end)

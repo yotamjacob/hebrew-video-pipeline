@@ -74,6 +74,11 @@ WHISPER_MODEL = "ivrit-ai/whisper-large-v3-turbo-ct2"
 tmp_vol = modal.Volume.from_name("hebrew-pipeline-tmp", create_if_missing=True)
 TMP_DIR = "/pipeline-tmp"
 
+# Job history manifest — key = burned output key, value = {name, ts, size, duration}
+jobs_store = modal.Dict.from_name("hebpipe-jobs", create_if_missing=True)
+JOB_RETENTION_DAYS      = 30   # burned outputs kept this long for the History tab
+SCRATCH_RETENTION_HOURS = 48   # _src/_words/_audio/_cut scratch files kept this long
+
 TRANSCRIPT_ANALYSIS_MODEL   = "gemini-2.5-flash"
 IMAGE_GENERATION_MODEL      = "gemini-3.1-flash-image-preview"
 VIDEO_GENERATION_MODEL      = "veo-3.0-generate-001"

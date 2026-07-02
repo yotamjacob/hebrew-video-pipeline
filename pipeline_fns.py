@@ -6,8 +6,252 @@ burn_captions_fn and burn_hook_fn (ffmpeg + libass burn workers).
 from pipeline_core import (
     app, burn_image, model_volume, MODEL_DIR,
     WHISPER_MODEL, tmp_vol, TMP_DIR, _fix_rtl_punct,
-    _rtl_ass_text, _censor_caption_text,
+    _rtl_ass_text, _censor_caption_text, _SAFE_KEY_RE,
+    jobs_store, JOB_RETENTION_DAYS, SCRATCH_RETENTION_HOURS,
 )
+
+# ---------------------------------------------------------------------------
+# Shared pure helpers — used by process_video and rerender_cuts_fn
+# ---------------------------------------------------------------------------
+import json
+import subprocess
+from dataclasses import dataclass, field
+from typing import List
+
+@dataclass
+class Word:
+    start: float
+    end: float
+    text: str
+
+@dataclass
+class KeepSegment:
+    start: float
+    end: float
+    words: List[Word] = field(default_factory=list)
+
+    @property
+    def duration(self):
+        return self.end - self.start
+
+def run(cmd):
+    result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if result.returncode != 0:
+        stderr_tail = result.stderr.decode("utf-8", errors="replace")[-3000:]
+        raise RuntimeError(f"ffmpeg exited {result.returncode}:\n{stderr_tail}")
+
+def probe_video(path):
+    r = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height,side_data_list",
+         "-show_entries", "stream_tags=rotate",
+         "-show_entries", "format=duration",
+         "-of", "json", str(path)],
+        capture_output=True, text=True, check=True,
+    )
+    d = json.loads(r.stdout)
+    s = d["streams"][0]
+    # Detect rotation from stream tags (older) or side_data_list (newer ffprobe)
+    rotation = 0
+    tag_rot = s.get("tags", {}).get("rotate")
+    if tag_rot:
+        rotation = int(tag_rot)
+    else:
+        for sd in s.get("side_data_list", []):
+            if "rotation" in sd:
+                rotation = (-int(sd["rotation"])) % 360
+                break
+    w, h = int(s["width"]), int(s["height"])
+    # Swap to display dimensions when rotated 90/270
+    if rotation in (90, 270):
+        w, h = h, w
+    return w, h, float(d["format"]["duration"]), rotation
+
+def compute_keep_segments(whisper_segs, total_dur, min_sil, pad):
+    """Cut only between Whisper segments, never within one.
+
+    whisper_segs: List[List[Word]] — each inner list is one Whisper segment.
+    Cuts happen only when the gap between two consecutive segments >= min_sil.
+    Words within a segment are always kept together, preventing mid-word cuts
+    caused by Whisper tokenization or VAD boundary artefacts.
+    """
+    if not whisper_segs:
+        return [KeepSegment(0.0, total_dur)]
+    out = []
+    cur = None
+    prev_end = None  # raw (unpadded) end timestamp of last added Whisper segment
+
+    # Whisper (especially CUDA) consistently underestimates segment end
+    # timestamps for Hebrew trailing vowels (ו, י, ה) by 150–300ms.
+    # Add a fixed trailing buffer on top of pad to compensate.
+    TRAIL = 0.25
+
+    for seg_words, seg_end in whisper_segs:
+        seg_start = seg_words[0].start
+
+        if cur is None:
+            cur = KeepSegment(start=max(0.0, seg_start - pad), end=0.0)
+        else:
+            gap = seg_start - prev_end
+            if gap >= min_sil:
+                cur.end = min(total_dur, prev_end + pad + TRAIL)
+                out.append(cur)
+                cur = KeepSegment(start=max(cur.end, seg_start - pad), end=0.0)
+
+        cur.words.extend(seg_words)
+        prev_end = seg_end  # segment-level end, not last word's end
+
+    cur.end = min(total_dur, prev_end + pad + TRAIL)
+    out.append(cur)
+    return out
+
+def seconds_to_ass(t):
+    h = int(t // 3600)
+    m = int((t % 3600) // 60)
+    s = t % 60
+    return f"{h}:{m:02d}:{s:05.2f}"
+
+def generate_ass(segs, path, w, h, font_size=48, min_sil=0.3):
+    margin_h = max(25, w // 14)
+    margin_v = h // 4
+    max_chars = max(8, int((w - 2 * margin_h) / (font_size * 0.60)))
+
+    def _clean(t):
+        return t.strip("،,.-–—;:")
+
+    events = []
+    cumulative = 0.0
+    for seg in segs:
+        line_buf, line_chars = [], 0
+        lines_in_cue = []
+
+        def flush(cumulative=cumulative, seg=seg):
+            if not lines_in_cue:
+                return
+            first, last = lines_in_cue[0][0], lines_in_cue[-1][-1]
+            ns = cumulative + (first.start - seg.start)
+            ne = cumulative + (last.end - seg.start)
+            text = r"\N".join(
+                _fix_rtl_punct(" ".join(_clean(ww.text) for ww in ln).strip())
+                for ln in lines_in_cue
+            )
+            events.append((ns, ne, text))
+            lines_in_cue.clear()
+
+        prev_end = None
+        for ww in seg.words:
+            # Split on silence gap — necessary when cut_silences=False puts all words
+            # in one segment; also catches any sub-min_sil gaps left in segments.
+            if prev_end is not None and (ww.start - prev_end) >= min_sil and line_buf:
+                lines_in_cue.append(line_buf)
+                line_buf, line_chars = [], 0
+                flush()
+            prev_end = ww.end
+
+            proj = line_chars + len(ww.text) + (1 if line_buf else 0)
+            if proj > max_chars and line_buf:
+                lines_in_cue.append(line_buf)
+                line_buf, line_chars = [], 0
+                flush()
+            line_buf.append(ww)
+            line_chars += len(ww.text) + (1 if len(line_buf) > 1 else 0)
+        if line_buf:
+            lines_in_cue.append(line_buf)
+        flush()
+        cumulative += seg.duration
+
+    header = (
+        "[Script Info]\nScriptType: v4.00+\n"
+        f"PlayResX: {w}\nPlayResY: {h}\n"
+        "WrapStyle: 2\nScaledBorderAndShadow: yes\nYCbCr Matrix: TV.709\n\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+        "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
+        "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+        "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        f"Style: Default,Rubik,{font_size},"
+        "&H00FFFFFF,&H000000FF,&H00000000,&HFF000000,"
+        f"-1,0,0,0,100,100,0,0,1,3,0,2,"
+        f"{margin_h},{margin_h},{margin_v},1\n\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    )
+    lines = [
+        f"Dialogue: 0,{seconds_to_ass(s)},{seconds_to_ass(e)},"
+        f"Default,,0,0,0,,{_rtl_ass_text(t)}\n"
+        for s, e, t in events
+    ]
+    path.write_text(header + "".join(lines), encoding="utf-8")
+    return events
+
+def _rotation_vf(rotation):
+    """Return an ffmpeg vf filter string (with trailing comma) to bake in rotation metadata.
+    rotate=90  → portrait iPhone selfie → needs 90° CCW (transpose=cclock)
+    rotate=270 → needs 90° CW (transpose=clock)
+    rotate=180 → flip both axes
+    """
+    r = rotation % 360
+    if r == 90:  return "transpose=cclock,"
+    if r == 270: return "transpose=clock,"
+    if r == 180: return "hflip,vflip,"
+    return ""
+
+def render(video, audio, segs, ass_file, out, crf=18, rotation=0):
+    v_parts, a_parts = [], []
+    for i, s in enumerate(segs):
+        v_parts.append(f"[0:v]trim=start={s.start:.3f}:end={s.end:.3f},setpts=PTS-STARTPTS[v{i}]")
+        a_parts.append(f"[1:a]atrim=start={s.start:.3f}:end={s.end:.3f},asetpts=PTS-STARTPTS[a{i}]")
+    cin = "".join(f"[v{i}][a{i}]" for i in range(len(segs)))
+    concat = f"{cin}concat=n={len(segs)}:v=1:a=1[vc][ac]"
+    rot_vf = _rotation_vf(rotation)
+    if ass_file:
+        esc = str(ass_file).replace(":", r"\:")
+        last = f"[vc]{rot_vf}subtitles='{esc}'[vout]"
+    else:
+        last = f"[vc]{rot_vf}copy[vout]"
+    fc = ";".join(v_parts + a_parts + [concat, last])
+    # -noautorotate: disable implicit rotation so our explicit transpose is the sole source of truth
+    input_args = ["-noautorotate"] if rotation else []
+    meta_args  = ["-metadata:s:v:0", "rotate=0"] if rotation else []
+    run(["ffmpeg", "-y"] + input_args + ["-i", str(video), "-i", str(audio),
+         "-filter_complex", fc,
+         "-map", "[vout]", "-map", "[ac]",
+         "-c:v", "libx264", "-crf", str(crf), "-preset", "veryfast",
+         "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+         "-movflags", "+faststart"] + meta_args + [str(out)])
+
+
+def compute_cuts(segs):
+    """Describe gaps removed between consecutive keep segments (original timeline).
+
+    ``index`` is the boundary position (between segs[i] and segs[i+1]) so it stays
+    stable for merge_restored even when tiny gaps are filtered from the list.
+    """
+    cuts = []
+    for i in range(len(segs) - 1):
+        gap_start, gap_end = segs[i].end, segs[i + 1].start
+        if gap_end - gap_start < 0.05:
+            continue
+        cuts.append({
+            "index": i,
+            "start": round(gap_start, 3),
+            "end": round(gap_end, 3),
+            "duration": round(gap_end - gap_start, 2),
+            "before": segs[i].words[-1].text if segs[i].words else "",
+            "after": segs[i + 1].words[0].text if segs[i + 1].words else "",
+        })
+    return cuts
+
+
+def merge_restored(segs, restored):
+    """Merge keep segments across restored gap boundaries so the silence stays in."""
+    for i in sorted({int(r) for r in restored}, reverse=True):
+        if 0 <= i < len(segs) - 1:
+            a, b = segs[i], segs[i + 1]
+            segs[i] = KeepSegment(a.start, b.end, a.words + b.words)
+            del segs[i + 1]
+    return segs
+
 
 # ---------------------------------------------------------------------------
 # Core processing — GPU worker
@@ -35,11 +279,8 @@ def process_video(
 
     import json
     import shutil
-    import subprocess
     import tempfile
-    from dataclasses import dataclass, field
     from pathlib import Path
-    from typing import List
 
     # Validate input before entering the tempdir
     if upload_key is not None:
@@ -49,55 +290,6 @@ def process_video(
             raise ValueError(f"No upload chunks found for key {upload_key}")
     elif not video_bytes:
         raise ValueError("No video data provided")
-
-    @dataclass
-    class Word:
-        start: float
-        end: float
-        text: str
-
-    @dataclass
-    class KeepSegment:
-        start: float
-        end: float
-        words: List[Word] = field(default_factory=list)
-
-        @property
-        def duration(self):
-            return self.end - self.start
-
-    def run(cmd):
-        result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        if result.returncode != 0:
-            stderr_tail = result.stderr.decode("utf-8", errors="replace")[-3000:]
-            raise RuntimeError(f"ffmpeg exited {result.returncode}:\n{stderr_tail}")
-
-    def probe_video(path):
-        r = subprocess.run(
-            ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=width,height,side_data_list",
-             "-show_entries", "stream_tags=rotate",
-             "-show_entries", "format=duration",
-             "-of", "json", str(path)],
-            capture_output=True, text=True, check=True,
-        )
-        d = json.loads(r.stdout)
-        s = d["streams"][0]
-        # Detect rotation from stream tags (older) or side_data_list (newer ffprobe)
-        rotation = 0
-        tag_rot = s.get("tags", {}).get("rotate")
-        if tag_rot:
-            rotation = int(tag_rot)
-        else:
-            for sd in s.get("side_data_list", []):
-                if "rotation" in sd:
-                    rotation = (-int(sd["rotation"])) % 360
-                    break
-        w, h = int(s["width"]), int(s["height"])
-        # Swap to display dimensions when rotated 90/270
-        if rotation in (90, 270):
-            w, h = h, w
-        return w, h, float(d["format"]["duration"]), rotation
 
     def extract_audio(video, out_wav):
         run(["ffmpeg", "-y", "-i", str(video),
@@ -212,159 +404,6 @@ def process_video(
         model_volume.commit()
         return whisper_segs
 
-    def compute_keep_segments(whisper_segs, total_dur, min_sil, pad):
-        """Cut only between Whisper segments, never within one.
-
-        whisper_segs: List[List[Word]] — each inner list is one Whisper segment.
-        Cuts happen only when the gap between two consecutive segments >= min_sil.
-        Words within a segment are always kept together, preventing mid-word cuts
-        caused by Whisper tokenization or VAD boundary artefacts.
-        """
-        if not whisper_segs:
-            return [KeepSegment(0.0, total_dur)]
-        out = []
-        cur = None
-        prev_end = None  # raw (unpadded) end timestamp of last added Whisper segment
-
-        # Whisper (especially CUDA) consistently underestimates segment end
-        # timestamps for Hebrew trailing vowels (ו, י, ה) by 150–300ms.
-        # Add a fixed trailing buffer on top of pad to compensate.
-        TRAIL = 0.25
-
-        for seg_words, seg_end in whisper_segs:
-            seg_start = seg_words[0].start
-
-            if cur is None:
-                cur = KeepSegment(start=max(0.0, seg_start - pad), end=0.0)
-            else:
-                gap = seg_start - prev_end
-                if gap >= min_sil:
-                    cur.end = min(total_dur, prev_end + pad + TRAIL)
-                    out.append(cur)
-                    cur = KeepSegment(start=max(cur.end, seg_start - pad), end=0.0)
-
-            cur.words.extend(seg_words)
-            prev_end = seg_end  # segment-level end, not last word's end
-
-        cur.end = min(total_dur, prev_end + pad + TRAIL)
-        out.append(cur)
-        return out
-
-    def seconds_to_ass(t):
-        h = int(t // 3600)
-        m = int((t % 3600) // 60)
-        s = t % 60
-        return f"{h}:{m:02d}:{s:05.2f}"
-
-    def generate_ass(segs, path, w, h, font_size=48, min_sil=0.3):
-        margin_h = max(25, w // 14)
-        margin_v = h // 4
-        max_chars = max(8, int((w - 2 * margin_h) / (font_size * 0.60)))
-
-        def _clean(t):
-            return t.strip("،,.-–—;:")
-
-        events = []
-        cumulative = 0.0
-        for seg in segs:
-            line_buf, line_chars = [], 0
-            lines_in_cue = []
-
-            def flush(cumulative=cumulative, seg=seg):
-                if not lines_in_cue:
-                    return
-                first, last = lines_in_cue[0][0], lines_in_cue[-1][-1]
-                ns = cumulative + (first.start - seg.start)
-                ne = cumulative + (last.end - seg.start)
-                text = r"\N".join(
-                    _fix_rtl_punct(" ".join(_clean(ww.text) for ww in ln).strip())
-                    for ln in lines_in_cue
-                )
-                events.append((ns, ne, text))
-                lines_in_cue.clear()
-
-            prev_end = None
-            for ww in seg.words:
-                # Split on silence gap — necessary when cut_silences=False puts all words
-                # in one segment; also catches any sub-min_sil gaps left in segments.
-                if prev_end is not None and (ww.start - prev_end) >= min_sil and line_buf:
-                    lines_in_cue.append(line_buf)
-                    line_buf, line_chars = [], 0
-                    flush()
-                prev_end = ww.end
-
-                proj = line_chars + len(ww.text) + (1 if line_buf else 0)
-                if proj > max_chars and line_buf:
-                    lines_in_cue.append(line_buf)
-                    line_buf, line_chars = [], 0
-                    flush()
-                line_buf.append(ww)
-                line_chars += len(ww.text) + (1 if len(line_buf) > 1 else 0)
-            if line_buf:
-                lines_in_cue.append(line_buf)
-            flush()
-            cumulative += seg.duration
-
-        header = (
-            "[Script Info]\nScriptType: v4.00+\n"
-            f"PlayResX: {w}\nPlayResY: {h}\n"
-            "WrapStyle: 2\nScaledBorderAndShadow: yes\nYCbCr Matrix: TV.709\n\n"
-            "[V4+ Styles]\n"
-            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
-            "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
-            "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
-            "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-            f"Style: Default,Rubik,{font_size},"
-            "&H00FFFFFF,&H000000FF,&H00000000,&HFF000000,"
-            f"-1,0,0,0,100,100,0,0,1,3,0,2,"
-            f"{margin_h},{margin_h},{margin_v},1\n\n"
-            "[Events]\n"
-            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
-        )
-        lines = [
-            f"Dialogue: 0,{seconds_to_ass(s)},{seconds_to_ass(e)},"
-            f"Default,,0,0,0,,{_rtl_ass_text(t)}\n"
-            for s, e, t in events
-        ]
-        path.write_text(header + "".join(lines), encoding="utf-8")
-        return events
-
-    def _rotation_vf(rotation):
-        """Return an ffmpeg vf filter string (with trailing comma) to bake in rotation metadata.
-        rotate=90  → portrait iPhone selfie → needs 90° CCW (transpose=cclock)
-        rotate=270 → needs 90° CW (transpose=clock)
-        rotate=180 → flip both axes
-        """
-        r = rotation % 360
-        if r == 90:  return "transpose=cclock,"
-        if r == 270: return "transpose=clock,"
-        if r == 180: return "hflip,vflip,"
-        return ""
-
-    def render(video, audio, segs, ass_file, out, crf=18, rotation=0):
-        v_parts, a_parts = [], []
-        for i, s in enumerate(segs):
-            v_parts.append(f"[0:v]trim=start={s.start:.3f}:end={s.end:.3f},setpts=PTS-STARTPTS[v{i}]")
-            a_parts.append(f"[1:a]atrim=start={s.start:.3f}:end={s.end:.3f},asetpts=PTS-STARTPTS[a{i}]")
-        cin = "".join(f"[v{i}][a{i}]" for i in range(len(segs)))
-        concat = f"{cin}concat=n={len(segs)}:v=1:a=1[vc][ac]"
-        rot_vf = _rotation_vf(rotation)
-        if ass_file:
-            esc = str(ass_file).replace(":", r"\:")
-            last = f"[vc]{rot_vf}subtitles='{esc}'[vout]"
-        else:
-            last = f"[vc]{rot_vf}copy[vout]"
-        fc = ";".join(v_parts + a_parts + [concat, last])
-        # -noautorotate: disable implicit rotation so our explicit transpose is the sole source of truth
-        input_args = ["-noautorotate"] if rotation else []
-        meta_args  = ["-metadata:s:v:0", "rotate=0"] if rotation else []
-        run(["ffmpeg", "-y"] + input_args + ["-i", str(video), "-i", str(audio),
-             "-filter_complex", fc,
-             "-map", "[vout]", "-map", "[ac]",
-             "-c:v", "libx264", "-crf", str(crf), "-preset", "veryfast",
-             "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
-             "-movflags", "+faststart"] + meta_args + [str(out)])
-
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         src = tmp / filename
@@ -425,18 +464,32 @@ def process_video(
         else:
             shutil.copy(src, out_file)
 
+        cuts = compute_cuts(segs) if (cut_silences and whisper_segs) else []
+        if upload_key is not None and cuts:
+            # Persist what rerender_cuts_fn needs to restore cuts without re-transcribing
+            sidecar = {
+                "segments": [{"words": [[w.start, w.end, w.text] for w in seg_words],
+                              "seg_end": seg_end}
+                             for seg_words, seg_end in whisper_segs],
+                "duration": duration, "width": width, "height": height,
+                "rotation": rotation, "min_silence": min_silence, "padding": padding,
+            }
+            (Path(TMP_DIR) / f"{upload_key}_words.json").write_text(json.dumps(sidecar))
+            shutil.copy(clean_wav, Path(TMP_DIR) / f"{upload_key}_audio.wav")
+
         import uuid
         video_key = uuid.uuid4().hex + "_cut.mp4"
         shutil.copy(out_file, Path(TMP_DIR) / video_key)
         tmp_vol.commit()
-        return {"captions": captions_list, "video_key": video_key}
+        return {"captions": captions_list, "video_key": video_key,
+                "cuts": cuts if upload_key is not None else []}
 
 
 # ---------------------------------------------------------------------------
 # Caption-burn worker — CPU only, no GPU needed
 # ---------------------------------------------------------------------------
 @app.function(image=burn_image, timeout=600, volumes={TMP_DIR: tmp_vol})
-def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", margin_v_pct: float = 0.08, broll_json: str = "[]", font_size: int = 48, hook_json: str = "") -> dict:
+def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", margin_v_pct: float = 0.08, broll_json: str = "[]", font_size: int = 48, hook_json: str = "", source_name: str = "") -> dict:
     import json, subprocess, tempfile, uuid, shutil
     from pathlib import Path
 
@@ -751,10 +804,103 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             run(cmd)
 
         output_key = uuid.uuid4().hex + "_out.mp4"
-        shutil.copy(video_out, Path(TMP_DIR) / output_key)
+        out_path = Path(TMP_DIR) / output_key
+        shutil.copy(video_out, out_path)
+        try:
+            _record_job(output_key, source_name, out_path)
+            prune_volume()
+        except Exception as _je:
+            print(f"[jobs] record/prune skipped: {_je!r}")
         tmp_vol.commit()
         return {"output_key": output_key}
 
+
+
+# ---------------------------------------------------------------------------
+# Job history + volume retention
+# ---------------------------------------------------------------------------
+def _record_job(output_key, source_name, out_path):
+    """Add a burned output to the History manifest."""
+    import time
+    duration = 0.0
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", str(out_path)],
+            capture_output=True, text=True, timeout=15)
+        duration = float(r.stdout.strip() or 0)
+    except Exception:
+        pass
+    jobs_store[output_key] = {
+        "name": source_name or "video",
+        "ts": time.time(),
+        "size": out_path.stat().st_size,
+        "duration": round(duration, 1),
+    }
+
+
+def prune_volume():
+    """Retention sweep, best-effort: burned outputs past JOB_RETENTION_DAYS and
+    scratch files (_src/_words/_audio/_cut/chunks) past SCRATCH_RETENTION_HOURS."""
+    import time
+    from pathlib import Path
+    now = time.time()
+    try:
+        for key in list(jobs_store.keys()):
+            meta = jobs_store.get(key) or {}
+            if now - meta.get("ts", 0) > JOB_RETENTION_DAYS * 86400:
+                (Path(TMP_DIR) / key).unlink(missing_ok=True)
+                jobs_store.pop(key)
+        protected = set(jobs_store.keys())
+        for p in Path(TMP_DIR).iterdir():
+            if p.name in protected or not p.is_file():
+                continue
+            if now - p.stat().st_mtime > SCRATCH_RETENTION_HOURS * 3600:
+                p.unlink(missing_ok=True)
+    except Exception as e:
+        print(f"[prune] skipped: {e!r}")
+
+
+# ---------------------------------------------------------------------------
+# Cut restore — re-render from cached source with selected silences kept in.
+# CPU-only: reuses the persisted transcription, no GPU / no re-transcribe.
+# ---------------------------------------------------------------------------
+@app.function(image=burn_image, timeout=600, volumes={TMP_DIR: tmp_vol})
+def rerender_cuts_fn(upload_key: str, restored_json: str = "[]") -> dict:
+    import shutil, tempfile, uuid
+    from pathlib import Path
+
+    if not upload_key or not _SAFE_KEY_RE.match(upload_key):
+        raise ValueError("Invalid upload key")
+
+    tmp_vol.reload()
+    src_path   = Path(TMP_DIR) / f"{upload_key}_src.mp4"
+    words_path = Path(TMP_DIR) / f"{upload_key}_words.json"
+    audio_path = Path(TMP_DIR) / f"{upload_key}_audio.wav"
+    if not (src_path.exists() and words_path.exists() and audio_path.exists()):
+        raise ValueError("Source files for this session have expired — run the pipeline again to restore cuts.")
+
+    meta = json.loads(words_path.read_text())
+    whisper_segs = [([Word(s, e, t) for s, e, t in seg["words"]], seg["seg_end"])
+                    for seg in meta["segments"]]
+    segs = compute_keep_segments(whisper_segs, meta["duration"],
+                                 meta["min_silence"], meta["padding"])
+    cuts = compute_cuts(segs)
+    merge_restored(segs, json.loads(restored_json))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        ass_file = tmp / "captions.ass"
+        out_file = tmp / "out.mp4"
+        events = generate_ass(segs, ass_file, meta["width"], meta["height"],
+                              min_sil=meta["min_silence"])
+        captions = [{"start": s, "end": e, "text": _censor_caption_text(t)}
+                    for s, e, t in events]
+        render(src_path, audio_path, segs, None, out_file, rotation=meta["rotation"])
+        video_key = uuid.uuid4().hex + "_cut.mp4"
+        shutil.copy(out_file, Path(TMP_DIR) / video_key)
+        tmp_vol.commit()
+    return {"captions": captions, "video_key": video_key, "cuts": cuts}
 
 
 # ---------------------------------------------------------------------------

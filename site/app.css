@@ -1306,3 +1306,48 @@
   .dl.err { color: #ff8080; }
   .dl.warn { color: #ffd080; }
   .dl.info { color: #80d0ff; }
+
+/* ── Cut restore card ── */
+.cuts-summary { font-size: 0.78rem; color: var(--muted); font-weight: 500; }
+.cuts-hint { font-size: 0.8rem; color: var(--muted); margin-bottom: 10px; }
+.cut-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 10px; cursor: pointer;
+  border: 1.5px solid transparent;
+}
+.cut-row:hover { background: var(--purple-50); }
+.cut-row.restored { background: var(--purple-50); border-color: var(--purple-300); }
+.cut-check { width: 16px; height: 16px; accent-color: var(--purple-500); flex-shrink: 0; }
+.cut-desc { font-size: 0.85rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cuts-error {
+  margin-top: 10px; padding: 10px 14px; border-radius: 12px;
+  color: var(--red); font-size: 0.85rem;
+  background: #FEF2F2; border: 1.5px solid #FECACA;
+}
+
+/* ── History tab ── */
+.history-note { font-size: 0.8rem; color: var(--muted); margin-bottom: 14px; }
+.history-loading, .history-empty { font-size: 0.9rem; color: var(--muted); text-align: center; padding: 24px 0; }
+.history-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px; border-radius: 14px;
+  border: 1.5px solid var(--purple-100, #EDE9FE);
+  margin-bottom: 10px; background: #fff;
+}
+.history-thumb {
+  width: 64px; height: 64px; object-fit: cover; border-radius: 10px;
+  background: var(--purple-50); flex-shrink: 0;
+}
+.history-info { flex: 1; min-width: 0; }
+.history-name {
+  font-size: 0.9rem; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.history-meta { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+.history-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.history-btn {
+  padding: 8px 10px; border-radius: 10px; cursor: pointer;
+  border: 1.5px solid var(--purple-200); background: #fff; font-size: 0.95rem;
+}
+.history-btn:hover { background: var(--purple-50); }
+.history-btn-danger:hover { background: #FEF2F2; border-color: #FECACA; }

@@ -22,6 +22,7 @@ async function mockAllApis(page, {
   burnStatus    = 200,
   hookStatus    = 200,
   uploadStatus  = 200,
+  cuts          = [],
 } = {}) {
   // Warmup — always succeeds
   await page.route(`${API_BASE}/warmup/`, r =>
@@ -51,7 +52,7 @@ async function mockAllApis(page, {
   // Process poll — resolves immediately with captions
   await page.route(`${API_BASE}/process_poll/**`, r =>
     r.fulfill({ status: 200, contentType: 'application/json',
-                body: JSON.stringify({ captions, video_key: 'mock-video-key_cut.mp4' }) }));
+                body: JSON.stringify({ captions, video_key: 'mock-video-key_cut.mp4', cuts }) }));
 
   // Burn spawn
   await page.route(`${API_BASE}/burn/`, r =>

@@ -16,11 +16,12 @@ This module holds only the ASGI router (api). The pipeline itself lives in:
 import modal
 
 from pipeline_core import (
+    jobs_store,
     app, image, tmp_vol, TMP_DIR,
     _SAFE_KEY_RE, _SAFE_DOWNLOAD_KEY_RE, _check_rate_limit, _get_client_ip,
     _poll_fn_call,
 )
-from pipeline_fns import process_video, burn_captions_fn, burn_hook_fn
+from pipeline_fns import process_video, burn_captions_fn, burn_hook_fn, rerender_cuts_fn
 from broll_fns import generate_broll_video, analyze_broll, analyze_stock_broll, search_stock_clips
 from content_fns import generate_hook_options, generate_caption_options
 from metricool_fns import (
@@ -47,7 +48,7 @@ def api():
 
     CORS = [
         (b"access-control-allow-origin",  b"*"),
-        (b"access-control-allow-methods", b"GET, POST, OPTIONS"),
+        (b"access-control-allow-methods", b"GET, POST, DELETE, OPTIONS"),
         (b"access-control-allow-headers", b"*"),
         (b"access-control-expose-headers", b"content-disposition"),
     ]
@@ -350,7 +351,7 @@ def api():
                 hook_json     = ""
 
             try:
-                call = burn_captions_fn.spawn(video_key, captions_json, font, margin_v_pct, broll_json, font_size, hook_json)
+                call = burn_captions_fn.spawn(video_key, captions_json, font, margin_v_pct, broll_json, font_size, hook_json, source_name=filename)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
                             "headers": CORS + [(b"content-type", b"application/json")]})
@@ -362,6 +363,99 @@ def api():
         # Poll burn result — 200+video when done, 202+JSON while running
         if path.startswith("/burn_poll/") and method == "GET":
             call_id  = path[len("/burn_poll/"):].rstrip("/")
+            try:
+                import modal as _modal
+                fn_call = _modal.functions.FunctionCall.from_id(call_id)
+                result, still_running = _poll_fn_call(fn_call)
+                if still_running:
+                    body = json.dumps({"status": "running"}).encode()
+                    await send({"type": "http.response.start", "status": 202,
+                                "headers": CORS + [(b"content-type", b"application/json")]})
+                    await send({"type": "http.response.body", "body": body})
+                    return
+                body = json.dumps(result).encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": body})
+            except Exception as e:
+                await send_error(str(e))
+            return
+
+
+        # ── Job history: list burned videos ──
+        if path in ("/jobs", "/jobs/") and method == "GET":
+            try:
+                jobs = []
+                for key in list(jobs_store.keys()):
+                    if not key.endswith("_out.mp4"):
+                        continue
+                    meta = jobs_store.get(key) or {}
+                    jobs.append({"key": key, "name": meta.get("name", "video"),
+                                 "ts": meta.get("ts", 0), "size": meta.get("size", 0),
+                                 "duration": meta.get("duration", 0)})
+                jobs.sort(key=lambda j: j["ts"], reverse=True)
+                body = json.dumps({"jobs": jobs}).encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": body})
+            except Exception as e:
+                await send_error(str(e))
+            return
+
+        # ── Job history: delete one entry + its file ──
+        if path.startswith("/jobs/") and method == "DELETE":
+            from pathlib import Path as _Path
+            key = path[len("/jobs/"):].rstrip("/")
+            if not key or not _SAFE_DOWNLOAD_KEY_RE.match(key) or not key.endswith("_out.mp4"):
+                await send_error("Invalid key", 400)
+                return
+            try:
+                import asyncio as _asyncio
+                def _rm():
+                    fp = _Path(TMP_DIR) / key
+                    if fp.exists():
+                        fp.unlink()
+                        tmp_vol.commit()
+                    try:
+                        jobs_store.pop(key)
+                    except KeyError:
+                        pass
+                await _asyncio.to_thread(_rm)
+                body = json.dumps({"ok": True}).encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": body})
+            except Exception as e:
+                await send_error(str(e))
+            return
+
+        # ── Cut restore: re-render from cached source with silences kept in ──
+        if path in ("/rerender", "/rerender/") and method == "POST":
+            if not _check_rate_limit(_get_client_ip(scope)):
+                await send_error("Rate limit exceeded. Try again in a minute.", 429)
+                return
+            body_bytes = await _read_body(receive)
+            try:
+                data = json.loads(body_bytes.decode("utf-8"))
+                upload_key = data.get("upload_key", "")
+                restored   = data.get("restored", [])
+                if not upload_key or not _SAFE_KEY_RE.match(upload_key):
+                    await send_error("Invalid upload key", 400)
+                    return
+                if not isinstance(restored, list) or len(restored) > 500:
+                    await send_error("Invalid restored list", 400)
+                    return
+                call = rerender_cuts_fn.spawn(upload_key, json.dumps([int(i) for i in restored]))
+                resp = json.dumps({"call_id": call.object_id}).encode()
+                await send({"type": "http.response.start", "status": 202,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": resp})
+            except Exception as e:
+                await send_error(str(e))
+            return
+
+        if path.startswith("/rerender_poll/") and method == "GET":
+            call_id = path[len("/rerender_poll/"):].rstrip("/")
             try:
                 import modal as _modal
                 fn_call = _modal.functions.FunctionCall.from_id(call_id)

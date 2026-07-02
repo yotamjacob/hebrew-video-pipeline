@@ -166,20 +166,8 @@ def schedule_post_fn(payload_json: str) -> dict:
     except (json.JSONDecodeError, TypeError):
         parsed = {"raw": txt}
 
-    # Cleanup: Metricool has copied the media to its own CDN, so the burned
-    # video on our volume is no longer needed. Best-effort delete.
-    try:
-        from pathlib import Path as _Path
-        vurl = p.get("videoUrl", "")
-        key = vurl.split("/media/")[-1].split("/download/")[-1].split("?")[0].strip("/")
-        if key.endswith("_out.mp4"):
-            fp = _Path(TMP_DIR) / key
-            if fp.exists():
-                fp.unlink()
-                tmp_vol.commit()
-    except Exception as _ce:
-        print(f"[schedule] cleanup skipped: {_ce!r}")
-
+    # NOTE: no cleanup here — burned outputs are kept for the History tab and
+    # pruned by pipeline_fns.prune_volume() after JOB_RETENTION_DAYS.
     return {"ok": True, "post": parsed}
 
 

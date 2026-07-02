@@ -387,7 +387,7 @@ class TestCaptionRewrap:
         )
 
     def test_generate_ass_uses_055_coefficient(self):
-        snippet = _extract_snippet(MODAL_SRC, "process_video")
+        snippet = _extract_snippet(MODAL_SRC, "generate_ass")
         assert "0.60" in snippet, (
             "generate_ass max_chars must also use 0.60 so initial captions "
             "already have consistent \\N positions before the burn re-wraps"
