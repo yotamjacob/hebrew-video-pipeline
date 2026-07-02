@@ -361,6 +361,7 @@ def api():
             cut_silences  = qs.get("cut_silences",  ["true"])[0].lower() == "true"
             burn_captions        = qs.get("burn_captions",        ["true"])[0].lower() == "true"
             enhance_audio        = qs.get("enhance_audio",        ["true"])[0].lower() == "true"
+            enhance_video        = qs.get("enhance_video",        ["false"])[0].lower() == "true"
             transcribe_for_broll = qs.get("transcribe_for_broll", ["false"])[0].lower() == "true"
             min_silence          = float(qs.get("min_silence", ["0.5"])[0])
             padding              = float(qs.get("padding",     ["0.2"])[0])
@@ -382,6 +383,7 @@ def api():
                         enhance_audio=enhance_audio,
                         transcribe_for_broll=transcribe_for_broll,
                         key_prefix=uprefix,
+                        enhance_video=enhance_video,
                     )
                 else:
                     # Legacy path — full body in request (may hit Modal 303 on slow connections)
@@ -396,6 +398,7 @@ def api():
                         enhance_audio=enhance_audio,
                         transcribe_for_broll=transcribe_for_broll,
                         key_prefix=uprefix,
+                        enhance_video=enhance_video,
                     )
                 _record_call(call)
                 body = json.dumps({"call_id": call.object_id}).encode()

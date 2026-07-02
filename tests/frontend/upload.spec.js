@@ -109,3 +109,23 @@ test('polling: process_poll receives the correct call_id', async ({ page }) => {
   expect(pollRequests.length).toBeGreaterThan(0);
   expect(pollRequests[0]).toContain('mock-process-call-id');
 });
+
+test('enhance video toggle is off by default and rides the process params', async ({ page }) => {
+  let spawnUrl = null;
+  await mockAllApis(page);
+  await page.route(/\/process\/\?/, (route, request) => {
+    spawnUrl = request.url();
+    return route.fulfill({ status: 202, contentType: 'application/json',
+                           body: JSON.stringify({ call_id: 'mock-process-call-id' }) });
+  });
+  await expect(page.locator('#enhanceVideo')).not.toBeChecked();
+  await page.evaluate(() => {
+    const el = document.getElementById('enhanceVideo');
+    el.checked = true;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await expect.poll(() => spawnUrl, { timeout: 10_000 }).toContain('enhance_video=true');
+});

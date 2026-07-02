@@ -197,7 +197,13 @@ def _rotation_vf(rotation):
     if r == 180: return "hflip,vflip,"
     return ""
 
-def render(video, audio, segs, ass_file, out, crf=18, rotation=0):
+# "Enhance video" filter chain — light temporal denoise, mild sharpen, gentle
+# color lift. Deliberately subtle: this must never visibly change the look of
+# well-lit footage, only clean up noise and soften compression mush.
+ENHANCE_VIDEO_VF = "hqdn3d=1.5:1.5:6:6,unsharp=5:5:0.5:5:5:0.0,eq=contrast=1.02:saturation=1.05"
+
+
+def render(video, audio, segs, ass_file, out, crf=18, rotation=0, extra_vf=""):
     v_parts, a_parts = [], []
     for i, s in enumerate(segs):
         v_parts.append(f"[0:v]trim=start={s.start:.3f}:end={s.end:.3f},setpts=PTS-STARTPTS[v{i}]")
@@ -205,11 +211,12 @@ def render(video, audio, segs, ass_file, out, crf=18, rotation=0):
     cin = "".join(f"[v{i}][a{i}]" for i in range(len(segs)))
     concat = f"{cin}concat=n={len(segs)}:v=1:a=1[vc][ac]"
     rot_vf = _rotation_vf(rotation)
+    enh_vf = f"{extra_vf}," if extra_vf else ""
     if ass_file:
         esc = str(ass_file).replace(":", r"\:")
-        last = f"[vc]{rot_vf}subtitles='{esc}'[vout]"
+        last = f"[vc]{rot_vf}{enh_vf}subtitles='{esc}'[vout]"
     else:
-        last = f"[vc]{rot_vf}copy[vout]"
+        last = f"[vc]{rot_vf}{enh_vf}copy[vout]"
     fc = ";".join(v_parts + a_parts + [concat, last])
     # -noautorotate: disable implicit rotation so our explicit transpose is the sole source of truth
     input_args = ["-noautorotate"] if rotation else []
@@ -242,6 +249,7 @@ def process_video(
     enhance_audio: bool = True,
     transcribe_for_broll: bool = False,
     key_prefix: str = "",
+    enhance_video: bool = False,
 ) -> dict:
     # Warmup call — just starts the container, no real work
     if filename == "__warmup__":
@@ -445,16 +453,19 @@ def process_video(
             events = generate_ass(segs, ass_file, width, height, min_sil=min_silence)
             captions_list = [{"start": s, "end": e, "text": _censor_caption_text(t)} for s, e, t in events]
 
+        enh_vf = ENHANCE_VIDEO_VF if enhance_video else ""
         if cut_silences and whisper_segs:
-            render(src, clean_wav, segs, None, out_file, rotation=rotation)
-        elif rotation:
-            # No silence cut but source has rotation metadata — bake it in so the browser
-            # gets correctly-oriented pixels without relying on display matrix hints.
-            rot_vf = _rotation_vf(rotation).rstrip(",")
-            run(["ffmpeg", "-y", "-noautorotate", "-i", str(src),
-                 "-vf", rot_vf, "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
-                 "-pix_fmt", "yuv420p", "-c:a", "copy",
-                 "-metadata:s:v:0", "rotate=0", "-movflags", "+faststart", str(out_file)])
+            render(src, clean_wav, segs, None, out_file, rotation=rotation, extra_vf=enh_vf)
+        elif rotation or enhance_video:
+            # Re-encode: bake rotation into pixels and/or apply the enhancement chain.
+            rot_vf = _rotation_vf(rotation)
+            vf = (rot_vf + enh_vf).strip(",") or "null"
+            input_args = ["-noautorotate"] if rotation else []
+            meta_args  = ["-metadata:s:v:0", "rotate=0"] if rotation else []
+            run(["ffmpeg", "-y"] + input_args + ["-i", str(src),
+                 "-vf", vf, "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
+                 "-pix_fmt", "yuv420p", "-c:a", "copy"] + meta_args +
+                ["-movflags", "+faststart", str(out_file)])
         else:
             shutil.copy(src, out_file)
 

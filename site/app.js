@@ -489,11 +489,11 @@
 
   function checkToolsEnabled() {
     if (!selectedFile || burnMode) return;
-    const ids = ['cutSilences', 'burnCaptions', 'enhanceAudio'];
+    const ids = ['cutSilences', 'burnCaptions', 'enhanceAudio', 'enhanceVideo'];
     if (VEO_ENABLED) ids.push('suggestBrolls');
     runBtn.disabled = !ids.some(id => document.getElementById(id)?.checked);
   }
-  ['cutSilences', 'burnCaptions', 'enhanceAudio', 'suggestBrolls'].forEach(id => {
+  ['cutSilences', 'burnCaptions', 'enhanceAudio', 'enhanceVideo', 'suggestBrolls'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', () => { checkToolsEnabled(); });
   });
   const aggrVal = document.getElementById('aggrVal');
@@ -537,6 +537,7 @@
       cut_silences:         document.getElementById('cutSilences').checked  ? 'true' : 'false',
       burn_captions:        document.getElementById('burnCaptions').checked ? 'true' : 'false',
       enhance_audio:        document.getElementById('enhanceAudio').checked ? 'true' : 'false',
+      enhance_video:        document.getElementById('enhanceVideo').checked ? 'true' : 'false',
       transcribe_for_broll: needTranscript ? 'true' : 'false',
       min_silence:          aggr.silence,
       padding:              aggr.padding,
@@ -629,6 +630,7 @@
       cut_silences:         document.getElementById('cutSilences').checked  ? 'true' : 'false',
       burn_captions:        document.getElementById('burnCaptions').checked ? 'true' : 'false',
       enhance_audio:        document.getElementById('enhanceAudio').checked ? 'true' : 'false',
+      enhance_video:        document.getElementById('enhanceVideo').checked ? 'true' : 'false',
       transcribe_for_broll: needTranscript ? 'true' : 'false',
       min_silence:          aggr.silence,
       padding:              aggr.padding,
