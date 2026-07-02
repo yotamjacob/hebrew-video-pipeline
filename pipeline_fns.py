@@ -197,11 +197,12 @@ def _rotation_vf(rotation):
     if r == 180: return "hflip,vflip,"
     return ""
 
-def _upscale_target(w: int, h: int, cap_short: int = 1080):
-    """Output size for AI upscale: 2× the input, capped at a 1080px short side
-    (social delivery size), never below input, even dimensions."""
+def _upscale_target(w: int, h: int, cap_short: int = 2160):
+    """Output size for AI upscale: up to 4× the input, capped at a 2160px short
+    side (true-4K master — platforms downscaling it keep the supersampled
+    crispness), never below input, even dimensions."""
     short = min(w, h)
-    scale = min(2.0, cap_short / short) if short < cap_short else 1.0
+    scale = min(4.0, cap_short / short) if short < cap_short else 1.0
     scale = max(1.0, scale)
     return int(w * scale) // 2 * 2, int(h * scale) // 2 * 2
 
@@ -373,6 +374,9 @@ def process_video(
              "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{tw}x{th}", "-r", f"{fps:.4f}", "-i", "pipe:0",
              "-i", str(video_in),
              "-map", "0:v", "-map", "1:a?",
+             # cas: contrast-adaptive sharpen — the "smart sharpen" pop on the
+             # final delivery frames, applied after the model + downscale
+             "-vf", "cas=0.4",
              "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
              "-pix_fmt", "yuv420p", "-c:a", "copy",
              "-movflags", "+faststart", str(video_out)],

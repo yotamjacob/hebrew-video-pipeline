@@ -520,7 +520,7 @@
   const _EV_DESCS = {
     none:    'Off — video is untouched',
     filters: 'Light denoise, sharpen and color lift',
-    esrgan:  'Real-ESRGAN AI upscale — sharper detail, adds a few minutes',
+    esrgan:  'AI upscale to sharp 4K (Real-ESRGAN + smart sharpen) — adds a few minutes',
   };
   document.querySelectorAll('input[name="enhanceVideo"]').forEach(r =>
     r.addEventListener('change', () => {

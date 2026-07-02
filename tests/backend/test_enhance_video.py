@@ -56,16 +56,16 @@ def test_enhance_chain_is_valid_filtergraph_syntax():
 _upscale_target = _extract_fn(MODAL_SRC, "_upscale_target")["_upscale_target"]
 
 
-def test_upscale_small_source_doubles():
-    assert _upscale_target(540, 960) == (1080, 1920)
+def test_upscale_small_source_quadruples():
+    assert _upscale_target(540, 960) == (2160, 3840)
 
 
-def test_upscale_caps_at_1080_short_side():
-    assert _upscale_target(720, 1280) == (1080, 1920)
+def test_upscale_full_hd_becomes_4k():
+    assert _upscale_target(1080, 1920) == (2160, 3840)
 
 
-def test_upscale_never_upsizes_full_hd():
-    assert _upscale_target(1080, 1920) == (1080, 1920)
+def test_upscale_caps_at_2160_short_side():
+    assert _upscale_target(720, 1280) == (2160, 3840)
 
 
 def test_upscale_never_downsizes_4k():
@@ -75,4 +75,4 @@ def test_upscale_never_downsizes_4k():
 def test_upscale_landscape_and_even_dims():
     tw, th = _upscale_target(853, 480)
     assert (tw % 2, th % 2) == (0, 0)
-    assert th == 960
+    assert th == 1920  # 4× of 480
