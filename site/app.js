@@ -168,6 +168,10 @@
           videoKey:  (typeof videoKey !== 'undefined' ? videoKey : null),
         };
         if (typeof revealScheduleCard === 'function') revealScheduleCard();
+        // Release the lock before the device download so scheduling is
+        // usable immediately; burn stays disabled until the download settles.
+        unlockPipelineActions();
+        runBtn.disabled = true;
         // Device download is optional and non-blocking
         try {
           const dlResp = await fetch(
@@ -3002,6 +3006,13 @@
       window._schedCtx = { outputKey: burnResult.output_key, filename: outFilename, videoKey: videoKey };
       if (typeof revealScheduleCard === 'function') revealScheduleCard();
       window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+
+      // Release the global action lock now — the schedule card must be usable
+      // immediately, not greyed out for the minutes a large device download
+      // can take. Only burn/reprocess stay held until the download settles.
+      unlockPipelineActions();
+      runBtn.disabled = true;
+      if (reprocessBtn) reprocessBtn.disabled = true;
 
       // Download to the device (optional — does NOT gate scheduling)
       runBtn.textContent = '⏳ Downloading…';

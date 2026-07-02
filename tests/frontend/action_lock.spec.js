@@ -49,6 +49,30 @@ test('hook generation locks action buttons but keeps caption editing available',
   await expect(page.locator('#runBtn')).toBeEnabled({ timeout: 10_000 });
 });
 
+test('schedule card is usable while the device download is in flight', async ({ page }) => {
+  await runFullUpload(page);
+  // Keep the post-burn device download in flight
+  await page.unroute(`${API_BASE}/download/**`);
+  await page.route(`${API_BASE}/download/**`, async route => {
+    await new Promise(r => setTimeout(r, 3000));
+    return route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'video/mp4' },
+      body: Buffer.alloc(512, 0),
+    });
+  });
+
+  await page.click('#runBtn');
+  await page.click('#confirmOk');
+
+  // Burn done, download still running: schedule card visible AND unlocked
+  await expect(page.locator('#scheduleCard')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('#scheduleCard')).not.toHaveClass(/action-locked/);
+  // …while burn itself stays held until the download settles
+  await expect(page.locator('#runBtn')).toBeDisabled();
+  await expect(page.locator('#runBtn')).toBeEnabled({ timeout: 15_000 });
+});
+
 test('lock releases after a failed operation', async ({ page }) => {
   await runFullUpload(page, { burnStatus: 500 });
   await page.click('#runBtn');
