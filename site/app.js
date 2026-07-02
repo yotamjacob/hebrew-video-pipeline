@@ -116,12 +116,14 @@
     upload:  document.getElementById('checkUpload'),
     enhance: document.getElementById('checkEnhance'),
     cut:     document.getElementById('checkCut'),
+    upscale: document.getElementById('checkUpscale'),
     burn:    document.getElementById('checkBurn'),
   };
   const checkTimeEls = {
     upload:  document.getElementById('checkUploadTime'),
     enhance: document.getElementById('checkEnhanceTime'),
     cut:     document.getElementById('checkCutTime'),
+    upscale: document.getElementById('checkUpscaleTime'),
     burn:    document.getElementById('checkBurnTime'),
   };
   let stepTimers = {};         // step name → { start, intervalId }
@@ -489,11 +491,12 @@
 
   function checkToolsEnabled() {
     if (!selectedFile || burnMode) return;
-    const ids = ['cutSilences', 'burnCaptions', 'enhanceAudio', 'enhanceVideo'];
+    const ids = ['cutSilences', 'burnCaptions', 'enhanceAudio'];
     if (VEO_ENABLED) ids.push('suggestBrolls');
-    runBtn.disabled = !ids.some(id => document.getElementById(id)?.checked);
+    runBtn.disabled = !ids.some(id => document.getElementById(id)?.checked)
+                      && _enhanceVideoMode() === 'none';
   }
-  ['cutSilences', 'burnCaptions', 'enhanceAudio', 'enhanceVideo', 'suggestBrolls'].forEach(id => {
+  ['cutSilences', 'burnCaptions', 'enhanceAudio', 'suggestBrolls'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', () => { checkToolsEnabled(); });
   });
   const aggrVal = document.getElementById('aggrVal');
@@ -509,6 +512,21 @@
   }
   document.getElementById('cutSilences').addEventListener('change', updateAggrVisibility);
   updateAggrVisibility();
+
+  function _enhanceVideoMode() {
+    return document.querySelector('input[name="enhanceVideo"]:checked')?.value || 'none';
+  }
+
+  const _EV_DESCS = {
+    none:    'Off — video is untouched',
+    filters: 'Light denoise, sharpen and color lift',
+    esrgan:  'Real-ESRGAN AI upscale — sharper detail, adds a few minutes',
+  };
+  document.querySelectorAll('input[name="enhanceVideo"]').forEach(r =>
+    r.addEventListener('change', () => {
+      document.getElementById('enhanceVideoDesc').textContent = _EV_DESCS[_enhanceVideoMode()];
+      checkToolsEnabled();
+    }));
 
   // ── Run ──
   runBtn.addEventListener('click', () => { if (burnMode) doBurn(); else run(); });
@@ -537,7 +555,7 @@
       cut_silences:         document.getElementById('cutSilences').checked  ? 'true' : 'false',
       burn_captions:        document.getElementById('burnCaptions').checked ? 'true' : 'false',
       enhance_audio:        document.getElementById('enhanceAudio').checked ? 'true' : 'false',
-      enhance_video:        document.getElementById('enhanceVideo').checked ? 'true' : 'false',
+      enhance_video:        _enhanceVideoMode(),
       transcribe_for_broll: needTranscript ? 'true' : 'false',
       min_silence:          aggr.silence,
       padding:              aggr.padding,
@@ -630,7 +648,7 @@
       cut_silences:         document.getElementById('cutSilences').checked  ? 'true' : 'false',
       burn_captions:        document.getElementById('burnCaptions').checked ? 'true' : 'false',
       enhance_audio:        document.getElementById('enhanceAudio').checked ? 'true' : 'false',
-      enhance_video:        document.getElementById('enhanceVideo').checked ? 'true' : 'false',
+      enhance_video:        _enhanceVideoMode(),
       transcribe_for_broll: needTranscript ? 'true' : 'false',
       min_silence:          aggr.silence,
       padding:              aggr.padding,
@@ -979,7 +997,7 @@
     if (stepTimers[name]) { clearInterval(stepTimers[name].id); stepTimers[name] = null; }
   }
 
-  const HIDDEN_BY_DEFAULT = new Set(['burn']); // rows hidden until triggered
+  const HIDDEN_BY_DEFAULT = new Set(['upscale', 'burn']); // rows hidden until triggered
 
   function _resetChecklist() {
     Object.keys(checkItems).forEach(name => {
@@ -1059,7 +1077,7 @@
   // duration; steps the backend never ran are hidden, never estimated.
   function _stepsDoneProcessing(stepTimes) {
     const st = stepTimes || {};
-    ['enhance', 'cut'].forEach(name => {
+    ['enhance', 'cut', 'upscale'].forEach(name => {
       const item = checkItems[name];
       if (!item) return;
       if (st[name] != null) _forceDone(name, Math.max(1, Math.round(st[name])));

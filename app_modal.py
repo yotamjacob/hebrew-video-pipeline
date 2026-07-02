@@ -361,7 +361,9 @@ def api():
             cut_silences  = qs.get("cut_silences",  ["true"])[0].lower() == "true"
             burn_captions        = qs.get("burn_captions",        ["true"])[0].lower() == "true"
             enhance_audio        = qs.get("enhance_audio",        ["true"])[0].lower() == "true"
-            enhance_video        = qs.get("enhance_video",        ["false"])[0].lower() == "true"
+            enhance_video        = qs.get("enhance_video",        ["none"])[0].lower()
+            if enhance_video not in ("none", "filters", "esrgan"):
+                enhance_video = "none"
             transcribe_for_broll = qs.get("transcribe_for_broll", ["false"])[0].lower() == "true"
             min_silence          = float(qs.get("min_silence", ["0.5"])[0])
             padding              = float(qs.get("padding",     ["0.2"])[0])

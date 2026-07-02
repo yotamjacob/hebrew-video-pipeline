@@ -14,9 +14,10 @@ import modal
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg", "git", "libsndfile1", "fontconfig", "wget")
-    # torch (CPU-only) is required by deepfilternet's Python layer;
-    # the actual inference runs in DeepFilterNet's Rust backend so GPU torch isn't needed.
-    .pip_install("torch", "torchaudio", extra_options="--index-url https://download.pytorch.org/whl/cpu")
+    # CUDA torch: needed by the Real-ESRGAN video-upscale pass (fp16 on the L4).
+    # DeepFilterNet's Python layer also uses torch (CPU path, CUDA build is a
+    # superset); Whisper is unaffected (CTranslate2 brings its own CUDA).
+    .pip_install("torch", "torchaudio", extra_options="--index-url https://download.pytorch.org/whl/cu124")
     .pip_install(
         "faster-whisper>=1.0.0",
         "nvidia-cublas-cu12",

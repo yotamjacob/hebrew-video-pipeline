@@ -171,18 +171,21 @@
       </div>
     </div>
 
-    <div class="option-row">
+    <div class="option-row" style="border-bottom:none">
       <div class="option-icon">✨</div>
       <div class="option-text">
         <div class="option-label">Enhance video</div>
-        <div class="option-desc">Light denoise, sharpen and color lift</div>
+        <div class="option-desc" id="enhanceVideoDesc">Off — video is untouched</div>
       </div>
-      <div class="toggle-wrap">
-        <label class="toggle">
-          <input type="checkbox" id="enhanceVideo" />
-          <div class="toggle-track"></div>
-          <div class="toggle-thumb"></div>
-        </label>
+    </div>
+    <div class="enhance-panel">
+      <div class="ar-select">
+        <input type="radio" name="enhanceVideo" id="ev_none" value="none" checked>
+        <label for="ev_none">Off</label>
+        <input type="radio" name="enhanceVideo" id="ev_filters" value="filters">
+        <label for="ev_filters">Light touch</label>
+        <input type="radio" name="enhanceVideo" id="ev_esrgan" value="esrgan">
+        <label for="ev_esrgan">AI upscale</label>
       </div>
     </div>
 
@@ -537,6 +540,18 @@
         <div class="check-body"><div class="check-row">
           <span class="check-label">Cut silences</span>
           <span class="check-time" id="checkCutTime"></span>
+        </div></div>
+      </div>
+
+      <div class="check-item pending" id="checkUpscale" style="display:none">
+        <div class="check-icon-col">
+          <span class="ci-pending">○</span>
+          <div class="ci-spinner"></div>
+          <span class="ci-done">✓</span>
+        </div>
+        <div class="check-body"><div class="check-row">
+          <span class="check-label">AI upscale</span>
+          <span class="check-time" id="checkUpscaleTime"></span>
         </div></div>
       </div>
 

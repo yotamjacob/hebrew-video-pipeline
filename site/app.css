@@ -235,6 +235,9 @@
       border-radius: 6px; padding: 2px 6px;
     }
 
+    /* ── Enhance-video mode selector ── */
+    .enhance-panel { padding: 0 0 14px 42px; border-bottom: 1px solid var(--purple-100); }
+
     /* ── Silence-cut aggressiveness (under the Cut silences toggle) ── */
     .aggr-panel { padding: 0 0 14px 42px; border-bottom: 1px solid var(--purple-100); }
     .aggr-panel.hidden { display: none; }

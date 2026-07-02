@@ -197,6 +197,15 @@ def _rotation_vf(rotation):
     if r == 180: return "hflip,vflip,"
     return ""
 
+def _upscale_target(w: int, h: int, cap_short: int = 1080):
+    """Output size for AI upscale: 2× the input, capped at a 1080px short side
+    (social delivery size), never below input, even dimensions."""
+    short = min(w, h)
+    scale = min(2.0, cap_short / short) if short < cap_short else 1.0
+    scale = max(1.0, scale)
+    return int(w * scale) // 2 * 2, int(h * scale) // 2 * 2
+
+
 # "Enhance video" filter chain — light temporal denoise, mild sharpen, gentle
 # color lift. Deliberately subtle: this must never visibly change the look of
 # well-lit footage, only clean up noise and soften compression mush.
@@ -234,7 +243,7 @@ def render(video, audio, segs, ass_file, out, crf=18, rotation=0, extra_vf=""):
 # ---------------------------------------------------------------------------
 @app.function(
     gpu="L4",
-    timeout=900,
+    timeout=1800,
     volumes={MODEL_DIR: model_volume, TMP_DIR: tmp_vol},
     memory=4096,
 )
@@ -249,7 +258,7 @@ def process_video(
     enhance_audio: bool = True,
     transcribe_for_broll: bool = False,
     key_prefix: str = "",
-    enhance_video: bool = False,
+    enhance_video: str = "none",   # none | filters | esrgan
 ) -> dict:
     # Warmup call — just starts the container, no real work
     if filename == "__warmup__":
@@ -290,6 +299,107 @@ def process_video(
         run(["ffmpeg", "-y", "-i", str(video),
              "-vn", "-af", "loudnorm", "-acodec", "pcm_s16le", "-ar", "48000", "-ac", "1",
              str(out_wav)])
+
+    def enhance_esrgan(video_in, video_out):
+        """Real-ESRGAN (realesr-general-x4v3) upscale/detail pass.
+
+        The SRVGGNetCompact architecture is implemented inline with plain torch —
+        the realesrgan/basicsr packages are avoided on purpose (basicsr imports
+        torchvision.transforms.functional_tensor, removed in torchvision 0.17+).
+        Frames are piped raw through ffmpeg: decode → model (4×, fp16) → area
+        downscale to the target (2× capped at 1080 short side) → encode.
+        """
+        import subprocess as _sp
+        import urllib.request
+        import torch
+        import torch.nn as nn
+        import torch.nn.functional as F
+
+        # ── weights (cached on the persistent model volume) ──
+        wpath = Path(MODEL_DIR) / "realesr-general-x4v3.pth"
+        if not wpath.exists():
+            urllib.request.urlretrieve(
+                "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth",
+                str(wpath))
+            model_volume.commit()
+
+        class SRVGGNetCompact(nn.Module):
+            def __init__(self, num_feat=64, num_conv=32, upscale=4):
+                super().__init__()
+                self.upscale = upscale
+                body = [nn.Conv2d(3, num_feat, 3, 1, 1), nn.PReLU(num_parameters=num_feat)]
+                for _ in range(num_conv):
+                    body += [nn.Conv2d(num_feat, num_feat, 3, 1, 1), nn.PReLU(num_parameters=num_feat)]
+                body += [nn.Conv2d(num_feat, 3 * upscale * upscale, 3, 1, 1)]
+                self.body = nn.ModuleList(body)
+                self.upsampler = nn.PixelShuffle(upscale)
+
+            def forward(self, x):
+                out = x
+                for m in self.body:
+                    out = m(out)
+                out = self.upsampler(out)
+                return out + F.interpolate(x, scale_factor=self.upscale, mode="nearest")
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        dtype = torch.float16 if device == "cuda" else torch.float32
+        sd = torch.load(str(wpath), map_location="cpu")
+        sd = sd.get("params_ema", sd.get("params", sd))
+        model = SRVGGNetCompact()
+        model.load_state_dict(sd, strict=True)
+        model = model.eval().to(device, dtype)
+
+        # ── geometry ──
+        pr = _sp.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                      "-show_entries", "stream=width,height,avg_frame_rate",
+                      "-of", "json", str(video_in)], capture_output=True, text=True, check=True)
+        s = json.loads(pr.stdout)["streams"][0]
+        w, h = int(s["width"]), int(s["height"])
+        num, den = (s.get("avg_frame_rate") or "30/1").split("/")
+        fps = (float(num) / float(den)) if float(den) else 30.0
+        tw, th = _upscale_target(w, h)
+        # model input: pre-scale huge sources down so 4× stays in memory
+        dw, dh = w, h
+        if min(w, h) > 1080:
+            ds = 1080 / min(w, h)
+            dw, dh = int(w * ds) // 2 * 2, int(h * ds) // 2 * 2
+
+        dec = _sp.Popen(
+            ["ffmpeg", "-v", "error", "-i", str(video_in),
+             "-vf", f"scale={dw}:{dh}", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"],
+            stdout=_sp.PIPE)
+        enc = _sp.Popen(
+            ["ffmpeg", "-y", "-v", "error",
+             "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{tw}x{th}", "-r", f"{fps:.4f}", "-i", "pipe:0",
+             "-i", str(video_in),
+             "-map", "0:v", "-map", "1:a?",
+             "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
+             "-pix_fmt", "yuv420p", "-c:a", "copy",
+             "-movflags", "+faststart", str(video_out)],
+            stdin=_sp.PIPE, stdout=_sp.DEVNULL, stderr=_sp.PIPE)
+
+        frame_bytes = dw * dh * 3
+        try:
+            with torch.inference_mode():
+                while True:
+                    buf = dec.stdout.read(frame_bytes)
+                    if not buf or len(buf) < frame_bytes:
+                        break
+                    x = torch.frombuffer(bytearray(buf), dtype=torch.uint8).view(dh, dw, 3)
+                    x = x.to(device).permute(2, 0, 1).unsqueeze(0).to(dtype) / 255.0
+                    y = model(x)
+                    if (y.shape[3], y.shape[2]) != (tw, th):
+                        y = F.interpolate(y, size=(th, tw), mode="area")
+                    y = (y.clamp(0, 1) * 255.0).round().to(torch.uint8)
+                    enc.stdin.write(y.squeeze(0).permute(1, 2, 0).contiguous().cpu().numpy().tobytes())
+        finally:
+            dec.stdout.close()
+            enc.stdin.close()
+            dec.wait(timeout=60)
+            rc = enc.wait(timeout=300)
+        if rc != 0:
+            raise RuntimeError(f"esrgan encode failed ({rc}): "
+                               f"{enc.stderr.read().decode(errors='replace')[-1500:]}")
 
     def enhance_deepfilter(in_wav, out_wav):
         import os, sys, types
@@ -453,10 +563,10 @@ def process_video(
             events = generate_ass(segs, ass_file, width, height, min_sil=min_silence)
             captions_list = [{"start": s, "end": e, "text": _censor_caption_text(t)} for s, e, t in events]
 
-        enh_vf = ENHANCE_VIDEO_VF if enhance_video else ""
+        enh_vf = ENHANCE_VIDEO_VF if enhance_video == "filters" else ""
         if cut_silences and whisper_segs:
             render(src, clean_wav, segs, None, out_file, rotation=rotation, extra_vf=enh_vf)
-        elif rotation or enhance_video:
+        elif rotation or enh_vf:
             # Re-encode: bake rotation into pixels and/or apply the enhancement chain.
             rot_vf = _rotation_vf(rotation)
             vf = (rot_vf + enh_vf).strip(",") or "null"
@@ -470,6 +580,14 @@ def process_video(
             shutil.copy(src, out_file)
 
         _mark(done="cut" if need_transcription else None)
+
+        if enhance_video == "esrgan":
+            _mark(stage="upscale")
+            enhanced = tmp / ("up_" + filename)
+            enhance_esrgan(out_file, enhanced)
+            out_file = enhanced
+            _mark(done="upscale")
+
         import uuid
         video_key = key_prefix + uuid.uuid4().hex + "_cut.mp4"
         shutil.copy(out_file, Path(TMP_DIR) / video_key)
