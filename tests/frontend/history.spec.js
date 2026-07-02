@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { API_BASE, mockAllApis } = require('./helpers');
+const { API_BASE, mockAllApis, bootApp } = require('./helpers');
 
 const MOCK_JOBS = [
   { key: 'abc123_out.mp4', name: 'yoga_morning.mp4', ts: 1780000000, size: 52428800, duration: 95 },
@@ -17,7 +17,7 @@ function mockJobs(page, jobs = MOCK_JOBS) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await bootApp(page);
 });
 
 test('history tab button exists and switches views', async ({ page }) => {

@@ -97,6 +97,76 @@ SCRATCH_RETENTION_HOURS = 48   # _src/_words/_audio/_cut scratch files kept this
 # deleted when the job finishes. Drives the site's checklist with real times.
 progress_store = modal.Dict.from_name("hebpipe-progress", create_if_missing=True)
 
+# ---------------------------------------------------------------------------
+# User accounts & sessions
+#
+# Identity is reduced to a single opaque `uid` (random hex). Every volume key
+# a user touches is prefixed `u{uid}__` by the API router — workers derive
+# output-key prefixes from their input keys, so isolation is structural.
+# Tokens are stateless HMAC-signed `uid.expiry.sig`; the signing secret lives
+# in the `hebpipe-auth` Modal Secret (AUTH_SECRET + INVITE_CODE).
+# Migration note: to move to a managed provider (e.g. Supabase), swap
+# _verify_token for provider-JWT verification mapping to the same uid.
+# ---------------------------------------------------------------------------
+users_store = modal.Dict.from_name("hebpipe-users", create_if_missing=True)   # username → {uid, salt, pw, created}
+calls_store = modal.Dict.from_name("hebpipe-calls", create_if_missing=True)   # call_id  → {uid, ts}
+
+import re as _auth_re
+
+_USERNAME_RE    = _auth_re.compile(r"^[a-zA-Z0-9_\-]{3,32}$")
+_UID_RE         = _auth_re.compile(r"^[0-9a-f]{32}$")
+_UID_PREFIX_RE  = _auth_re.compile(r"^u[0-9a-f]{32}__")
+TOKEN_TTL_SECONDS       = 30 * 24 * 3600
+CALL_RETENTION_SECONDS  = 24 * 3600
+
+
+def _hash_password(password: str, salt_hex: str = None):
+    """PBKDF2-HMAC-SHA256, 600k iterations (stdlib) — returns (salt_hex, hash_hex)."""
+    import hashlib, secrets
+    salt = bytes.fromhex(salt_hex) if salt_hex else secrets.token_bytes(16)
+    h = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 600_000)
+    return salt.hex(), h.hex()
+
+
+def _verify_password(password: str, salt_hex: str, hash_hex: str) -> bool:
+    import hmac
+    _, h = _hash_password(password, salt_hex)
+    return hmac.compare_digest(h, hash_hex)
+
+
+def _sign_token(uid: str, secret: str, ttl: int = TOKEN_TTL_SECONDS, now: float = None) -> str:
+    import hmac, hashlib, time
+    exp = int((now if now is not None else time.time()) + ttl)
+    msg = f"{uid}.{exp}"
+    sig = hmac.new(secret.encode(), msg.encode(), hashlib.sha256).hexdigest()
+    return f"{msg}.{sig}"
+
+
+def _verify_token(token: str, secret: str, now: float = None):
+    """Return uid for a valid, unexpired token — else None."""
+    import hmac, hashlib, time, re
+    try:
+        uid, exp_s, sig = token.split(".")
+        expect = hmac.new(secret.encode(), f"{uid}.{exp_s}".encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expect):
+            return None
+        if (now if now is not None else time.time()) > int(exp_s):
+            return None
+        if not re.match(r"^[0-9a-f]{32}$", uid):
+            return None
+        return uid
+    except Exception:
+        return None
+
+
+def _user_prefix(uid: str) -> str:
+    return f"u{uid}__"
+
+
+def _owned_key(key: str, uid: str) -> bool:
+    """True iff key belongs to uid. The only path to a user's data."""
+    return isinstance(key, str) and key.startswith(_user_prefix(uid))
+
 TRANSCRIPT_ANALYSIS_MODEL   = "gemini-2.5-flash"
 IMAGE_GENERATION_MODEL      = "gemini-3.1-flash-image-preview"
 VIDEO_GENERATION_MODEL      = "veo-3.0-generate-001"

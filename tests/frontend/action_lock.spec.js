@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { API_BASE, runFullUpload } = require('./helpers');
+const { API_BASE, runFullUpload, bootApp } = require('./helpers');
 
 // Fulfill a route only after `ms`, so the operation stays in flight long enough
 // for assertions about the locked UI.
@@ -11,7 +11,7 @@ function delayedFulfill(page, urlPattern, body, ms = 1500) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await bootApp(page);
 });
 
 test('burn locks hooks and the caption editor until done', async ({ page }) => {

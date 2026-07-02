@@ -26,13 +26,37 @@
   </div>
 </div>
 
-<div class="tabs" role="tablist">
+<div class="tabs" role="tablist" id="tabsBar" style="display:none">
   <button class="tab active" id="tabPipeline" role="tab" aria-selected="true" onclick="switchTab('pipeline')">🎬 Hebrew Pipeline</button>
   <button class="tab" id="tabHistory" role="tab" aria-selected="false" onclick="switchTab('history')">🗂️ History</button>
   <button class="tab" id="tabStats" role="tab" aria-selected="false" onclick="switchTab('stats')">📊 Statistics</button>
+  <button class="tab" id="logoutTab" onclick="logout()" title="Sign out">🚪 Logout</button>
 </div>
 
-<div class="container" id="pipelineView">
+<!-- ── Sign in / register ── -->
+<div class="container" id="authView" style="display:none">
+  <div class="card">
+    <div class="card-header" style="cursor:default">
+      <p class="options-title">🔐 Sign In</p>
+    </div>
+    <div style="padding-top:14px">
+      <label class="sched-label">Username</label>
+      <input type="text" id="authUsername" class="sched-input" style="width:100%" autocomplete="username" />
+      <label class="sched-label">Password</label>
+      <input type="password" id="authPassword" class="sched-input" style="width:100%" autocomplete="current-password" />
+      <div id="authInviteRow" style="display:none">
+        <label class="sched-label">Invite code</label>
+        <input type="text" id="authInvite" class="sched-input" style="width:100%" autocomplete="off" />
+      </div>
+      <div id="authError" class="sched-error" style="display:none;margin-top:12px"></div>
+      <button class="run-btn" id="authSubmitBtn" style="margin-top:18px" onclick="authSubmit()">Sign in</button>
+      <button class="action-btn" style="margin-top:10px" id="authModeBtn" onclick="toggleAuthMode()">New here? Create an account</button>
+    </div>
+  </div>
+  <p class="footer">יוגלינה &nbsp;·&nbsp; School of Quiet Yoga</p>
+</div>
+
+<div class="container" id="pipelineView" style="display:none">
 
   <!-- Upload -->
   <div class="card" id="uploadCard">

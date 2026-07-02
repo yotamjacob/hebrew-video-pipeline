@@ -13,7 +13,7 @@
  *    Playwright convention (function predicates on waitForRequest are fragile).
  */
 const { test, expect } = require('@playwright/test');
-const { API_BASE, runFullUpload } = require('./helpers');
+const { API_BASE, runFullUpload, bootApp } = require('./helpers');
 
 /** Set the font-size slider to a value and fire the input event. */
 async function setFontSize(page, value) {
@@ -67,7 +67,7 @@ async function readCapFontSizePx(page) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await bootApp(page);
 });
 
 // ─── Slider initialization ────────────────────────────────────────────────────

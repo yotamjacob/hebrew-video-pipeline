@@ -14,6 +14,15 @@ const DEFAULT_HOOKS = [
   { text: 'הטעות שכולם עושים',        rationale: 'Curiosity gap' },
 ];
 
+// Seed a signed-in session and mock the session check, then load the app.
+// Must run BEFORE page.goto so the boot-time /auth/me check is intercepted.
+async function bootApp(page) {
+  await page.addInitScript(() => localStorage.setItem('hebpipe_token', 'test-token'));
+  await page.route(/\/auth\/me/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"username":"tester"}' }));
+  await page.goto('/');
+}
+
 // Intercept all Modal API routes with deterministic mock responses.
 // Pass overrides to simulate error scenarios.
 async function mockAllApis(page, {
@@ -135,4 +144,4 @@ async function runFullUpload(page, options = {}) {
   await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 10_000 });
 }
 
-module.exports = { API_BASE, DEFAULT_CAPTIONS, DEFAULT_HOOKS, mockAllApis, selectFile, runFullUpload };
+module.exports = { API_BASE, DEFAULT_CAPTIONS, DEFAULT_HOOKS, mockAllApis, selectFile, runFullUpload, bootApp };

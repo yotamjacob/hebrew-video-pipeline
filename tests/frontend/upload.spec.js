@@ -1,8 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const { mockAllApis, selectFile, runFullUpload, DEFAULT_CAPTIONS } = require('./helpers');
+const { mockAllApis, selectFile, runFullUpload, DEFAULT_CAPTIONS, bootApp } = require('./helpers');
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await bootApp(page);
 });
 
 test('page loads without unhandled JS errors', async ({ page }) => {

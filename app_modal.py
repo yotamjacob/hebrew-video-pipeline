@@ -17,10 +17,12 @@ import modal
 
 from pipeline_core import (
     light_image,
-    jobs_store, progress_store,
+    jobs_store, progress_store, users_store, calls_store,
     app, image, tmp_vol, TMP_DIR,
     _SAFE_KEY_RE, _SAFE_DOWNLOAD_KEY_RE, _check_rate_limit, _get_client_ip,
     _poll_fn_call,
+    _USERNAME_RE, _hash_password, _verify_password, _sign_token, _verify_token,
+    _user_prefix, _owned_key,
 )
 from pipeline_fns import process_video, burn_captions_fn, burn_hook_fn
 from broll_fns import generate_broll_video, analyze_broll, analyze_stock_broll, search_stock_clips
@@ -39,7 +41,8 @@ from metricool_fns import (
 #   Body: raw video bytes
 #   Returns: processed video bytes (video/mp4)
 # ---------------------------------------------------------------------------
-@app.function(image=light_image, timeout=900, volumes={TMP_DIR: tmp_vol})
+@app.function(image=light_image, timeout=900, volumes={TMP_DIR: tmp_vol},
+              secrets=[modal.Secret.from_name("hebpipe-auth")])
 @modal.concurrent(max_inputs=20)
 @modal.asgi_app()
 def api():
@@ -84,6 +87,92 @@ def api():
         # Health check
         if path == "/" and method == "GET":
             body = json.dumps({"status": "ok"}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── Auth: register (invite-gated) / login ──
+        if path in ("/auth/register", "/auth/register/", "/auth/login", "/auth/login/") and method == "POST":
+            if not _check_rate_limit(_get_client_ip(scope)):
+                await send_error("Rate limit exceeded. Try again in a minute.", 429)
+                return
+            import os, secrets as _secrets, time as _time
+            try:
+                data = json.loads((await _read_body(receive)).decode("utf-8"))
+            except Exception:
+                await send_error("Invalid request body", 400)
+                return
+            username = (data.get("username") or "").strip().lower()
+            password = data.get("password") or ""
+            if not _USERNAME_RE.match(username):
+                await send_error("Username must be 3-32 characters: letters, digits, - or _", 400)
+                return
+            if path.startswith("/auth/register"):
+                if (data.get("invite") or "").strip() != os.environ.get("INVITE_CODE", ""):
+                    await send_error("Invalid invite code", 403)
+                    return
+                if len(password) < 8:
+                    await send_error("Password must be at least 8 characters", 400)
+                    return
+                if users_store.contains(username):
+                    await send_error("Username already taken", 409)
+                    return
+                salt, ph = _hash_password(password)
+                new_uid = _secrets.token_hex(16)
+                users_store[username] = {"uid": new_uid, "salt": salt, "pw": ph, "created": _time.time()}
+            else:
+                rec = users_store.get(username)
+                if not rec or not _verify_password(password, rec["salt"], rec["pw"]):
+                    await send_error("Invalid username or password", 401)
+                    return
+                new_uid = rec["uid"]
+            token = _sign_token(new_uid, os.environ["AUTH_SECRET"])
+            body = json.dumps({"token": token, "username": username}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── Session guard — every route below requires a valid token. ──
+        # Exceptions: the Metricool OAuth callback (called by Metricool) and
+        # /media (fetched by Metricool's ingester; keys are unguessable).
+        # Identity (uid) comes ONLY from the verified token — never from the
+        # client — and every volume key is namespaced u{uid}__ from it.
+        uid, uprefix = None, None
+        if not (path.startswith("/oauth/callback") or path.startswith("/media/")):
+            import os
+            _tok = None
+            for _hk, _hv in scope.get("headers", []):
+                if _hk == b"authorization":
+                    _h = _hv.decode()
+                    if _h.lower().startswith("bearer "):
+                        _tok = _h[7:].strip()
+                    break
+            if not _tok:
+                _tok = parse_qs(scope.get("query_string", b"").decode()).get("token", [""])[0] or None
+            uid = _verify_token(_tok, os.environ["AUTH_SECRET"]) if _tok else None
+            if not uid:
+                await send_error("Authentication required", 401)
+                return
+            uprefix = _user_prefix(uid)
+
+        def _record_call(call):
+            import time as _time
+            try:
+                calls_store[call.object_id] = {"uid": uid, "ts": _time.time()}
+            except Exception:
+                pass
+
+        def _call_owned(call_id):
+            meta = calls_store.get(call_id)
+            return bool(meta) and meta.get("uid") == uid
+
+        # ── Session restore ──
+        if path in ("/auth/me", "/auth/me/") and method == "GET":
+            uname = next((u for u in users_store.keys()
+                          if (users_store.get(u) or {}).get("uid") == uid), None)
+            body = json.dumps({"username": uname}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})
@@ -178,7 +267,13 @@ def api():
             body = await _read_body(receive)
             try:
                 data = json.loads(body.decode("utf-8"))
+                for _k in ("output_key", "video_key", "download_key"):
+                    _v = data.get(_k)
+                    if _v and not _owned_key(_v, uid):
+                        await send_error("Forbidden", 403)
+                        return
                 call = schedule_post_fn.spawn(json.dumps(data))
+                _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
                             "headers": CORS + [(b"content-type", b"application/json")]})
@@ -189,6 +284,9 @@ def api():
 
         if path.startswith("/schedule-poll/") and method == "GET":
             call_id = path[len("/schedule-poll/"):].rstrip("/")
+            if not _call_owned(call_id):
+                await send_error("Forbidden", 403)
+                return
             try:
                 import modal as _modal
                 fn_call = _modal.functions.FunctionCall.from_id(call_id)
@@ -244,7 +342,7 @@ def api():
                 return
             chunk_bytes = await _read_body(receive)
             from pathlib import Path as _Path
-            chunk_path = _Path(TMP_DIR) / f"{key}_chunk_{idx:04d}"
+            chunk_path = _Path(TMP_DIR) / f"{uprefix}{key}_chunk_{idx:04d}"
             # asyncio.to_thread so the blocking FUSE write doesn't freeze the event loop
             # (which would serialize all concurrent chunk requests despite max_inputs=20)
             await asyncio.to_thread(chunk_path.write_bytes, chunk_bytes)
@@ -269,10 +367,13 @@ def api():
 
             try:
                 if upload_key:
+                    if not _SAFE_KEY_RE.match(upload_key):
+                        await send_error("Invalid key", 400)
+                        return
                     # Flush all chunks to persistent storage before spawning the worker
                     tmp_vol.commit()
                     call = process_video.spawn(
-                        upload_key=upload_key,
+                        upload_key=uprefix + upload_key,
                         filename=filename,
                         cut_silences=cut_silences,
                         burn_captions=burn_captions,
@@ -280,6 +381,7 @@ def api():
                         padding=padding,
                         enhance_audio=enhance_audio,
                         transcribe_for_broll=transcribe_for_broll,
+                        key_prefix=uprefix,
                     )
                 else:
                     # Legacy path — full body in request (may hit Modal 303 on slow connections)
@@ -293,7 +395,9 @@ def api():
                         padding=padding,
                         enhance_audio=enhance_audio,
                         transcribe_for_broll=transcribe_for_broll,
+                        key_prefix=uprefix,
                     )
+                _record_call(call)
                 body = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
                             "headers": CORS + [(b"content-type", b"application/json")]})
@@ -307,6 +411,9 @@ def api():
             call_id  = path[len("/process_poll/"):].rstrip("/")
             qs       = parse_qs(scope.get("query_string", b"").decode())
             filename = qs.get("filename", ["video.mp4"])[0]
+            if not _call_owned(call_id):
+                await send_error("Forbidden", 403)
+                return
             try:
                 import modal as _modal
                 fn_call = _modal.functions.FunctionCall.from_id(call_id)
@@ -317,7 +424,7 @@ def api():
                     upload_key = qs.get("key", [""])[0]
                     if upload_key and _SAFE_KEY_RE.match(upload_key):
                         try:
-                            prog = progress_store.get(upload_key)
+                            prog = progress_store.get(uprefix + upload_key)
                             if prog:
                                 running["progress"] = prog
                         except Exception:
@@ -362,8 +469,12 @@ def api():
                 broll_json    = "[]"
                 hook_json     = ""
 
+            if not _owned_key(video_key, uid):
+                await send_error("Forbidden", 403)
+                return
             try:
                 call = burn_captions_fn.spawn(video_key, captions_json, font, margin_v_pct, broll_json, font_size, hook_json, source_name=filename)
+                _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
                             "headers": CORS + [(b"content-type", b"application/json")]})
@@ -375,6 +486,9 @@ def api():
         # Poll burn result — 200+video when done, 202+JSON while running
         if path.startswith("/burn_poll/") and method == "GET":
             call_id  = path[len("/burn_poll/"):].rstrip("/")
+            if not _call_owned(call_id):
+                await send_error("Forbidden", 403)
+                return
             try:
                 import modal as _modal
                 fn_call = _modal.functions.FunctionCall.from_id(call_id)
@@ -399,7 +513,7 @@ def api():
             try:
                 jobs = []
                 for key in list(jobs_store.keys()):
-                    if not key.endswith("_out.mp4"):
+                    if not key.endswith("_out.mp4") or not _owned_key(key, uid):
                         continue
                     meta = jobs_store.get(key) or {}
                     jobs.append({"key": key, "name": meta.get("name", "video"),
@@ -420,6 +534,9 @@ def api():
             key = path[len("/jobs/"):].rstrip("/")
             if not key or not _SAFE_DOWNLOAD_KEY_RE.match(key) or not key.endswith("_out.mp4"):
                 await send_error("Invalid key", 400)
+                return
+            if not _owned_key(key, uid):
+                await send_error("Forbidden", 403)
                 return
             try:
                 import asyncio as _asyncio
@@ -448,6 +565,9 @@ def api():
             key = path[len("/download/"):].rstrip("/")
             if not key or not _SAFE_DOWNLOAD_KEY_RE.match(key):
                 await send_error("Invalid key", 400)
+                return
+            if not _owned_key(key, uid):
+                await send_error("Forbidden", 403)
                 return
             qs  = parse_qs(scope.get("query_string", b"").decode())
             filename = qs.get("filename", [key])[0]
@@ -612,6 +732,9 @@ def api():
             if not key or not _SAFE_DOWNLOAD_KEY_RE.match(key):
                 await send_error("Invalid key", 400)
                 return
+            if not _owned_key(key, uid):
+                await send_error("Forbidden", 403)
+                return
             try:
                 import subprocess as _sp, asyncio as _asyncio
                 file_path = _Path(TMP_DIR) / key
@@ -663,13 +786,18 @@ def api():
             body = await _read_body(receive)
             data = json.loads(body.decode("utf-8"))
             try:
+                _vk = data.get("video_key", "")
+                if _vk and not _owned_key(_vk, uid):
+                    await send_error("Forbidden", 403)
+                    return
                 call = analyze_broll.spawn(
-                    data.get("video_key", ""),
+                    _vk,
                     json.dumps(data.get("captions", [])),
                     data.get("gemini_key", ""),
                     data.get("aspect_ratio", "16:9"),
                     data.get("anthropic_key", ""),
                 )
+                _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
                             "headers": CORS + [(b"content-type", b"application/json")]})
@@ -680,6 +808,9 @@ def api():
 
         if path.startswith("/broll_poll/") and method == "GET":
             call_id = path[len("/broll_poll/"):].rstrip("/")
+            if not _call_owned(call_id):
+                await send_error("Forbidden", 403)
+                return
             try:
                 import modal as _modal
                 fn_call = _modal.functions.FunctionCall.from_id(call_id)
@@ -708,6 +839,7 @@ def api():
                     data.get("aspect_ratio", "9:16"),
                     data.get("gemini_key", ""),
                 )
+                _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
                             "headers": CORS + [(b"content-type", b"application/json")]})
@@ -718,6 +850,9 @@ def api():
 
         if path.startswith("/broll_image_poll/") and method == "GET":
             call_id = path[len("/broll_image_poll/"):].rstrip("/")
+            if not _call_owned(call_id):
+                await send_error("Forbidden", 403)
+                return
             try:
                 import modal as _modal
                 fn_call = _modal.functions.FunctionCall.from_id(call_id)
@@ -738,6 +873,9 @@ def api():
 
         if path.startswith("/cancel/") and method in ("GET", "POST", "DELETE"):
             call_id = path[len("/cancel/"):].rstrip("/")
+            if not _call_owned(call_id):
+                await send_error("Forbidden", 403)
+                return
             try:
                 import modal as _modal
                 _modal.functions.FunctionCall.from_id(call_id).cancel()
@@ -757,10 +895,15 @@ def api():
             body = await _read_body(receive)
             data = json.loads(body.decode("utf-8"))
             try:
+                _vk = data.get("video_key", "")
+                if _vk and not _owned_key(_vk, uid):
+                    await send_error("Forbidden", 403)
+                    return
                 call = analyze_stock_broll.spawn(
                     data.get("captions_json", "[]"),
-                    data.get("video_key", ""),
+                    _vk,
                 )
+                _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
                             "headers": CORS + [(b"content-type", b"application/json")]})
@@ -771,6 +914,9 @@ def api():
 
         if path.startswith("/stock-broll-poll/") and method == "GET":
             call_id = path[len("/stock-broll-poll/"):].rstrip("/")
+            if not _call_owned(call_id):
+                await send_error("Forbidden", 403)
+                return
             try:
                 import modal as _modal
                 fn_call = _modal.functions.FunctionCall.from_id(call_id)
@@ -799,6 +945,7 @@ def api():
                     int(data.get("page", 2)),
                     data.get("moment_context", ""),
                 )
+                _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
                             "headers": CORS + [(b"content-type", b"application/json")]})
@@ -809,6 +956,9 @@ def api():
 
         if path.startswith("/stock-broll-clips-poll/") and method == "GET":
             call_id = path[len("/stock-broll-clips-poll/"):].rstrip("/")
+            if not _call_owned(call_id):
+                await send_error("Forbidden", 403)
+                return
             try:
                 import modal as _modal
                 fn_call = _modal.functions.FunctionCall.from_id(call_id)
@@ -835,10 +985,15 @@ def api():
             body = await _read_body(receive)
             data = json.loads(body.decode("utf-8"))
             try:
+                _vk = data.get("video_key", "")
+                if _vk and not _owned_key(_vk, uid):
+                    await send_error("Forbidden", 403)
+                    return
                 call = generate_hook_options.spawn(
                     data.get("captions_json", "[]"),
-                    data.get("video_key", ""),
+                    _vk,
                 )
+                _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
                             "headers": CORS + [(b"content-type", b"application/json")]})
@@ -849,6 +1004,9 @@ def api():
 
         if path.startswith("/generate-hook-poll/") and method == "GET":
             call_id = path[len("/generate-hook-poll/"):].rstrip("/")
+            if not _call_owned(call_id):
+                await send_error("Forbidden", 403)
+                return
             try:
                 import modal as _modal
                 fn_call = _modal.functions.FunctionCall.from_id(call_id)
@@ -875,11 +1033,16 @@ def api():
             body = await _read_body(receive)
             data = json.loads(body.decode("utf-8"))
             try:
+                _vk = data.get("video_key", "")
+                if _vk and not _owned_key(_vk, uid):
+                    await send_error("Forbidden", 403)
+                    return
                 call = generate_caption_options.spawn(
                     data.get("captions_json", "[]"),
-                    data.get("video_key", ""),
+                    _vk,
                     data.get("platforms", ""),
                 )
+                _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
                             "headers": CORS + [(b"content-type", b"application/json")]})
@@ -890,6 +1053,9 @@ def api():
 
         if path.startswith("/generate-caption-poll/") and method == "GET":
             call_id = path[len("/generate-caption-poll/"):].rstrip("/")
+            if not _call_owned(call_id):
+                await send_error("Forbidden", 403)
+                return
             try:
                 import modal as _modal
                 fn_call = _modal.functions.FunctionCall.from_id(call_id)
@@ -913,8 +1079,12 @@ def api():
             body = await _read_body(receive)
             data = json.loads(body.decode("utf-8"))
             try:
+                _vk = data.get("video_key", "")
+                if not _owned_key(_vk, uid):
+                    await send_error("Forbidden", 403)
+                    return
                 call = burn_hook_fn.spawn(
-                    data.get("video_key", ""),
+                    _vk,
                     data.get("hook_text", ""),
                     data.get("font", "Heebo"),
                     data.get("font_color", "#FFFFFF"),
@@ -926,6 +1096,7 @@ def api():
                     data.get("border_color", "#000000"),
                     int(data.get("border_size", 0)),
                 )
+                _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
                             "headers": CORS + [(b"content-type", b"application/json")]})
@@ -936,6 +1107,9 @@ def api():
 
         if path.startswith("/burn-hook-poll/") and method == "GET":
             call_id = path[len("/burn-hook-poll/"):].rstrip("/")
+            if not _call_owned(call_id):
+                await send_error("Forbidden", 403)
+                return
             try:
                 import modal as _modal
                 fn_call = _modal.functions.FunctionCall.from_id(call_id)

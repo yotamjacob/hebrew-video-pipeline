@@ -8,7 +8,7 @@ from pipeline_core import (
     WHISPER_MODEL, tmp_vol, TMP_DIR, _fix_rtl_punct,
     _rtl_ass_text, _censor_caption_text, _SAFE_KEY_RE,
     jobs_store, JOB_RETENTION_DAYS, SCRATCH_RETENTION_HOURS,
-    progress_store,
+    progress_store, calls_store, CALL_RETENTION_SECONDS, _UID_PREFIX_RE,
 )
 
 # ---------------------------------------------------------------------------
@@ -241,6 +241,7 @@ def process_video(
     padding: float = 0.2,
     enhance_audio: bool = True,
     transcribe_for_broll: bool = False,
+    key_prefix: str = "",
 ) -> dict:
     # Warmup call — just starts the container, no real work
     if filename == "__warmup__":
@@ -459,7 +460,7 @@ def process_video(
 
         _mark(done="cut" if need_transcription else None)
         import uuid
-        video_key = uuid.uuid4().hex + "_cut.mp4"
+        video_key = key_prefix + uuid.uuid4().hex + "_cut.mp4"
         shutil.copy(out_file, Path(TMP_DIR) / video_key)
         tmp_vol.commit()
         if upload_key is not None:
@@ -789,7 +790,8 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             ]
             run(cmd)
 
-        output_key = uuid.uuid4().hex + "_out.mp4"
+        _kp = _UID_PREFIX_RE.match(video_key)
+        output_key = (_kp.group(0) if _kp else "") + uuid.uuid4().hex + "_out.mp4"
         out_path = Path(TMP_DIR) / output_key
         shutil.copy(video_out, out_path)
         try:
@@ -848,6 +850,11 @@ def prune_volume():
             entry = progress_store.get(key) or {}
             if now - entry.get("ts", 0) > 6 * 3600:
                 progress_store.pop(key)
+        # Call-ownership entries past retention
+        for cid in list(calls_store.keys()):
+            entry = calls_store.get(cid) or {}
+            if now - entry.get("ts", 0) > CALL_RETENTION_SECONDS:
+                calls_store.pop(cid)
     except Exception as e:
         print(f"[prune] skipped: {e!r}")
 
@@ -970,7 +977,8 @@ def burn_hook_fn(
             "-c:a", "copy", str(video_out),
         ])
 
-        out_key = f"hook_{video_key}"
+        _kp = _UID_PREFIX_RE.match(video_key)
+        out_key = (_kp.group(0) + "hook_" + video_key[_kp.end():]) if _kp else f"hook_{video_key}"
         shutil.copy(video_out, Path(TMP_DIR) / out_key)
         tmp_vol.commit()
 

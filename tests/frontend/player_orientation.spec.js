@@ -11,7 +11,7 @@
 const { test, expect } = require('@playwright/test');
 const fs   = require('fs');
 const path = require('path');
-const { mockAllApis, selectFile } = require('./helpers');
+const { mockAllApis, selectFile, bootApp } = require('./helpers');
 
 const PORTRAIT_MP4  = path.join(__dirname, 'fixtures/portrait_1080x1920.mp4');
 const LANDSCAPE_MP4 = path.join(__dirname, 'fixtures/landscape_1920x1080.mp4');
@@ -72,7 +72,7 @@ async function readVideoDimensions(page) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await bootApp(page);
 });
 
 // ── Diagnostic: log actual values from Chromium ────────────────────────────

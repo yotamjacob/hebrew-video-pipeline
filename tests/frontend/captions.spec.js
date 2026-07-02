@@ -1,8 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const { runFullUpload, DEFAULT_CAPTIONS } = require('./helpers');
+const { runFullUpload, DEFAULT_CAPTIONS, bootApp } = require('./helpers');
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await bootApp(page);
 });
 
 test('editing a caption input updates its value', async ({ page }) => {

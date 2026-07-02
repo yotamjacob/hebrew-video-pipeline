@@ -1,8 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const { runFullUpload, DEFAULT_HOOKS } = require('./helpers');
+const { runFullUpload, DEFAULT_HOOKS, bootApp } = require('./helpers');
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await bootApp(page);
 });
 
 test('generate hook button is present and clickable after captions load', async ({ page }) => {

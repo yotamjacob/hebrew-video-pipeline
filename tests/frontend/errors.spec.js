@@ -1,8 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const { mockAllApis, selectFile, runFullUpload, DEFAULT_CAPTIONS } = require('./helpers');
+const { mockAllApis, selectFile, runFullUpload, DEFAULT_CAPTIONS, bootApp } = require('./helpers');
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await bootApp(page);
 });
 
 // ─── Process spawn errors ────────────────────────────────────────────────────
@@ -71,7 +71,7 @@ test('reconnect banner appears when localStorage has a saved job', async ({ page
       filename: 'old_video.mp4',
     }));
   });
-  await page.goto('/');
+  await bootApp(page);
   await expect(page.locator('#reconnectBanner')).toBeVisible({ timeout: 3_000 });
 });
 
@@ -83,7 +83,7 @@ test('dismiss button hides the reconnect banner', async ({ page }) => {
       ts: Date.now(),
     }));
   });
-  await page.goto('/');
+  await bootApp(page);
   await page.locator('#reconnectBanner').waitFor({ state: 'visible' });
   // Click dismiss (second button in the banner)
   await page.locator('#reconnectBanner button').last().click();
@@ -97,7 +97,7 @@ test('expired saved job (>45 min) does not show reconnect banner', async ({ page
       type: 'process', callId: 'old-call-id', ts,
     }));
   }, EXPIRED);
-  await page.goto('/');
+  await bootApp(page);
   // Banner must not appear for stale jobs
   await page.waitForTimeout(500);
   await expect(page.locator('#reconnectBanner')).not.toBeVisible();

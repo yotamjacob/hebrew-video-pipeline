@@ -1,8 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const { API_BASE, mockAllApis, selectFile, runFullUpload, DEFAULT_CAPTIONS } = require('./helpers');
+const { API_BASE, mockAllApis, selectFile, runFullUpload, DEFAULT_CAPTIONS, bootApp } = require('./helpers');
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await bootApp(page);
 });
 
 test('checklist shows the real backend step times on completion', async ({ page }) => {

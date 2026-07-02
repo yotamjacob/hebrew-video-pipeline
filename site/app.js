@@ -1,6 +1,95 @@
   const API_BASE = 'https://yotamjacob--hebrew-video-pipeline-api.modal.run';
   const API      = API_BASE + '/process/';
 
+  // ── Auth: session token, authenticated fetch, login gate ──
+  let authToken = localStorage.getItem('hebpipe_token') || '';
+
+  function _withToken(url) {
+    if (!authToken) return url;
+    return url + (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(authToken);
+  }
+
+  function _sessionExpired() {
+    authToken = '';
+    localStorage.removeItem('hebpipe_token');
+    showAuthView();
+  }
+
+  // All API calls go through here — attaches the bearer token, and drops the
+  // user back to the sign-in view when the session is missing/expired.
+  async function apiFetch(url, opts = {}) {
+    opts = Object.assign({}, opts);
+    opts.headers = Object.assign({}, opts.headers || {},
+      authToken ? { 'Authorization': 'Bearer ' + authToken } : {});
+    const resp = await fetch(url, opts);
+    if (resp.status === 401) {
+      _sessionExpired();
+      throw new Error('Session expired — please sign in again.');
+    }
+    return resp;
+  }
+
+  function showAuthView() {
+    document.getElementById('authView').style.display = 'block';
+    document.getElementById('tabsBar').style.display = 'none';
+    ['pipelineView', 'historyView', 'statsView'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+  }
+
+  function showApp() {
+    document.getElementById('authView').style.display = 'none';
+    document.getElementById('tabsBar').style.display = 'flex';
+    document.getElementById('pipelineView').style.display = 'block';
+  }
+
+  let authMode = 'login';
+  function toggleAuthMode() {
+    authMode = authMode === 'login' ? 'register' : 'login';
+    document.getElementById('authInviteRow').style.display = authMode === 'register' ? 'block' : 'none';
+    document.getElementById('authSubmitBtn').textContent = authMode === 'register' ? 'Create account' : 'Sign in';
+    document.getElementById('authModeBtn').textContent =
+      authMode === 'register' ? 'Have an account? Sign in' : 'New here? Create an account';
+    document.getElementById('authError').style.display = 'none';
+  }
+
+  async function authSubmit() {
+    const btn = document.getElementById('authSubmitBtn');
+    const errEl = document.getElementById('authError');
+    const payload = {
+      username: document.getElementById('authUsername').value.trim(),
+      password: document.getElementById('authPassword').value,
+    };
+    if (authMode === 'register') payload.invite = document.getElementById('authInvite').value.trim();
+    btn.disabled = true;
+    errEl.style.display = 'none';
+    try {
+      const resp = await fetch(`${API_BASE}/auth/${authMode}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || `Error ${resp.status}`);
+      authToken = data.token;
+      localStorage.setItem('hebpipe_token', authToken);
+      showApp();
+      fetch(API_BASE + '/warmup/', { headers: { 'Authorization': 'Bearer ' + authToken } }).catch(() => {});
+    } catch (e) {
+      errEl.textContent = e.message || String(e);
+      errEl.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function logout() {
+    authToken = '';
+    localStorage.removeItem('hebpipe_token');
+    location.reload();
+  }
+
   const VEO_ENABLED = false;
 
   // Limits
@@ -129,7 +218,7 @@
         if (captionsData.length > 0) {
           showCaptionEditor();
         } else {
-          const dlResp = await fetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
+          const dlResp = await apiFetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
           resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
           resultName = cutFilename;
           showDone();
@@ -365,7 +454,7 @@
     checkNetwork();
 
     // Fire-and-forget GPU warmup so the container is ready by the time the user clicks Run
-    fetch(API_BASE + '/warmup/').catch(() => {});
+    apiFetch(API_BASE + '/warmup/').catch(() => {});
   }
 
   clearFile.addEventListener('click', () => {
@@ -468,7 +557,7 @@
       runStartTime = Date.now();
       showProcessing();
       params.set('key', uploadKey);
-      const spawnResp = await fetch(`${API_BASE}/process/?${params}`, { method: 'POST' });
+      const spawnResp = await apiFetch(`${API_BASE}/process/?${params}`, { method: 'POST' });
       if (spawnResp.status !== 202) {
         const body = await spawnResp.json().catch(() => ({}));
         throw new Error(body.error || `Spawn failed (${spawnResp.status})`);
@@ -494,7 +583,7 @@
         startBrollAnalysis();
       } else {
         // No captions, no B-roll — download directly
-        const dlResp = await fetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
+        const dlResp = await apiFetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
         resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
         resultName = cutFilename;
         showDone();
@@ -562,7 +651,7 @@
     showProcessing();
 
     try {
-      const spawnResp = await fetch(`${API_BASE}/process/?${params}`, { method: 'POST' });
+      const spawnResp = await apiFetch(`${API_BASE}/process/?${params}`, { method: 'POST' });
       if (spawnResp.status !== 202) {
         const body = await spawnResp.json().catch(() => ({}));
         throw new Error(body.error || `Spawn failed (${spawnResp.status})`);
@@ -585,7 +674,7 @@
         showCaptionEditor();
         startBrollAnalysis();
       } else {
-        const dlResp = await fetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
+        const dlResp = await apiFetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
         resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
         resultName = cutFilename;
         showDone();
@@ -737,6 +826,7 @@
   }
 
   async function pollForJSON(pollUrl, timeoutMs = 900_000, callId = null, onProgress = null) {
+    pollUrl = _withToken(pollUrl);   // SW polls the same URL — token travels with it
     pollController = new AbortController();
     const signal = pollController.signal;
     const deadline = Date.now() + timeoutMs;
@@ -812,7 +902,7 @@
       'Start over'
     );
     if (!confirmed) return;
-    if (currentCallId) fetch(`${API_BASE}/cancel/${currentCallId}/`, { keepalive: true }).catch(() => {});
+    if (currentCallId) apiFetch(`${API_BASE}/cancel/${currentCallId}/`, { keepalive: true }).catch(() => {});
     clearSavedJob();
     location.reload();
   });
@@ -1188,7 +1278,7 @@
     if (!vid) return;
 
     // Set source — video streams from the already-processed cut file on Modal
-    vid.src = `${API_BASE}/download/${videoKey}`;
+    vid.src = _withToken(`${API_BASE}/download/${videoKey}`);
     document.getElementById('captionPlayer').style.display = 'block';
 
     vid.addEventListener('loadedmetadata', () => {
@@ -1497,7 +1587,7 @@
     const aspectRatio = document.querySelector('input[name="brollAspect"]:checked')?.value || '9:16';
 
     try {
-      const resp = await fetch(`${API_BASE}/broll/`, {
+      const resp = await apiFetch(`${API_BASE}/broll/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ video_key: videoKey, captions: captionsData, gemini_key: geminiKey, aspect_ratio: aspectRatio, anthropic_key: anthropicKey }),
@@ -1564,7 +1654,7 @@
     if (!videoKey) return;
     await document.fonts.ready;
     try {
-      const resp = await fetch(`${API_BASE}/thumbnail/${videoKey}/`);
+      const resp = await apiFetch(`${API_BASE}/thumbnail/${videoKey}/`);
       if (!resp.ok) return;
       const blob = await resp.blob();
       const img  = new Image();
@@ -1797,7 +1887,7 @@
     selectedHookIdx       = -1;
 
     try {
-      const resp = await fetch(`${API_BASE}/generate-hook/`, {
+      const resp = await apiFetch(`${API_BASE}/generate-hook/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ captions_json: JSON.stringify(captions), video_key: videoKey }),
@@ -1812,7 +1902,7 @@
       while (true) {
         if (hookGenAborted) break;
         try {
-          const poll = await fetch(`${API_BASE}/generate-hook-poll/${call_id}/`);
+          const poll = await apiFetch(`${API_BASE}/generate-hook-poll/${call_id}/`);
           if (poll.status === 200) {
             const result = await poll.json();
             if (!hookGenAborted) renderHookOptions(result.hooks || []);
@@ -1938,7 +2028,7 @@
     const stockTimer = setInterval(() => { stockElapsedEl.textContent = formatTime(++stockSecs); }, 1000);
 
     try {
-      const resp = await fetch(`${API_BASE}/stock-broll/`, {
+      const resp = await apiFetch(`${API_BASE}/stock-broll/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ captions_json: JSON.stringify(captions), video_key: videoKey || '' }),
@@ -1952,7 +2042,7 @@
       let netRetries = 0;
       while (true) {
         try {
-          const pollResp = await fetch(`${API_BASE}/stock-broll-poll/${call_id}/`);
+          const pollResp = await apiFetch(`${API_BASE}/stock-broll-poll/${call_id}/`);
           if (pollResp.status === 200) {
             const result = await pollResp.json();
             clearInterval(stockTimer);
@@ -2434,7 +2524,7 @@
             broll_duration_seconds: momentCtx.broll_duration_seconds || 3.0,
           })
         : '';
-      const resp = await fetch(`${API_BASE}/stock-broll-clips/`, {
+      const resp = await apiFetch(`${API_BASE}/stock-broll-clips/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ search_query: searchQuery, page: page || 2, moment_context: ctxPayload }),
@@ -2446,7 +2536,7 @@
       const { call_id } = await resp.json();
 
       while (true) {
-        const poll = await fetch(`${API_BASE}/stock-broll-clips-poll/${call_id}/`);
+        const poll = await apiFetch(`${API_BASE}/stock-broll-clips-poll/${call_id}/`);
         if (poll.status === 202) { await new Promise(r => setTimeout(r, 3000)); continue; }
         if (!poll.ok) throw new Error(`Poll error: ${poll.status}`);
         const result = await poll.json();
@@ -2472,7 +2562,7 @@
     retryBtn.textContent = '…';
 
     try {
-      const resp = await fetch(`${API_BASE}/broll_image/`, {
+      const resp = await apiFetch(`${API_BASE}/broll_image/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ description: s.description, aspect_ratio: aspectRatio, gemini_key: geminiKey }),
@@ -2481,12 +2571,12 @@
       const { call_id } = await resp.json();
 
       while (true) {
-        const poll = await fetch(`${API_BASE}/broll_image_poll/${call_id}/`);
+        const poll = await apiFetch(`${API_BASE}/broll_image_poll/${call_id}/`);
         if (poll.status === 202) { await new Promise(r => setTimeout(r, 5000)); continue; }
         if (!poll.ok) throw new Error(`Poll error: ${poll.status}`);
         const result = await poll.json();
         if (result.video_key) {
-          const videoUrl = `${API_BASE}/download/${result.video_key}/`;
+          const videoUrl = _withToken(`${API_BASE}/download/${result.video_key}/`);
           s.video_key = result.video_key;
           // Update in selectedBrolls if this card was checked
           const sel = selectedBrolls.find(b => b.start === s.start && b.end === s.end);
@@ -2543,7 +2633,7 @@
       const thumbBox = document.createElement('div');
       thumbBox.className = 'broll-thumb';
       if (s.video_key) {
-        const videoUrl = `${API_BASE}/download/${s.video_key}/`;
+        const videoUrl = _withToken(`${API_BASE}/download/${s.video_key}/`);
         const vid = document.createElement('video');
         vid.src = videoUrl;
         vid.autoplay = true;
@@ -3049,7 +3139,7 @@
     empty.style.display   = 'none';
     list.innerHTML = '';
     try {
-      const resp = await fetch(`${API_BASE}/jobs/`);
+      const resp = await apiFetch(`${API_BASE}/jobs/`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const { jobs } = await resp.json();
       loading.style.display = 'none';
@@ -3082,7 +3172,7 @@
     thumb.className = 'history-thumb';
     thumb.loading = 'lazy';
     thumb.alt = '';
-    thumb.src = `${API_BASE}/thumbnail/${job.key}/`;
+    thumb.src = _withToken(`${API_BASE}/thumbnail/${job.key}/`);
     thumb.onerror = () => { thumb.style.visibility = 'hidden'; };
 
     const info = document.createElement('div');
@@ -3106,7 +3196,7 @@
     dl.title = 'Download';
     dl.onclick = () => {
       const fname = (job.name || 'video').replace(/\.mp4$/i, '') + '_edited.mp4';
-      window.location.href = `${API_BASE}/download/${job.key}/?filename=${encodeURIComponent(fname)}`;
+      window.location.href = _withToken(`${API_BASE}/download/${job.key}/?filename=${encodeURIComponent(fname)}`);
     };
     const del = document.createElement('button');
     del.className = 'history-btn history-btn-danger';
@@ -3117,7 +3207,7 @@
         `\u201C${job.name}\u201D will be removed from history and can no longer be downloaded.`, 'Delete');
       if (!ok) return;
       try {
-        await fetch(`${API_BASE}/jobs/${job.key}/`, { method: 'DELETE' });
+        await apiFetch(`${API_BASE}/jobs/${job.key}/`, { method: 'DELETE' });
       } catch (_) {}
       loadHistory();
     };
@@ -3254,7 +3344,7 @@
     const connectEl = document.getElementById('schedConnect');
     const schedBtn = document.getElementById('scheduleBtn');
     try {
-      const r = await fetch(`${API_BASE}/oauth/status`, { cache: 'no-store' });
+      const r = await apiFetch(`${API_BASE}/oauth/status`, { cache: 'no-store' });
       const { connected } = await r.json();
       connectEl.style.display = connected ? 'none' : 'block';
       schedBtn.style.display = connected ? 'block' : 'none';
@@ -3265,7 +3355,7 @@
   }
 
   function connectMetricool() {
-    window.open(`${API_BASE}/oauth/start`, '_blank', 'noopener');
+    window.open(_withToken(`${API_BASE}/oauth/start`), '_blank', 'noopener');
   }
 
   // Show YouTube-only required fields when YouTube is selected
@@ -3291,7 +3381,7 @@
     btn.disabled = true; btn.textContent = '✨ Generating…';
     errEl.style.display = 'none';
     try {
-      const resp = await fetch(`${API_BASE}/generate-caption/`, {
+      const resp = await apiFetch(`${API_BASE}/generate-caption/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -3303,7 +3393,7 @@
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const { call_id } = await resp.json();
       while (true) {
-        const poll = await fetch(`${API_BASE}/generate-caption-poll/${call_id}/`);
+        const poll = await apiFetch(`${API_BASE}/generate-caption-poll/${call_id}/`);
         if (poll.status === 200) {
           const result = await poll.json();
           if (result.caption) ta.value = result.caption; else throw new Error('empty caption');
@@ -3363,7 +3453,7 @@
     btn.disabled = true; btn.textContent = '⏳ Scheduling…';
     statusEl.className = 'sched-status busy'; statusEl.textContent = 'Sending to Metricool…'; statusEl.style.display = 'block';
     try {
-      const spawn = await fetch(`${API_BASE}/schedule/`, {
+      const spawn = await apiFetch(`${API_BASE}/schedule/`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       });
       if (spawn.status === 400) { checkMetricoolStatus(); throw new Error('Metricool isn\'t connected. Tap Connect Metricool first.'); }
@@ -3372,7 +3462,7 @@
 
       let result = null;
       while (true) {
-        const poll = await fetch(`${API_BASE}/schedule-poll/${call_id}/`);
+        const poll = await apiFetch(`${API_BASE}/schedule-poll/${call_id}/`);
         if (poll.status === 200) { result = await poll.json(); break; }
         if (poll.status === 202) { await new Promise(r => setTimeout(r, 2500)); continue; }
         throw new Error(`Server error ${poll.status}`);
@@ -3394,3 +3484,16 @@
       btn.textContent = orig; btn.disabled = false;
     }
   }
+
+  // ── Session boot ──
+  (async function initAuth() {
+    if (!authToken) { showAuthView(); return; }
+    try {
+      const r = await fetch(`${API_BASE}/auth/me`, { headers: { 'Authorization': 'Bearer ' + authToken } });
+      if (!r.ok) throw new Error('unauthorized');
+      await r.json();
+      showApp();
+    } catch {
+      _sessionExpired();
+    }
+  })();
