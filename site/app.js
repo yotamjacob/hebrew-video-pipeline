@@ -407,11 +407,11 @@
 
   function checkToolsEnabled() {
     if (!selectedFile || burnMode) return;
-    const ids = ['cutSilences', 'burnCaptions', 'enhanceAudio', 'stockBroll'];
+    const ids = ['cutSilences', 'burnCaptions', 'enhanceAudio'];
     if (VEO_ENABLED) ids.push('suggestBrolls');
     runBtn.disabled = !ids.some(id => document.getElementById(id)?.checked);
   }
-  ['cutSilences', 'burnCaptions', 'enhanceAudio', 'suggestBrolls', 'stockBroll'].forEach(id => {
+  ['cutSilences', 'burnCaptions', 'enhanceAudio', 'suggestBrolls'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', () => { checkToolsEnabled(); });
   });
   const aggrVal = document.getElementById('aggrVal');
@@ -442,8 +442,7 @@
 
     const aggr = AGGR_MAP[aggrSlider.value - 1];
     const brollOn      = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
-    const stockBrollOn = document.getElementById('stockBroll').checked;
-    const needTranscript = (brollOn || stockBrollOn) && !document.getElementById('burnCaptions').checked;
+    const needTranscript = brollOn && !document.getElementById('burnCaptions').checked;
     const params = new URLSearchParams({
       filename:             selectedFile.name,
       cut_silences:         document.getElementById('cutSilences').checked  ? 'true' : 'false',
@@ -488,8 +487,7 @@
       videoKey     = result.video_key;
       cutFilename  = (selectedFile.name || 'video').replace(/\.[^/.]+$/, '') + '_cut.mp4';
 
-      const brollActive      = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
-      const stockBrollActive = document.getElementById('stockBroll').checked;
+      const brollActive = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
       if (captionsData.length > 0 || brollActive) {
         // Keep checklist visible (steps 1-3 done) while user edits captions
         showCaptionEditor();
@@ -536,8 +534,7 @@
 
     const aggr = AGGR_MAP[aggrSlider.value - 1];
     const brollOn        = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
-    const stockBrollOn   = document.getElementById('stockBroll').checked;
-    const needTranscript = (brollOn || stockBrollOn) && !document.getElementById('burnCaptions').checked;
+    const needTranscript = brollOn && !document.getElementById('burnCaptions').checked;
     const params = new URLSearchParams({
       filename:             selectedFile.name,
       cut_silences:         document.getElementById('cutSilences').checked  ? 'true' : 'false',
@@ -582,8 +579,7 @@
       videoKey     = result.video_key;
       cutFilename  = (selectedFile.name || 'video').replace(/\.[^/.]+$/, '') + '_cut.mp4';
 
-      const brollActive      = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
-      const stockBrollActive = document.getElementById('stockBroll').checked;
+      const brollActive = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
       unlockPipelineActions();
       if (captionsData.length > 0 || brollActive) {
         showCaptionEditor();
@@ -823,20 +819,7 @@
 
   // Find B-Roll Moments button
   const findBrollBtn = document.getElementById('findBrollBtn');
-  findBrollBtn.addEventListener('click', () => {
-    if (!document.getElementById('stockBroll').checked) return;
-    triggerStockBroll();
-  });
-
-  function updateFindBrollBtn() {
-    const on = document.getElementById('stockBroll').checked;
-    findBrollBtn.disabled = !on;
-    findBrollBtn.title    = on ? '' : 'Enable Stock B-Roll Finder in tool settings';
-    findBrollBtn.style.opacity = on ? '1' : '0.45';
-    findBrollBtn.style.cursor  = on ? 'pointer' : 'not-allowed';
-  }
-  document.getElementById('stockBroll').addEventListener('change', updateFindBrollBtn);
-  updateFindBrollBtn();
+  findBrollBtn.addEventListener('click', () => triggerStockBroll());
 
   // Caption preview / burn font size slider
   const fontSizeSlider = document.getElementById('captionFontSizeSlider');
@@ -1438,11 +1421,6 @@
     localStorage.setItem('anthropicApiKey', e.target.value.trim());
   });
 
-  // Stock B-roll toggle
-  document.getElementById('stockBroll').addEventListener('change', e => {
-    localStorage.setItem('stockBrollEnabled', e.target.checked);
-  });
-
   // Init: check for a saved background job and show reconnect banner
   (function checkSavedJob() {
     const job = loadSavedJob();
@@ -1491,10 +1469,6 @@
       if (veoChk) { veoChk.checked = false; veoChk.disabled = true; }
     }
 
-    // Restore stock B-roll preference
-    if (localStorage.getItem('stockBrollEnabled') === 'false') {
-      document.getElementById('stockBroll').checked = false;
-    }
   })();
 
   async function startBrollAnalysis() {
@@ -1936,7 +1910,6 @@
   // ── End Hook Generator ──────────────────────────────────────────────────
 
   async function startStockBrollAnalysis(captionsOverride) {
-    if (!document.getElementById('stockBroll').checked) return;
     const captions = captionsOverride || captionsData;
     if (!captions.length) return;
 
@@ -2041,7 +2014,7 @@
       document.querySelectorAll('#captionsList .caption-input, #captionsList .caption-time-input, #captionsList .cap-btn').forEach(el => { el.disabled = false; });
       _updateDeleteButtons();
       findBrollBtn.textContent = '🎬 Find B-Roll Moments';
-      updateFindBrollBtn();
+      findBrollBtn.disabled = false;
     }
   }
 
@@ -2804,10 +2777,8 @@
     _updateDeleteButtons();
     document.getElementById('captionEditorCard').style.display = 'block';
     document.getElementById('hookCard').style.display = 'block';
-    // Stock B-roll card hosts the Find B-Roll Moments button — show it so
-    // the search can be started (button greys itself when the toggle is off)
+    // Stock B-roll card hosts the Find B-Roll Moments button
     document.getElementById('stockBrollCard').style.display = 'block';
-    updateFindBrollBtn();
     document.getElementById('generateHookBtn').disabled = false;
     fetchHookThumbnail();
     burnMode = true;
