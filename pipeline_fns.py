@@ -370,10 +370,12 @@ def process_video(
             # (e.g. the "oooo" of ו) that fall below word-detection threshold.
             result = []
             for seg in segs:
-                seg_words = [Word(w.start, w.end, w.word.strip())
+                # float() strips numpy scalars — the api router runs on light_image
+                # (no numpy) and can't unpickle np.float64 in the polled result.
+                seg_words = [Word(float(w.start), float(w.end), w.word.strip())
                              for w in (seg.words or []) if w.word.strip()]
                 if seg_words:
-                    result.append((seg_words, seg.end))
+                    result.append((seg_words, float(seg.end)))
             return result
 
         # Less aggressive VAD: lower threshold + longer speech padding so weak
