@@ -5254,7 +5254,7 @@
     const payload = {
       platforms,
       caption,
-      videoUrl: `${API_BASE}/download/${ctx.outputKey}/?filename=${encodeURIComponent(ctx.filename || 'video.mp4')}`,
+      videoUrl: `${API_BASE}/media/${ctx.outputKey}`,
       dateTime: `${date}T${time}:00`,
       timezone: 'Asia/Jerusalem',
       ytTitle,

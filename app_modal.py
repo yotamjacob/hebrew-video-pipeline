@@ -3089,7 +3089,7 @@ def _build_metricool_info(p: dict) -> dict:
     return info
 
 
-@app.function(image=image, timeout=120)
+@app.function(image=image, timeout=120, volumes={TMP_DIR: tmp_vol})
 def schedule_post_fn(payload_json: str) -> dict:
     import json
     p = json.loads(payload_json)
@@ -3121,6 +3121,21 @@ def schedule_post_fn(payload_json: str) -> dict:
         parsed = json.loads(txt)
     except (json.JSONDecodeError, TypeError):
         parsed = {"raw": txt}
+
+    # Cleanup: Metricool has copied the media to its own CDN, so the burned
+    # video on our volume is no longer needed. Best-effort delete.
+    try:
+        from pathlib import Path as _Path
+        vurl = p.get("videoUrl", "")
+        key = vurl.split("/media/")[-1].split("/download/")[-1].split("?")[0].strip("/")
+        if key.endswith("_out.mp4"):
+            fp = _Path(TMP_DIR) / key
+            if fp.exists():
+                fp.unlink()
+                tmp_vol.commit()
+    except Exception as _ce:
+        print(f"[schedule] cleanup skipped: {_ce!r}")
+
     return {"ok": True, "post": parsed}
 
 
@@ -3556,15 +3571,85 @@ def api():
                         remaining -= len(chunk)
                         await send({"type": "http.response.body",
                                     "body": chunk, "more_body": remaining > 0})
-                if key.endswith("_out.mp4"):
-                    file_path.unlink(missing_ok=True)
-                    tmp_vol.commit()
+                # NOTE: do NOT delete _out.mp4 here. The burned video must survive the
+                # browser download so Metricool can still fetch it for scheduling. Cleanup
+                # happens after a successful schedule (schedule_post_fn).
             except Exception as e:
                 print(f"[download] ERROR key={key!r} response_started={response_started} err={e!r}")
                 if not response_started:
                     await send_error(str(e))
                 # If response already started, the connection will close ungracefully —
                 # nothing useful we can send at this point.
+            return
+
+        # Media — serve a burned video INLINE (video/mp4), no attachment, no delete.
+        # Used as the public URL Metricool ingests when scheduling. URL ends in the
+        # key (…_out.mp4) so external fetchers see a proper .mp4 extension.
+        if path.startswith("/media/") and method == "GET":
+            from pathlib import Path as _Path
+            import asyncio as _asyncio
+            key = path[len("/media/"):].rstrip("/")
+            if not key or not _SAFE_DOWNLOAD_KEY_RE.match(key):
+                await send_error("Invalid key", 400)
+                return
+            response_started = False
+            try:
+                _base = str(_Path(TMP_DIR).resolve())
+                file_path = _Path(TMP_DIR) / key
+                if not str(file_path.resolve()).startswith(_base + "/") and \
+                        str(file_path.resolve()) != _base:
+                    raise ValueError("Forbidden path")
+                for _attempt in range(10):
+                    try:
+                        tmp_vol.reload()
+                        if file_path.exists():
+                            break
+                    except RuntimeError as _ve:
+                        if "open files" not in str(_ve):
+                            raise
+                    if _attempt < 9:
+                        await _asyncio.sleep(1)
+                else:
+                    raise FileNotFoundError(f"File not found: {key}")
+
+                file_size = file_path.stat().st_size
+                req_hdrs = {bytes(k).lower(): bytes(v) for k, v in scope.get("headers", [])}
+                range_hdr = req_hdrs.get(b"range", b"").decode()
+                start, end, status = 0, file_size - 1, 200
+                if range_hdr.startswith("bytes="):
+                    rng = range_hdr[6:]
+                    if rng.startswith("-"):
+                        start = max(0, file_size - int(rng[1:]))
+                    else:
+                        parts = rng.split("-", 1)
+                        start = int(parts[0])
+                        end   = int(parts[1]) if parts[1] else file_size - 1
+                    end = min(end, file_size - 1)
+                    status = 206
+                content_length = end - start + 1
+                resp_headers = CORS + [
+                    (b"content-type",   b"video/mp4"),
+                    (b"accept-ranges",  b"bytes"),
+                    (b"content-length", str(content_length).encode()),
+                    (b"content-disposition", b"inline"),
+                ]
+                if status == 206:
+                    resp_headers.append((b"content-range", f"bytes {start}-{end}/{file_size}".encode()))
+                response_started = True
+                await send({"type": "http.response.start", "status": status, "headers": resp_headers})
+                with open(file_path, "rb") as f:
+                    f.seek(start)
+                    remaining = content_length
+                    while remaining > 0:
+                        chunk = f.read(min(256 * 1024, remaining))
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                        await send({"type": "http.response.body", "body": chunk, "more_body": remaining > 0})
+            except Exception as e:
+                print(f"[media] ERROR key={key!r} err={e!r}")
+                if not response_started:
+                    await send_error(str(e))
             return
 
         # Thumbnail — extract a single JPEG frame at 1s for preview use
