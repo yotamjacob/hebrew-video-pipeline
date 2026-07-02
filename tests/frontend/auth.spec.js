@@ -92,3 +92,18 @@ test('logout clears the session and returns to login', async ({ page }) => {
   const stored = await page.evaluate(() => localStorage.getItem('hebpipe_token'));
   expect(stored).toBeNull();
 });
+
+test('burn spawn carries the bearer token', async ({ page }) => {
+  const { runFullUpload } = require('./helpers');
+  await bootApp(page);
+  await runFullUpload(page);
+  let burnAuth = null;
+  await page.route(/\/burn\/\?/, (route, request) => {
+    burnAuth = request.headers()['authorization'];
+    return route.fulfill({ status: 202, contentType: 'application/json',
+                           body: JSON.stringify({ call_id: 'mock-burn-call-id' }) });
+  });
+  await page.click('#runBtn');
+  await page.click('#confirmOk');
+  await expect.poll(() => burnAuth, { timeout: 10_000 }).toBe('Bearer test-token');
+});

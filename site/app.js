@@ -265,7 +265,7 @@
         runBtn.disabled = true;
         // Device download is optional and non-blocking
         try {
-          const dlResp = await fetch(
+          const dlResp = await apiFetch(
             `${API_BASE}/download/${burnResult.output_key}/?filename=${encodeURIComponent(job.outputFilename)}`
           );
           if (!dlResp.ok) throw new Error(`Download failed (${dlResp.status})`);
@@ -709,7 +709,7 @@
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         if (attempt > 0) await new Promise(r => setTimeout(r, attempt * 1500));
         try {
-          const resp = await fetch(
+          const resp = await apiFetch(
             `${API_BASE}/upload_chunk/?key=${key}&index=${i}`,
             { method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: slice }
           );
@@ -1624,7 +1624,7 @@
     let retries = 0;
     while (true) {
       try {
-        const resp = await fetch(url);
+        const resp = await apiFetch(url);
         if (resp.status === 200) return await resp.json();
         if (resp.status === 202) { await new Promise(r => setTimeout(r, 5000)); continue; }
         const body = await resp.json().catch(() => ({}));
@@ -2963,7 +2963,7 @@
       }
 
       pollController = new AbortController();
-      const spawnResp = await fetch(burnUrl.toString(), {
+      const spawnResp = await apiFetch(burnUrl.toString(), {
         method: 'POST',
         body: JSON.stringify({ captions: edited, broll: allBroll, ...(hookPayload ? { hook: hookPayload } : {}) }),
         headers: { 'Content-Type': 'application/json' },
@@ -3005,7 +3005,7 @@
         const dlAbort  = new AbortController();
         const dlKillId = setTimeout(() => dlAbort.abort(), 10 * 60 * 1000);
         try {
-          const dlResp = await fetch(
+          const dlResp = await apiFetch(
             `${API_BASE}/download/${burnResult.output_key}/?filename=${encodeURIComponent(outFilename)}`,
             { signal: dlAbort.signal }
           );
