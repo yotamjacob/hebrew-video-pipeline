@@ -249,9 +249,9 @@
         const burnResult = await pollForJSON(`${API_BASE}/burn_poll/${job.callId}/`, 600_000, job.callId);
         _stepDone('burn');
         clearSavedJob();
-        // Video is ready — show success + schedule card immediately (no download needed)
+        // Video is ready — reveal the schedule card immediately; the success
+        // banner follows once the device download settles.
         checklistEl.style.display = 'none';
-        document.getElementById('burnSuccessBanner').style.display = 'flex';
         window._schedCtx = {
           outputKey: burnResult.output_key,
           filename:  job.outputFilename,
@@ -278,6 +278,7 @@
           if (dlErr.name !== 'AbortError')
             console.warn('Device download failed (video is still scheduled-ready):', dlErr.message);
         }
+        document.getElementById('burnSuccessBanner').style.display = 'flex';
       } catch (err) {
         clearSavedJob();
         if (err.name !== 'AbortError')
@@ -2962,7 +2963,6 @@
     { const _sc = document.getElementById('scheduleCard'); if (_sc) _sc.style.display = 'none'; }
 
     const edited = getCaptionsFromEditor();
-    const burnStartMs = Date.now();
 
     const fname = selectedFile ? selectedFile.name : 'video.mp4';
     const burnUrl = new URL(API_BASE + '/burn/');
@@ -3035,13 +3035,9 @@
       clearSavedJob();
       _stepDone('burn');
 
-      // Video is ready on the server — reveal success + the schedule card NOW.
-      // Scheduling uses the server-side video URL, so it never waits on (or
-      // requires) the device download that follows.
-      const successBanner = document.getElementById('burnSuccessBanner');
-      const successTime   = document.getElementById('burnSuccessTime');
-      successTime.textContent = `Burn time: ${formatTime(Math.round((Date.now() - burnStartMs) / 1000))}`;
-      successBanner.style.display = 'flex';
+      // Video is ready on the server — reveal the schedule card NOW (scheduling
+      // uses the server-side URL, it never waits on the device download). The
+      // success banner appears only after the download below settles.
       window._schedCtx = { outputKey: burnResult.output_key, filename: outFilename, videoKey: videoKey };
 
       // Download phase: the schedule section goes live, everything else
@@ -3075,6 +3071,9 @@
         if (dlErr.name !== 'AbortError')
           console.warn('Device download failed (video is still scheduled-ready):', dlErr.message);
       }
+      // Burn + initial download finished — now the success banner (with
+      // Download again) is truthful and usable.
+      document.getElementById('burnSuccessBanner').style.display = 'flex';
       // Re-enable editors for another round of changes on the same video
       editorIds.forEach(id => document.getElementById(id).classList.remove('burning'));
       [

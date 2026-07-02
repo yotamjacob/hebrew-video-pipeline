@@ -41,6 +41,12 @@ async function mockAllApis(page, {
   await page.route(`${API_BASE}/warmup/`, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' }));
 
+  // Metricool status — checked when the schedule card reveals; unmocked it
+  // would hit the real API with the fake test token, 401, and bounce the
+  // whole app back to the login view mid-test
+  await page.route(/\/oauth\/status/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"connected":false}' }));
+
   // Cancel — always succeeds
   await page.route(`${API_BASE}/cancel/**`, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"cancelled"}' }));

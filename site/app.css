@@ -488,7 +488,6 @@
     }
     .burn-success-icon  { font-size: 2rem; }
     .burn-success-label { font-size: 1rem; font-weight: 700; color: #065F46; }
-    .burn-success-time  { font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 
     /* ── Disabled option row (Veo) ── */
     .option-row.disabled-feature {
