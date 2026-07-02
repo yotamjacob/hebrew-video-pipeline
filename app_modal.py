@@ -17,7 +17,7 @@ import modal
 
 from pipeline_core import (
     light_image,
-    jobs_store,
+    jobs_store, progress_store,
     app, image, tmp_vol, TMP_DIR,
     _SAFE_KEY_RE, _SAFE_DOWNLOAD_KEY_RE, _check_rate_limit, _get_client_ip,
     _poll_fn_call,
@@ -305,13 +305,24 @@ def api():
         # Poll process result — 200+binary when done, 202+JSON while running
         if path.startswith("/process_poll/") and method == "GET":
             call_id  = path[len("/process_poll/"):].rstrip("/")
-            filename = parse_qs(scope.get("query_string", b"").decode()).get("filename", ["video.mp4"])[0]
+            qs       = parse_qs(scope.get("query_string", b"").decode())
+            filename = qs.get("filename", ["video.mp4"])[0]
             try:
                 import modal as _modal
                 fn_call = _modal.functions.FunctionCall.from_id(call_id)
                 result, still_running = _poll_fn_call(fn_call)
                 if still_running:
-                    body = json.dumps({"status": "running"}).encode()
+                    running = {"status": "running"}
+                    # Live stage progress, keyed by upload key (?key=)
+                    upload_key = qs.get("key", [""])[0]
+                    if upload_key and _SAFE_KEY_RE.match(upload_key):
+                        try:
+                            prog = progress_store.get(upload_key)
+                            if prog:
+                                running["progress"] = prog
+                        except Exception:
+                            pass
+                    body = json.dumps(running).encode()
                     await send({"type": "http.response.start", "status": 202,
                                 "headers": CORS + [(b"content-type", b"application/json")]})
                     await send({"type": "http.response.body", "body": body})

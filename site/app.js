@@ -59,7 +59,6 @@
   let resultBlob      = null;
   let resultName      = 'edited_video.mp4';
   let uploadTimer     = null;  // drives the upload step's elapsed clock
-  let elapsedTimer    = null;  // drives enhance→cut transition timer
   let blocked         = false;
   let videoKey        = null;
   let captionsData    = [];
@@ -110,7 +109,7 @@
     if (!job) return;
 
     if (job.type === 'process') {
-      // Reconnect: can't know which processing step we're in — show enhance as active
+      // Reconnect: real progress from the poll tells us which step is running
       statusCard.classList.add('visible');
       checklistEl.style.display = 'block';
       statusDone.classList.remove('visible');
@@ -118,11 +117,12 @@
       _resetChecklist();
       checkItems.upload.className = 'check-item done';
       checkTimeEls.upload.textContent = 'cached';
-      _stepActivate('enhance');
       _procStartMs = Date.now();
+      if (job.key) currentUploadKey = job.key;
       try {
-        const result = await pollForJSON(`${API_BASE}/process_poll/${job.callId}/`, 900_000, job.callId);
-        _stepsDoneProcessing();
+        const keyQs = job.key ? `?key=${encodeURIComponent(job.key)}` : '';
+        const result = await pollForJSON(`${API_BASE}/process_poll/${job.callId}/${keyQs}`, 900_000, job.callId, _applyProgress);
+        _stepsDoneProcessing(result.step_times);
         clearSavedJob();
         captionsData = result.captions || [];
         videoKey     = result.video_key;
@@ -356,14 +356,12 @@
     blocked = false;
     runBtn.disabled = false;
 
-    // Warnings & estimated time
+    // Warnings
     if (file.size > WARN_BYTES) {
       showWarnNotice('Large file', `${formatSize(file.size)} — the upload itself may take 30–60 seconds depending on your connection.`);
     } else if (videoDuration !== null && videoDuration > WARN_SECS) {
       showWarnNotice('Long video', `${formatDuration(videoDuration)} — processing will take a few minutes. Keep the page open.`);
     }
-
-    updateTimeEstimate();
 
     checkNetwork();
 
@@ -401,35 +399,6 @@
     });
   }
 
-  function estimatedTime(secs) {
-    const useEnhance    = document.getElementById('enhanceAudio').checked;
-    const useTranscribe = document.getElementById('cutSilences').checked || document.getElementById('burnCaptions').checked;
-    const useBroll      = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
-    const useStockBroll = document.getElementById('stockBroll').checked;
-
-    let total = 0;
-    if (useEnhance || useTranscribe) {
-      total += 90;
-    } else if (useBroll || useStockBroll) {
-      total += 20;
-    }
-    if (useEnhance)     total += secs * 3.5;   // DeepFilterNet ≈ 3× realtime on T4
-    if (useTranscribe)  total += secs / 8;
-    if (useEnhance || useTranscribe) total += 60;
-    if (useBroll)       total += 60;
-    if (useStockBroll)  total += 30;   // Claude moment selection + 2 API searches
-
-    const lo = Math.max(1, Math.round(total / 60));
-    const hi = lo + 1;
-    return `Estimated ${lo}–${hi} min`;
-  }
-
-  function updateTimeEstimate() {
-    if (!videoDuration) return;
-    document.getElementById('timeEstimateText').textContent = estimatedTime(videoDuration);
-    document.getElementById('timeEstimate').style.display = 'flex';
-  }
-
   // ── Advanced ──
   advToggle.addEventListener('click', () => {
     advToggle.classList.toggle('open'); advPanel.classList.toggle('open');
@@ -442,7 +411,7 @@
     runBtn.disabled = !ids.some(id => document.getElementById(id)?.checked);
   }
   ['cutSilences', 'burnCaptions', 'enhanceAudio', 'suggestBrolls', 'stockBroll'].forEach(id => {
-    document.getElementById(id)?.addEventListener('change', () => { checkToolsEnabled(); updateTimeEstimate(); });
+    document.getElementById(id)?.addEventListener('change', () => { checkToolsEnabled(); });
   });
   const aggrVal = document.getElementById('aggrVal');
   aggrSlider.addEventListener('input', () => {
@@ -473,29 +442,6 @@
       e.returnValue = '';
     }
   });
-
-  // Phase thresholds calibrated for T4 GPU: deepfilter ~10× realtime, Whisper turbo ~12× realtime
-  function getProcMessages(dur) {
-    dur = dur || 60;
-    const enhanceEnd    = Math.max(25, Math.round(dur * 0.12)); // deepfilter on T4
-    const transcribeEnd = Math.max(50, Math.round(enhanceEnd + dur * 0.10)); // whisper turbo
-    const renderStart   = transcribeEnd + 10;
-    const encodeEnd     = renderStart + Math.max(30, Math.round(dur * 0.22));
-    return [
-      [0,            'Starting up…'],
-      [18,           'Enhancing audio…'],
-      [enhanceEnd,   'Transcribing…'],
-      [transcribeEnd,'Cutting silences…'],
-      [renderStart,  'Rendering…'],
-      [encodeEnd,    'Almost there…'],
-    ];
-  }
-
-  const BURN_MESSAGES = [
-    [0,  'Burning captions…'],
-    [25, 'Encoding video…'],
-    [50, 'Almost there…'],
-  ];
 
   async function run(isRetry = false) {
     if (!selectedFile || blocked) return;
@@ -530,7 +476,7 @@
 
       // Phase 2: spawn processing job (tiny request — just params, no body)
       runStartTime = Date.now();
-      showProcessing(getProcMessages(videoDuration));
+      showProcessing();
       params.set('key', uploadKey);
       const spawnResp = await fetch(`${API_BASE}/process/?${params}`, { method: 'POST' });
       if (spawnResp.status !== 202) {
@@ -541,10 +487,10 @@
 
       // Poll until processing is done — returns JSON {captions, video_key}
       currentCallId = call_id;
-      saveJob('process', call_id, { filename: selectedFile.name });
-      const pollUrl = `${API_BASE}/process_poll/${call_id}/`;
-      const result = await pollForJSON(pollUrl, 900_000, call_id);
-      _stepsDoneProcessing();
+      saveJob('process', call_id, { filename: selectedFile.name, key: uploadKey });
+      const pollUrl = `${API_BASE}/process_poll/${call_id}/?key=${encodeURIComponent(uploadKey)}`;
+      const result = await pollForJSON(pollUrl, 900_000, call_id, _applyProgress);
+      _stepsDoneProcessing(result.step_times);
       clearSavedJob();
 
       captionsData = result.captions;
@@ -566,7 +512,6 @@
         showDone();
       }
     } catch (err) {
-      clearInterval(elapsedTimer);
       if (err.name === 'AbortError') return;
       console.error('Process error:', err.message);
       clearSavedJob();
@@ -626,7 +571,7 @@
     _resetChecklist();
     checkItems.upload.className = 'check-item done';
     checkTimeEls.upload.textContent = 'cached';
-    showProcessing(getProcMessages(videoDuration));
+    showProcessing();
 
     try {
       const spawnResp = await fetch(`${API_BASE}/process/?${params}`, { method: 'POST' });
@@ -637,9 +582,9 @@
       const { call_id } = await spawnResp.json();
 
       currentCallId = call_id;
-      saveJob('process', call_id, { filename: selectedFile.name });
-      const result = await pollForJSON(`${API_BASE}/process_poll/${call_id}/`, 900_000, call_id);
-      _stepsDoneProcessing();
+      saveJob('process', call_id, { filename: selectedFile.name, key: currentUploadKey });
+      const result = await pollForJSON(`${API_BASE}/process_poll/${call_id}/?key=${encodeURIComponent(currentUploadKey)}`, 900_000, call_id, _applyProgress);
+      _stepsDoneProcessing(result.step_times);
       clearSavedJob();
 
       captionsData = result.captions;
@@ -661,7 +606,6 @@
       }
     } catch (err) {
       unlockPipelineActions();
-      clearInterval(elapsedTimer);
       if (err.name === 'AbortError') return;
       console.error('Re-process error:', err.message);
       clearSavedJob();
@@ -806,7 +750,7 @@
     }
   }
 
-  async function pollForJSON(pollUrl, timeoutMs = 900_000, callId = null) {
+  async function pollForJSON(pollUrl, timeoutMs = 900_000, callId = null, onProgress = null) {
     pollController = new AbortController();
     const signal = pollController.signal;
     const deadline = Date.now() + timeoutMs;
@@ -831,6 +775,9 @@
           if (resp.status === 200) { networkRetries = 0; _resolve(await resp.json()); return; }
           if (resp.status === 202) {
             networkRetries = 0;
+            if (onProgress) {
+              try { onProgress((await resp.json()).progress); } catch {}
+            }
             await new Promise((res, rej) => {
               const t = setTimeout(res, Math.min(3000, deadline - Date.now()));
               signal.addEventListener('abort', () => { clearTimeout(t); rej(new DOMException('aborted', 'AbortError')); });
@@ -926,6 +873,7 @@
   function _stepActivate(name) {
     const item = checkItems[name];
     if (!item || item.classList.contains('done')) return;
+    if (item.classList.contains('active')) return;   // already running — keep its timer
     item.style.display = '';   // show row if it was hidden (e.g. burn starts hidden)
     item.className = 'check-item active';
     const timeEl = checkTimeEls[name];
@@ -991,11 +939,6 @@
     statusError.classList.remove('visible');
     _resetChecklist();
 
-    // Show burn step only when burn_captions is enabled
-    if (document.getElementById('burnCaptions')?.checked) {
-      checkItems.burn.style.display = '';
-    }
-
     // Upload step: active + inline progress bar
     _stepActivate('upload');
     document.getElementById('uploadBarRow').style.display = 'flex';
@@ -1007,89 +950,57 @@
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
   }
 
-  let _procStartMs    = null;
-  let _enhanceEndSec  = 9999;
-  let _renderStartSec = 9999;
+  let _procStartMs = null;
 
-  function showProcessing(msgs) {
+  function showProcessing() {
     isUploading = false;
     statusCard.classList.add('visible');
     clearInterval(uploadTimer);
-    _stepActivate('enhance');
-    const messages = msgs || [];
-    _enhanceEndSec = 9999;
-    _renderStartSec = 9999;
-    for (const [t, label] of messages) {
-      if (label.includes('Transcrib')) _enhanceEndSec  = t;
-      if (label.includes('Rendering')) _renderStartSec = t;
-    }
-    clearInterval(elapsedTimer);
     _procStartMs = Date.now();
-    const burnVisible = checkItems.burn && checkItems.burn.style.display !== 'none';
-    let cutActivated = false, burnActivated = false;
-    elapsedTimer = setInterval(() => {
-      const secs = Math.floor((Date.now() - _procStartMs) / 1000);
-      if (!cutActivated && secs >= _enhanceEndSec) {
-        cutActivated = true;
-        _stepDone('enhance');
-        _stepActivate('cut');
-      }
-      if (burnVisible && cutActivated && !burnActivated && secs >= _renderStartSec) {
-        burnActivated = true;
-        _stepDone('cut');
-        _stepActivate('burn');
-      }
-    }, 500);
+    // Real backend progress (via /process_poll) drives the transitions and the
+    // final numbers. Activate the first applicable step so the checklist isn't
+    // idle until the first poll; skip steps whose toggle is off.
+    const enhanceOn = document.getElementById('enhanceAudio').checked;
+    if (!enhanceOn) _stepSkip('enhance');
+    _stepActivate(enhanceOn ? 'enhance' : 'cut');
   }
 
-  // Force a step done with an explicit elapsed-seconds value (used when splitting estimated time).
+  // Force a step done with an explicit elapsed-seconds value (real, backend-reported).
   function _forceDone(name, secs) {
     if (stepTimers[name]) { clearInterval(stepTimers[name].id); stepTimers[name] = null; }
     const item = checkItems[name];
     if (!item) return;
+    item.style.display = '';
     item.className = 'check-item done';
     const timeEl = checkTimeEls[name];
     if (timeEl) { timeEl.textContent = formatTime(secs); stepEndSecs[name] = secs; }
   }
 
-  // Called when process_poll returns. Marks all remaining active/pending steps done.
-  // Handles proportional splits when the process finishes before timer transitions fire.
-  function _stepsDoneProcessing() {
-    clearInterval(elapsedTimer);
-    const burnVisible = checkItems.burn && checkItems.burn.style.display !== 'none';
-    const total = Math.max(1, Math.round((Date.now() - _procStartMs) / 1000));
+  // Live progress from /process_poll: {stage, done:{step: secs}} — all real.
+  function _applyProgress(progress) {
+    if (!progress) return;
+    Object.entries(progress.done || {}).forEach(([name, secs]) => {
+      const item = checkItems[name];
+      if (item && !item.classList.contains('done')) _forceDone(name, Math.max(1, Math.round(secs)));
+    });
+    const cur = progress.stage;
+    if (cur && checkItems[cur] && !checkItems[cur].classList.contains('done')) _stepActivate(cur);
+  }
 
-    if (checkItems.enhance.classList.contains('active')) {
-      // All steps still pending — split proportionally based on observed GPU timings:
-      // enhance ~20%, cut ~25%, burn ~55% (burn includes ffmpeg re-encode, takes longest)
-      if (burnVisible) {
-        _forceDone('enhance', Math.round(total * 0.20));
-        _forceDone('cut',     Math.round(total * 0.25));
-        _forceDone('burn',    Math.max(1, total - Math.round(total * 0.20) - Math.round(total * 0.25)));
-      } else {
-        _forceDone('enhance', Math.min(total - 1, Math.round(total * 0.40)));
-        _forceDone('cut',     Math.max(1, total - Math.min(total - 1, Math.round(total * 0.40))));
-      }
-    } else if (checkItems.cut && checkItems.cut.classList.contains('active')) {
-      // enhance done, cut (and possibly burn) still running
-      _stepDone('enhance');
-      if (burnVisible) {
-        const rem = stepTimers.cut ? Math.max(1, Math.round((Date.now() - stepTimers.cut.start) / 1000)) : 1;
-        _forceDone('cut',  Math.max(1, Math.round(rem * 0.35)));
-        _forceDone('burn', Math.max(1, rem - Math.round(rem * 0.35)));
-      } else {
-        _stepDone('cut');
-      }
-    } else {
-      // Timer transitions already fired — just close whatever is still open
-      _stepDone('enhance');
-      _stepDone('cut');
-      if (burnVisible) _stepDone('burn');
-    }
+  // Called when process_poll returns. Closes each step with the backend's real
+  // duration; steps the backend never ran are hidden, never estimated.
+  function _stepsDoneProcessing(stepTimes) {
+    const st = stepTimes || {};
+    ['enhance', 'cut'].forEach(name => {
+      const item = checkItems[name];
+      if (!item) return;
+      if (st[name] != null) _forceDone(name, Math.max(1, Math.round(st[name])));
+      else if (item.classList.contains('active')) _stepDone(name);  // frontend-measured wall time
+      else if (!item.classList.contains('done')) _stepSkip(name);   // step never ran
+    });
   }
 
   function showDone() {
-    clearInterval(elapsedTimer);
     checklistEl.style.display = 'none';
     statusDone.classList.add('visible');
     if (!burnMode) runBtn.style.display = 'none';
@@ -1106,7 +1017,6 @@
     isUploading = false;
     setSetupLocked(false);
     clearInterval(uploadTimer);
-    clearInterval(elapsedTimer);
     Object.keys(stepTimers).forEach(k => { if (stepTimers[k]) { clearInterval(stepTimers[k].id); stepTimers[k] = null; } });
     checklistEl.style.display = 'none';
     statusError.classList.add('visible');
@@ -1120,7 +1030,6 @@
     if (pollController) { pollController.abort(); pollController = null; }
     currentCallId = null;
     clearInterval(uploadTimer);
-    clearInterval(elapsedTimer);
     Object.keys(stepTimers).forEach(k => { if (stepTimers[k]) { clearInterval(stepTimers[k].id); stepTimers[k] = null; } });
     runStartTime = null;
     const doneTimeEl = document.getElementById('doneTime');
@@ -2923,6 +2832,12 @@
     );
     if (!confirmed) return;
     lockPipelineActions({ activeBtn: 'runBtn' });
+    // Burn step in the checklist tracks the real burn operation (reset on re-burn)
+    if (checkItems.burn) {
+      checkItems.burn.className = 'check-item pending';
+      if (checkTimeEls.burn) checkTimeEls.burn.textContent = '';
+      _stepActivate('burn');
+    }
     document.getElementById('burnSuccessBanner').style.display = 'none';
     { const _sc = document.getElementById('scheduleCard'); if (_sc) _sc.style.display = 'none'; }
 
@@ -2997,6 +2912,7 @@
       saveJob('burn', call_id, { outputFilename: outFilename });
       const burnResult = await pollForJSON(`${API_BASE}/burn_poll/${call_id}/`, 600_000, call_id);
       clearSavedJob();
+      _stepDone('burn');
 
       // Video is ready on the server — reveal success + the schedule card NOW.
       // Scheduling uses the server-side video URL, so it never waits on (or
@@ -3052,8 +2968,10 @@
         if (h) { h.classList.remove('collapsed'); if (b) b.style.display = 'block'; }
       });
     } catch (err) {
-      clearInterval(elapsedTimer);
       clearSavedJob();
+      // Burn didn't finish — stop and hide its checklist row
+      if (stepTimers.burn) { clearInterval(stepTimers.burn.id); stepTimers.burn = null; }
+      if (checkItems.burn) { checkItems.burn.className = 'check-item pending'; checkItems.burn.style.display = 'none'; }
       if (err.name !== 'AbortError') {
         console.error('Burn error:', err.message);
         editorIds.forEach(id => document.getElementById(id).classList.remove('burning'));

@@ -92,6 +92,11 @@ jobs_store = modal.Dict.from_name("hebpipe-jobs", create_if_missing=True)
 JOB_RETENTION_DAYS      = 30   # burned outputs kept this long for the History tab
 SCRATCH_RETENTION_HOURS = 48   # _src/_words/_audio/_cut scratch files kept this long
 
+# Live processing progress — key = upload key, value = {stage, done:{step: secs}}.
+# Written by process_video at real stage transitions, read by /process_poll,
+# deleted when the job finishes. Drives the site's checklist with real times.
+progress_store = modal.Dict.from_name("hebpipe-progress", create_if_missing=True)
+
 TRANSCRIPT_ANALYSIS_MODEL   = "gemini-2.5-flash"
 IMAGE_GENERATION_MODEL      = "gemini-3.1-flash-image-preview"
 VIDEO_GENERATION_MODEL      = "veo-3.0-generate-001"

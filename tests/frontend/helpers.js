@@ -51,7 +51,8 @@ async function mockAllApis(page, {
   // Process poll — resolves immediately with captions
   await page.route(`${API_BASE}/process_poll/**`, r =>
     r.fulfill({ status: 200, contentType: 'application/json',
-                body: JSON.stringify({ captions, video_key: 'mock-video-key_cut.mp4' }) }));
+                body: JSON.stringify({ captions, video_key: 'mock-video-key_cut.mp4',
+                                       step_times: { enhance: 12.3, cut: 20.1 } }) }));
 
   // Burn spawn — regex because the app appends query params (glob patterns
   // without wildcards match the full URL and would fall through to the network)

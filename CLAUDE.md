@@ -113,6 +113,8 @@ npx vercel deploy --prod
 
 **Job history & retention** — every successful `burn_captions_fn` records `{name, ts, size, duration}` in the `hebpipe-jobs` modal.Dict (key = `…_out.mp4` output key) and runs `prune_volume()`: burned outputs deleted after `JOB_RETENTION_DAYS` (30), scratch files (`_src.mp4`, `_cut.mp4`, chunks) after `SCRATCH_RETENTION_HOURS` (48). Nothing else deletes volume files — the old delete-on-download and delete-after-schedule behaviors are gone. History tab uses `GET /jobs`, `DELETE /jobs/{key}` and the existing `/thumbnail/` + `/download/` routes.
 
+**Real checklist progress** — `process_video` writes real stage transitions to the `hebpipe-progress` modal.Dict (key = upload key, value = `{stage, done:{step: secs}, ts}`; stages: `enhance`, `cut`). `GET /process_poll/{id}/?key=` includes it as `progress` while running, and the final result carries `step_times`. The site checklist shows only real numbers — never estimated splits (the old T4-calibrated fake timers are gone). Entries are popped on completion; stale ones pruned by `prune_volume()` after 6 h.
+
 **Key validation pattern** — `_SAFE_KEY_RE` and `_SAFE_DOWNLOAD_KEY_RE` at module level validate upload keys and download keys before any filesystem access. Keys must be `[a-zA-Z0-9_\-]` (plus `.` for downloads), max 128 chars.
 
 ## Model Constants

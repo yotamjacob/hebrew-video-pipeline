@@ -8,6 +8,7 @@ from pipeline_core import (
     WHISPER_MODEL, tmp_vol, TMP_DIR, _fix_rtl_punct,
     _rtl_ass_text, _censor_caption_text, _SAFE_KEY_RE,
     jobs_store, JOB_RETENTION_DAYS, SCRATCH_RETENTION_HOURS,
+    progress_store,
 )
 
 # ---------------------------------------------------------------------------
@@ -248,7 +249,24 @@ def process_video(
     import json
     import shutil
     import tempfile
+    import time as _time
     from pathlib import Path
+
+    # Real per-stage timing, published to progress_store so /process_poll can
+    # report live progress and the site checklist shows actual numbers.
+    _stage_start = {}
+    _step_times = {}
+    def _mark(stage=None, done=None):
+        now = _time.time()
+        if done and done in _stage_start:
+            _step_times[done] = round(now - _stage_start[done], 1)
+        if stage:
+            _stage_start[stage] = now
+        if upload_key:
+            try:
+                progress_store[upload_key] = {"stage": stage, "done": dict(_step_times), "ts": now}
+            except Exception:
+                pass
 
     # Validate input before entering the tempdir
     if upload_key is not None:
@@ -400,6 +418,8 @@ def process_video(
         ass_file = tmp / "captions.ass"
         out_file = tmp / ("out_" + filename)
 
+        if enhance_audio:
+            _mark(stage="enhance")
         extract_audio(src, raw_wav)
         if enhance_audio:
             enhance_deepfilter(raw_wav, clean_wav)
@@ -407,6 +427,9 @@ def process_video(
             shutil.copy(raw_wav, clean_wav)
 
         need_transcription = cut_silences or burn_captions or transcribe_for_broll
+        # 'cut' covers transcription, keep-segment math and the trim/concat render
+        _mark(stage="cut" if need_transcription else None,
+              done="enhance" if enhance_audio else None)
         whisper_segs = transcribe(clean_wav) if need_transcription else []
         flat_words   = [w for seg_words, _end in whisper_segs for w in seg_words]
 
@@ -434,11 +457,18 @@ def process_video(
         else:
             shutil.copy(src, out_file)
 
+        _mark(done="cut" if need_transcription else None)
         import uuid
         video_key = uuid.uuid4().hex + "_cut.mp4"
         shutil.copy(out_file, Path(TMP_DIR) / video_key)
         tmp_vol.commit()
-        return {"captions": captions_list, "video_key": video_key}
+        if upload_key is not None:
+            try:
+                progress_store.pop(upload_key)
+            except Exception:
+                pass
+        return {"captions": captions_list, "video_key": video_key,
+                "step_times": _step_times}
 
 
 # ---------------------------------------------------------------------------
@@ -813,6 +843,11 @@ def prune_volume():
                 continue
             if now - p.stat().st_mtime > SCRATCH_RETENTION_HOURS * 3600:
                 p.unlink(missing_ok=True)
+        # Progress entries left behind by crashed jobs
+        for key in list(progress_store.keys()):
+            entry = progress_store.get(key) or {}
+            if now - entry.get("ts", 0) > 6 * 3600:
+                progress_store.pop(key)
     except Exception as e:
         print(f"[prune] skipped: {e!r}")
 
