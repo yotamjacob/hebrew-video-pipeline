@@ -154,7 +154,7 @@
       _stepActivate('burn');
       runBtn.style.display = 'block';
       runBtn.disabled = true;
-      lockPipelineActions({ activeBtn: 'runBtn', lockCards: true });
+      lockPipelineActions({ activeBtn: 'runBtn' });
       try {
         const burnResult = await pollForJSON(`${API_BASE}/burn_poll/${job.callId}/`, 600_000, job.callId);
         _stepDone('burn');
@@ -167,10 +167,13 @@
           filename:  job.outputFilename,
           videoKey:  (typeof videoKey !== 'undefined' ? videoKey : null),
         };
-        if (typeof revealScheduleCard === 'function') revealScheduleCard();
-        // Release the lock before the device download so scheduling is
-        // usable immediately; burn stays disabled until the download settles.
+        // Download phase: the schedule section goes live, everything else
+        // stays greyed until the device download settles.
         unlockPipelineActions();
+        lockPipelineActions({ activeBtn: 'runBtn', activeCard: 'scheduleCard' });
+        if (typeof revealScheduleCard === 'function') revealScheduleCard();
+        const _sb = document.getElementById('scheduleBtn');
+        if (_sb) _sb.disabled = false;
         runBtn.disabled = true;
         // Device download is optional and non-blocking
         try {
@@ -237,10 +240,11 @@
   }
 
   // ── Global action lock ──
-  // While one long operation is in flight, every other control that could
-  // change its inputs or interrupt it (burn vs. cut-restore vs. re-process vs.
-  // hook/b-roll generation) is disabled. Heavy ops also grey out whole cards;
-  // generator ops lock buttons only so caption editing stays available.
+  // One rule: while any long operation is in flight (processing, burn,
+  // download, hook/caption/B-roll generation, scheduling), every pipeline
+  // section except the operation's own card is greyed out, and every
+  // cross-section action button is disabled. The active flow manages its
+  // own button (spinner text etc.), so activeBtn is exempted.
   const LOCK_BTN_IDS  = ['runBtn', 'reprocessBtn', 'generateHookBtn',
                          'findBrollBtn', 'suggestCaptionBtn', 'scheduleBtn',
                          'burnDownloadBtn', 'startOverBtn'];
@@ -249,7 +253,7 @@
   let _actionLockDepth = 0;
   const _actionLockSaved = new Map();
 
-  function lockPipelineActions({ activeBtn = null, activeCard = null, lockCards = false } = {}) {
+  function lockPipelineActions({ activeBtn = null, activeCard = null } = {}) {
     if (++_actionLockDepth > 1) return;
     LOCK_BTN_IDS.forEach(id => {
       if (id === activeBtn) return;               // the active flow manages its own button
@@ -258,12 +262,10 @@
       _actionLockSaved.set(id, el.disabled);
       el.disabled = true;
     });
-    if (lockCards) {
-      LOCK_CARD_IDS.forEach(id => {
-        if (id === activeCard) return;            // keep the active card interactive (cancel, etc.)
-        document.getElementById(id)?.classList.add('action-locked');
-      });
-    }
+    LOCK_CARD_IDS.forEach(id => {
+      if (id === activeCard) return;              // keep the active card interactive
+      document.getElementById(id)?.classList.add('action-locked');
+    });
   }
 
   function unlockPipelineActions() {
@@ -612,7 +614,7 @@
       key:                  currentUploadKey,
     });
 
-    lockPipelineActions({ lockCards: true });
+    lockPipelineActions();
     runStartTime = Date.now();
     runBtn.style.display = 'none';
 
@@ -1901,7 +1903,7 @@
     const errEl      = document.getElementById('hookError');
 
     hookGenAborted        = false;
-    lockPipelineActions({ activeBtn: 'generateHookBtn' });
+    lockPipelineActions({ activeBtn: 'generateHookBtn', activeCard: 'hookCard' });
     btn.disabled          = true;
     status.style.display  = 'flex';
     optionsEl.style.display   = 'none';
@@ -2041,7 +2043,7 @@
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 
     // Lock the caption editor and button while searching
-    lockPipelineActions({ activeBtn: 'findBrollBtn' });
+    lockPipelineActions({ activeBtn: 'findBrollBtn', activeCard: 'captionEditorCard' });
     findBrollBtn.disabled = true;
     findBrollBtn.textContent = '⏳ Searching…';
     document.querySelectorAll('#captionsList .caption-input, #captionsList .caption-time-input, #captionsList .cap-btn').forEach(el => { el.disabled = true; });
@@ -2917,7 +2919,7 @@
       'Burn & Download'
     );
     if (!confirmed) return;
-    lockPipelineActions({ activeBtn: 'runBtn', lockCards: true });
+    lockPipelineActions({ activeBtn: 'runBtn' });
     document.getElementById('burnSuccessBanner').style.display = 'none';
     { const _sc = document.getElementById('scheduleCard'); if (_sc) _sc.style.display = 'none'; }
 
@@ -3004,15 +3006,16 @@
       }
       successBanner.style.display = 'flex';
       window._schedCtx = { outputKey: burnResult.output_key, filename: outFilename, videoKey: videoKey };
-      if (typeof revealScheduleCard === 'function') revealScheduleCard();
-      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 
-      // Release the global action lock now — the schedule card must be usable
-      // immediately, not greyed out for the minutes a large device download
-      // can take. Only burn/reprocess stay held until the download settles.
+      // Download phase: the schedule section goes live, everything else
+      // stays greyed until the device download settles.
       unlockPipelineActions();
+      lockPipelineActions({ activeBtn: 'runBtn', activeCard: 'scheduleCard' });
+      if (typeof revealScheduleCard === 'function') revealScheduleCard();
+      const _sb = document.getElementById('scheduleBtn');
+      if (_sb) _sb.disabled = false;
       runBtn.disabled = true;
-      if (reprocessBtn) reprocessBtn.disabled = true;
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 
       // Download to the device (optional — does NOT gate scheduling)
       runBtn.textContent = '⏳ Downloading…';
@@ -3391,7 +3394,7 @@
     const ta = document.getElementById('schedCaption');
     const errEl = document.getElementById('schedError');
     const orig = btn.textContent;
-    lockPipelineActions({ activeBtn: 'suggestCaptionBtn' });
+    lockPipelineActions({ activeBtn: 'suggestCaptionBtn', activeCard: 'scheduleCard' });
     btn.disabled = true; btn.textContent = '✨ Generating…';
     errEl.style.display = 'none';
     try {
@@ -3463,7 +3466,7 @@
     };
 
     const orig = btn.textContent;
-    lockPipelineActions({ activeBtn: 'scheduleBtn' });
+    lockPipelineActions({ activeBtn: 'scheduleBtn', activeCard: 'scheduleCard' });
     btn.disabled = true; btn.textContent = '⏳ Scheduling…';
     statusEl.className = 'sched-status busy'; statusEl.textContent = 'Sending to Metricool…'; statusEl.style.display = 'block';
     try {

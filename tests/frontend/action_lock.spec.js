@@ -34,7 +34,7 @@ test('burn locks hooks and the caption editor until done', async ({ page }) => {
   await expect(page.locator('#generateHookBtn')).toBeEnabled();
 });
 
-test('hook generation locks action buttons but keeps caption editing available', async ({ page }) => {
+test('hook generation greys out every other section but keeps its own card live', async ({ page }) => {
   await runFullUpload(page);
   await page.unroute(`${API_BASE}/generate-hook-poll/**`);
   await delayedFulfill(page, `${API_BASE}/generate-hook-poll/**`,
@@ -42,13 +42,15 @@ test('hook generation locks action buttons but keeps caption editing available',
 
   await page.click('#generateHookBtn');
 
-  // In flight: run/burn disabled…
+  // In flight: run/burn disabled, all other sections greyed out…
   await expect(page.locator('#runBtn')).toBeDisabled();
-  // …but the caption editor card is NOT greyed out (buttons-only lock)
-  await expect(page.locator('#captionEditorCard')).not.toHaveClass(/action-locked/);
-  await expect(page.locator('.caption-input').first()).toBeEnabled();
+  await expect(page.locator('#captionEditorCard')).toHaveClass(/action-locked/);
+  await expect(page.locator('#optionsCard')).toHaveClass(/action-locked/);
+  // …but the hook card itself stays interactive
+  await expect(page.locator('#hookCard')).not.toHaveClass(/action-locked/);
 
   await expect(page.locator('#runBtn')).toBeEnabled({ timeout: 10_000 });
+  await expect(page.locator('#captionEditorCard')).not.toHaveClass(/action-locked/);
 });
 
 test('schedule card is usable while the device download is in flight', async ({ page }) => {
@@ -70,9 +72,11 @@ test('schedule card is usable while the device download is in flight', async ({ 
   // Burn done, download still running: schedule card visible AND unlocked
   await expect(page.locator('#scheduleCard')).toBeVisible({ timeout: 10_000 });
   await expect(page.locator('#scheduleCard')).not.toHaveClass(/action-locked/);
-  // …while burn itself stays held until the download settles
+  // …while burn stays held and the other sections stay greyed until it settles
   await expect(page.locator('#runBtn')).toBeDisabled();
+  await expect(page.locator('#optionsCard')).toHaveClass(/action-locked/);
   await expect(page.locator('#runBtn')).toBeEnabled({ timeout: 15_000 });
+  await expect(page.locator('#optionsCard')).not.toHaveClass(/action-locked/);
 });
 
 test('lock releases after a failed operation', async ({ page }) => {
