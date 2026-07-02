@@ -127,3 +127,22 @@ test('enhance video selector defaults to off and rides the process params', asyn
   await page.click('#runBtn');
   await expect.poll(() => spawnUrl, { timeout: 10_000 }).toContain('enhance_video=esrgan');
 });
+
+test('time estimate shows for a real video and grows with AI upscale', async ({ page }) => {
+  const { TINY_MP4_15S } = require('./fixtures');
+  await mockAllApis(page);
+  await page.setInputFiles('#fileInput', { name: 'real.mp4', mimeType: 'video/mp4', buffer: TINY_MP4_15S });
+
+  const est = page.locator('#timeEstimateText');
+  await expect(page.locator('#timeEstimate')).toBeVisible({ timeout: 10_000 });
+  await expect(est).toHaveText(/^Estimated \d+–\d+ min$/);
+  const base = (await est.textContent()).match(/(\d+)–(\d+)/).slice(1, 3).map(Number);
+
+  await page.click('label[for="ev_esrgan"]');
+  const ai = (await est.textContent()).match(/(\d+)–(\d+)/).slice(1, 3).map(Number);
+  expect(ai[0]).toBeGreaterThan(base[0]);   // 15s @ esrgan adds ~4-8 min
+  expect(ai[1]).toBeGreaterThan(base[1]);
+
+  await page.click('label[for="ev_none"]');
+  await expect(est).toHaveText(`Estimated ${base[0]}–${base[1]} min`);
+});

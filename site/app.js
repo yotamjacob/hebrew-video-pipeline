@@ -453,6 +453,8 @@
       showWarnNotice('Long video', `${formatDuration(videoDuration)} — processing will take a few minutes. Keep the page open.`);
     }
 
+    updateTimeEstimate();
+
     checkNetwork();
 
     // Fire-and-forget GPU warmup so the container is ready by the time the user clicks Run
@@ -462,6 +464,7 @@
   clearFile.addEventListener('click', () => {
     if (!confirm('Remove the attached video?')) return;
     selectedFile = null; videoDuration = null;
+    document.getElementById('timeEstimate').style.display = 'none';
     fileInput.value = '';
     fileInfo.classList.remove('visible');
     clearNotices();
@@ -497,7 +500,7 @@
                       && _enhanceVideoMode() === 'none';
   }
   ['cutSilences', 'burnCaptions', 'enhanceAudio', 'suggestBrolls'].forEach(id => {
-    document.getElementById(id)?.addEventListener('change', () => { checkToolsEnabled(); });
+    document.getElementById(id)?.addEventListener('change', () => { checkToolsEnabled(); updateTimeEstimate(); });
   });
   const aggrVal = document.getElementById('aggrVal');
   aggrSlider.addEventListener('input', () => {
@@ -513,6 +516,32 @@
   document.getElementById('cutSilences').addEventListener('change', updateAggrVisibility);
   updateAggrVisibility();
 
+  // Pre-run estimate, calibrated on the L4 (2026-07 measurements):
+  // Whisper turbo ≈10× realtime, DeepFilterNet ≈2-4× realtime, render ≈4× realtime,
+  // ESRGAN ≈0.5 s/frame → 15 s (30fps) to 30 s (60fps) per second of video.
+  // Fixed overhead spans warm vs cold GPU container. Shown as a labelled range;
+  // the progress card still reports only real measured times.
+  function estimatedTime(secs) {
+    const useEnhance    = document.getElementById('enhanceAudio').checked;
+    const useTranscribe = document.getElementById('cutSilences').checked || document.getElementById('burnCaptions').checked;
+    const evMode        = _enhanceVideoMode();
+    let lo = 30, hi = 75;
+    if (useEnhance)    { lo += secs * 0.4;  hi += secs * 0.8; }
+    if (useTranscribe) { lo += secs * 0.25; hi += secs * 0.5; }
+    if (evMode === 'filters' && !useTranscribe) { lo += secs * 0.1; hi += secs * 0.3; }
+    if (evMode === 'esrgan')  { lo += secs * 15; hi += secs * 30; }
+    const lom = Math.max(1, Math.floor(lo / 60));
+    const him = Math.max(lom + 1, Math.ceil(hi / 60));
+    return `Estimated ${lom}–${him} min`;
+  }
+
+  function updateTimeEstimate() {
+    const box = document.getElementById('timeEstimate');
+    if (!videoDuration || !selectedFile) { box.style.display = 'none'; return; }
+    document.getElementById('timeEstimateText').textContent = estimatedTime(videoDuration);
+    box.style.display = 'flex';
+  }
+
   function _enhanceVideoMode() {
     return document.querySelector('input[name="enhanceVideo"]:checked')?.value || 'none';
   }
@@ -526,6 +555,7 @@
     r.addEventListener('change', () => {
       document.getElementById('enhanceVideoDesc').textContent = _EV_DESCS[_enhanceVideoMode()];
       checkToolsEnabled();
+      updateTimeEstimate();
     }));
 
   // ── Run ──
