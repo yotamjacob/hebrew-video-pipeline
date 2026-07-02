@@ -257,7 +257,7 @@ def merge_restored(segs, restored):
 # Core processing — GPU worker
 # ---------------------------------------------------------------------------
 @app.function(
-    gpu="T4",
+    gpu="L4",
     timeout=900,
     volumes={MODEL_DIR: model_volume, TMP_DIR: tmp_vol},
     memory=4096,

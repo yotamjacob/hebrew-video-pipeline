@@ -65,6 +65,19 @@ burn_image = (
     )
 )
 
+# Lightweight image for Claude-API workers (hooks, captions, stock B-roll) and the
+# ASGI router — ffmpeg for frame sampling/thumbnails + HTTP clients, no ML packages.
+# Cold-starts in seconds vs minutes for the full ML image.
+light_image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .apt_install("ffmpeg")
+    .pip_install("requests", "anthropic>=0.40.0", "fastapi", "python-multipart")
+    .add_local_python_source(
+        "pipeline_core", "pipeline_fns", "stock_helpers",
+        "broll_fns", "content_fns", "metricool_fns",
+    )
+)
+
 app = modal.App("hebrew-video-pipeline", image=image)
 
 model_volume = modal.Volume.from_name("heb-whisper-model", create_if_missing=True)
@@ -84,13 +97,12 @@ IMAGE_GENERATION_MODEL      = "gemini-3.1-flash-image-preview"
 VIDEO_GENERATION_MODEL      = "veo-3.0-generate-001"
 VIDEO_GENERATION_MODEL_FAST = "veo-3.0-fast-generate-001"
 
-SONNET_MODEL = "claude-sonnet-4-6"
+SONNET_MODEL = "claude-sonnet-5"
 HAIKU_MODEL  = "claude-haiku-4-5-20251001"
 OPUS_MODEL   = "claude-opus-4-7"
 
-# Scoring temperatures — explicit so they're not buried in call sites
+# Scoring temperatures (Haiku only — Sonnet 5 rejects sampling params)
 HAIKU_SCORING_TEMPERATURE  = 0.2   # consistent judgment across clips
-SONNET_MOMENT_TEMPERATURE  = 0.4   # editorial flexibility for moment selection
 HAIKU_SANITY_TEMPERATURE   = 0.1   # deterministic override decisions
 
 # Haiku scoring batch config

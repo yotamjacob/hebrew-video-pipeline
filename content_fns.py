@@ -5,6 +5,7 @@ Content-generation Modal functions: hook options and social caption options.
 import modal
 
 from pipeline_core import (
+    light_image,
     app, image, tmp_vol, TMP_DIR,
     SONNET_MODEL,
 )
@@ -15,7 +16,7 @@ from stock_helpers import sample_frames
 # ---------------------------------------------------------------------------
 
 @app.function(
-    image=image,
+    image=light_image,
     timeout=120,
     volumes={TMP_DIR: tmp_vol},
     secrets=[modal.Secret.from_name("anthropic-secret")],
@@ -62,7 +63,7 @@ def generate_hook_options(captions_json: str, video_key: str = "") -> dict:
     )})
 
     resp = client.messages.create(
-        model=SONNET_MODEL, max_tokens=512, temperature=0.8,
+        model=SONNET_MODEL, max_tokens=800, thinking={"type": "disabled"},
         messages=[{"role": "user", "content": content}],
     )
     raw = resp.content[0].text.strip()
@@ -86,7 +87,7 @@ def generate_hook_options(captions_json: str, video_key: str = "") -> dict:
 # ---------------------------------------------------------------------------
 
 @app.function(
-    image=image,
+    image=light_image,
     timeout=120,
     volumes={TMP_DIR: tmp_vol},
     secrets=[modal.Secret.from_name("anthropic-secret")],
@@ -132,7 +133,7 @@ def generate_caption_options(captions_json: str, video_key: str = "", platforms:
     )})
 
     resp = client.messages.create(
-        model=SONNET_MODEL, max_tokens=700, temperature=0.8,
+        model=SONNET_MODEL, max_tokens=1000, thinking={"type": "disabled"},
         messages=[{"role": "user", "content": content}],
     )
     raw = resp.content[0].text.strip()

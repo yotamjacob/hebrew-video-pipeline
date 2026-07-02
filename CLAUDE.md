@@ -29,7 +29,9 @@
 
 **Token tip:** read only the module you're changing. Backend modules import shared
 names from `pipeline_core`; new backend files must be added to
-`add_local_python_source(...)` on **both** images in `pipeline_core.py`.
+`add_local_python_source(...)` on **all three** images in `pipeline_core.py`
+(`image` = full ML, `burn_image` = ffmpeg+fonts, `light_image` = ffmpeg+anthropic
+for hooks/captions/stock B-roll and the `api()` router — boots in seconds).
 
 ## Pipeline Steps (both CLI and Modal share this logic)
 
@@ -89,7 +91,7 @@ npx vercel deploy --prod
 
 **Caption timestamp remapping** — ASS cues are generated assuming the full uncut timeline, then shifted by the accumulated duration of preceding cut-out segments. This must stay in sync with the ffmpeg trim list.
 
-**Modal warmup pattern** — `GET /warmup` fires `process_video` with `filename="__warmup__"` asynchronously to pre-warm the T4 container. The real `/process` endpoint benefits on the next call.
+**Modal warmup pattern** — `GET /warmup` fires `process_video` with `filename="__warmup__"` asynchronously to pre-warm the L4 GPU container. The real `/process` endpoint benefits on the next call.
 
 **Whisper model cache** — first run downloads ~1.5 GB to the local faster-whisper cache; Modal uses a persistent volume so it survives redeployments.
 
@@ -97,7 +99,11 @@ npx vercel deploy --prod
 
 **Font size auto-scaling** — the pipeline reads video resolution and adjusts `--font-size` and `--margin-v` proportionally so captions look consistent across 1080p and 4K.
 
-**Prompt caching** — the Sonnet moment-selection system prompt is marked `cache_control: ephemeral`. The ~900-token stable prefix is cached; only the transcript (user message) changes per call. ~50 % cost reduction after first call in a warm container period.
+**Prompt caching** — the Sonnet moment-selection system prompt is marked `cache_control: ephemeral`. The ~5-6k-token stable prefix is cached (comfortably above the model's minimum cacheable size); only the transcript (user message) changes per call.
+
+**Sonnet 5 API constraints** — `temperature`/`top_p`/`top_k` are REJECTED (400) on `claude-sonnet-5`; all Sonnet call sites pass `thinking={"type": "disabled"}` instead (omitting `thinking` would run adaptive thinking, eating into `max_tokens`). Variety in hooks/captions comes from prompting, not temperature.
+
+**`_process_moment` is a plain function by design** — it runs in a ThreadPoolExecutor inside `analyze_stock_broll`'s container. Do NOT add `@app.function` to it: Modal Function objects are not directly callable, which silently broke all stock B-roll clip fetching until 2026-07-02.
 
 **Stock search two-prompt split** — `broad_search_prompt` is sent to Pexels/Pixabay (optimized for recall); `strict_eval_prompt` is sent to Haiku vision scoring only (optimized for precision). Never swap them — the stock libraries can't handle the strict prompt and return zero results.
 
@@ -116,9 +122,9 @@ npx vercel deploy --prod
 Defined at the top of `pipeline_core.py` — change and redeploy, no other edits needed:
 
 ```python
-SONNET_MODEL = "claude-sonnet-4-6"           # moment selection (analyze_stock_broll)
+SONNET_MODEL = "claude-sonnet-5"             # moment selection, hooks, captions, video context
 HAIKU_MODEL  = "claude-haiku-4-5-20251001"   # clip scoring (_score_clips)
-OPUS_MODEL   = "claude-opus-4-7"             # Veo B-roll analysis (rarely used)
+OPUS_MODEL   = "claude-opus-4-7"             # Veo B-roll analysis (dead code — VEO disabled)
 
 TRANSCRIPT_ANALYSIS_MODEL = "gemini-2.5-flash"
 VIDEO_GENERATION_MODEL    = "veo-3.0-generate-001"

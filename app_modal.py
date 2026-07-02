@@ -16,6 +16,7 @@ This module holds only the ASGI router (api). The pipeline itself lives in:
 import modal
 
 from pipeline_core import (
+    light_image,
     jobs_store,
     app, image, tmp_vol, TMP_DIR,
     _SAFE_KEY_RE, _SAFE_DOWNLOAD_KEY_RE, _check_rate_limit, _get_client_ip,
@@ -38,7 +39,7 @@ from metricool_fns import (
 #   Body: raw video bytes
 #   Returns: processed video bytes (video/mp4)
 # ---------------------------------------------------------------------------
-@app.function(image=image, timeout=900, volumes={TMP_DIR: tmp_vol})
+@app.function(image=light_image, timeout=900, volumes={TMP_DIR: tmp_vol})
 @modal.concurrent(max_inputs=20)
 @modal.asgi_app()
 def api():

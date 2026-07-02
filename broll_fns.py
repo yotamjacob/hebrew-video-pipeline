@@ -6,9 +6,10 @@ stock B-roll moment selection and search.
 import modal
 
 from pipeline_core import (
+    light_image,
     app, image, tmp_vol, TMP_DIR,
     TRANSCRIPT_ANALYSIS_MODEL, VIDEO_GENERATION_MODEL, SONNET_MODEL, OPUS_MODEL,
-    SONNET_MOMENT_TEMPERATURE, _sanitize_transcript,
+    _sanitize_transcript,
 )
 from stock_helpers import (
     fetch_pexels, fetch_pixabay, sample_frames, extract_disqualify_clause,
@@ -425,8 +426,8 @@ def _get_video_context(video_path: str, transcript: str, client) -> dict:
     try:
         resp = client.messages.create(
             model=SONNET_MODEL,
-            max_tokens=1024,
-            temperature=0.3,
+            max_tokens=1400,
+            thinking={"type": "disabled"},
             messages=[{"role": "user", "content": content}],
         )
         raw = resp.content[0].text.strip()
@@ -450,16 +451,6 @@ def _get_video_context(video_path: str, transcript: str, client) -> dict:
 # ---------------------------------------------------------------------------
 # Stock B-roll analysis — finds moments in transcript + searches Pexels/Pixabay
 # ---------------------------------------------------------------------------
-@app.function(
-    image=image,
-    timeout=600,
-    volumes={TMP_DIR: tmp_vol},
-    secrets=[
-        modal.Secret.from_name("anthropic-secret"),
-        modal.Secret.from_name("pexels-secret"),
-        modal.Secret.from_name("pixabay-secret"),
-    ],
-)
 def _process_moment(m: dict, pexels_key: str, pixabay_key: str, client,
                     video_context: dict, max_candidates: int = 40) -> None:
     """Search stock libraries + score clips for one B-roll moment. Mutates m in place.
@@ -536,7 +527,7 @@ def _process_moment(m: dict, pexels_key: str, pixabay_key: str, client,
 
 
 @app.function(
-    image=image,
+    image=light_image,
     timeout=600,
     volumes={TMP_DIR: tmp_vol},
     secrets=[
@@ -759,13 +750,11 @@ def analyze_stock_broll(captions_json: str, video_key: str = "") -> list:
                 "   - complex (abstract or multi-element: cityscape, conceptual scene): 4–5 seconds\n\n"
                 "d) RESOLVE CONFLICTS. If speech window is 6s but subject is simple, cap at 3s. If speech is 1.5s but subject is complex, extend to 2s minimum.\n\n"
                 "e) NEVER CUT MID-WORD. broll_end_seconds must fall on a word boundary — use the end timestamp of the last word in the key phrase, or the start of the next phrase (= silence gap).\n\n"
-                "Write duration_reasoning as: '{speech_duration}s speech window, therefore {broll_duration}s B-roll ending at {natural pause type}.'\n\n"
 
                 "Examples:\n\n"
                 "Moment: \"כל בוקר אני קם וצוחצח שיניים לפני הכל\" (CONCRETE — first-person morning action, 2.5s at 0:18.0–0:20.5)\n"
                 "  moment_type: \"concrete\", intensity_score: 5, intensity_markers: []\n"
                 "  broll_start_seconds: 18.0, broll_end_seconds: 20.5, broll_duration_seconds: 2.5\n"
-                "  duration_reasoning: \"2.5s speech window, therefore 2.5s B-roll — simple single action, ending at sentence-end pause.\"\n"
                 "  key_insight: \"speaker brushes teeth every morning as the first thing they do\"\n"
                 "  visual_anchor: \"person brushing teeth in bathroom\"\n"
                 "  search_variants: [\"person brushing teeth bathroom\", \"morning routine teeth brushing\", \"toothbrush close-up dental hygiene\"]\n"
@@ -774,7 +763,6 @@ def analyze_stock_broll(captions_json: str, video_key: str = "") -> list:
                 "Moment: \"yoga corrections should be gentle, loose contact if at all\" (CONCRETE, 3.2s at 1:14.5–1:17.7)\n"
                 "  moment_type: \"concrete\", intensity_score: 6, intensity_markers: []\n"
                 "  broll_start_seconds: 74.5, broll_end_seconds: 77.7, broll_duration_seconds: 3.2\n"
-                "  duration_reasoning: \"3.2s speech window, therefore 3.2s B-roll ending at sentence-end pause.\"\n"
                 "  key_insight: \"yoga corrections should use minimal or no physical contact — verbal guidance only\"\n"
                 "  search_variants: [\"yoga instructor student teaching\", \"yoga teacher demonstrating pose\", \"yoga class verbal instruction\"]\n"
                 "  strict_eval_prompt: \"yoga instructor teaching student with minimal or no physical contact, verbal guidance or hand-hovering only. DISQUALIFY: hands-on adjustments, physical corrections, instructor touching student.\"\n"
@@ -783,7 +771,6 @@ def analyze_stock_broll(captions_json: str, video_key: str = "") -> list:
                 "Moment: \"most founders burn out by year two\" (HYBRID, 2.1s at 0:45.0–0:47.1)\n"
                 "  moment_type: \"hybrid\", intensity_score: 8, intensity_markers: [\"burn out\"]\n"
                 "  broll_start_seconds: 45.0, broll_end_seconds: 47.1, broll_duration_seconds: 2.1\n"
-                "  duration_reasoning: \"2.1s speech window, therefore 2.1s B-roll ending at sentence boundary.\"\n"
                 "  key_insight: \"most founders burn out before achieving profitability\"\n"
                 "  search_variants: [\"tired entrepreneur office late night\", \"founder slumped desk dim light\", \"empty startup office after hours\", \"exhausted professional head in hands\"]\n"
                 "  strict_eval_prompt: \"exhausted or defeated-looking founder at desk showing professional burnout — slumped posture, dim or empty environment, end-of-day isolation. DISQUALIFY: energetic, productive, or celebratory work imagery; person looks focused, content, or active.\"\n"
@@ -792,7 +779,6 @@ def analyze_stock_broll(captions_json: str, video_key: str = "") -> list:
                 "Moment: \"המורה שלי תמיד עזרה לי להתיישב בצורה נכונה, לגעת קלות פה ושם\" (HYBRID — yoga instructor gentle correction, 3.1s at 1:22.4–1:25.5)\n"
                 "  moment_type: \"hybrid\", intensity_score: 6, intensity_markers: []\n"
                 "  broll_start_seconds: 82.4, broll_end_seconds: 85.5, broll_duration_seconds: 3.1\n"
-                "  duration_reasoning: \"3.1s speech window, therefore 3.1s B-roll ending at clause-end pause.\"\n"
                 "  key_insight: \"the yoga instructor used light touch to guide alignment, not control\"\n"
                 "  search_variants: [\"yoga instructor gentle touch student\", \"yoga teacher guiding student correction\", \"yoga studio instructor adjustment\", \"yoga class instructor student hands\"]\n"
                 "  strict_eval_prompt: \"yoga instructor providing light hands-on alignment correction to student in teaching context. DISQUALIFY: holding hands romantically or casually, parent-child contact, friends embracing, any gentle physical contact outside a yoga or coaching context.\"\n"
@@ -801,7 +787,6 @@ def analyze_stock_broll(captions_json: str, video_key: str = "") -> list:
                 "Moment: \"וכל הזמן הרגשתי כאילו לא מצליחה להבין\" (EMOTIONAL — feeling blocked/failing, 3.5s at 2:15.0–2:18.5)\n"
                 "  moment_type: \"emotional\", intensity_score: 8, intensity_markers: [\"הרגשתי\", \"לא מצליחה\"]\n"
                 "  broll_start_seconds: 135.0, broll_end_seconds: 138.5, broll_duration_seconds: 3.5\n"
-                "  duration_reasoning: \"3.5s speech window, therefore 3.5s B-roll ending at sentence-end pause.\"\n"
                 "  key_insight: \"feeling perpetually blocked and unable to understand — a state of persistent confusion\"\n"
                 "  search_variants: [\"pensive person face close-up\", \"frustrated woman looking down\", \"closed door narrow corridor\", \"fog covering path view\"]\n"
                 "  strict_eval_prompt: \"person with frustrated or blocked expression — introspective, searching, unable to find words. DISQUALIFY: happy, relaxed, confident, or productive-looking person.\"\n"
@@ -814,11 +799,10 @@ def analyze_stock_broll(captions_json: str, video_key: str = "") -> list:
                 "- \"broll_start_seconds\": when the B-roll starts — use the start timestamp of the phrase introducing the insight (number, from transcript)\n"
                 "- \"broll_end_seconds\": per DURATION RULES above, 2–5s after broll_start_seconds (number)\n"
                 "- \"broll_duration_seconds\": = broll_end_seconds - broll_start_seconds (number)\n"
-                "- \"duration_reasoning\": one sentence: '{speech_duration}s speech window, therefore {broll_duration}s B-roll ending at {natural pause type}.'\n"
                 "- \"transcript_excerpt\": the Hebrew text of the moment copied verbatim from the transcript above\n"
                 "- \"key_insight\": the specific non-obvious claim or concrete subject being described, in English, one sentence\n"
                 "- \"visual_anchor\": for concrete moments — the most searchable scene/object; for emotional moments — the symbolic B-roll convention being targeted (in English)\n"
-                "- \"reasoning\": 1-2 sentences in Hebrew on why this moment deserves B-roll\n"
+                "- \"reasoning\": one short sentence in Hebrew (max 15 words) on why this moment deserves B-roll\n"
                 "- \"search_variants\": array of 2-5 conceptually distinct stock-search queries (2-5 words each) — see guidance above\n"
                 "- \"strict_eval_prompt\": full sentence with DISQUALIFY clause for scoring (see above)\n"
                 "- \"confidence\": \"high\" | \"medium\" | \"low\" — based on intensity_score rules above\n\n"
@@ -831,8 +815,8 @@ def analyze_stock_broll(captions_json: str, video_key: str = "") -> list:
     def _call_sonnet_for_moments():
         r = client.messages.create(
             model=SONNET_MODEL,
-            max_tokens=4096,
-            temperature=SONNET_MOMENT_TEMPERATURE,
+            max_tokens=5000,
+            thinking={"type": "disabled"},
             system=system_content,
             messages=[{
                 "role": "user",
@@ -1129,7 +1113,7 @@ def analyze_stock_broll(captions_json: str, video_key: str = "") -> list:
 
 
 @app.function(
-    image=image,
+    image=light_image,
     timeout=120,
     secrets=[
         modal.Secret.from_name("anthropic-secret"),
