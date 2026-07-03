@@ -51,7 +51,7 @@ async function withFakeVideoDimensions(page, { videoHeight = 1920, videoWidth = 
   }
 }
 
-/** Call updatePreviewCaption() — it reads captionFontSize from its own closure. */
+/** Call updatePreviewCaption() - it reads captionFontSize from its own closure. */
 async function triggerPreview(page) {
   await page.evaluate(() => {
     if (typeof window.updatePreviewCaption === 'function') window.updatePreviewCaption();
@@ -105,32 +105,32 @@ async function checkPreviewFormula(page, { fontSizeSlider, videoWidth = 1080 }) 
   });
 
   const expected = Math.max(7, fontSizeSlider * clientW / videoWidth);
-  // No rounding in new formula — allow ±0.5px for float/subpixel rendering
+  // No rounding in new formula - allow ±0.5px for float/subpixel rendering
   expect(Math.abs(cssPx - expected)).toBeLessThanOrEqual(0.5);
 }
 
-test('preview font-size matches formula — font_size 48, 1920p', async ({ page }) => {
+test('preview font-size matches formula - font_size 48, 1920p', async ({ page }) => {
   await runFullUpload(page);
   await withFakeVideoDimensions(page, { videoHeight: 1920, videoWidth: 1080 }, () =>
     checkPreviewFormula(page, { fontSizeSlider: 48, videoWidth: 1080 })
   );
 });
 
-test('preview font-size matches formula — font_size 64, 1920p', async ({ page }) => {
+test('preview font-size matches formula - font_size 64, 1920p', async ({ page }) => {
   await runFullUpload(page);
   await withFakeVideoDimensions(page, { videoHeight: 1920, videoWidth: 1080 }, () =>
     checkPreviewFormula(page, { fontSizeSlider: 64, videoWidth: 1080 })
   );
 });
 
-test('preview font-size matches formula — font_size 80, 1920p', async ({ page }) => {
+test('preview font-size matches formula - font_size 80, 1920p', async ({ page }) => {
   await runFullUpload(page);
   await withFakeVideoDimensions(page, { videoHeight: 1920, videoWidth: 1080 }, () =>
     checkPreviewFormula(page, { fontSizeSlider: 80, videoWidth: 1080 })
   );
 });
 
-test('preview font-size matches formula — font_size 48, 1080p landscape', async ({ page }) => {
+test('preview font-size matches formula - font_size 48, 1080p landscape', async ({ page }) => {
   await runFullUpload(page);
   await withFakeVideoDimensions(page, { videoHeight: 1080, videoWidth: 1920 }, () =>
     checkPreviewFormula(page, { fontSizeSlider: 48, videoWidth: 1920 })

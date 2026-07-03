@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Swiftcut — Hebrew Social Video Studio</title>
+  <title>Swiftcut - Hebrew Social Video Studio</title>
   <link rel="icon" type="image/svg+xml" href="img/logo.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -14,7 +14,7 @@
 <body>
 
 <div id="reconnectBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:#4C1D95;color:#fff;padding:12px 20px;display:none;align-items:center;gap:12px;font-size:0.9rem;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,0.3)">
-  <span style="flex:1" data-i18n="reconnect.msg">A previous job is still running — tap to reconnect and get your result.</span>
+  <span style="flex:1" data-i18n="reconnect.msg">A previous job is still running - tap to reconnect and get your result.</span>
   <button onclick="resumeSavedJob()" style="background:#7C3AED;border:none;color:#fff;border-radius:8px;padding:8px 16px;font-size:0.85rem;font-weight:700;cursor:pointer" data-i18n="reconnect.resume">Resume</button>
   <button onclick="clearSavedJob();document.getElementById('reconnectBanner').style.display='none'" style="background:none;border:1.5px solid rgba(255,255,255,0.4);color:#fff;border-radius:8px;padding:8px 12px;font-size:0.85rem;cursor:pointer" data-i18n="reconnect.dismiss">Dismiss</button>
 </div>
@@ -49,7 +49,7 @@
 <div class="tabs" role="tablist" id="tabsBar" style="display:none">
   <button class="tab active" id="tabPipeline" role="tab" aria-selected="true" onclick="switchTab('pipeline')" data-i18n="tab.create">🎬 Create</button>
   <button class="tab" id="tabHistory" role="tab" aria-selected="false" onclick="switchTab('history')" data-i18n="tab.history">🗂️ History</button>
-  <!-- Yogalina-era Metricool stats tab — hidden for the generic release; see DESIGN_LEGACY.md -->
+  <!-- Yogalina-era Metricool stats tab - hidden for the generic release; see DESIGN_LEGACY.md -->
   <button class="tab" id="tabStats" role="tab" aria-selected="false" onclick="switchTab('stats')" style="display:none" data-i18n="tab.stats">📊 Statistics</button>
   <button class="tab" id="logoutTab" onclick="logout()" title="Sign out" data-i18n="tab.logout">🚪 Logout</button>
 </div>
@@ -158,7 +158,7 @@
           <input type="range" id="aggrSlider" min="1" max="5" step="1" value="4" />
           <span class="aggr-end" data-i18n="opt.aggr.aggressive">Aggressive</span>
         </div>
-        <div class="slider-desc" id="aggrDesc" data-i18n="aggr.4">Aggressive — cuts pauses over 0.3 s</div>
+        <div class="slider-desc" id="aggrDesc" data-i18n="aggr.4">Aggressive - cuts pauses over 0.3 s</div>
       </div>
     </div>
 
@@ -196,7 +196,7 @@
       <div class="option-icon">✨</div>
       <div class="option-text">
         <div class="option-label" data-i18n="opt.video.label">Enhance video</div>
-        <div class="option-desc" id="enhanceVideoDesc" data-i18n="ev.desc.none">Off — video is untouched</div>
+        <div class="option-desc" id="enhanceVideoDesc" data-i18n="ev.desc.none">Off - video is untouched</div>
       </div>
     </div>
     <div class="enhance-panel">
@@ -214,7 +214,7 @@
       <div class="option-icon">🎬</div>
       <div class="option-text">
         <div class="option-label" data-i18n="opt.broll.label">Suggest B-rolls (Veo)</div>
-        <div class="option-desc" data-i18n="opt.broll.desc">AI generates video B-rolls with Veo — coming soon</div>
+        <div class="option-desc" data-i18n="opt.broll.desc">AI generates video B-rolls with Veo - coming soon</div>
       </div>
       <div class="toggle-wrap">
         <label class="toggle">
@@ -226,11 +226,11 @@
     </div>
     <div id="geminiKeyRow" class="gemini-key-row" style="display:none">
       <input type="password" id="geminiKey" class="gemini-key-input"
-             placeholder="Gemini API key — get one free at ai.google.dev" data-i18n-placeholder="opt.geminiKey" autocomplete="off" />
+             placeholder="Gemini API key - get one free at ai.google.dev" data-i18n-placeholder="opt.geminiKey" autocomplete="off" />
     </div>
     <div id="anthropicKeyRow" class="gemini-key-row" style="display:none">
       <input type="password" id="anthropicKey" class="gemini-key-input"
-             placeholder="Anthropic API key (optional) — for smarter B-roll descriptions" data-i18n-placeholder="opt.anthropicKey" autocomplete="off" />
+             placeholder="Anthropic API key (optional) - for smarter B-roll descriptions" data-i18n-placeholder="opt.anthropicKey" autocomplete="off" />
     </div>
     <div id="brollAspectRow" style="display:none; margin-top:8px;">
       <div style="font-size:0.72rem;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--purple-400);margin-bottom:6px;" data-i18n="opt.brollAspect">B-roll aspect ratio</div>
@@ -252,7 +252,7 @@
     </div>
   </div>
 
-  <!-- Caption editor — shown after /process when burn_captions is on -->
+  <!-- Caption editor - shown after /process when burn_captions is on -->
   <div class="card" id="captionEditorCard" style="display:none">
     <div class="card-header" onclick="toggleCard('captionBody', this)">
       <p class="options-title" data-i18n="capedit.title">✏️ Edit Captions</p>
@@ -317,7 +317,7 @@
     </div>
   </div>
 
-  <!-- B-roll suggestions — shown after caption editor when toggle is on -->
+  <!-- B-roll suggestions - shown after caption editor when toggle is on -->
   <div class="card" id="brollCard" style="display:none">
     <div class="card-header" onclick="toggleCard('brollBody', this)">
       <p class="options-title" data-i18n="broll.title">🎥 B-roll Suggestions</p>
@@ -332,7 +332,7 @@
     </div>
   </div>
 
-  <!-- Stock B-roll suggestions — shown after processing when toggle is on -->
+  <!-- Stock B-roll suggestions - shown after processing when toggle is on -->
   <div class="card" id="stockBrollCard" style="display:none">
     <div class="card-header" onclick="toggleCard('stockBrollBody', this)">
       <p class="options-title" data-i18n="stock.title">🎞️ Stock B-Roll Suggestions</p>
@@ -341,7 +341,7 @@
     <div id="stockBrollBody" style="padding-top:16px">
       <button id="findBrollBtn" class="action-btn" style="margin-bottom:12px" data-i18n="stock.find">🎬 Find B-Roll Moments</button>
       <div id="stockBrollRerunBanner" style="display:none;margin-bottom:12px;padding:10px 14px;background:#FFF7ED;border:1.5px solid #FDE68A;border-radius:12px;font-size:0.82rem;color:#92400E;display:none;align-items:center;gap:10px">
-        <span style="flex:1" data-i18n="stock.rerunMsg">Captions changed since last analysis — re-run to update B-roll suggestions.</span>
+        <span style="flex:1" data-i18n="stock.rerunMsg">Captions changed since last analysis - re-run to update B-roll suggestions.</span>
         <button onclick="triggerStockBroll()" style="padding:5px 12px;border-radius:8px;border:1.5px solid #D97706;background:none;color:#B45309;font-size:0.8rem;font-weight:600;cursor:pointer;white-space:nowrap" data-i18n="stock.rerun">Re-run</button>
       </div>
       <div id="stockBrollStatus" class="broll-status" style="display:none">
@@ -483,7 +483,7 @@
       <div class="option-icon">🚀</div>
       <div class="option-text">
         <div class="option-label" data-i18n="sched.autoPublish">Auto-publish</div>
-        <div class="option-desc" id="autoPublishDesc" data-i18n="sched.apOff">Off — post waits in Metricool for your approval</div>
+        <div class="option-desc" id="autoPublishDesc" data-i18n="sched.apOff">Off - post waits in Metricool for your approval</div>
       </div>
       <div class="toggle-wrap">
         <label class="toggle">
@@ -514,7 +514,7 @@
     <div id="schedConnect" style="display:none;margin-top:16px">
       <p class="sched-connect-note" data-i18n="sched.connectNote">🔗 Connect your Metricool account once to schedule straight from here.</p>
       <button class="run-btn" onclick="connectMetricool()" data-i18n="sched.connect">Connect Metricool</button>
-      <button class="action-btn" style="margin-top:8px" onclick="checkMetricoolStatus()" data-i18n="sched.checkAgain">I've connected — check again</button>
+      <button class="action-btn" style="margin-top:8px" onclick="checkMetricoolStatus()" data-i18n="sched.checkAgain">I've connected - check again</button>
     </div>
     <button id="scheduleBtn" class="run-btn" onclick="scheduleNow()" style="display:none;margin-top:16px" data-i18n="sched.schedule">🚀&nbsp; Schedule on Metricool</button>
     <div id="schedStatus" class="sched-status" style="display:none"></div>
@@ -634,7 +634,7 @@
     <div id="historyBody" style="padding-top:14px">
     <p class="history-note" data-i18n="hist.note">Finished videos are kept for 30 days, then deleted automatically.</p>
     <div id="historyLoading" class="history-loading" style="display:none" data-i18n="hist.loading">Loading…</div>
-    <div id="historyEmpty" class="history-empty" style="display:none" data-i18n="hist.empty">No videos yet — burn your first video and it will show up here.</div>
+    <div id="historyEmpty" class="history-empty" style="display:none" data-i18n="hist.empty">No videos yet - burn your first video and it will show up here.</div>
     <div id="historyList"></div>
     </div>
   </div>
@@ -653,7 +653,7 @@
       </div>
       <div class="stats-note">
         <span class="stats-note-icon">ℹ️</span>
-        <span>These numbers are a manual snapshot, current as of the date above. To refresh them, ask <b>Yotam</b> to run an update — or upgrade the Metricool plan to unlock automatic live stats.</span>
+        <span>These numbers are a manual snapshot, current as of the date above. To refresh them, ask <b>Yotam</b> to run an update - or upgrade the Metricool plan to unlock automatic live stats.</span>
       </div>
     </div>
 

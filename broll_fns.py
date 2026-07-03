@@ -140,11 +140,11 @@ def generate_broll_video(description: str, aspect_ratio: str, gemini_key: str) -
     except Exception as e:
         msg = str(e)
         if any(k in msg for k in ("401", "403", "PERMISSION_DENIED", "api_key")):
-            return {"video_error": "Invalid API key — check your Gemini API key."}
+            return {"video_error": "Invalid API key - check your Gemini API key."}
         if "not found" in msg.lower() or "not available" in msg.lower():
             return {"video_error": "Veo model not available on this API key."}
         if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
-            return {"video_error": "Rate limit hit — wait a minute and retry."}
+            return {"video_error": "Rate limit hit - wait a minute and retry."}
         return {"video_error": f"Video generation failed: {msg[:200]}"}
 
 
@@ -360,7 +360,7 @@ Return a JSON array only — no markdown, no explanation."""
                 elif "not found" in msg.lower() or "not available" in msg.lower():
                     s["video_error"] = "Veo model not available on this API key."
                 elif "429" in msg or "RESOURCE_EXHAUSTED" in msg:
-                    s["video_error"] = "Rate limit hit — wait a minute and retry."
+                    s["video_error"] = "Rate limit hit - wait a minute and retry."
                 else:
                     s["video_error"] = f"Video generation failed: {msg[:200]}"
                 s["video_key"] = None

@@ -15,7 +15,7 @@
     showAuthView();
   }
 
-  // All API calls go through here — attaches the bearer token, and drops the
+  // All API calls go through here - attaches the bearer token, and drops the
   // user back to the sign-in view when the session is missing/expired.
   async function apiFetch(url, opts = {}) {
     opts = Object.assign({}, opts);
@@ -174,7 +174,7 @@
 
   // ── Background-job persistence (survives tab close/reload on mobile) ──
   const JOB_KEY = 'hebpipe_job';
-  const JOB_TTL = 45 * 60 * 1000; // 45 min — Modal jobs expire after that
+  const JOB_TTL = 45 * 60 * 1000; // 45 min - Modal jobs expire after that
 
   function saveJob(type, callId, extra) {
     localStorage.setItem(JOB_KEY, JSON.stringify({ type, callId, ts: Date.now(), ...extra }));
@@ -249,7 +249,7 @@
         const burnResult = await pollForJSON(`${API_BASE}/burn_poll/${job.callId}/`, 600_000, job.callId);
         _stepDone('burn');
         clearSavedJob();
-        // Video is ready — reveal the schedule card immediately; the success
+        // Video is ready - reveal the schedule card immediately; the success
         // banner follows once the device download settles.
         checklistEl.style.display = 'none';
         window._schedCtx = {
@@ -475,7 +475,7 @@
     return new Promise(resolve => {
       const video = document.createElement('video');
       const url   = URL.createObjectURL(file);
-      // Detach src before revoking — Chrome keeps fetching the blob after
+      // Detach src before revoking - Chrome keeps fetching the blob after
       // loadedmetadata and logs ERR_FILE_NOT_FOUND if it's already revoked.
       const done = d => {
         video.removeAttribute('src');
@@ -596,7 +596,7 @@
 
       currentUploadKey = uploadKey;
 
-      // Phase 2: spawn processing job (tiny request — just params, no body)
+      // Phase 2: spawn processing job (tiny request - just params, no body)
       runStartTime = Date.now();
       showProcessing();
       params.set('key', uploadKey);
@@ -607,7 +607,7 @@
       }
       const { call_id } = await spawnResp.json();
 
-      // Poll until processing is done — returns JSON {captions, video_key}
+      // Poll until processing is done - returns JSON {captions, video_key}
       currentCallId = call_id;
       saveJob('process', call_id, { filename: selectedFile.name, key: uploadKey });
       const pollUrl = `${API_BASE}/process_poll/${call_id}/?key=${encodeURIComponent(uploadKey)}`;
@@ -625,7 +625,7 @@
         showCaptionEditor();
         startBrollAnalysis();
       } else {
-        // No captions, no B-roll — download directly
+        // No captions, no B-roll - download directly
         const dlResp = await apiFetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
         resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
         resultName = cutFilename;
@@ -636,7 +636,7 @@
       console.error('Process error:', err.message);
       clearSavedJob();
       if (!isRetry && err.message.includes('Network error')) {
-        // GPU warmup retry — keep checklist, just update upload step label
+        // GPU warmup retry - keep checklist, just update upload step label
         checkItems.upload.className = 'check-item done';
         _stepActivate('enhance');
         await new Promise(r => setTimeout(r, 8000));
@@ -764,23 +764,23 @@
             onProgress(bytesUploaded / file.size);
             return;
           }
-          // Hard client errors (not 408/429) — don't retry
+          // Hard client errors (not 408/429) - don't retry
           if (resp.status >= 400 && resp.status < 500 && resp.status !== 408 && resp.status !== 429) {
             const body = await resp.json().catch(() => ({}));
             throw new Error(body.error || t('err.chunk', {i: i, status: resp.status}));
           }
-          // 408, 429, 5xx — fall through to retry
+          // 408, 429, 5xx - fall through to retry
           if (attempt === MAX_ATTEMPTS - 1)
             throw new Error(t('err.chunkRetries', {i: i, n: MAX_ATTEMPTS, status: resp.status}));
         } catch (e) {
           // Re-throw terminal errors immediately
           if (e.message.startsWith('Upload failed') || attempt === MAX_ATTEMPTS - 1) throw e;
-          // Network error or CORS-blocked error response — retry
+          // Network error or CORS-blocked error response - retry
         }
       }
     }
 
-    // Sliding window — always keep UPLOAD_CONCURRENCY requests in-flight.
+    // Sliding window - always keep UPLOAD_CONCURRENCY requests in-flight.
     // Avoids the batch barrier where the slowest chunk of a batch of N
     // blocks all subsequent chunks from starting.
     let nextChunk = 0;
@@ -874,7 +874,7 @@
   }
 
   async function pollForJSON(pollUrl, timeoutMs = 900_000, callId = null, onProgress = null) {
-    pollUrl = _withToken(pollUrl);   // SW polls the same URL — token travels with it
+    pollUrl = _withToken(pollUrl);   // SW polls the same URL - token travels with it
     pollController = new AbortController();
     const signal = pollController.signal;
     const deadline = Date.now() + timeoutMs;
@@ -889,7 +889,7 @@
       currentPollInfo = { callId, pollUrl, deadline };
     }
 
-    // Page-side poll — calls _resolve/_reject directly, never leaves a dangling promise
+    // Page-side poll - calls _resolve/_reject directly, never leaves a dangling promise
     (async () => {
       let networkRetries = 0;
       const MAX_RETRIES = 3;
@@ -987,7 +987,7 @@
   function _stepActivate(name) {
     const item = checkItems[name];
     if (!item || item.classList.contains('done')) return;
-    if (item.classList.contains('active')) return;   // already running — keep its timer
+    if (item.classList.contains('active')) return;   // already running - keep its timer
     item.style.display = '';   // show row if it was hidden (e.g. burn starts hidden)
     item.className = 'check-item active';
     const timeEl = checkTimeEls[name];
@@ -1093,7 +1093,7 @@
     if (timeEl) { timeEl.textContent = formatTime(secs); stepEndSecs[name] = secs; }
   }
 
-  // Live progress from /process_poll: {stage, done:{step: secs}} — all real.
+  // Live progress from /process_poll: {stage, done:{step: secs}} - all real.
   function _applyProgress(progress) {
     if (!progress) return;
     Object.entries(progress.done || {}).forEach(([name, secs]) => {
@@ -1131,7 +1131,7 @@
     triggerDownload();
   }
 
-  // Cutting silences and captioning by hand runs ~6× realtime in an NLE —
+  // Cutting silences and captioning by hand runs ~6× realtime in an NLE -
   // surface that as the payoff stat next to the finished video.
   function _showTimeSaved() {
     const el = document.getElementById('doneSaved');
@@ -1282,7 +1282,7 @@
     return `${m}:${s}`;
   }
 
-  // ── Caption line-wrapping — mirrors Python _rewrap_cap (char_w = fontSize * 0.60) ──
+  // ── Caption line-wrapping - mirrors Python _rewrap_cap (char_w = fontSize * 0.60) ──
   function rewrapCaption(text, videoWidth, fontSize) {
     const words = text.replace(/\\N/g, ' ').split(' ').filter(w => w.length);
     if (!words.length) return text;
@@ -1307,7 +1307,7 @@
 
   // ── Caption preview & positioning ──
   function updatePreviewCaption() {
-    // Called by font/size/position sliders — refreshes player caption overlay immediately
+    // Called by font/size/position sliders - refreshes player caption overlay immediately
     const capEl = document.getElementById('playerCap');
     const vid   = document.getElementById('cutVideo');
     if (!capEl) return;
@@ -1343,7 +1343,7 @@
     const timeLbl  = document.getElementById('playerTimeLbl');
     if (!vid) return;
 
-    // Set source — video streams from the already-processed cut file on Modal
+    // Set source - video streams from the already-processed cut file on Modal
     vid.src = _withToken(`${API_BASE}/download/${videoKey}`);
     document.getElementById('captionPlayer').style.display = 'block';
 
@@ -1384,7 +1384,7 @@
       }
       timeLbl.textContent = fmtT(t) + ' / ' + fmtT(dur);
 
-      // Caption overlay — same font/position as the preview and the burned video
+      // Caption overlay - same font/position as the preview and the burned video
       const cap = captionsData.find(c => t >= c.start && t <= c.end + 0.05);
       capEl.textContent = cap ? rewrapCaption(cap.text, vid.videoWidth || 1080, captionFontSize) : '';
       if (cap) {
@@ -1398,7 +1398,7 @@
         }
       }
 
-      // Highlight active row — reads timestamps from DOM so it stays correct after edits
+      // Highlight active row - reads timestamps from DOM so it stays correct after edits
       document.querySelectorAll('.caption-row').forEach(row => {
         const rs = parseFloat(row.querySelector('.caption-start')?.value) || 0;
         const re = parseFloat(row.querySelector('.caption-end')?.value)   || 0;
@@ -1583,7 +1583,7 @@
     if (job) document.getElementById('reconnectBanner').style.display = 'flex';
   })();
 
-  // Service Worker — takes over polling only when the tab goes to the background
+  // Service Worker - takes over polling only when the tab goes to the background
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js')
       .then(() => console.info('[SW] registered'))
@@ -1603,10 +1603,10 @@
       const sw = navigator.serviceWorker.controller;
       if (!sw || !currentPollInfo) return;
       if (document.hidden) {
-        console.info('[SW] page hidden — handing poll to SW');
+        console.info('[SW] page hidden - handing poll to SW');
         sw.postMessage({ type: 'POLL_START', ...currentPollInfo });
       } else {
-        console.info('[SW] page visible — reclaiming poll from SW');
+        console.info('[SW] page visible - reclaiming poll from SW');
         sw.postMessage({ type: 'POLL_CANCEL', callId: currentPollInfo.callId });
       }
     });
@@ -1774,7 +1774,7 @@
     const maxW    = W - 2 * edgePad;          // max text width
     const padH    = Math.round(fontSize * 0.55); // horizontal box padding
     const padV    = Math.round(fontSize * 0.35); // vertical box padding
-    const lineH   = Math.round(fontSize * 1.10); // line height — matches ASS renderer (~1.0–1.1×)
+    const lineH   = Math.round(fontSize * 1.10); // line height - matches ASS renderer (~1.0-1.1×)
 
     // Word-wrap text into lines that fit within maxW
     const words = text.split(' ').filter(Boolean);
@@ -1797,14 +1797,14 @@
     const bx   = W / 2 - boxW / 2;
     const by   = centerY - boxH / 2;
 
-    // Background box (square — matches ASS BorderStyle=3 which has no rounded corners)
+    // Background box (square - matches ASS BorderStyle=3 which has no rounded corners)
     ctx.save();
     ctx.globalAlpha = bgOpacity;
     ctx.fillStyle   = bgColor;
     ctx.fillRect(bx, by, boxW, boxH);
     ctx.restore();
 
-    // Draw each wrapped line — re-assert all text props after restore
+    // Draw each wrapped line - re-assert all text props after restore
     ctx.direction    = 'rtl';
     ctx.font         = `bold ${fontSize}px '${fontName}', 'Heebo', sans-serif`;
     ctx.textAlign    = 'center';
@@ -2036,7 +2036,7 @@
       card.appendChild(rationale);
 
       card.onclick = () => {
-        if (selectedHookIdx === i) return; // already selected — don't interrupt editing
+        if (selectedHookIdx === i) return; // already selected - don't interrupt editing
         document.querySelectorAll('[id^="hookOption"]').forEach(el => {
           el.style.background  = '';
           el.style.borderColor = 'var(--purple-200)';
@@ -2211,7 +2211,7 @@
       summaryRow.appendChild(debugBtn);
       list.appendChild(summaryRow);
 
-      // Video context debug panel — visible only when debug toggle is on
+      // Video context debug panel - visible only when debug toggle is on
       if (videoCtx && Object.keys(videoCtx).length > 0) {
         const ctxDiv = document.createElement('div');
         ctxDiv.className = 'moment-debug';
@@ -2263,13 +2263,13 @@
 
       const badge = document.createElement('span');
       badge.className = 'moment-time-badge';
-      badge.textContent = fmtCapTime(m.start) + ' – ' + fmtCapTime(m.end);
+      badge.textContent = fmtCapTime(m.start) + ' - ' + fmtCapTime(m.end);
 
       const label = document.createElement('span');
       label.className = 'moment-label';
       label.textContent = m.label || '';
 
-      // Dismiss button — for coverage: removes card entirely; for emphasis: skip with restore
+      // Dismiss button - for coverage: removes card entirely; for emphasis: skip with restore
       const dismissBtn = document.createElement('button');
       dismissBtn.className = 'moment-dismiss-btn';
       dismissBtn.textContent = '✕';
@@ -2330,7 +2330,7 @@
       header.appendChild(dismissBtn);
       card.appendChild(header);
 
-      // Hebrew excerpt — prefer the backend's transcript_excerpt (built from edited captions)
+      // Hebrew excerpt - prefer the backend's transcript_excerpt (built from edited captions)
       const excerptText = m.transcript_excerpt || m.verbatim_quote || (() => {
         const edited = getEditedCaptions();
         return edited.filter(c => c.end >= m.start - 0.5 && c.start <= m.end + 0.5).map(c => c.text).join(' ');
@@ -2362,7 +2362,7 @@
       }
       card.appendChild(clipsContainer);
 
-      // Debug panel — shown only when global debug toggle is active
+      // Debug panel - shown only when global debug toggle is active
       const dbg = document.createElement('div');
       dbg.className = 'moment-debug';
       const body = document.createElement('div');
@@ -2371,8 +2371,8 @@
         ? m.intensity_markers.join(', ')
         : null;
       const passLabel = isCoverage
-        ? 'Pass 2 — coverage (rhythm)'
-        : `Pass 1 — emphasis (${m.moment_type || 'concrete'})`;
+        ? 'Pass 2 - coverage (rhythm)'
+        : `Pass 1 - emphasis (${m.moment_type || 'concrete'})`;
       // Per-variant retrieval stats
       const variantStatsStr = (() => {
         const stats = m._variant_stats;
@@ -2479,7 +2479,7 @@
         if (clip.frames_observed)    tooltipParts.push('Frames: ' + clip.frames_observed);
         if (clip.score_reason)       tooltipParts.push('Reason: ' + clip.score_reason);
         if (clip.step1_disqualified) tooltipParts.push('⚠ STEP 1 disqualified');
-        if (clip.frame_sample_failed) tooltipParts.push('(thumbnail fallback — frame sampling failed)');
+        if (clip.frame_sample_failed) tooltipParts.push('(thumbnail fallback - frame sampling failed)');
         if (clip.title)              tooltipParts.push('Title: ' + clip.title);
         if (clip.tags && clip.tags.length) tooltipParts.push('Tags: ' + clip.tags.slice(0, 5).join(', '));
         if (tooltipParts.length) scoreBadge.title = tooltipParts.join('\n');
@@ -2509,7 +2509,7 @@
       authorLink.rel    = 'noopener noreferrer';
       authorLink.textContent = clip.author ? t('stock.by', {author: clip.author}) : clip.source;
 
-      // Toggle button — "Use for video" (acts like radio but can be deselected)
+      // Toggle button - "Use for video" (acts like radio but can be deselected)
       const selLabel = document.createElement('label');
       selLabel.className = 'clip-select-label';
       const radio = document.createElement('input');
@@ -2539,7 +2539,7 @@
             };
           }
         } else {
-          // Toggled off — remove selection
+          // Toggled off - remove selection
           clipCard.classList.remove('selected');
           selLabel.classList.remove('checked');
           if (momentCtx) delete stockBrollSelections[momentCtx.momentIdx];
@@ -2678,7 +2678,7 @@
       const row = document.createElement('div');
       row.className = 'broll-row';
 
-      // Checkbox — select this B-roll to include in the final video
+      // Checkbox - select this B-roll to include in the final video
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
       checkbox.className = 'broll-checkbox';
@@ -2729,7 +2729,7 @@
 
       const time = document.createElement('div');
       time.className = 'broll-time';
-      time.textContent = fmtCapTime(s.start) + ' – ' + fmtCapTime(s.end);
+      time.textContent = fmtCapTime(s.start) + ' - ' + fmtCapTime(s.end);
 
       const label = document.createElement('div');
       label.className = 'broll-label';
@@ -2777,7 +2777,7 @@
     if (vid && vid.src && isFinite(vid.duration)) {
       vid.currentTime = seekSecs;
       vid.pause();
-      // removed scrollIntoView — don't auto-scroll to preview when selecting a caption
+      // removed scrollIntoView - don't auto-scroll to preview when selecting a caption
     }
   }
 
@@ -3043,7 +3043,7 @@
       clearSavedJob();
       _stepDone('burn');
 
-      // Video is ready on the server — reveal the schedule card NOW (scheduling
+      // Video is ready on the server - reveal the schedule card NOW (scheduling
       // uses the server-side URL, it never waits on the device download). The
       // success banner appears only after the download below settles.
       window._schedCtx = { outputKey: burnResult.output_key, filename: outFilename, videoKey: videoKey };
@@ -3058,7 +3058,7 @@
       runBtn.disabled = true;
       window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 
-      // Download to the device (optional — does NOT gate scheduling)
+      // Download to the device (optional - does NOT gate scheduling)
       runBtn.textContent = t('run.downloading');
       try {
         const dlAbort  = new AbortController();
@@ -3079,7 +3079,7 @@
         if (dlErr.name !== 'AbortError')
           console.warn('Device download failed (video is still scheduled-ready):', dlErr.message);
       }
-      // Burn + initial download finished — now the success banner (with
+      // Burn + initial download finished - now the success banner (with
       // Download again) is truthful and usable.
       document.getElementById('burnSuccessBanner').style.display = 'flex';
       // Re-enable editors for another round of changes on the same video
@@ -3094,7 +3094,7 @@
       });
     } catch (err) {
       clearSavedJob();
-      // Burn didn't finish — stop and hide its checklist row
+      // Burn didn't finish - stop and hide its checklist row
       if (stepTimers.burn) { clearInterval(stepTimers.burn.id); stepTimers.burn = null; }
       if (checkItems.burn) { checkItems.burn.className = 'check-item pending'; checkItems.burn.style.display = 'none'; }
       if (err.name !== 'AbortError') {
@@ -3176,7 +3176,7 @@
   };
 
   // Log page load + UA for mobile context
-  push('info', [`Page loaded — ${navigator.userAgent}`]);
+  push('info', [`Page loaded - ${navigator.userAgent}`]);
 })();
 
 /* ── Statistics tab ── */
@@ -3281,7 +3281,7 @@
     return card;
   }
 
-  const _fmt = n => (n == null ? '—' : Number(n).toLocaleString('en-US'));
+  const _fmt = n => (n == null ? '-' : Number(n).toLocaleString('en-US'));
   const _monthDay = yyyymmdd => {
     const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return `${M[+yyyymmdd.slice(4,6)-1]} ${+yyyymmdd.slice(6,8)}`;

@@ -54,7 +54,7 @@ test('steps that never ran are hidden, not estimated', async ({ page }) => {
 
   await selectFile(page);
   await page.waitForSelector('#runBtn:not([disabled])');
-  // The input is visually hidden behind a styled toggle — flip it directly
+  // The input is visually hidden behind a styled toggle - flip it directly
   await page.evaluate(() => {
     const el = document.getElementById('enhanceAudio');
     el.checked = false;

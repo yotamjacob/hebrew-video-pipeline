@@ -135,14 +135,14 @@ test('time estimate shows for a real video and grows with AI upscale', async ({ 
 
   const est = page.locator('#timeEstimateText');
   await expect(page.locator('#timeEstimate')).toBeVisible({ timeout: 10_000 });
-  await expect(est).toHaveText(/^הערכה: \d+–\d+ דקות$/);
-  const base = (await est.textContent()).match(/(\d+)–(\d+)/).slice(1, 3).map(Number);
+  await expect(est).toHaveText(/^הערכה: \d+-\d+ דקות$/);
+  const base = (await est.textContent()).match(/(\d+)-(\d+)/).slice(1, 3).map(Number);
 
   await page.click('label[for="ev_esrgan"]');
-  const ai = (await est.textContent()).match(/(\d+)–(\d+)/).slice(1, 3).map(Number);
+  const ai = (await est.textContent()).match(/(\d+)-(\d+)/).slice(1, 3).map(Number);
   expect(ai[0]).toBeGreaterThan(base[0]);   // 15s @ esrgan adds ~4-8 min
   expect(ai[1]).toBeGreaterThan(base[1]);
 
   await page.click('label[for="ev_none"]');
-  await expect(est).toHaveText(`הערכה: ${base[0]}–${base[1]} דקות`);
+  await expect(est).toHaveText(`הערכה: ${base[0]}-${base[1]} דקות`);
 });

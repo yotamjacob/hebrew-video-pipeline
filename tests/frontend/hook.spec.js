@@ -16,7 +16,7 @@ test('clicking generate hook calls the API and shows options', async ({ page }) 
   await runFullUpload(page);
   await page.click('#generateHookBtn');
 
-  // Wait for hook options to render — each option is a div with id hookOption{n}
+  // Wait for hook options to render - each option is a div with id hookOption{n}
   await page.waitForSelector('#hookOptions', { state: 'visible', timeout: 8_000 });
   const options = page.locator('#hookOptions > div[id^="hookOption"]');
   const count = await options.count();

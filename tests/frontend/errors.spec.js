@@ -50,7 +50,7 @@ test('service worker is blocked and does not interfere with fetch mocks', async 
   await selectFile(page);
   await page.waitForSelector('#runBtn:not([disabled])');
   await page.click('#runBtn');
-  // If SW were double-polling it could cause "Failed to fetch" — verify it doesn't
+  // If SW were double-polling it could cause "Failed to fetch" - verify it doesn't
   await expect(page.locator('#captionEditorCard')).toBeVisible({ timeout: 10_000 });
   await expect(page.locator('#errorMsg')).not.toBeVisible();
 });

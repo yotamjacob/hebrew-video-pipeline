@@ -58,7 +58,7 @@ test('state-driven labels re-render on language switch', async ({ page }) => {
   await bootApp(page);
   await mockAllApis(page);
   await selectFile(page);
-  // EV desc (state-driven innerHTML) — Hebrew by default, English after toggle
+  // EV desc (state-driven innerHTML) - Hebrew by default, English after toggle
   await page.click('label[for="ev_esrgan"]');
   await expect(page.locator('#enhanceVideoDesc')).toContainText('מוסיף כמה דקות');
   await page.click('#langToggle');
@@ -71,7 +71,7 @@ test('state-driven labels re-render on language switch', async ({ page }) => {
 
 test('RTL flips layout primitives correctly', async ({ page }) => {
   await bootApp(page);
-  // Hebrew (RTL) is the default — no toggle needed
+  // Hebrew (RTL) is the default - no toggle needed
   // Toggle thumb sits on the right in RTL
   const thumbRight = await page.locator('#cutSilences ~ .toggle-thumb').evaluate(el => getComputedStyle(el).right);
   expect(thumbRight).toBe('3px');

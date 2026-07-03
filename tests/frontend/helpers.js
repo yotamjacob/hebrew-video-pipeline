@@ -18,7 +18,7 @@ const DEFAULT_HOOKS = [
 // Must run BEFORE page.goto so the boot-time /auth/me check is intercepted.
 async function bootApp(page) {
   // External Google Fonts block the page 'load' event under bad network
-  // conditions and flake the whole suite — serve an empty stylesheet instead.
+  // conditions and flake the whole suite - serve an empty stylesheet instead.
   await page.route(/fonts\.googleapis\.com/, r =>
     r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
   await page.route(/fonts\.gstatic\.com/, r => r.abort());
@@ -37,17 +37,17 @@ async function mockAllApis(page, {
   hookStatus    = 200,
   uploadStatus  = 200,
 } = {}) {
-  // Warmup — always succeeds
+  // Warmup - always succeeds
   await page.route(`${API_BASE}/warmup/`, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' }));
 
-  // Metricool status — checked when the schedule card reveals; unmocked it
+  // Metricool status - checked when the schedule card reveals; unmocked it
   // would hit the real API with the fake test token, 401, and bounce the
   // whole app back to the login view mid-test
   await page.route(/\/oauth\/status/, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"connected":false}' }));
 
-  // Cancel — always succeeds
+  // Cancel - always succeeds
   await page.route(`${API_BASE}/cancel/**`, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"cancelled"}' }));
 
@@ -58,7 +58,7 @@ async function mockAllApis(page, {
       : r.fulfill({ status: uploadStatus, contentType: 'application/json',
                     body: JSON.stringify({ error: `Upload failed (${uploadStatus})` }) }));
 
-  // Process spawn — POST to /process/ (regex excludes /process_poll/)
+  // Process spawn - POST to /process/ (regex excludes /process_poll/)
   await page.route(/\/process\/[^_]/, (route, request) => {
     if (request.method() !== 'POST') return route.continue();
     return processStatus === 200 || processStatus === 202
@@ -68,13 +68,13 @@ async function mockAllApis(page, {
                         body: JSON.stringify({ error: `Server error ${processStatus}` }) });
   });
 
-  // Process poll — resolves immediately with captions
+  // Process poll - resolves immediately with captions
   await page.route(`${API_BASE}/process_poll/**`, r =>
     r.fulfill({ status: 200, contentType: 'application/json',
                 body: JSON.stringify({ captions, video_key: 'mock-video-key_cut.mp4',
                                        step_times: { enhance: 12.3, cut: 20.1 } }) }));
 
-  // Burn spawn — regex because the app appends query params (glob patterns
+  // Burn spawn - regex because the app appends query params (glob patterns
   // without wildcards match the full URL and would fall through to the network)
   await page.route(/\/burn\/?(\?|$)/, r =>
     burnStatus === 200
@@ -88,7 +88,7 @@ async function mockAllApis(page, {
     r.fulfill({ status: 200, contentType: 'application/json',
                 body: JSON.stringify({ output_key: 'mock-output-key.mp4' }) }));
 
-  // Download — return a minimal valid MP4-ish binary
+  // Download - return a minimal valid MP4-ish binary
   await page.route(`${API_BASE}/download/**`, r =>
     r.fulfill({
       status: 200,
@@ -128,7 +128,7 @@ async function mockAllApis(page, {
     r.fulfill({ status: 200, contentType: 'application/json',
                 body: JSON.stringify({ clips: [] }) }));
 
-  // Thumbnail — return a minimal valid JPEG so drawHookPreview doesn't hit the real API
+  // Thumbnail - return a minimal valid JPEG so drawHookPreview doesn't hit the real API
   await page.route(`${API_BASE}/thumbnail/**`, r =>
     r.fulfill({
       status: 200,
