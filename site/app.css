@@ -64,38 +64,37 @@
       justify-content: center;
       padding: 0 40px;
     }
-    .hero-brand {
-      color: rgba(255,255,255,0.85);
-      font-size: 0.82rem;
-      font-weight: 700;
-      letter-spacing: 0.22em;
-      text-transform: uppercase;
-      margin-bottom: 12px;
+    .hero-title-row {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 14px;
+      margin-bottom: 12px;
     }
-    .hero-brand-mark {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 24px; height: 24px; border-radius: 8px;
-      background: rgba(255,255,255,0.14);
-      border: 1px solid rgba(255,255,255,0.25);
-      font-size: 0.8rem; letter-spacing: 0;
+    .hero-logo {
+      width: 44px; height: 44px; flex-shrink: 0;
+      filter: drop-shadow(0 4px 14px rgba(0,0,0,0.28));
     }
     .hero-title {
       color: #fff;
-      font-size: clamp(1.4rem, 4vw, 2rem);
+      font-size: clamp(1.6rem, 5vw, 2.2rem);
       font-weight: 700;
-      letter-spacing: -0.03em;
+      letter-spacing: -0.02em;
       text-shadow: 0 2px 20px rgba(0,0,0,0.35);
-      margin-bottom: 6px;
     }
     .hero-sub {
-      color: rgba(255,255,255,0.72);
-      font-size: clamp(0.78rem, 2vw, 0.9rem);
-      font-weight: 400;
-      letter-spacing: 0.1em;
+      color: rgba(255,255,255,0.82);
+      font-size: clamp(0.82rem, 2.2vw, 0.95rem);
+      font-weight: 600;
+      letter-spacing: 0.09em;
       text-transform: uppercase;
+    }
+    .hero-tags {
+      color: rgba(255,255,255,0.52);
+      font-size: 0.72rem;
+      font-weight: 400;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-top: 7px;
     }
 
     /* ── Layout ── */
