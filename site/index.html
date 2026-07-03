@@ -52,11 +52,14 @@
   </div>
 </div>
 
+<div class="app-topbar">
 <div class="tabs" role="tablist" id="tabsBar" style="display:none">
   <button class="tab active" id="tabPipeline" role="tab" aria-selected="true" onclick="switchTab('pipeline')" data-i18n="tab.create">🎬 Create</button>
   <button class="tab" id="tabHistory" role="tab" aria-selected="false" onclick="switchTab('history')" data-i18n="tab.history">🗂️ History</button>
   <button class="tab" id="tabAdmin" role="tab" aria-selected="false" onclick="switchTab('admin')" style="display:none" data-i18n="tab.admin">🛠️ Admin</button>
   <button class="tab" id="logoutTab" onclick="logout()" title="Sign out" data-i18n="tab.logout">🚪 Logout</button>
+</div>
+<div class="quota-pill-row"><div id="quotaPill" class="quota-pill" style="display:none"></div></div>
 </div>
 
 <!-- ── Sign in / register ── -->
@@ -83,8 +86,6 @@
 </div>
 
 <div class="container" id="pipelineView" style="display:none">
-
-  <div id="quotaPill" class="quota-pill" style="display:none"></div>
 
   <!-- Upload -->
   <div class="card" id="uploadCard">
