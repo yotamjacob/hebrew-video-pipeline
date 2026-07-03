@@ -4,18 +4,23 @@
       <stop offset="0" stop-color="#7C3AED"/>
       <stop offset="1" stop-color="#4C1D95"/>
     </linearGradient>
+    <linearGradient id="pipe" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F5F3FF"/>
+      <stop offset="0.45" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#C4B5FD"/>
+    </linearGradient>
   </defs>
   <rect width="48" height="48" rx="11" fill="url(#g)"/>
-  <!-- industrial pipe: body between two bolted flanges -->
-  <rect x="7.5" y="18.5" width="16" height="11" fill="#DDD6FE"/>
-  <rect x="7.5" y="24.5" width="16" height="5" fill="#A78BFA" opacity="0.6"/>
-  <rect x="3.5" y="15" width="4.5" height="18" rx="1.6" fill="#fff"/>
-  <rect x="22.5" y="15" width="4.5" height="18" rx="1.6" fill="#fff"/>
+  <!-- industrial pipe spanning the badge -->
+  <rect x="9" y="16.5" width="30" height="15" fill="url(#pipe)"/>
+  <rect x="4" y="13.5" width="5.5" height="21" rx="1.8" fill="#fff"/>
+  <rect x="38.5" y="13.5" width="5.5" height="21" rx="1.8" fill="#fff"/>
   <!-- flange bolts -->
-  <circle cx="5.75" cy="19" r="1" fill="#5B21B6"/>
-  <circle cx="5.75" cy="29" r="1" fill="#5B21B6"/>
-  <circle cx="24.75" cy="19" r="1" fill="#5B21B6"/>
-  <circle cx="24.75" cy="29" r="1" fill="#5B21B6"/>
-  <!-- video flowing out: play triangle -->
-  <polygon points="31,14.5 44.5,24 31,33.5" fill="#fff"/>
+  <circle cx="6.75" cy="18" r="1.05" fill="#5B21B6"/>
+  <circle cx="6.75" cy="30" r="1.05" fill="#5B21B6"/>
+  <circle cx="41.25" cy="18" r="1.05" fill="#5B21B6"/>
+  <circle cx="41.25" cy="30" r="1.05" fill="#5B21B6"/>
+  <!-- play button laser-engraved into the metal: light glint edge under a dark inset -->
+  <polygon points="20.1,19.1 29.6,24.6 20.1,30.1" fill="#fff" opacity="0.9"/>
+  <polygon points="19.5,18.5 29,24 19.5,29.5" fill="#4C1D95"/>
 </svg>
