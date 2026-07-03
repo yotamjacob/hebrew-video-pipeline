@@ -450,7 +450,7 @@
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="scheduleBody" style="padding-top:14px">
-    <p class="sched-intro">Schedule this video straight to Metricool. It's added as a <b>scheduled draft (not auto-published)</b> — you approve the final publish inside Metricool.</p>
+    <p class="sched-intro">Schedule this video straight to Metricool. Unless <b>Auto-publish</b> is on, you approve the final publish inside Metricool.</p>
 
     <label class="sched-label">Platforms</label>
     <div class="platform-grid">
@@ -464,6 +464,21 @@
     <div class="sched-datetime">
       <input type="date" id="schedDate" class="sched-input">
       <input type="time" id="schedTime" class="sched-input" value="20:00">
+    </div>
+
+    <div class="option-row" style="border-bottom:none">
+      <div class="option-icon">🚀</div>
+      <div class="option-text">
+        <div class="option-label">Auto-publish</div>
+        <div class="option-desc" id="autoPublishDesc">Off — post waits in Metricool for your approval</div>
+      </div>
+      <div class="toggle-wrap">
+        <label class="toggle">
+          <input type="checkbox" id="schedAutoPublish" />
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
     </div>
 
     <label class="sched-label">Caption</label>

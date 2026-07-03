@@ -109,7 +109,7 @@ def _build_metricool_info(p: dict) -> dict:
     """Assemble the Metricool `info` object from the site payload."""
     platforms = p.get("platforms", [])
     info = {
-        "autoPublish": False,           # schedule only — never auto-post
+        "autoPublish": bool(p.get("autoPublish", False)),  # off = user approves in Metricool
         "draft": bool(p.get("draft", False)),
         "text": p.get("caption", ""),
         "media": [p["videoUrl"]] if p.get("videoUrl") else [],

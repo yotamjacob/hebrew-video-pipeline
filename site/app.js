@@ -550,11 +550,11 @@
   const _EV_DESCS = {
     none:    'Off — video is untouched',
     filters: 'Light denoise, sharpen and color lift',
-    esrgan:  'AI upscale to sharp 4K (Real-ESRGAN + smart sharpen) — adds a few minutes',
+    esrgan:  'AI upscale to sharp 4K (Real-ESRGAN + smart sharpen) — <span class="ev-warn">adds a few minutes</span>',
   };
   document.querySelectorAll('input[name="enhanceVideo"]').forEach(r =>
     r.addEventListener('change', () => {
-      document.getElementById('enhanceVideoDesc').textContent = _EV_DESCS[_enhanceVideoMode()];
+      document.getElementById('enhanceVideoDesc').innerHTML = _EV_DESCS[_enhanceVideoMode()];
       checkToolsEnabled();
       updateTimeEstimate();
     }));
@@ -3427,6 +3427,12 @@
     return [...document.querySelectorAll('.sched-platform:checked')].map(c => c.value);
   }
 
+  document.getElementById('schedAutoPublish').addEventListener('change', (e) => {
+    document.getElementById('autoPublishDesc').textContent = e.target.checked
+      ? 'On — Metricool posts it automatically at the scheduled time'
+      : 'Off — post waits in Metricool for your approval';
+  });
+
   async function suggestCaption() {
     if (!_hasTranscript()) return;
     const btn = document.getElementById('suggestCaptionBtn');
@@ -3499,6 +3505,7 @@
       videoUrl: `${API_BASE}/media/${ctx.outputKey}`,
       dateTime: `${date}T${time}:00`,
       timezone: 'Asia/Jerusalem',
+      autoPublish: document.getElementById('schedAutoPublish').checked,
       ytTitle,
       ytPrivacy: document.getElementById('ytPrivacy').value,
       ytKids: document.getElementById('ytKids').checked,
@@ -3527,8 +3534,11 @@
 
       const plannerUrl = result.post && result.post.plannerUrl;
       statusEl.className = 'sched-status ok';
+      const publishNote = payload.autoPublish
+        ? ' It will publish automatically at that time.'
+        : ' Approve the final publish in Metricool.';
       statusEl.innerHTML = `✅ Scheduled on Metricool for ${date} ${time} (Israel time).` +
-        (plannerUrl ? ` <a href="${plannerUrl}" target="_blank" rel="noopener">Open in Metricool ↗</a>` : ' Approve the final publish in Metricool.');
+        (plannerUrl ? ` <a href="${plannerUrl}" target="_blank" rel="noopener">Open in Metricool ↗</a>` : publishNote);
       btn.textContent = '✅ Scheduled';
       unlockPipelineActions();
       setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);

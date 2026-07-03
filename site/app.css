@@ -278,6 +278,8 @@
     .action-btn:hover:not(:disabled) { background: var(--purple-50); }
     .action-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
+    .ev-warn { color: var(--red); font-weight: 600; }
+
     .reprocess-btn {
       width: 100%; padding: 11px 18px; margin-top: 14px;
       background: white; color: var(--purple-700);
