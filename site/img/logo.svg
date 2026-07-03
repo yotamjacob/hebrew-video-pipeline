@@ -4,11 +4,18 @@
       <stop offset="0" stop-color="#7C3AED"/>
       <stop offset="1" stop-color="#4C1D95"/>
     </linearGradient>
-    <mask id="m">
-      <rect width="48" height="48" fill="#fff"/>
-      <rect x="22.5" y="2" width="3" height="44" transform="rotate(38 24 24)" fill="#000"/>
-    </mask>
   </defs>
   <rect width="48" height="48" rx="11" fill="url(#g)"/>
-  <polygon points="18,13 37,24 18,35" fill="#fff" mask="url(#m)"/>
+  <!-- industrial pipe: body between two bolted flanges -->
+  <rect x="7.5" y="18.5" width="16" height="11" fill="#DDD6FE"/>
+  <rect x="7.5" y="24.5" width="16" height="5" fill="#A78BFA" opacity="0.6"/>
+  <rect x="3.5" y="15" width="4.5" height="18" rx="1.6" fill="#fff"/>
+  <rect x="22.5" y="15" width="4.5" height="18" rx="1.6" fill="#fff"/>
+  <!-- flange bolts -->
+  <circle cx="5.75" cy="19" r="1" fill="#5B21B6"/>
+  <circle cx="5.75" cy="29" r="1" fill="#5B21B6"/>
+  <circle cx="24.75" cy="19" r="1" fill="#5B21B6"/>
+  <circle cx="24.75" cy="29" r="1" fill="#5B21B6"/>
+  <!-- video flowing out: play triangle -->
+  <polygon points="31,14.5 44.5,24 31,33.5" fill="#fff"/>
 </svg>
