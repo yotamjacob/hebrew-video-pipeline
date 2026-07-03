@@ -2,38 +2,39 @@
 const { test, expect } = require('@playwright/test');
 const { bootApp, mockAllApis, selectFile } = require('./helpers');
 
-test('site boots in English LTR with the toggle visible everywhere', async ({ page }) => {
+test('site boots in Hebrew RTL by default with the toggle visible', async ({ page }) => {
   await bootApp(page);
-  await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
-  await expect(page.locator('#langToggle')).toBeVisible();
-  await expect(page.locator('#langToggle')).toHaveText('עברית');
-  await expect(page.locator('.hero-sub')).toHaveText('Hebrew-first social video studio');
-  await expect(page.locator('#tabPipeline')).toHaveText('🎬 Create');
-});
-
-test('toggle switches to Hebrew, sets RTL, and translates static text', async ({ page }) => {
-  await bootApp(page);
-  await page.click('#langToggle');
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
   await expect(page.locator('html')).toHaveAttribute('lang', 'he');
+  await expect(page.locator('#langToggle')).toBeVisible();
   await expect(page.locator('#langToggle')).toHaveText('English');
   await expect(page.locator('.hero-sub')).toHaveText('סטודיו לסרטוני רשת בעברית');
   await expect(page.locator('#tabPipeline')).toContainText('יצירה');
-  await expect(page.locator('.upload-main')).toHaveText('גררו את הסרטון לכאן');
-  await expect(page.locator('#runBtn')).toContainText('הפעלת העיבוד');
-  // toggle back
+});
+
+test('toggle switches to English, sets LTR, and translates static text', async ({ page }) => {
+  await bootApp(page);
   await page.click('#langToggle');
   await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(page.locator('#langToggle')).toHaveText('עברית');
+  await expect(page.locator('.hero-sub')).toHaveText('Hebrew-first social video studio');
+  await expect(page.locator('#tabPipeline')).toHaveText('🎬 Create');
   await expect(page.locator('.upload-main')).toHaveText('Drop your video here');
+  await expect(page.locator('#runBtn')).toContainText('Run Pipeline');
+  // toggle back
+  await page.click('#langToggle');
+  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+  await expect(page.locator('.upload-main')).toHaveText('גררו את הסרטון לכאן');
 });
 
 test('language choice persists across reloads', async ({ page }) => {
   await bootApp(page);
   await page.click('#langToggle');
-  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+  await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
   await page.reload();
-  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
-  await expect(page.locator('.upload-main')).toHaveText('גררו את הסרטון לכאן');
+  await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+  await expect(page.locator('.upload-main')).toHaveText('Drop your video here');
 });
 
 test('login view is translated too', async ({ page }) => {
@@ -44,28 +45,33 @@ test('login view is translated too', async ({ page }) => {
   await page.goto('/');
   await page.waitForSelector('#authView', { state: 'visible' });
   await expect(page.locator('#langToggle')).toBeVisible();
-  await page.click('#langToggle');
+  // Hebrew by default
   await expect(page.locator('#authSubmitBtn')).toHaveText('התחברות');
   await expect(page.locator('#authModeBtn')).toHaveText('חדשים כאן? צרו חשבון');
+  // …and English after toggling
+  await page.click('#langToggle');
+  await expect(page.locator('#authSubmitBtn')).toHaveText('Sign in');
+  await expect(page.locator('#authModeBtn')).toHaveText('New here? Create an account');
 });
 
 test('state-driven labels re-render on language switch', async ({ page }) => {
   await bootApp(page);
   await mockAllApis(page);
   await selectFile(page);
-  // EV desc (state-driven innerHTML) — switch to Hebrew and check
+  // EV desc (state-driven innerHTML) — Hebrew by default, English after toggle
   await page.click('label[for="ev_esrgan"]');
-  await page.click('#langToggle');
   await expect(page.locator('#enhanceVideoDesc')).toContainText('מוסיף כמה דקות');
+  await page.click('#langToggle');
+  await expect(page.locator('#enhanceVideoDesc')).toContainText('adds a few minutes');
   const warnColor = await page.locator('#enhanceVideoDesc .ev-warn').evaluate(el => getComputedStyle(el).color);
   expect(warnColor).toBe('rgb(220, 38, 38)');
   // Aggressiveness desc follows too
-  await expect(page.locator('#aggrDesc')).toContainText('אגרסיבי');
+  await expect(page.locator('#aggrDesc')).toContainText('Aggressive');
 });
 
 test('RTL flips layout primitives correctly', async ({ page }) => {
   await bootApp(page);
-  await page.click('#langToggle');
+  // Hebrew (RTL) is the default — no toggle needed
   // Toggle thumb sits on the right in RTL
   const thumbRight = await page.locator('#cutSilences ~ .toggle-thumb').evaluate(el => getComputedStyle(el).right);
   expect(thumbRight).toBe('3px');

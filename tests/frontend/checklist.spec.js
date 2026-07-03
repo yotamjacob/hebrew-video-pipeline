@@ -91,7 +91,7 @@ test('AI upscale gets its own live progress row with real times', async ({ page 
   // While running: upscale row visible, labelled, spinning; earlier steps closed real
   await expect(page.locator('#checkUpscale')).toBeVisible({ timeout: 10_000 });
   await expect(page.locator('#checkUpscale')).toHaveClass(/active/);
-  await expect(page.locator('#checkUpscale .check-label')).toHaveText('AI upscale');
+  await expect(page.locator('#checkUpscale .check-label')).toHaveText('שדרוג AI');
   await expect(page.locator('#checkCutTime')).toHaveText('0:09');
 
   // Done: closed with the backend's real duration

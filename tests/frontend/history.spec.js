@@ -69,5 +69,5 @@ test('history load failure shows friendly message', async ({ page }) => {
   await mockAllApis(page);
   await page.route(/\/jobs\/?(\?.*)?$/, r => r.fulfill({ status: 500, body: '{}' }));
   await page.click('#tabHistory');
-  await expect(page.locator('#historyEmpty')).toContainText('Could not load history');
+  await expect(page.locator('#historyEmpty')).toContainText('טעינת ההיסטוריה נכשלה');
 });

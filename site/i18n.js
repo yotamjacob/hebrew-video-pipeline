@@ -328,8 +328,8 @@
     'lang.switch': { en: 'עברית', he: 'English' },
   };
 
-  let _lang = localStorage.getItem('hebpipe_lang') || 'en';
-  if (_lang !== 'en' && _lang !== 'he') _lang = 'en';
+  let _lang = localStorage.getItem('hebpipe_lang') || 'he';
+  if (_lang !== 'en' && _lang !== 'he') _lang = 'he';
 
   function t(key, vars) {
     const entry = I18N[key];

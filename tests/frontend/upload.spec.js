@@ -135,7 +135,7 @@ test('time estimate shows for a real video and grows with AI upscale', async ({ 
 
   const est = page.locator('#timeEstimateText');
   await expect(page.locator('#timeEstimate')).toBeVisible({ timeout: 10_000 });
-  await expect(est).toHaveText(/^Estimated \d+–\d+ min$/);
+  await expect(est).toHaveText(/^הערכה: \d+–\d+ דקות$/);
   const base = (await est.textContent()).match(/(\d+)–(\d+)/).slice(1, 3).map(Number);
 
   await page.click('label[for="ev_esrgan"]');
@@ -144,5 +144,5 @@ test('time estimate shows for a real video and grows with AI upscale', async ({ 
   expect(ai[1]).toBeGreaterThan(base[1]);
 
   await page.click('label[for="ev_none"]');
-  await expect(est).toHaveText(`Estimated ${base[0]}–${base[1]} min`);
+  await expect(est).toHaveText(`הערכה: ${base[0]}–${base[1]} דקות`);
 });
