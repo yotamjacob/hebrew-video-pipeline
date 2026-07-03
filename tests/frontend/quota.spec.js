@@ -7,6 +7,7 @@ test('quota pill shows remaining trial videos', async ({ page }) => {
   const pill = page.locator('#quotaPill');
   await expect(pill).toBeVisible();
   await expect(pill).toHaveText('נשארו 2 מתוך 5 סרטוני ניסיון');
+  await expect(page.locator('#heroGreeting')).toHaveText('שלום, tester 👋');
 });
 
 test('pill turns red and run is blocked when the limit is used up', async ({ page }) => {

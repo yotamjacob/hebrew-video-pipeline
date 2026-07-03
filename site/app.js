@@ -76,6 +76,11 @@
 
   function updateQuotaUI() {
     if (!quotaInfo) return;
+    const greet = document.getElementById('heroGreeting');
+    if (greet && quotaInfo.username) {
+      greet.textContent = t('hero.hello', {name: quotaInfo.username});
+      greet.style.display = '';
+    }
     const adminTab = document.getElementById('tabAdmin');
     if (adminTab) adminTab.style.display = quotaInfo.role === 'admin' ? '' : 'none';
     const pill = document.getElementById('quotaPill');
