@@ -23,6 +23,7 @@ from pipeline_core import (
     _poll_fn_call,
     _USERNAME_RE, _hash_password, _verify_password, _sign_token, _verify_token,
     _user_prefix, _owned_key,
+    DEFAULT_VIDEO_LIMIT, _quota_state, _quota_allows,
 )
 from pipeline_fns import process_video, burn_captions_fn, burn_hook_fn
 from broll_fns import generate_broll_video, analyze_broll, analyze_stock_broll, search_stock_clips
@@ -120,7 +121,8 @@ def api():
                     return
                 salt, ph = _hash_password(password)
                 new_uid = _secrets.token_hex(16)
-                users_store[username] = {"uid": new_uid, "salt": salt, "pw": ph, "created": _time.time()}
+                users_store[username] = {"uid": new_uid, "salt": salt, "pw": ph, "created": _time.time(),
+                                         "video_limit": DEFAULT_VIDEO_LIMIT, "videos_used": 0}
             else:
                 rec = users_store.get(username)
                 if not rec or not _verify_password(password, rec["salt"], rec["pw"]):
@@ -168,11 +170,23 @@ def api():
             meta = calls_store.get(call_id)
             return bool(meta) and meta.get("uid") == uid
 
+        def _user_by_uid():
+            """(username, record) for the authenticated uid. O(n) — fine at this scale."""
+            for _u in users_store.keys():
+                _r = users_store.get(_u) or {}
+                if _r.get("uid") == uid:
+                    return _u, _r
+            return None, None
+
         # ── Session restore ──
         if path in ("/auth/me", "/auth/me/") and method == "GET":
-            uname = next((u for u in users_store.keys()
-                          if (users_store.get(u) or {}).get("uid") == uid), None)
-            body = json.dumps({"username": uname}).encode()
+            import os as _os
+            uname, urec = _user_by_uid()
+            is_admin, used, limit = _quota_state(urec, _os.environ.get("ADMIN_USERS"), uname)
+            body = json.dumps({"username": uname,
+                               "role": "admin" if is_admin else "user",
+                               "videos_used": used,
+                               "video_limit": None if is_admin else limit}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})
@@ -368,6 +382,12 @@ def api():
             min_silence          = float(qs.get("min_silence", ["0.5"])[0])
             padding              = float(qs.get("padding",     ["0.2"])[0])
 
+            import os as _os
+            uname, urec = _user_by_uid()
+            is_admin, used, limit = _quota_state(urec, _os.environ.get("ADMIN_USERS"), uname)
+            if not _quota_allows(is_admin, used, limit):
+                await send_error("limit_reached", 402)
+                return
             try:
                 if upload_key:
                     if not _SAFE_KEY_RE.match(upload_key):
@@ -403,12 +423,67 @@ def api():
                         enhance_video=enhance_video,
                     )
                 _record_call(call)
+                if not is_admin and uname:
+                    urec["videos_used"] = used + 1
+                    users_store[uname] = urec
                 body = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
                             "headers": CORS + [(b"content-type", b"application/json")]})
                 await send({"type": "http.response.body", "body": body})
             except Exception as e:
                 await send_error(str(e))
+            return
+
+        # ── Admin: usage overview + per-user limit control ──
+        if path in ("/admin/users", "/admin/users/") and method == "GET":
+            import os as _os
+            uname, urec = _user_by_uid()
+            caller_admin, _, _ = _quota_state(urec, _os.environ.get("ADMIN_USERS"), uname)
+            if not caller_admin:
+                await send_error("Forbidden", 403)
+                return
+            out = []
+            for _u in users_store.keys():
+                _r = users_store.get(_u) or {}
+                _adm, _used, _limit = _quota_state(_r, _os.environ.get("ADMIN_USERS"), _u)
+                out.append({"username": _u, "role": "admin" if _adm else "user",
+                            "videos_used": _used,
+                            "video_limit": None if _adm else _limit,
+                            "created": _r.get("created")})
+            out.sort(key=lambda r: r.get("created") or 0)
+            body = json.dumps({"users": out}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        if path in ("/admin/limit", "/admin/limit/") and method == "POST":
+            import os as _os
+            uname, urec = _user_by_uid()
+            caller_admin, _, _ = _quota_state(urec, _os.environ.get("ADMIN_USERS"), uname)
+            if not caller_admin:
+                await send_error("Forbidden", 403)
+                return
+            try:
+                data = json.loads((await _read_body(receive)).decode("utf-8"))
+                target = (data.get("username") or "").strip().lower()
+                new_limit = int(data.get("limit"))
+            except Exception:
+                await send_error("Invalid request body", 400)
+                return
+            if not users_store.contains(target):
+                await send_error("Unknown user", 404)
+                return
+            if not (-1 <= new_limit <= 100000):
+                await send_error("Limit must be between -1 (unlimited) and 100000", 400)
+                return
+            rec = users_store.get(target)
+            rec["video_limit"] = new_limit
+            users_store[target] = rec
+            body = json.dumps({"ok": True, "username": target, "video_limit": new_limit}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
             return
 
         # Poll process result — 200+binary when done, 202+JSON while running

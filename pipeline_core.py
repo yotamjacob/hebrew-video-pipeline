@@ -168,6 +168,27 @@ def _owned_key(key: str, uid: str) -> bool:
     """True iff key belongs to uid. The only path to a user's data."""
     return isinstance(key, str) and key.startswith(_user_prefix(uid))
 
+
+# ── Video quota (free tier) ──
+# Each /process run consumes one credit. Admins are unlimited; a user is an
+# admin if their username is in the ADMIN_USERS env var (comma-separated, in
+# the hebpipe-auth secret) OR their record has role == "admin".
+DEFAULT_VIDEO_LIMIT = 5
+
+
+def _quota_state(rec: dict, admin_users: str = None, username: str = None):
+    """(is_admin, used, limit) for a user record. limit -1 = unlimited."""
+    admins = {u.strip().lower() for u in (admin_users or "").split(",") if u.strip()}
+    is_admin = bool(username and username.lower() in admins) or (rec or {}).get("role") == "admin"
+    used = int((rec or {}).get("videos_used", 0) or 0)
+    limit = (rec or {}).get("video_limit", DEFAULT_VIDEO_LIMIT)
+    limit = -1 if limit is None else int(limit)
+    return is_admin, used, limit
+
+
+def _quota_allows(is_admin: bool, used: int, limit: int) -> bool:
+    return is_admin or limit < 0 or used < limit
+
 TRANSCRIPT_ANALYSIS_MODEL   = "gemini-2.5-flash"
 IMAGE_GENERATION_MODEL      = "gemini-3.1-flash-image-preview"
 VIDEO_GENERATION_MODEL      = "veo-3.0-generate-001"

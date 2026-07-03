@@ -32,7 +32,7 @@
   function showAuthView() {
     document.getElementById('authView').style.display = 'block';
     document.getElementById('tabsBar').style.display = 'none';
-    ['pipelineView', 'historyView'].forEach(id => {
+    ['pipelineView', 'historyView', 'adminView'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
@@ -42,6 +42,43 @@
     document.getElementById('authView').style.display = 'none';
     document.getElementById('tabsBar').style.display = 'flex';
     document.getElementById('pipelineView').style.display = 'block';
+    refreshQuota();
+  }
+
+  // ── Video quota (free tier) ──
+  let quotaInfo = null;
+
+  async function refreshQuota() {
+    try {
+      const resp = await apiFetch(`${API_BASE}/auth/me`);
+      if (!resp.ok) return;
+      quotaInfo = await resp.json();
+    } catch { return; }
+    updateQuotaUI();
+  }
+
+  function _quotaExhausted() {
+    return !!(quotaInfo && quotaInfo.role !== 'admin' &&
+              quotaInfo.video_limit != null && quotaInfo.video_limit >= 0 &&
+              quotaInfo.videos_used >= quotaInfo.video_limit);
+  }
+
+  function updateQuotaUI() {
+    if (!quotaInfo) return;
+    const adminTab = document.getElementById('tabAdmin');
+    if (adminTab) adminTab.style.display = quotaInfo.role === 'admin' ? '' : 'none';
+    const pill = document.getElementById('quotaPill');
+    if (!pill) return;
+    if (quotaInfo.role === 'admin' || quotaInfo.video_limit == null || quotaInfo.video_limit < 0) {
+      pill.style.display = 'none';
+      return;
+    }
+    const left = Math.max(0, quotaInfo.video_limit - quotaInfo.videos_used);
+    pill.textContent = left > 0
+      ? t('quota.pill', {left: left, limit: quotaInfo.video_limit})
+      : t('quota.pillZero');
+    pill.classList.toggle('quota-pill-empty', left === 0);
+    pill.style.display = '';
   }
 
   let authMode = 'login';
@@ -567,6 +604,10 @@
 
   async function run(isRetry = false) {
     if (!selectedFile || blocked) return;
+    if (_quotaExhausted()) {
+      showBlockNotice(t('quota.pillZero'), t('quota.exhausted'));
+      return;
+    }
 
     resultBlob = null;
     showUploadProgress();
@@ -606,6 +647,7 @@
         throw new Error(body.error || t('err.spawn', {status: spawnResp.status}));
       }
       const { call_id } = await spawnResp.json();
+      refreshQuota();
 
       // Poll until processing is done - returns JSON {captions, video_key}
       currentCallId = call_id;
@@ -649,6 +691,10 @@
 
   async function rerun() {
     if (!currentUploadKey || !selectedFile) return;
+    if (_quotaExhausted()) {
+      showBlockNotice(t('quota.pillZero'), t('quota.exhausted'));
+      return;
+    }
 
     // Hide editor cards and reset to pre-caption state
     burnMode = false;
@@ -701,6 +747,7 @@
         throw new Error(body.error || t('err.spawn', {status: spawnResp.status}));
       }
       const { call_id } = await spawnResp.json();
+      refreshQuota();
 
       currentCallId = call_id;
       saveJob('process', call_id, { filename: selectedFile.name, key: currentUploadKey });
@@ -1146,6 +1193,7 @@
   }
 
   function showError(msg) {
+    if (/limit_reached/.test(msg)) msg = t('quota.exhausted');
     isUploading = false;
     setSetupLocked(false);
     clearInterval(uploadTimer);
@@ -3034,6 +3082,7 @@
       });
       if (!spawnResp.ok) throw new Error(`Burn spawn failed: ${spawnResp.status}`);
       const { call_id } = await spawnResp.json();
+      refreshQuota();
 
       // Poll until burn is done → returns {output_key}
       currentCallId = call_id;
@@ -3180,14 +3229,73 @@
 })();
 
   function switchTab(which) {
-    const views = { pipeline: 'pipelineView', history: 'historyView' };
-    const tabs  = { pipeline: 'tabPipeline',  history: 'tabHistory' };
+    const views = { pipeline: 'pipelineView', history: 'historyView', admin: 'adminView' };
+    const tabs  = { pipeline: 'tabPipeline',  history: 'tabHistory',  admin: 'tabAdmin' };
     for (const k of Object.keys(views)) {
       document.getElementById(views[k]).style.display = (k === which) ? '' : 'none';
       document.getElementById(tabs[k]).classList.toggle('active', k === which);
       document.getElementById(tabs[k]).setAttribute('aria-selected', String(k === which));
     }
     if (which === 'history') loadHistory();
+    if (which === 'admin') loadAdmin();
+  }
+
+  // ── Admin: user limits ──
+  async function loadAdmin() {
+    const list = document.getElementById('adminList');
+    const loading = document.getElementById('adminLoading');
+    const errBox = document.getElementById('adminError');
+    loading.style.display = '';
+    errBox.style.display = 'none';
+    list.innerHTML = '';
+    try {
+      const resp = await apiFetch(`${API_BASE}/admin/users`);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const { users } = await resp.json();
+      loading.style.display = 'none';
+      users.forEach(u => list.appendChild(_adminRow(u)));
+    } catch (e) {
+      loading.style.display = 'none';
+      errBox.textContent = t('admin.loadFailed');
+      errBox.style.display = 'block';
+    }
+  }
+
+  function _adminRow(u) {
+    const row = document.createElement('div');
+    row.className = 'admin-row';
+    const name = document.createElement('div');
+    name.className = 'admin-name';
+    name.textContent = u.username + (u.role === 'admin' ? ' ★' : '');
+    const used = document.createElement('div');
+    used.className = 'admin-used';
+    used.textContent = u.role === 'admin' ? t('admin.unlimited') : t('admin.used', {used: u.videos_used});
+    row.append(name, used);
+    if (u.role !== 'admin') {
+      const inp = document.createElement('input');
+      inp.type = 'number'; inp.min = -1; inp.max = 100000;
+      inp.value = u.video_limit;
+      inp.className = 'admin-limit-input';
+      const btn = document.createElement('button');
+      btn.className = 'admin-save-btn';
+      btn.textContent = t('admin.save');
+      btn.onclick = async () => {
+        btn.disabled = true;
+        try {
+          const resp = await apiFetch(`${API_BASE}/admin/limit`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: u.username, limit: parseInt(inp.value, 10) }),
+          });
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          btn.textContent = '✓';
+        } catch {
+          btn.textContent = t('admin.saveFailed');
+        }
+        setTimeout(() => { btn.textContent = t('admin.save'); btn.disabled = false; }, 1500);
+      };
+      row.append(inp, btn);
+    }
+    return row;
   }
 
   // ── History tab ──
@@ -3486,4 +3594,5 @@
     if (sb && window._schedCtx) sb.textContent = _hasTranscript() ? t('sched.suggest') : t('sched.suggestOff');
     const upLbl = document.querySelector('#checkUpscale .check-label');
     if (upLbl) upLbl.textContent = _enhanceVideoMode() === 'esrgan' ? t('prog.upscale') : t('prog.enhanceVideo');
+    updateQuotaUI();
   });

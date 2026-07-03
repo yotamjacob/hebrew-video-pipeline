@@ -323,6 +323,20 @@
     'sched.generating':    { en: '✨ Generating…', he: '✨ יוצר…' },
     'sched.captionFailed': { en: "Couldn't generate a caption ({msg}). You can write one manually.", he: 'יצירת הכיתוב נכשלה ({msg}). אפשר לכתוב אחד ידנית.' },
 
+    // ── Quota / admin ──
+    'quota.pill':       { en: '{left} of {limit} trial videos left', he: 'נשארו {left} מתוך {limit} סרטוני ניסיון' },
+    'quota.pillZero':   { en: 'Trial videos used up', he: 'מכסת סרטוני הניסיון נוצלה' },
+    'quota.exhausted':  { en: 'You have used all your trial videos. Contact the app admin to unlock more.', he: 'ניצלתם את כל סרטוני הניסיון. צרו קשר עם מנהל האפליקציה לפתיחת מכסה נוספת.' },
+    'tab.admin':        { en: '🛠️ Admin', he: '🛠️ ניהול' },
+    'admin.title':      { en: '🛠️ User Limits', he: '🛠️ מכסות משתמשים' },
+    'admin.note':       { en: 'How many videos each account can process (minus 1 = unlimited).', he: 'כמה סרטונים כל חשבון יכול לעבד (מינוס 1 = בלי הגבלה).' },
+    'admin.loading':    { en: 'Loading…', he: 'טוען…' },
+    'admin.loadFailed': { en: 'Could not load users - try again.', he: 'טעינת המשתמשים נכשלה - נסו שוב.' },
+    'admin.used':       { en: 'used {used}', he: 'בשימוש: {used}' },
+    'admin.unlimited':  { en: 'unlimited', he: 'בלי הגבלה' },
+    'admin.save':       { en: 'Save', he: 'שמירה' },
+    'admin.saveFailed': { en: 'Failed', he: 'נכשל' },
+
     // ── Language toggle ──
     'lang.switch': { en: 'עברית', he: 'English' },
   };

@@ -55,6 +55,7 @@
 <div class="tabs" role="tablist" id="tabsBar" style="display:none">
   <button class="tab active" id="tabPipeline" role="tab" aria-selected="true" onclick="switchTab('pipeline')" data-i18n="tab.create">🎬 Create</button>
   <button class="tab" id="tabHistory" role="tab" aria-selected="false" onclick="switchTab('history')" data-i18n="tab.history">🗂️ History</button>
+  <button class="tab" id="tabAdmin" role="tab" aria-selected="false" onclick="switchTab('admin')" style="display:none" data-i18n="tab.admin">🛠️ Admin</button>
   <button class="tab" id="logoutTab" onclick="logout()" title="Sign out" data-i18n="tab.logout">🚪 Logout</button>
 </div>
 
@@ -82,6 +83,8 @@
 </div>
 
 <div class="container" id="pipelineView" style="display:none">
+
+  <div id="quotaPill" class="quota-pill" style="display:none"></div>
 
   <!-- Upload -->
   <div class="card" id="uploadCard">
@@ -640,6 +643,22 @@
     <div id="historyLoading" class="history-loading" style="display:none" data-i18n="hist.loading">Loading…</div>
     <div id="historyEmpty" class="history-empty" style="display:none" data-i18n="hist.empty">No videos yet - burn your first video and it will show up here.</div>
     <div id="historyList"></div>
+    </div>
+  </div>
+  <p class="footer" data-i18n="footer.line">פייפליין &nbsp;·&nbsp; עריכות וידאו בלחיצת כפתור</p>
+</div>
+
+<!-- ── Admin view ── -->
+<div class="container" id="adminView" style="display:none">
+  <div class="card">
+    <div class="card-header" style="cursor:default">
+      <p class="options-title" data-i18n="admin.title">🛠️ User Limits</p>
+    </div>
+    <div style="padding-top:14px">
+      <p class="history-note" data-i18n="admin.note">How many videos each account can process (minus 1 = unlimited).</p>
+      <div id="adminLoading" class="history-loading" style="display:none" data-i18n="admin.loading">Loading…</div>
+      <div id="adminError" class="sched-error" style="display:none"></div>
+      <div id="adminList"></div>
     </div>
   </div>
   <p class="footer" data-i18n="footer.line">פייפליין &nbsp;·&nbsp; עריכות וידאו בלחיצת כפתור</p>

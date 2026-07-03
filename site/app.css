@@ -1317,3 +1317,34 @@
 
 /* Technical debug log stays LTR */
 #debugPanel { direction: ltr; }
+
+/* ── Quota pill + admin view ── */
+.quota-pill {
+  display: inline-block;
+  margin-bottom: 14px;
+  padding: 7px 16px;
+  border-radius: 999px;
+  background: var(--purple-100);
+  color: var(--purple-800);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.quota-pill-empty { background: #FEE2E2; color: #B91C1C; }
+
+.admin-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 0; border-bottom: 1px solid var(--purple-100);
+}
+.admin-row:last-child { border-bottom: none; }
+.admin-name { flex: 1; min-width: 0; font-size: 0.9rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.admin-used { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+.admin-limit-input {
+  width: 74px; padding: 7px 8px; border: 1.5px solid var(--purple-100); border-radius: 9px;
+  font-family: inherit; font-size: 0.85rem; outline: none; direction: ltr; text-align: center;
+}
+.admin-limit-input:focus { border-color: var(--purple-400); }
+.admin-save-btn {
+  padding: 7px 14px; border-radius: 9px; border: none; cursor: pointer;
+  background: var(--purple-600); color: #fff; font-size: 0.8rem; font-weight: 700; font-family: inherit;
+}
+.admin-save-btn:disabled { opacity: 0.6; }
