@@ -279,7 +279,7 @@
     .action-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
     .reprocess-btn {
-      width: 100%; padding: 11px 18px; margin-bottom: 10px;
+      width: 100%; padding: 11px 18px; margin-top: 14px;
       background: white; color: var(--purple-700);
       border: 1.5px solid var(--purple-400); border-radius: 12px;
       font-size: 0.88rem; font-weight: 700; cursor: pointer;
