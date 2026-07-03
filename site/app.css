@@ -177,7 +177,7 @@
     }
     .file-info-detail { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
     .file-info-clear {
-      margin-left: auto;
+      margin-inline-start: auto;
       flex-shrink: 0;
       background: none;
       border: none;
@@ -269,10 +269,10 @@
     }
 
     /* ── Enhance-video mode selector ── */
-    .enhance-panel { padding: 0 0 14px 42px; border-bottom: 1px solid var(--purple-100); }
+    .enhance-panel { padding: 0 0 14px; padding-inline-start: 42px; border-bottom: 1px solid var(--purple-100); }
 
     /* ── Silence-cut aggressiveness (under the Cut silences toggle) ── */
-    .aggr-panel { padding: 0 0 14px 42px; border-bottom: 1px solid var(--purple-100); }
+    .aggr-panel { padding: 0 0 14px; padding-inline-start: 42px; border-bottom: 1px solid var(--purple-100); }
     .aggr-panel.hidden { display: none; }
 
     .slider-row { margin-bottom: 18px; }
@@ -571,7 +571,7 @@
       background: none; border: 1px solid var(--purple-300);
       color: var(--purple-600); border-radius: 6px;
       padding: 2px 8px; font-size: 0.72rem; font-weight: 600;
-      cursor: pointer; margin-left: auto; flex-shrink: 0;
+      cursor: pointer; margin-inline-start: auto; flex-shrink: 0;
     }
     .moment-restore-btn:hover { background: var(--purple-50); }
     .broll-summary {
@@ -793,7 +793,7 @@
     .confidence-low    { background: #F3F4F6; color: #6B7280; }
 
     .moment-dismiss-btn {
-      margin-left: auto;
+      margin-inline-start: auto;
       background: none;
       border: none;
       color: var(--muted);
@@ -1407,3 +1407,42 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── Language toggle (hero corner, visible on every view) ── */
+.lang-toggle {
+  position: absolute;
+  top: 14px;
+  inset-inline-end: 14px;
+  z-index: 5;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background 0.15s, transform 0.15s;
+}
+.lang-toggle:hover { background: rgba(255, 255, 255, 0.26); }
+.lang-toggle:active { transform: scale(0.95); }
+
+/* ── RTL (Hebrew) mirroring ── */
+[dir="rtl"] .toggle-thumb { left: auto; right: 3px; }
+[dir="rtl"] .toggle input:checked ~ .toggle-thumb { transform: translateX(-20px); }
+[dir="rtl"] .card-header.collapsed .collapse-chevron { transform: rotate(90deg); }
+
+/* Numeric/time labels stay LTR so "12 MB · 1:23" reads correctly in Hebrew */
+[dir="rtl"] .check-time,
+[dir="rtl"] .done-time,
+[dir="rtl"] .player-time-lbl,
+[dir="rtl"] .slider-val,
+[dir="rtl"] .file-info-detail,
+[dir="rtl"] .history-meta,
+[dir="rtl"] .upload-bar-pct { direction: ltr; unicode-bidi: isolate; }
+
+/* Technical debug log stays LTR */
+#debugPanel { direction: ltr; }

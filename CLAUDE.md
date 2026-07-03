@@ -15,6 +15,7 @@
 | `site/index.html` | Vercel frontend markup — "Swiftcut" generic branding; tabs: **Create** (upload/process/download), **History**, and a hidden **Statistics** tab (Yogalina Metricool snapshot); no framework |
 | `DESIGN_LEGACY.md` | The pre-2026-07 Yogalina design, preserved at tag `design-yogalina-classic` — how to revert |
 | `site/app.js` | All frontend logic (upload, polling, editor, burn, debug panel, stats tab, scheduling) |
+| `site/i18n.js` | EN/HE dictionary + engine: `t(key, vars)`, `data-i18n` attrs, `setLang` (sets `dir=rtl`, persists `hebpipe_lang`, fires `langchange`); toggle button `#langToggle` in hero |
 | `site/app.css` | All frontend styles |
 | `site/sw.js` | Service worker — background job polling only (no asset caching) |
 | `site/vercel.json` | SPA rewrite rule (all routes → index.html) |

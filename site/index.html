@@ -14,12 +14,13 @@
 <body>
 
 <div id="reconnectBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:#4C1D95;color:#fff;padding:12px 20px;display:none;align-items:center;gap:12px;font-size:0.9rem;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,0.3)">
-  <span style="flex:1">A previous job is still running — tap to reconnect and get your result.</span>
-  <button onclick="resumeSavedJob()" style="background:#7C3AED;border:none;color:#fff;border-radius:8px;padding:8px 16px;font-size:0.85rem;font-weight:700;cursor:pointer">Resume</button>
-  <button onclick="clearSavedJob();document.getElementById('reconnectBanner').style.display='none'" style="background:none;border:1.5px solid rgba(255,255,255,0.4);color:#fff;border-radius:8px;padding:8px 12px;font-size:0.85rem;cursor:pointer">Dismiss</button>
+  <span style="flex:1" data-i18n="reconnect.msg">A previous job is still running — tap to reconnect and get your result.</span>
+  <button onclick="resumeSavedJob()" style="background:#7C3AED;border:none;color:#fff;border-radius:8px;padding:8px 16px;font-size:0.85rem;font-weight:700;cursor:pointer" data-i18n="reconnect.resume">Resume</button>
+  <button onclick="clearSavedJob();document.getElementById('reconnectBanner').style.display='none'" style="background:none;border:1.5px solid rgba(255,255,255,0.4);color:#fff;border-radius:8px;padding:8px 12px;font-size:0.85rem;cursor:pointer" data-i18n="reconnect.dismiss">Dismiss</button>
 </div>
 
 <div class="hero">
+  <button id="langToggle" class="lang-toggle" onclick="toggleLang()" data-i18n="lang.switch">עברית</button>
   <div class="hero-glow hero-glow-a"></div>
   <div class="hero-glow hero-glow-b"></div>
   <div class="hero-overlay">
@@ -40,40 +41,40 @@
       </svg>
       <h1 class="hero-title">Swiftcut</h1>
     </div>
-    <p class="hero-sub">Hebrew-first social video studio</p>
-    <p class="hero-tags">Auto-cut · Captions · Hooks · B-roll · Schedule</p>
+    <p class="hero-sub" data-i18n="hero.sub">Hebrew-first social video studio</p>
+    <p class="hero-tags" data-i18n="hero.tags">Auto-cut · Captions · Hooks · B-roll · Schedule</p>
   </div>
 </div>
 
 <div class="tabs" role="tablist" id="tabsBar" style="display:none">
-  <button class="tab active" id="tabPipeline" role="tab" aria-selected="true" onclick="switchTab('pipeline')">🎬 Create</button>
-  <button class="tab" id="tabHistory" role="tab" aria-selected="false" onclick="switchTab('history')">🗂️ History</button>
+  <button class="tab active" id="tabPipeline" role="tab" aria-selected="true" onclick="switchTab('pipeline')" data-i18n="tab.create">🎬 Create</button>
+  <button class="tab" id="tabHistory" role="tab" aria-selected="false" onclick="switchTab('history')" data-i18n="tab.history">🗂️ History</button>
   <!-- Yogalina-era Metricool stats tab — hidden for the generic release; see DESIGN_LEGACY.md -->
-  <button class="tab" id="tabStats" role="tab" aria-selected="false" onclick="switchTab('stats')" style="display:none">📊 Statistics</button>
-  <button class="tab" id="logoutTab" onclick="logout()" title="Sign out">🚪 Logout</button>
+  <button class="tab" id="tabStats" role="tab" aria-selected="false" onclick="switchTab('stats')" style="display:none" data-i18n="tab.stats">📊 Statistics</button>
+  <button class="tab" id="logoutTab" onclick="logout()" title="Sign out" data-i18n="tab.logout">🚪 Logout</button>
 </div>
 
 <!-- ── Sign in / register ── -->
 <div class="container" id="authView" style="display:none">
   <div class="card">
     <div class="card-header" style="cursor:default">
-      <p class="options-title">🔐 Sign In</p>
+      <p class="options-title" data-i18n="auth.title">🔐 Sign In</p>
     </div>
     <div style="padding-top:14px">
-      <label class="sched-label">Username</label>
+      <label class="sched-label" data-i18n="auth.username">Username</label>
       <input type="text" id="authUsername" class="sched-input" style="width:100%" autocomplete="username" />
-      <label class="sched-label">Password</label>
+      <label class="sched-label" data-i18n="auth.password">Password</label>
       <input type="password" id="authPassword" class="sched-input" style="width:100%" autocomplete="current-password" />
       <div id="authInviteRow" style="display:none">
-        <label class="sched-label">Invite code</label>
+        <label class="sched-label" data-i18n="auth.invite">Invite code</label>
         <input type="text" id="authInvite" class="sched-input" style="width:100%" autocomplete="off" />
       </div>
       <div id="authError" class="sched-error" style="display:none;margin-top:12px"></div>
-      <button class="run-btn" id="authSubmitBtn" style="margin-top:18px" onclick="authSubmit()">Sign in</button>
-      <button class="action-btn" style="margin-top:10px" id="authModeBtn" onclick="toggleAuthMode()">New here? Create an account</button>
+      <button class="run-btn" id="authSubmitBtn" style="margin-top:18px" onclick="authSubmit()" data-i18n="auth.signin">Sign in</button>
+      <button class="action-btn" style="margin-top:10px" id="authModeBtn" onclick="toggleAuthMode()" data-i18n="auth.toRegister">New here? Create an account</button>
     </div>
   </div>
-  <p class="footer">Swiftcut &nbsp;·&nbsp; Hebrew videos, edited in minutes</p>
+  <p class="footer" data-i18n="footer.line">Swiftcut &nbsp;·&nbsp; Hebrew videos, edited in minutes</p>
 </div>
 
 <div class="container" id="pipelineView" style="display:none">
@@ -81,16 +82,16 @@
   <!-- Upload -->
   <div class="card" id="uploadCard">
     <div class="card-header" onclick="toggleCard('uploadBody', this)">
-      <p class="options-title">🎬 Upload Video</p>
+      <p class="options-title" data-i18n="upload.title">🎬 Upload Video</p>
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="uploadBody" style="padding-top:14px">
     <div class="upload-zone" id="uploadZone">
       <input type="file" id="fileInput" accept="video/*" />
       <div class="upload-icon">🎬</div>
-      <p class="upload-main">Drop your video here</p>
-      <p class="upload-sub">or <span class="upload-link">browse files</span></p>
-      <p class="upload-hint">MP4 · MOV · MKV &nbsp;·&nbsp; max 20 min &nbsp;·&nbsp; max 500 MB</p>
+      <p class="upload-main" data-i18n="upload.drop">Drop your video here</p>
+      <p class="upload-sub" data-i18n="upload.browse">or <span class="upload-link">browse files</span></p>
+      <p class="upload-hint" data-i18n="upload.hint">MP4 · MOV · MKV &nbsp;·&nbsp; max 20 min &nbsp;·&nbsp; max 500 MB</p>
     </div>
 
     <div class="file-info" id="fileInfo">
@@ -130,7 +131,7 @@
   <!-- Options -->
   <div class="card" id="optionsCard">
     <div class="card-header" onclick="toggleCard('optionsBody', this)">
-      <p class="options-title">⚙️ Options</p>
+      <p class="options-title" data-i18n="options.title">⚙️ Options</p>
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="optionsBody" style="padding-top:14px">
@@ -138,8 +139,8 @@
     <div class="option-row" style="border-bottom:none">
       <div class="option-icon">✂️</div>
       <div class="option-text">
-        <div class="option-label">Cut silences</div>
-        <div class="option-desc">Remove pauses between speech</div>
+        <div class="option-label" data-i18n="opt.cut.label">Cut silences</div>
+        <div class="option-desc" data-i18n="opt.cut.desc">Remove pauses between speech</div>
       </div>
       <div class="toggle-wrap">
         <label class="toggle">
@@ -151,21 +152,21 @@
     </div>
     <div class="aggr-panel" id="aggrPanel">
       <div class="slider-row" style="margin-top:0">
-        <div class="slider-label"><span>How aggressively to cut silences</span><span class="slider-val" id="aggrVal">0.3 s</span></div>
+        <div class="slider-label"><span data-i18n="opt.aggr.label">How aggressively to cut silences</span><span class="slider-val" id="aggrVal">0.3 s</span></div>
         <div class="aggr-track">
-          <span class="aggr-end">Gentle</span>
+          <span class="aggr-end" data-i18n="opt.aggr.gentle">Gentle</span>
           <input type="range" id="aggrSlider" min="1" max="5" step="1" value="4" />
-          <span class="aggr-end">Aggressive</span>
+          <span class="aggr-end" data-i18n="opt.aggr.aggressive">Aggressive</span>
         </div>
-        <div class="slider-desc" id="aggrDesc">Aggressive — cuts pauses over 0.3 s</div>
+        <div class="slider-desc" id="aggrDesc" data-i18n="aggr.4">Aggressive — cuts pauses over 0.3 s</div>
       </div>
     </div>
 
     <div class="option-row">
       <div class="option-icon">💬</div>
       <div class="option-text">
-        <div class="option-label">Burn Hebrew captions</div>
-        <div class="option-desc">Word-level subtitles baked into video</div>
+        <div class="option-label" data-i18n="opt.captions.label">Burn Hebrew captions</div>
+        <div class="option-desc" data-i18n="opt.captions.desc">Word-level subtitles baked into video</div>
       </div>
       <div class="toggle-wrap">
         <label class="toggle">
@@ -179,8 +180,8 @@
     <div class="option-row">
       <div class="option-icon">🎙️</div>
       <div class="option-text">
-        <div class="option-label">Enhance audio</div>
-        <div class="option-desc">DeepFilterNet noise reduction</div>
+        <div class="option-label" data-i18n="opt.audio.label">Enhance audio</div>
+        <div class="option-desc" data-i18n="opt.audio.desc">DeepFilterNet noise reduction</div>
       </div>
       <div class="toggle-wrap">
         <label class="toggle">
@@ -194,26 +195,26 @@
     <div class="option-row" style="border-bottom:none">
       <div class="option-icon">✨</div>
       <div class="option-text">
-        <div class="option-label">Enhance video</div>
-        <div class="option-desc" id="enhanceVideoDesc">Off — video is untouched</div>
+        <div class="option-label" data-i18n="opt.video.label">Enhance video</div>
+        <div class="option-desc" id="enhanceVideoDesc" data-i18n="ev.desc.none">Off — video is untouched</div>
       </div>
     </div>
     <div class="enhance-panel">
       <div class="ar-select">
         <input type="radio" name="enhanceVideo" id="ev_none" value="none" checked>
-        <label for="ev_none">Off</label>
+        <label for="ev_none" data-i18n="ev.off">Off</label>
         <input type="radio" name="enhanceVideo" id="ev_filters" value="filters">
-        <label for="ev_filters">Light touch</label>
+        <label for="ev_filters" data-i18n="ev.filters">Light touch</label>
         <input type="radio" name="enhanceVideo" id="ev_esrgan" value="esrgan">
-        <label for="ev_esrgan">AI upscale</label>
+        <label for="ev_esrgan" data-i18n="ev.esrgan">AI upscale</label>
       </div>
     </div>
 
     <div class="option-row" id="suggestBrollsRow">
       <div class="option-icon">🎬</div>
       <div class="option-text">
-        <div class="option-label">Suggest B-rolls (Veo)</div>
-        <div class="option-desc">AI generates video B-rolls with Veo — coming soon</div>
+        <div class="option-label" data-i18n="opt.broll.label">Suggest B-rolls (Veo)</div>
+        <div class="option-desc" data-i18n="opt.broll.desc">AI generates video B-rolls with Veo — coming soon</div>
       </div>
       <div class="toggle-wrap">
         <label class="toggle">
@@ -225,21 +226,21 @@
     </div>
     <div id="geminiKeyRow" class="gemini-key-row" style="display:none">
       <input type="password" id="geminiKey" class="gemini-key-input"
-             placeholder="Gemini API key — get one free at ai.google.dev" autocomplete="off" />
+             placeholder="Gemini API key — get one free at ai.google.dev" data-i18n-placeholder="opt.geminiKey" autocomplete="off" />
     </div>
     <div id="anthropicKeyRow" class="gemini-key-row" style="display:none">
       <input type="password" id="anthropicKey" class="gemini-key-input"
-             placeholder="Anthropic API key (optional) — for smarter B-roll descriptions" autocomplete="off" />
+             placeholder="Anthropic API key (optional) — for smarter B-roll descriptions" data-i18n-placeholder="opt.anthropicKey" autocomplete="off" />
     </div>
     <div id="brollAspectRow" style="display:none; margin-top:8px;">
-      <div style="font-size:0.72rem;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--purple-400);margin-bottom:6px;">B-roll aspect ratio</div>
+      <div style="font-size:0.72rem;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--purple-400);margin-bottom:6px;" data-i18n="opt.brollAspect">B-roll aspect ratio</div>
       <div class="ar-select">
         <input type="radio" name="brollAspect" id="ar169" value="16:9">
-        <label for="ar169">Landscape</label>
+        <label for="ar169" data-i18n="ar.landscape">Landscape</label>
         <input type="radio" name="brollAspect" id="ar916" value="9:16" checked>
-        <label for="ar916">Portrait</label>
+        <label for="ar916" data-i18n="ar.portrait">Portrait</label>
         <input type="radio" name="brollAspect" id="ar11" value="1:1">
-        <label for="ar11">Square</label>
+        <label for="ar11" data-i18n="ar.square">Square</label>
       </div>
     </div>
 
@@ -247,20 +248,20 @@
       <span class="time-estimate-icon">⏱️</span>
       <span id="timeEstimateText"></span>
     </div>
-    <button class="reprocess-btn" id="reprocessBtn" style="display:none">↻&nbsp; Re-process with new settings</button>
+    <button class="reprocess-btn" id="reprocessBtn" style="display:none" data-i18n="reprocess.btn">↻&nbsp; Re-process with new settings</button>
     </div>
   </div>
 
   <!-- Caption editor — shown after /process when burn_captions is on -->
   <div class="card" id="captionEditorCard" style="display:none">
     <div class="card-header" onclick="toggleCard('captionBody', this)">
-      <p class="options-title">✏️ Edit Captions</p>
+      <p class="options-title" data-i18n="capedit.title">✏️ Edit Captions</p>
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="captionBody" style="padding-top:16px">
       <!-- Font selector -->
       <div class="caption-controls">
-        <label class="ctrl-label" for="fontSelect">Font</label>
+        <label class="ctrl-label" for="fontSelect" data-i18n="capedit.font">Font</label>
         <select id="fontSelect" class="font-select">
           <option value="Heebo">Heebo</option>
           <option value="Assistant">Assistant</option>
@@ -286,7 +287,7 @@
               </div>
               <span class="pos-lbl">▼</span>
             </div>
-            <div class="font-size-track" title="Caption text size in burned video">
+            <div class="font-size-track" title="Caption text size in burned video" data-i18n-title="capedit.sizeTitle">
               <span class="fs-lbl" style="font-size:0.82rem">A</span>
               <input type="range" id="captionFontSizeSlider"
                 min="24" max="150" step="1" value="48"
@@ -297,7 +298,7 @@
           </div>
         </div>
         <div class="player-controls">
-          <button id="playerPlayBtn" class="player-btn" title="Play / Pause">▶</button>
+          <button id="playerPlayBtn" class="player-btn" title="Play / Pause" data-i18n-title="capedit.playpause">▶</button>
           <div class="player-prog-wrap" id="playerProgWrap">
             <div class="player-prog-track">
               <div id="playerProgFill" class="player-prog-fill"></div>
@@ -308,10 +309,10 @@
         </div>
       </div>
 
-      <p style="font-size:0.78rem;color:var(--muted);margin:10px 0 4px">Edit captions below, then burn.</p>
+      <p style="font-size:0.78rem;color:var(--muted);margin:10px 0 4px" data-i18n="capedit.hint">Edit captions below, then burn.</p>
       <div class="captions-list" id="captionsList"></div>
 
-      <button id="downloadSrtBtn" class="action-btn" style="margin-top:16px" onclick="downloadSRT()">⬇&nbsp; Download SRT</button>
+      <button id="downloadSrtBtn" class="action-btn" style="margin-top:16px" onclick="downloadSRT()" data-i18n="capedit.srt">⬇&nbsp; Download SRT</button>
 
     </div>
   </div>
@@ -319,13 +320,13 @@
   <!-- B-roll suggestions — shown after caption editor when toggle is on -->
   <div class="card" id="brollCard" style="display:none">
     <div class="card-header" onclick="toggleCard('brollBody', this)">
-      <p class="options-title">🎥 B-roll Suggestions</p>
+      <p class="options-title" data-i18n="broll.title">🎥 B-roll Suggestions</p>
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="brollBody" style="padding-top:16px">
       <div id="brollStatus" class="broll-status" style="display:none">
         <div class="spinner-sm"></div>
-        <span>Analyzing video for B-roll opportunities…</span>
+        <span data-i18n="broll.analyzing">Analyzing video for B-roll opportunities…</span>
       </div>
       <div id="brollList"></div>
     </div>
@@ -334,20 +335,18 @@
   <!-- Stock B-roll suggestions — shown after processing when toggle is on -->
   <div class="card" id="stockBrollCard" style="display:none">
     <div class="card-header" onclick="toggleCard('stockBrollBody', this)">
-      <p class="options-title">🎞️ Stock B-Roll Suggestions</p>
+      <p class="options-title" data-i18n="stock.title">🎞️ Stock B-Roll Suggestions</p>
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="stockBrollBody" style="padding-top:16px">
-      <button id="findBrollBtn" class="action-btn" style="margin-bottom:12px">
-        🎬 Find B-Roll Moments
-      </button>
+      <button id="findBrollBtn" class="action-btn" style="margin-bottom:12px" data-i18n="stock.find">🎬 Find B-Roll Moments</button>
       <div id="stockBrollRerunBanner" style="display:none;margin-bottom:12px;padding:10px 14px;background:#FFF7ED;border:1.5px solid #FDE68A;border-radius:12px;font-size:0.82rem;color:#92400E;display:none;align-items:center;gap:10px">
-        <span style="flex:1">Captions changed since last analysis — re-run to update B-roll suggestions.</span>
-        <button onclick="triggerStockBroll()" style="padding:5px 12px;border-radius:8px;border:1.5px solid #D97706;background:none;color:#B45309;font-size:0.8rem;font-weight:600;cursor:pointer;white-space:nowrap">Re-run</button>
+        <span style="flex:1" data-i18n="stock.rerunMsg">Captions changed since last analysis — re-run to update B-roll suggestions.</span>
+        <button onclick="triggerStockBroll()" style="padding:5px 12px;border-radius:8px;border:1.5px solid #D97706;background:none;color:#B45309;font-size:0.8rem;font-weight:600;cursor:pointer;white-space:nowrap" data-i18n="stock.rerun">Re-run</button>
       </div>
       <div id="stockBrollStatus" class="broll-status" style="display:none">
         <div class="spinner-sm"></div>
-        <span>Finding B-roll moments…</span>
+        <span data-i18n="stock.finding">Finding B-roll moments…</span>
         <div class="elapsed" id="stockBrollElapsed">0:00</div>
       </div>
       <div id="stockCostLimitBanner" style="display:none;margin-bottom:12px;padding:10px 14px;background:var(--purple-50);border:1.5px solid var(--purple-200);border-radius:12px;font-size:0.82rem;color:var(--purple-800)"></div>
@@ -357,22 +356,18 @@
 
   <div class="card" id="hookCard" style="display:none">
     <div class="card-header" onclick="toggleCard('hookBody', this)">
-      <p class="options-title">🪝 Hook Generator</p>
+      <p class="options-title" data-i18n="hook.title">🪝 Hook Generator</p>
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="hookBody" style="padding-top:16px">
-      <p style="font-size:0.82rem;color:var(--muted);margin-bottom:14px">Generate a short opening caption that appears in the first seconds of your video to stop the scroll.</p>
+      <p style="font-size:0.82rem;color:var(--muted);margin-bottom:14px" data-i18n="hook.intro">Generate a short opening caption that appears in the first seconds of your video to stop the scroll.</p>
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
-        <button id="generateHookBtn" class="action-btn" onclick="triggerGenerateHook()" disabled>
-          ✨ Generate Hook Options
-        </button>
+        <button id="generateHookBtn" class="action-btn" onclick="triggerGenerateHook()" disabled data-i18n="hook.generate">✨ Generate Hook Options</button>
         <div id="hookStatus" style="display:none;align-items:center;gap:8px">
           <div class="spinner-sm"></div>
-          <span style="font-size:0.82rem;color:var(--muted)">Generating…</span>
+          <span style="font-size:0.82rem;color:var(--muted)" data-i18n="hook.generating">Generating…</span>
           <button id="hookCancelBtn" onclick="cancelGenerateHook()"
-            style="padding:3px 10px;border-radius:6px;border:1.5px solid var(--purple-300);background:none;color:var(--purple-600);font-size:0.78rem;font-weight:600;cursor:pointer">
-            Cancel
-          </button>
+            style="padding:3px 10px;border-radius:6px;border:1.5px solid var(--purple-300);background:none;color:var(--purple-600);font-size:0.78rem;font-weight:600;cursor:pointer" data-i18n="hook.cancel">Cancel</button>
         </div>
       </div>
       <div id="hookError" style="display:none;color:var(--red);font-size:0.82rem;margin-bottom:10px"></div>
@@ -384,7 +379,7 @@
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
           <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
-            Font
+            <span data-i18n="hook.font">Font</span>
             <select id="hookFont" style="padding:6px 8px;border-radius:8px;border:1.5px solid var(--purple-200);font-size:0.85rem">
               <option value="Heebo">Heebo</option>
               <option value="Assistant">Assistant</option>
@@ -393,86 +388,84 @@
             </select>
           </label>
           <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
-            Text color
+            <span data-i18n="hook.textColor">Text color</span>
             <input type="color" id="hookFontColor" value="#FFFFFF"
               style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
           </label>
           <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
-            Background color
+            <span data-i18n="hook.bgColor">Background color</span>
             <input type="color" id="hookBgColor" value="#000000"
               style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
           </label>
           <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
-            Background opacity: <span id="hookBgOpacityVal">60%</span>
+            <span><span data-i18n="hook.bgOpacity">Background opacity:</span> <span id="hookBgOpacityVal">60%</span></span>
             <input type="range" id="hookBgOpacity" min="0" max="100" value="60"
               oninput="document.getElementById('hookBgOpacityVal').textContent=this.value+'%'" style="width:100%;margin-top:4px">
           </label>
           <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
-            Border color
+            <span data-i18n="hook.borderColor">Border color</span>
             <input type="color" id="hookBorderColor" value="#000000"
               style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
           </label>
           <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
-            Border size: <span id="hookBorderSizeVal">0px</span>
+            <span><span data-i18n="hook.borderSize">Border size:</span> <span id="hookBorderSizeVal">0px</span></span>
             <input type="range" id="hookBorderSize" min="0" max="12" value="0" step="1"
               oninput="document.getElementById('hookBorderSizeVal').textContent=this.value+'px'" style="width:100%;margin-top:4px">
           </label>
           <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px;grid-column:1/-1">
-            Text size: <span id="hookFontSizeVal">100%</span>
+            <span><span data-i18n="hook.textSize">Text size:</span> <span id="hookFontSizeVal">100%</span></span>
             <input type="range" id="hookFontSize" min="50" max="200" value="100" step="5"
               oninput="document.getElementById('hookFontSizeVal').textContent=this.value+'%'" style="width:100%;margin-top:4px">
           </label>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
           <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
-            Start (seconds)
+            <span data-i18n="hook.startSec">Start (seconds)</span>
             <input type="number" id="hookStartSec" value="0" min="0" max="30" step="0.5"
               style="padding:6px 8px;border-radius:8px;border:1.5px solid var(--purple-200);font-size:0.85rem">
           </label>
           <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
-            Duration (seconds)
+            <span data-i18n="hook.durationSec">Duration (seconds)</span>
             <input type="number" id="hookDurationSec" value="3" min="1" max="10" step="0.5"
               style="padding:6px 8px;border-radius:8px;border:1.5px solid var(--purple-200);font-size:0.85rem">
           </label>
         </div>
         <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
-          Vertical position
+          <span data-i18n="hook.vpos">Vertical position</span>
           <div style="display:flex;align-items:center;gap:10px">
-            <span style="font-size:0.75rem;color:var(--muted)">Top</span>
+            <span style="font-size:0.75rem;color:var(--muted)" data-i18n="hook.top">Top</span>
             <input type="range" id="hookPosition" min="0" max="100" value="10" style="flex:1">
-            <span style="font-size:0.75rem;color:var(--muted)">Bottom</span>
+            <span style="font-size:0.75rem;color:var(--muted)" data-i18n="hook.bottom">Bottom</span>
           </div>
         </label>
         <div style="display:flex;gap:8px;align-items:center;justify-content:center;margin-bottom:12px">
           <button onclick="openHookTemplateModal()"
-            style="padding:6px 14px;border-radius:9px;border:1.5px solid var(--purple-300);background:var(--purple-50);color:var(--purple-700);font-size:0.8rem;font-weight:600;cursor:pointer">
-            💾 Save / Load Template
-          </button>
+            style="padding:6px 14px;border-radius:9px;border:1.5px solid var(--purple-300);background:var(--purple-50);color:var(--purple-700);font-size:0.8rem;font-weight:600;cursor:pointer" data-i18n="hook.saveLoad">💾 Save / Load Template</button>
         </div>
-        <p style="font-size:0.78rem;color:var(--purple-500);text-align:center;margin:4px 0 0">Hook will be included when you burn the video below.</p>
+        <p style="font-size:0.78rem;color:var(--purple-500);text-align:center;margin:4px 0 0" data-i18n="hook.willBurn">Hook will be included when you burn the video below.</p>
       </div>
     </div>
   </div>
 
-  <button class="run-btn" id="runBtn" disabled>▶&nbsp; Run Pipeline</button>
+  <button class="run-btn" id="runBtn" disabled data-i18n="run.pipeline">▶&nbsp; Run Pipeline</button>
   <div id="burnError" style="display:none; color:var(--red); font-size:0.85rem; text-align:center; margin-bottom:16px; padding:10px 14px; background:#FEF2F2; border:1.5px solid #FECACA; border-radius:12px;"></div>
 
   <div id="burnSuccessBanner" style="display:none">
     <div class="burn-success-icon">✅</div>
-    <div class="burn-success-label">Done! Your video is ready.</div>
-    <button class="download-btn" id="burnDownloadBtn" style="width:100%;margin-top:4px">⬇&nbsp; Download again</button>
+    <div class="burn-success-label" data-i18n="burn.success">Done! Your video is ready.</div>
+    <button class="download-btn" id="burnDownloadBtn" style="width:100%;margin-top:4px" data-i18n="burn.downloadAgain">⬇&nbsp; Download again</button>
   </div>
 
   <!-- Schedule this video (handoff helper) -->
   <div class="card" id="scheduleCard" style="display:none">
     <div class="card-header" onclick="toggleCard('scheduleBody', this)">
-      <p class="options-title">📅 Schedule This Video</p>
+      <p class="options-title" data-i18n="sched.title">📅 Schedule This Video</p>
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="scheduleBody" style="padding-top:14px">
-    <p class="sched-intro">Schedule this video straight to Metricool. Unless <b>Auto-publish</b> is on, you approve the final publish inside Metricool.</p>
+    <p class="sched-intro" data-i18n="sched.intro">Schedule this video straight to Metricool. Unless <b>Auto-publish</b> is on, you approve the final publish inside Metricool.</p>
 
-    <label class="sched-label">Platforms</label>
+    <label class="sched-label" data-i18n="sched.platforms">Platforms</label>
     <div class="platform-grid">
       <label class="platform-opt"><input type="checkbox" class="sched-platform" value="instagram" checked><span class="pf-badge instagram">IG</span>Instagram</label>
       <label class="platform-opt"><input type="checkbox" class="sched-platform" value="facebook"><span class="pf-badge facebook">FB</span>Facebook</label>
@@ -480,7 +473,7 @@
       <label class="platform-opt"><input type="checkbox" class="sched-platform" value="youtube"><span class="pf-badge youtube">YT</span>YouTube</label>
     </div>
 
-    <label class="sched-label">Publish time <span class="sched-hint">Israel time · best slot ~20:00</span></label>
+    <label class="sched-label"><span data-i18n="sched.publishTime">Publish time</span> <span class="sched-hint" data-i18n="sched.timeHint">Israel time · best slot ~20:00</span></label>
     <div class="sched-datetime">
       <input type="date" id="schedDate" class="sched-input">
       <input type="time" id="schedTime" class="sched-input" value="20:00">
@@ -489,8 +482,8 @@
     <div class="option-row" style="border-bottom:none">
       <div class="option-icon">🚀</div>
       <div class="option-text">
-        <div class="option-label">Auto-publish</div>
-        <div class="option-desc" id="autoPublishDesc">Off — post waits in Metricool for your approval</div>
+        <div class="option-label" data-i18n="sched.autoPublish">Auto-publish</div>
+        <div class="option-desc" id="autoPublishDesc" data-i18n="sched.apOff">Off — post waits in Metricool for your approval</div>
       </div>
       <div class="toggle-wrap">
         <label class="toggle">
@@ -501,29 +494,29 @@
       </div>
     </div>
 
-    <label class="sched-label">Caption</label>
-    <textarea id="schedCaption" class="sched-caption" rows="5" placeholder="Write a caption, or generate a suggestion from the video…"></textarea>
-    <button id="suggestCaptionBtn" class="action-btn" style="margin-top:10px" onclick="suggestCaption()">✨ Suggest caption from video</button>
+    <label class="sched-label" data-i18n="sched.caption">Caption</label>
+    <textarea id="schedCaption" class="sched-caption" rows="5" placeholder="Write a caption, or generate a suggestion from the video…" data-i18n-placeholder="sched.captionPh"></textarea>
+    <button id="suggestCaptionBtn" class="action-btn" style="margin-top:10px" onclick="suggestCaption()" data-i18n="sched.suggest">✨ Suggest caption from video</button>
 
     <div id="ytFields" class="yt-fields" style="display:none">
-      <label class="sched-label">YouTube details <span class="sched-hint">required</span></label>
-      <input type="text" id="ytTitle" class="sched-input" placeholder="Video title (required for YouTube)">
+      <label class="sched-label"><span data-i18n="sched.ytDetails">YouTube details</span> <span class="sched-hint" data-i18n="sched.required">required</span></label>
+      <input type="text" id="ytTitle" class="sched-input" placeholder="Video title (required for YouTube)" data-i18n-placeholder="sched.ytTitlePh">
       <div class="yt-row">
         <select id="ytPrivacy" class="sched-input">
-          <option value="public">Public</option>
-          <option value="unlisted">Unlisted</option>
-          <option value="private">Private</option>
+          <option value="public" data-i18n="sched.public">Public</option>
+          <option value="unlisted" data-i18n="sched.unlisted">Unlisted</option>
+          <option value="private" data-i18n="sched.private">Private</option>
         </select>
-        <label class="yt-kids"><input type="checkbox" id="ytKids">Made for kids</label>
+        <label class="yt-kids"><input type="checkbox" id="ytKids"><span data-i18n="sched.kids">Made for kids</span></label>
       </div>
     </div>
 
     <div id="schedConnect" style="display:none;margin-top:16px">
-      <p class="sched-connect-note">🔗 Connect your Metricool account once to schedule straight from here.</p>
-      <button class="run-btn" onclick="connectMetricool()">Connect Metricool</button>
-      <button class="action-btn" style="margin-top:8px" onclick="checkMetricoolStatus()">I've connected — check again</button>
+      <p class="sched-connect-note" data-i18n="sched.connectNote">🔗 Connect your Metricool account once to schedule straight from here.</p>
+      <button class="run-btn" onclick="connectMetricool()" data-i18n="sched.connect">Connect Metricool</button>
+      <button class="action-btn" style="margin-top:8px" onclick="checkMetricoolStatus()" data-i18n="sched.checkAgain">I've connected — check again</button>
     </div>
-    <button id="scheduleBtn" class="run-btn" onclick="scheduleNow()" style="display:none;margin-top:16px">🚀&nbsp; Schedule on Metricool</button>
+    <button id="scheduleBtn" class="run-btn" onclick="scheduleNow()" style="display:none;margin-top:16px" data-i18n="sched.schedule">🚀&nbsp; Schedule on Metricool</button>
     <div id="schedStatus" class="sched-status" style="display:none"></div>
     <div id="schedError" class="sched-error" style="display:none"></div>
     </div>
@@ -532,7 +525,7 @@
   <!-- Status -->
   <div class="card status" id="statusCard">
     <div class="card-header" onclick="toggleCard('statusBody', this)">
-      <p class="options-title">⏳ Progress</p>
+      <p class="options-title" data-i18n="prog.title">⏳ Progress</p>
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="statusBody" style="padding-top:14px">
@@ -548,7 +541,7 @@
         </div>
         <div class="check-body">
           <div class="check-row">
-            <span class="check-label">Upload video</span>
+            <span class="check-label" data-i18n="prog.upload">Upload video</span>
             <span class="check-time" id="checkUploadTime"></span>
           </div>
           <div class="upload-bar-row" id="uploadBarRow" style="display:none">
@@ -565,7 +558,7 @@
           <span class="ci-done">✓</span>
         </div>
         <div class="check-body"><div class="check-row">
-          <span class="check-label">Enhance audio</span>
+          <span class="check-label" data-i18n="prog.enhance">Enhance audio</span>
           <span class="check-time" id="checkEnhanceTime"></span>
         </div></div>
       </div>
@@ -577,7 +570,7 @@
           <span class="ci-done">✓</span>
         </div>
         <div class="check-body"><div class="check-row">
-          <span class="check-label">Cut silences</span>
+          <span class="check-label" data-i18n="prog.cut">Cut silences</span>
           <span class="check-time" id="checkCutTime"></span>
         </div></div>
       </div>
@@ -589,7 +582,7 @@
           <span class="ci-done">✓</span>
         </div>
         <div class="check-body"><div class="check-row">
-          <span class="check-label">AI upscale</span>
+          <span class="check-label" data-i18n="prog.upscale">AI upscale</span>
           <span class="check-time" id="checkUpscaleTime"></span>
         </div></div>
       </div>
@@ -601,51 +594,51 @@
           <span class="ci-done">✓</span>
         </div>
         <div class="check-body"><div class="check-row">
-          <span class="check-label">Burn captions</span>
+          <span class="check-label" data-i18n="prog.burn">Burn captions</span>
           <span class="check-time" id="checkBurnTime"></span>
         </div></div>
       </div>
 
-      <div class="checklist-footer">Keep this page open while processing</div>
+      <div class="checklist-footer" data-i18n="prog.keepOpen">Keep this page open while processing</div>
     </div>
 
     <div class="status-done" id="statusDone">
       <div class="done-icon">✅</div>
-      <div class="done-label">Done! Your video is ready.</div>
+      <div class="done-label" data-i18n="prog.done">Done! Your video is ready.</div>
       <div class="done-saved" id="doneSaved" style="display:none"></div>
       <div class="done-time" id="doneTime" style="display:none"></div>
-      <button class="download-btn" id="downloadBtn">⬇&nbsp; Download video</button>
+      <button class="download-btn" id="downloadBtn" data-i18n="prog.download">⬇&nbsp; Download video</button>
     </div>
 
     <div class="status-error" id="statusError">
       <div class="error-icon">❌</div>
-      <div class="error-msg" id="errorMsg">Something went wrong.</div>
-      <button class="retry-btn" id="retryBtn">Try again</button>
+      <div class="error-msg" id="errorMsg" data-i18n="prog.error">Something went wrong.</div>
+      <button class="retry-btn" id="retryBtn" data-i18n="prog.retry">Try again</button>
     </div>
 
     </div>
   </div>
 
-  <button id="startOverBtn" class="start-over-btn">↩&nbsp; Start over</button>
+  <button id="startOverBtn" class="start-over-btn" data-i18n="startOver">↩&nbsp; Start over</button>
 
-  <p class="footer">Swiftcut &nbsp;·&nbsp; Hebrew videos, edited in minutes</p>
+  <p class="footer" data-i18n="footer.line">Swiftcut &nbsp;·&nbsp; Hebrew videos, edited in minutes</p>
 </div>
 
 <!-- ── History view ── -->
 <div class="container" id="historyView" style="display:none">
   <div class="card">
     <div class="card-header" onclick="toggleCard('historyBody', this)">
-      <p class="options-title">🗂️ Previous Videos</p>
+      <p class="options-title" data-i18n="hist.title">🗂️ Previous Videos</p>
       <i class="collapse-chevron">⌄</i>
     </div>
     <div id="historyBody" style="padding-top:14px">
-    <p class="history-note">Finished videos are kept for 30 days, then deleted automatically.</p>
-    <div id="historyLoading" class="history-loading" style="display:none">Loading…</div>
-    <div id="historyEmpty" class="history-empty" style="display:none">No videos yet — burn your first video and it will show up here.</div>
+    <p class="history-note" data-i18n="hist.note">Finished videos are kept for 30 days, then deleted automatically.</p>
+    <div id="historyLoading" class="history-loading" style="display:none" data-i18n="hist.loading">Loading…</div>
+    <div id="historyEmpty" class="history-empty" style="display:none" data-i18n="hist.empty">No videos yet — burn your first video and it will show up here.</div>
     <div id="historyList"></div>
     </div>
   </div>
-  <p class="footer">Swiftcut &nbsp;·&nbsp; Hebrew videos, edited in minutes</p>
+  <p class="footer" data-i18n="footer.line">Swiftcut &nbsp;·&nbsp; Hebrew videos, edited in minutes</p>
 </div>
 
 <!-- ── Statistics view ── -->
@@ -688,17 +681,17 @@
   <div class="stats-error" id="statsError" style="display:none">
     Couldn't load statistics right now. Please try again later.
   </div>
-  <p class="footer">Swiftcut &nbsp;·&nbsp; Hebrew videos, edited in minutes</p>
+  <p class="footer" data-i18n="footer.line">Swiftcut &nbsp;·&nbsp; Hebrew videos, edited in minutes</p>
 </div>
 
 <!-- ── Confirm dialog ── -->
 <div id="confirmOverlay" class="modal-overlay" style="display:none">
   <div class="modal-dialog">
-    <p class="modal-dialog-title" id="confirmTitle">Ready to burn?</p>
-    <p class="modal-dialog-body" id="confirmBody">Finished editing? Click Burn to generate and download your final video.</p>
+    <p class="modal-dialog-title" id="confirmTitle" data-i18n="confirm.burnTitle">Ready to burn?</p>
+    <p class="modal-dialog-body" id="confirmBody" data-i18n="confirm.burnBody">Finished editing? Click Burn to generate and download your final video.</p>
     <div class="modal-actions">
-      <button class="modal-cancel-btn" id="confirmCancel">Cancel</button>
-      <button class="modal-ok-btn" id="confirmOk">Burn &amp; Download</button>
+      <button class="modal-cancel-btn" id="confirmCancel" data-i18n="confirm.cancel">Cancel</button>
+      <button class="modal-ok-btn" id="confirmOk" data-i18n="confirm.burnOk">Burn &amp; Download</button>
     </div>
   </div>
 </div>
@@ -706,24 +699,22 @@
 <!-- ── Hook template modal ── -->
 <div id="hookTemplateOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeHookTemplateModal()">
   <div class="modal-dialog" style="max-width:400px;width:100%">
-    <p class="modal-dialog-title" style="margin-bottom:16px">Hook Design Templates</p>
+    <p class="modal-dialog-title" style="margin-bottom:16px" data-i18n="tpl.title">Hook Design Templates</p>
 
     <div style="display:flex;gap:8px;margin-bottom:16px">
-      <input id="hookTemplateName" type="text" placeholder="Template name…"
+      <input id="hookTemplateName" type="text" placeholder="Template name…" data-i18n-placeholder="tpl.namePh"
         style="flex:1;padding:8px 12px;border-radius:9px;border:1.5px solid var(--purple-200);font-size:0.85rem;outline:none"
         onkeydown="if(event.key==='Enter')saveHookTemplate()">
       <button onclick="saveHookTemplate()"
-        style="padding:8px 14px;border-radius:9px;border:none;background:var(--purple-600);color:#fff;font-size:0.82rem;font-weight:700;cursor:pointer;white-space:nowrap">
-        Save
-      </button>
+        style="padding:8px 14px;border-radius:9px;border:none;background:var(--purple-600);color:#fff;font-size:0.82rem;font-weight:700;cursor:pointer;white-space:nowrap" data-i18n="tpl.save">Save</button>
     </div>
 
     <div id="hookTemplateList" style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
-      <p style="font-size:0.82rem;color:var(--muted);text-align:center">No saved templates yet.</p>
+      <p style="font-size:0.82rem;color:var(--muted);text-align:center" data-i18n="tpl.none">No saved templates yet.</p>
     </div>
 
     <div class="modal-actions" style="justify-content:flex-end">
-      <button class="modal-cancel-btn" onclick="closeHookTemplateModal()">Close</button>
+      <button class="modal-cancel-btn" onclick="closeHookTemplateModal()" data-i18n="tpl.close">Close</button>
     </div>
   </div>
 </div>
@@ -747,6 +738,7 @@
   </div>
 </div>
 
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

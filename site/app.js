@@ -24,7 +24,7 @@
     const resp = await fetch(url, opts);
     if (resp.status === 401) {
       _sessionExpired();
-      throw new Error('Session expired — please sign in again.');
+      throw new Error(t('auth.sessionExpired'));
     }
     return resp;
   }
@@ -48,9 +48,9 @@
   function toggleAuthMode() {
     authMode = authMode === 'login' ? 'register' : 'login';
     document.getElementById('authInviteRow').style.display = authMode === 'register' ? 'block' : 'none';
-    document.getElementById('authSubmitBtn').textContent = authMode === 'register' ? 'Create account' : 'Sign in';
+    document.getElementById('authSubmitBtn').textContent = authMode === 'register' ? t('auth.register') : t('auth.signin');
     document.getElementById('authModeBtn').textContent =
-      authMode === 'register' ? 'Have an account? Sign in' : 'New here? Create an account';
+      authMode === 'register' ? t('auth.toSignin') : t('auth.toRegister');
     document.getElementById('authError').style.display = 'none';
   }
 
@@ -71,7 +71,7 @@
         body: JSON.stringify(payload),
       });
       const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || `Error ${resp.status}`);
+      if (!resp.ok) throw new Error(data.error || t('auth.errStatus', {status: resp.status}));
       authToken = data.token;
       localStorage.setItem('hebpipe_token', authToken);
       showApp();
@@ -133,11 +133,11 @@
   const aggrSlider   = document.getElementById('aggrSlider');
   const aggrDesc     = document.getElementById('aggrDesc');
   const AGGR_MAP = [
-    { silence: 1.5, padding: 0.35, label: 'Gentle — cuts pauses over 1.5 s' },
-    { silence: 0.8, padding: 0.25, label: 'Mild — cuts pauses over 0.8 s' },
-    { silence: 0.5, padding: 0.20, label: 'Balanced — cuts pauses over 0.5 s' },
-    { silence: 0.3, padding: 0.12, label: 'Aggressive — cuts pauses over 0.3 s' },
-    { silence: 0.2, padding: 0.06, label: 'Very aggressive — cuts pauses over 0.2 s' },
+    { silence: 1.5, padding: 0.35, label: 'aggr.1' },
+    { silence: 0.8, padding: 0.25, label: 'aggr.2' },
+    { silence: 0.5, padding: 0.20, label: 'aggr.3' },
+    { silence: 0.3, padding: 0.12, label: 'aggr.4' },
+    { silence: 0.2, padding: 0.06, label: 'aggr.5' },
   ];
   const noticeBlock  = document.getElementById('noticeBlock');
   const noticeWarn   = document.getElementById('noticeWarn');
@@ -206,7 +206,7 @@
       statusError.classList.remove('visible');
       _resetChecklist();
       checkItems.upload.className = 'check-item done';
-      checkTimeEls.upload.textContent = 'cached';
+      checkTimeEls.upload.textContent = t('err.cached');
       _procStartMs = Date.now();
       if (job.key) currentUploadKey = job.key;
       try {
@@ -228,7 +228,7 @@
       } catch (err) {
         clearSavedJob();
         if (err.name !== 'AbortError')
-          showError('Could not reconnect — job may have expired. Please start again.');
+          showError(t('err.reconnect'));
       }
 
     } else if (job.type === 'burn') {
@@ -282,7 +282,7 @@
       } catch (err) {
         clearSavedJob();
         if (err.name !== 'AbortError')
-          showError('Could not reconnect — job may have expired. Please start again.');
+          showError(t('err.reconnect'));
       } finally {
         unlockPipelineActions();
         runBtn.disabled = false;
@@ -373,7 +373,7 @@
     return new Promise(resolve => {
       document.getElementById('confirmTitle').textContent = title;
       document.getElementById('confirmBody').textContent  = body;
-      document.getElementById('confirmOk').textContent    = okText || 'Confirm';
+      document.getElementById('confirmOk').textContent    = okText || t('confirm.ok');
       const overlay = document.getElementById('confirmOverlay');
       overlay.style.display = 'flex';
       function cleanup(result) {
@@ -404,7 +404,7 @@
   async function handleFile(file) {
     if (!file) return;
     if (!file.type.startsWith('video/') && !file.name.match(/\.(mp4|mov|mkv|avi|webm)$/i)) {
-      showBlockNotice('Unsupported file type', 'Please upload a video file (MP4, MOV, MKV).');
+      showBlockNotice(t('file.badTypeTitle'), t('file.badType'));
       return;
     }
 
@@ -416,15 +416,15 @@
 
     // Size check (instant)
     if (file.size > MAX_BYTES) {
-      fileDetail.textContent = formatSize(file.size) + ' · too large';
-      showBlockNotice('File too large', `Max size is 500 MB. This file is ${formatSize(file.size)}. Please trim or compress it first.`);
+      fileDetail.textContent = t('file.tooLargeMeta', {size: formatSize(file.size)});
+      showBlockNotice(t('file.tooLargeTitle'), t('file.tooLarge', {size: formatSize(file.size)}));
       blocked = true;
       runBtn.disabled = true;
       return;
     }
 
     // Read duration from the video element
-    fileDetail.textContent = formatSize(file.size) + ' · reading…';
+    fileDetail.textContent = t('file.reading', {size: formatSize(file.size)});
     videoDuration = await getVideoDuration(file);
 
     if (videoDuration !== null) {
@@ -435,10 +435,7 @@
 
     // Validate duration
     if (videoDuration !== null && videoDuration > MAX_SECS) {
-      showBlockNotice(
-        'Video too long',
-        `Max length is 20 minutes. This video is ${formatDuration(videoDuration)}. Please trim it before uploading.`
-      );
+      showBlockNotice(t('notice.tooLongTitle'), t('notice.tooLong', {dur: formatDuration(videoDuration)}));
       blocked = true;
       runBtn.disabled = true;
       return;
@@ -449,9 +446,9 @@
 
     // Warnings
     if (file.size > WARN_BYTES) {
-      showWarnNotice('Large file', `${formatSize(file.size)} — the upload itself may take 30–60 seconds depending on your connection.`);
+      showWarnNotice(t('file.largeWarnTitle'), t('file.largeWarn', {size: formatSize(file.size)}));
     } else if (videoDuration !== null && videoDuration > WARN_SECS) {
-      showWarnNotice('Long video', `${formatDuration(videoDuration)} — processing will take a few minutes. Keep the page open.`);
+      showWarnNotice(t('notice.longTitle'), t('notice.long', {dur: formatDuration(videoDuration)}));
     }
 
     updateTimeEstimate();
@@ -463,7 +460,7 @@
   }
 
   clearFile.addEventListener('click', () => {
-    if (!confirm('Remove the attached video?')) return;
+    if (!confirm(t('file.removeConfirm'))) return;
     selectedFile = null; videoDuration = null;
     document.getElementById('timeEstimate').style.display = 'none';
     fileInput.value = '';
@@ -506,7 +503,7 @@
   const aggrVal = document.getElementById('aggrVal');
   aggrSlider.addEventListener('input', () => {
     const a = AGGR_MAP[aggrSlider.value - 1];
-    aggrDesc.textContent = a.label;
+    aggrDesc.textContent = t(a.label);
     aggrVal.textContent  = a.silence + ' s';
   });
 
@@ -533,7 +530,7 @@
     if (evMode === 'esrgan')  { lo += secs * 15; hi += secs * 30; }
     const lom = Math.max(1, Math.floor(lo / 60));
     const him = Math.max(lom + 1, Math.ceil(hi / 60));
-    return `Estimated ${lom}–${him} min`;
+    return t('est.simple', {lo: lom, hi: him});
   }
 
   function updateTimeEstimate() {
@@ -547,14 +544,10 @@
     return document.querySelector('input[name="enhanceVideo"]:checked')?.value || 'none';
   }
 
-  const _EV_DESCS = {
-    none:    'Off — video is untouched',
-    filters: 'Light denoise, sharpen and color lift',
-    esrgan:  'AI upscale to sharp 4K (Real-ESRGAN + smart sharpen) — <span class="ev-warn">adds a few minutes</span>',
-  };
+  const _EV_DESCS = { none: 'ev.desc.none', filters: 'ev.desc.filters', esrgan: 'ev.desc.esrgan' };
   document.querySelectorAll('input[name="enhanceVideo"]').forEach(r =>
     r.addEventListener('change', () => {
-      document.getElementById('enhanceVideoDesc').innerHTML = _EV_DESCS[_enhanceVideoMode()];
+      document.getElementById('enhanceVideoDesc').innerHTML = t(_EV_DESCS[_enhanceVideoMode()]);
       checkToolsEnabled();
       updateTimeEstimate();
     }));
@@ -610,7 +603,7 @@
       const spawnResp = await apiFetch(`${API_BASE}/process/?${params}`, { method: 'POST' });
       if (spawnResp.status !== 202) {
         const body = await spawnResp.json().catch(() => ({}));
-        throw new Error(body.error || `Spawn failed (${spawnResp.status})`);
+        throw new Error(body.error || t('err.spawn', {status: spawnResp.status}));
       }
       const { call_id } = await spawnResp.json();
 
@@ -698,14 +691,14 @@
     statusError.classList.remove('visible');
     _resetChecklist();
     checkItems.upload.className = 'check-item done';
-    checkTimeEls.upload.textContent = 'cached';
+    checkTimeEls.upload.textContent = t('err.cached');
     showProcessing();
 
     try {
       const spawnResp = await apiFetch(`${API_BASE}/process/?${params}`, { method: 'POST' });
       if (spawnResp.status !== 202) {
         const body = await spawnResp.json().catch(() => ({}));
-        throw new Error(body.error || `Spawn failed (${spawnResp.status})`);
+        throw new Error(body.error || t('err.spawn', {status: spawnResp.status}));
       }
       const { call_id } = await spawnResp.json();
 
@@ -774,11 +767,11 @@
           // Hard client errors (not 408/429) — don't retry
           if (resp.status >= 400 && resp.status < 500 && resp.status !== 408 && resp.status !== 429) {
             const body = await resp.json().catch(() => ({}));
-            throw new Error(body.error || `Upload failed at chunk ${i} (${resp.status})`);
+            throw new Error(body.error || t('err.chunk', {i: i, status: resp.status}));
           }
           // 408, 429, 5xx — fall through to retry
           if (attempt === MAX_ATTEMPTS - 1)
-            throw new Error(`Upload failed at chunk ${i} after ${MAX_ATTEMPTS} attempts (${resp.status})`);
+            throw new Error(t('err.chunkRetries', {i: i, n: MAX_ATTEMPTS, status: resp.status}));
         } catch (e) {
           // Re-throw terminal errors immediately
           if (e.message.startsWith('Upload failed') || attempt === MAX_ATTEMPTS - 1) throw e;
@@ -829,11 +822,11 @@
           const json = JSON.parse(xhr.responseText);
           resolve({ callId: json.call_id });
         } else {
-          reject(new Error(`Server error (${xhr.status}): ${xhr.responseText.slice(0, 200)}`));
+          reject(new Error(t('err.server', {status: xhr.status, text: xhr.responseText.slice(0, 200)})));
         }
       };
-      xhr.onerror = () => reject(new Error('Network error — check your connection and try again.'));
-      xhr.ontimeout = () => reject(new Error('Upload timed out.'));
+      xhr.onerror = () => reject(new Error(t('err.network')));
+      xhr.ontimeout = () => reject(new Error(t('err.uploadTimeout')));
       xhr.timeout = 10 * 60 * 1000; // 10 min for upload only
       xhr.send(file);
     });
@@ -863,7 +856,7 @@
           continue;
         }
         const text = await resp.text();
-        throw new Error(`Server error (${resp.status}): ${text.slice(0, 200)}`);
+        throw new Error(t('err.server', {status: resp.status, text: text.slice(0, 200)}));
       } catch (e) {
         if (e.name === 'AbortError') throw e;
         if (++networkRetries <= MAX_RETRIES) {
@@ -916,7 +909,7 @@
             continue;
           }
           const text = await resp.text();
-          throw new Error(`Server error (${resp.status}): ${text.slice(0, 200)}`);
+          throw new Error(t('err.server', {status: resp.status, text: text.slice(0, 200)}));
         } catch (e) {
           if (e.name === 'AbortError') { _reject(e); return; }
           if (++networkRetries <= MAX_RETRIES) {
@@ -931,7 +924,7 @@
           _reject(e); return;
         }
       }
-      _reject(new Error('Timed out waiting for server result. The job may have failed — check Modal logs.'));
+      _reject(new Error(t('err.resultTimeout')));
     })();
 
     try {
@@ -952,9 +945,9 @@
   document.getElementById('burnDownloadBtn').addEventListener('click', triggerDownload);
   document.getElementById('startOverBtn').addEventListener('click', async () => {
     const confirmed = await showConfirmModal(
-      'Start over?',
-      'This will clear the current video and all edits, and stop any job still running on the server. Downloaded files are safe.',
-      'Start over'
+      t('confirm.startTitle'),
+      t('confirm.startBody'),
+      t('confirm.startOk')
     );
     if (!confirmed) return;
     if (currentCallId) apiFetch(`${API_BASE}/cancel/${currentCallId}/`, { keepalive: true }).catch(() => {});
@@ -1085,7 +1078,7 @@
     if (!enhanceOn) _stepSkip('enhance');
     // The enhancement row reports the selected mode (backend stage: 'upscale')
     const _upLabel = document.querySelector('#checkUpscale .check-label');
-    if (_upLabel) _upLabel.textContent = _enhanceVideoMode() === 'esrgan' ? 'AI upscale' : 'Enhance video';
+    if (_upLabel) _upLabel.textContent = _enhanceVideoMode() === 'esrgan' ? t('prog.upscale') : t('prog.enhanceVideo');
     _stepActivate(enhanceOn ? 'enhance' : 'cut');
   }
 
@@ -1131,7 +1124,7 @@
     const doneTimeEl = document.getElementById('doneTime');
     if (doneTimeEl && runStartTime) {
       const totalSec = Math.round((Date.now() - runStartTime) / 1000);
-      doneTimeEl.textContent = `Total processing time: ${formatTime(totalSec)}`;
+      doneTimeEl.textContent = t('prog.totalTime', {time: formatTime(totalSec)});
       doneTimeEl.style.display = 'block';
     }
     _showTimeSaved();
@@ -1147,8 +1140,8 @@
     const cutDur = cutVid && isFinite(cutVid.duration) && cutVid.duration > 0 ? cutVid.duration : null;
     const trimmed = cutDur && videoDuration - cutDur > 1 ? videoDuration - cutDur : null;
     const manualMin = Math.max(5, Math.round(videoDuration * 6 / 60 / 5) * 5);
-    el.innerHTML = `⚡ Saved you <b>~${manualMin} min</b> of manual editing` +
-      (trimmed ? ` · ✂︎ ${formatDuration(trimmed)} of silence removed` : '');
+    el.innerHTML = t('prog.saved', {min: manualMin}) +
+      (trimmed ? t('prog.trimmed', {dur: formatDuration(trimmed)}) : '');
     el.style.display = 'block';
   }
 
@@ -1207,7 +1200,7 @@
     { const _sc = document.getElementById('scheduleCard'); if (_sc) _sc.style.display = 'none'; }
     document.getElementById('stockBrollRerunBanner').style.display = 'none';
     document.getElementById('stockCostLimitBanner').style.display  = 'none';
-    runBtn.textContent = '▶  Run Pipeline';
+    runBtn.textContent = t('run.pipelinePlain');
     runBtn.style.display = 'block';
     const burnErrorEl = document.getElementById('burnError');
     if (burnErrorEl) burnErrorEl.style.display = 'none';
@@ -1240,11 +1233,9 @@
     const isSlow     = !isCellular && !isWired && ['slow-2g', '2g', '3g'].includes(eff);
     if (isCellular || isSlow) {
       document.getElementById('noticeNetTitle').textContent =
-        isCellular ? 'Mobile data detected' : 'Slow connection detected';
+        isCellular ? t('net.cellTitle') : t('net.slowTitle');
       document.getElementById('noticeNetBody').textContent =
-        isCellular
-          ? `Uploading a large video on cellular may use significant data and take longer than expected. Switch to WiFi if possible.`
-          : `Your connection looks slow (${eff}). The upload may take a while — stay on this page.`;
+        isCellular ? t('net.cellBody') : t('net.slowBody', {eff: eff});
       noticeNet.classList.add('visible');
     } else {
       noticeNet.classList.remove('visible');
@@ -1525,8 +1516,8 @@
     if (!burnMode) return;
     const n = selectedBrolls.length + Object.keys(stockBrollSelections).length;
     runBtn.textContent = n > 0
-      ? `▶  Burn & Download  (+${n} B-roll${n > 1 ? 's' : ''})`
-      : '▶  Burn & Download';
+      ? t('run.burnBrolls', {n: n, s: n > 1 ? 's' : ''})
+      : t('run.burnPlain');
   }
   function validateCaptionTimes() {
     if (!burnMode) return;
@@ -1551,14 +1542,14 @@
       startInp.classList.toggle('time-invalid', startBad);
       endInp.classList.toggle('time-invalid',   endBad);
       startInp.title = startBad
-        ? (start < 0 ? 'Start time cannot be negative'
-                     : `Start overlaps previous caption (ends at ${prevEnd.toFixed(2)}s)`)
-        : 'Click to seek player here';
+        ? (start < 0 ? t('cap.negStart')
+                     : t('cap.overlapPrev', {t: prevEnd.toFixed(2)}))
+        : t('cap.seek');
       endInp.title = endBad
-        ? (end <= start   ? 'End must be after start'
-         : end > videoDur ? `End exceeds video duration (${videoDur.toFixed(2)}s)`
-                          : `End overlaps next caption (starts at ${nextStart.toFixed(2)}s)`)
-        : 'Click to seek player here';
+        ? (end <= start   ? t('cap.endAfter')
+         : end > videoDur ? t('cap.pastEnd', {t: videoDur.toFixed(2)})
+                          : t('cap.overlapNext', {t: nextStart.toFixed(2)}))
+        : t('cap.seek');
 
       if (startBad || endBad) hasError = true;
     });
@@ -1628,7 +1619,7 @@
       const veoRow = document.getElementById('suggestBrollsRow');
       if (veoRow) {
         veoRow.classList.add('disabled-feature');
-        veoRow.title = 'Veo video generation — maybe later!';
+        veoRow.title = t('veo.later');
       }
       const veoChk = document.getElementById('suggestBrolls');
       if (veoChk) { veoChk.checked = false; veoChk.disabled = true; }
@@ -1676,7 +1667,7 @@
       updateBurnBtn();
       const suggestions = result.suggestions || [];
       if (!suggestions.length) {
-        list.innerHTML = '<p style="color:var(--muted);font-size:0.85rem;padding:8px 0">No B-roll suggestions found.</p>';
+        list.innerHTML = '<p style="color:var(--muted);font-size:0.85rem;padding:8px 0">' + t('veo.none') + '</p>';
         return;
       }
       renderBrollList(suggestions);
@@ -1685,9 +1676,9 @@
       status.style.display = 'none';
       const isRetryable = /503|UNAVAILABLE|high demand|timeout|timed out/i.test(e.message);
       const msg = isRetryable
-        ? 'Analysis timed out or Gemini is overloaded — try again.'
-        : `Analysis failed: ${e.message}`;
-      list.innerHTML = `<p style="color:var(--red);font-size:0.85rem;padding:8px 0">${msg} <button onclick="startBrollAnalysis()" style="margin-left:8px;font-size:0.8rem;padding:3px 10px;border-radius:6px;border:1px solid var(--red);background:none;color:var(--red);cursor:pointer">Retry</button></p>`;
+        ? t('veo.timeout')
+        : t('veo.failed', {msg: e.message});
+      list.innerHTML = `<p style="color:var(--red);font-size:0.85rem;padding:8px 0">${msg} <button onclick="startBrollAnalysis()" style="margin-left:8px;font-size:0.8rem;padding:3px 10px;border-radius:6px;border:1px solid var(--red);background:none;color:var(--red);cursor:pointer">${t('veo.retry')}</button></p>`;
     } finally {
       bumpPending(-1);
     }
@@ -1889,7 +1880,7 @@
     const el   = document.getElementById('hookTemplateList');
     if (!el) return;
     if (!list.length) {
-      el.innerHTML = '<p style="font-size:0.82rem;color:var(--muted);text-align:center">No saved templates yet.</p>';
+      el.innerHTML = '<p style="font-size:0.82rem;color:var(--muted);text-align:center">' + t('tpl.none') + '</p>';
       return;
     }
     el.innerHTML = list.map((t, i) => `
@@ -1897,7 +1888,7 @@
         <span style="flex:1;font-size:0.85rem;font-weight:600;color:var(--purple-800);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.name}</span>
         <button data-tidx="${i}" class="hook-tpl-apply"
           style="padding:4px 10px;border-radius:7px;border:none;background:var(--purple-600);color:#fff;font-size:0.78rem;font-weight:700;cursor:pointer;flex-shrink:0">
-          Apply
+          ${t('tpl.apply')}
         </button>
         <button data-tidx="${i}" class="hook-tpl-del"
           style="padding:4px 8px;border-radius:7px;border:1.5px solid #FECACA;background:#FEF2F2;color:var(--red);font-size:0.78rem;font-weight:700;cursor:pointer;flex-shrink:0">
@@ -1994,7 +1985,7 @@
       }
     } catch (e) {
       if (!hookGenAborted) {
-        errEl.textContent   = `Failed: ${e.message.slice(0, 120)}`;
+        errEl.textContent   = t('hook.failed', {msg: e.message.slice(0, 120)});
         errEl.style.display = 'block';
       }
     } finally {
@@ -2011,7 +2002,7 @@
     const controlsEl = document.getElementById('hookControls');
 
     if (!hooks.length) {
-      optionsEl.innerHTML = '<p style="color:var(--muted);font-size:0.82rem">No hooks generated — try again.</p>';
+      optionsEl.innerHTML = '<p style="color:var(--muted);font-size:0.82rem">' + t('hook.none') + '</p>';
       optionsEl.style.display = 'block';
       return;
     }
@@ -2028,7 +2019,7 @@
       ta.value = h.text;
       ta.style.cssText = 'width:100%;border:none;border-bottom:1.5px dashed var(--purple-300);background:transparent;resize:none;overflow:hidden;font-family:inherit;font-size:1.05rem;font-weight:700;direction:rtl;text-align:right;color:var(--text);padding:0 0 2px;margin:0 0 6px;cursor:text;line-height:1.4;display:block;outline:none;transition:border-color 0.15s;';
       ta.rows = 1;
-      ta.title = 'לחץ לעריכה';
+      ta.title = t('hook.clickEdit');
       ta.addEventListener('focus', () => { ta.style.borderBottomColor = 'var(--purple-500)'; });
       ta.addEventListener('blur',  () => { ta.style.borderBottomColor = 'var(--purple-300)'; });
       ta.addEventListener('input', () => {
@@ -2093,7 +2084,7 @@
 
     lockPipelineActions({ activeBtn: 'findBrollBtn', activeCard: 'stockBrollCard' });
     findBrollBtn.disabled = true;
-    findBrollBtn.textContent = '⏳ Searching…';
+    findBrollBtn.textContent = t('stock.searching');
     document.querySelectorAll('#captionsList .caption-input, #captionsList .caption-time-input, #captionsList .cap-btn').forEach(el => { el.disabled = true; });
 
     bumpPending(+1);
@@ -2128,7 +2119,7 @@
             // Cost-limit banner
             const costBanner = document.getElementById('stockCostLimitBanner');
             if (result.cost_limit_hit) {
-              costBanner.textContent = `Processed top ${result.moments_processed} of ${result.total_moments_identified} moments to stay within budget.`;
+              costBanner.textContent = t('stock.costLimit', {p: result.moments_processed, t: result.total_moments_identified});
               costBanner.style.display = 'block';
             } else {
               costBanner.style.display = 'none';
@@ -2137,14 +2128,14 @@
               const fs = result.filter_stats || {};
               let emptyMsg;
               if (!fs.sonnet_moments_raw) {
-                emptyMsg = 'No strong moments identified in this video.';
+                emptyMsg = t('stock.noMoments');
               } else {
                 const dropParts = [];
-                if (fs.buf_drops)     dropParts.push(`${fs.buf_drops} near video edges`);
-                if (fs.spacing_drops) dropParts.push(`${fs.spacing_drops} too close together`);
+                if (fs.buf_drops)     dropParts.push(t('stock.edgeDrops', {n: fs.buf_drops}));
+                if (fs.spacing_drops) dropParts.push(t('stock.spacingDrops', {n: fs.spacing_drops}));
                 const detail = dropParts.length ? ` (${dropParts.join('; ')})` : '';
                 const n = fs.sonnet_moments_raw;
-                emptyMsg = `${n} moment${n === 1 ? '' : 's'} identified but didn't meet placement rules${detail}.`;
+                emptyMsg = t('stock.dropped', {n: n, s: n === 1 ? '' : 's', detail: detail});
               }
               list.innerHTML = `<p style="color:var(--muted);font-size:0.85rem;padding:8px 0">${emptyMsg}</p>`;
               return;
@@ -2171,14 +2162,14 @@
       clearInterval(stockTimer);
       console.error('Stock B-roll error:', e.message);
       status.style.display = 'none';
-      list.innerHTML = `<p style="color:var(--red);font-size:0.85rem;padding:8px 0">Failed: ${e.message.slice(0, 160)} <button onclick="triggerStockBroll()" style="margin-left:8px;font-size:0.8rem;padding:3px 10px;border-radius:6px;border:1px solid var(--red);background:none;color:var(--red);cursor:pointer">Retry</button></p>`;
+      list.innerHTML = `<p style="color:var(--red);font-size:0.85rem;padding:8px 0">${t('stock.failedRetry', {msg: e.message.slice(0, 160)})} <button onclick="triggerStockBroll()" style="margin-left:8px;font-size:0.8rem;padding:3px 10px;border-radius:6px;border:1px solid var(--red);background:none;color:var(--red);cursor:pointer">${t('veo.retry')}</button></p>`;
     } finally {
       bumpPending(-1);
       unlockPipelineActions();
       // Restore caption editor and button
       document.querySelectorAll('#captionsList .caption-input, #captionsList .caption-time-input, #captionsList .cap-btn').forEach(el => { el.disabled = false; });
       _updateDeleteButtons();
-      findBrollBtn.textContent = '🎬 Find B-Roll Moments';
+      findBrollBtn.textContent = t('stock.find');
       findBrollBtn.disabled = false;
     }
   }
@@ -2197,9 +2188,9 @@
       const summary = document.createElement('div');
       summary.className = 'broll-summary';
       summary.style.margin = '0';
-      const parts = [`${moments.length} moment${moments.length !== 1 ? 's' : ''} found`];
-      if (nEmphasis > 0) parts.push(`${nEmphasis} emphasis`);
-      if (nCoverage > 0) parts.push(`${nCoverage} rhythm/coverage`);
+      const parts = [t('stock.momentsFound', {n: moments.length, s: moments.length !== 1 ? 's' : ''})];
+      if (nEmphasis > 0) parts.push(t('stock.emphasis', {n: nEmphasis}));
+      if (nCoverage > 0) parts.push(t('stock.coverage', {n: nCoverage}));
       summary.textContent = parts.join(' · ');
 
       const debugBtn = document.createElement('button');
@@ -2282,7 +2273,7 @@
       const dismissBtn = document.createElement('button');
       dismissBtn.className = 'moment-dismiss-btn';
       dismissBtn.textContent = '✕';
-      dismissBtn.title = isCoverage ? 'Skip this rhythm moment' : 'Skip this moment';
+      dismissBtn.title = isCoverage ? t('stock.skipRhythm') : t('stock.skip');
       dismissBtn.addEventListener('click', () => {
         delete stockBrollSelections[momentIdx];
         if (isCoverage) {
@@ -2294,7 +2285,7 @@
           dismissBtn.remove();
           const restoreBtn = document.createElement('button');
           restoreBtn.className = 'moment-restore-btn';
-          restoreBtn.textContent = 'Restore';
+          restoreBtn.textContent = t('stock.restore');
           restoreBtn.addEventListener('click', () => {
             Array.from(card.children).forEach(el => { el.style.display = ''; });
             card.classList.remove('skipped-emphasis');
@@ -2316,8 +2307,8 @@
       if (isCoverage) {
         const rhythmBadge = document.createElement('span');
         rhythmBadge.className = 'moment-badge-rhythm';
-        rhythmBadge.title = 'Coverage moment — added for visual rhythm, not an emphasis peak';
-        rhythmBadge.textContent = 'rhythm';
+        rhythmBadge.title = t('stock.rhythmTitle');
+        rhythmBadge.textContent = t('stock.rhythm');
         header.appendChild(rhythmBadge);
       } else if (m.moment_type && m.moment_type !== 'concrete') {
         const typeBadge = document.createElement('span');
@@ -2331,7 +2322,7 @@
       if (m.confidence) {
         const confBadge = document.createElement('span');
         confBadge.className = `moment-confidence-badge confidence-${m.confidence}`;
-        confBadge.title = m.intensity_score != null ? `intensity ${m.intensity_score}/10` : '';
+        confBadge.title = m.intensity_score != null ? t('stock.intensity', {n: m.intensity_score}) : '';
         confBadge.textContent = m.confidence;
         header.appendChild(confBadge);
       }
@@ -2366,7 +2357,7 @@
         const wm = document.createElement('p');
         wm.className = 'no-clips-msg';
         wm.style.fontStyle = 'italic';
-        wm.textContent = 'No stock clips matched this moment — try "Find different clips" with a broader query.';
+        wm.textContent = t('stock.noMatch');
         clipsContainer.appendChild(wm);
       }
       card.appendChild(clipsContainer);
@@ -2421,10 +2412,10 @@
       let clipPage = 2;
       const findBtn = document.createElement('button');
       findBtn.className = 'find-clips-btn';
-      findBtn.textContent = '🔄 Find different clips';
+      findBtn.textContent = t('stock.findDifferent');
       findBtn.addEventListener('click', async () => {
         findBtn.disabled = true;
-        findBtn.textContent = 'Scoring clips…';
+        findBtn.textContent = t('stock.scoring');
         delete stockBrollSelections[momentIdx];
         await retryStockMomentClips(momentCtx.broad_search_prompt || m.search_query, clipsContainer, clipPage++, findBtn, momentCtx);
       });
@@ -2439,7 +2430,7 @@
     if (!clips || !clips.length) {
       const msg = document.createElement('p');
       msg.className = 'no-clips-msg';
-      msg.textContent = 'No clips found for "' + (searchQuery || 'this moment') + '".';
+      msg.textContent = t('stock.noClips', {q: searchQuery || t('stock.thisMoment')});
       container.appendChild(msg);
       return;
     }
@@ -2461,7 +2452,7 @@
       if (clip.thumbnail) {
         const img = document.createElement('img');
         img.src = clip.thumbnail;
-        img.alt = clip.author || 'Stock clip';
+        img.alt = clip.author || t('stock.clipAlt');
         img.loading = 'lazy';
         thumbDiv.appendChild(img);
       }
@@ -2516,7 +2507,7 @@
       authorLink.href   = clip.author_url || clip.page_url || '#';
       authorLink.target = '_blank';
       authorLink.rel    = 'noopener noreferrer';
-      authorLink.textContent = clip.author ? 'by ' + clip.author : clip.source;
+      authorLink.textContent = clip.author ? t('stock.by', {author: clip.author}) : clip.source;
 
       // Toggle button — "Use for video" (acts like radio but can be deselected)
       const selLabel = document.createElement('label');
@@ -2555,7 +2546,7 @@
         }
       });
       selLabel.appendChild(radio);
-      selLabel.appendChild(document.createTextNode('Use for video'));
+      selLabel.appendChild(document.createTextNode(t('stock.useForVideo')));
 
       // Small view link
       const viewLink = document.createElement('a');
@@ -2563,7 +2554,7 @@
       viewLink.href   = clip.page_url || '#';
       viewLink.target = '_blank';
       viewLink.rel    = 'noopener noreferrer';
-      viewLink.textContent = 'View ↗';
+      viewLink.textContent = t('stock.view');
 
       // Clip window hint (middle/padded strategy)
       if (clip.clip_window_strategy === 'middle' || clip.clip_window_strategy === 'padded') {
@@ -2572,8 +2563,8 @@
         const inS  = (clip.clip_use_start_seconds != null ? clip.clip_use_start_seconds : 0).toFixed(1);
         const outS = (clip.clip_use_end_seconds   != null ? clip.clip_use_end_seconds   : 0).toFixed(1);
         wn.textContent = clip.clip_window_strategy === 'padded'
-          ? `⚠ clip too short (${outS}s)`
-          : `Use ${inS}s → ${outS}s`;
+          ? t('stock.tooShort', {s: outS})
+          : t('stock.useRange', {'in': inS, 'out': outS});
         meta.appendChild(wn);
       }
 
@@ -2623,7 +2614,7 @@
     } finally {
       if (btn) {
         btn.disabled = false;
-        btn.textContent = '🔄 Find different clips';
+        btn.textContent = t('stock.findDifferent');
       }
     }
   }
@@ -2676,7 +2667,7 @@
       console.error('B-roll video retry failed:', e.message);
     } finally {
       retryBtn.disabled = false;
-      retryBtn.textContent = '↻ new video';
+      retryBtn.textContent = t('veo.newVideo');
     }
   }
 
@@ -2691,7 +2682,7 @@
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
       checkbox.className = 'broll-checkbox';
-      checkbox.title = 'Include this B-roll in the final video';
+      checkbox.title = t('veo.include');
       checkbox.addEventListener('change', () => {
         if (checkbox.checked) {
           selectedBrolls.push({ start: s.start, end: s.end, video_key: s.video_key });
@@ -2719,15 +2710,15 @@
         thumbBox.classList.add('zoomable');
         thumbBox.addEventListener('click', () => openLightbox(videoUrl));
       } else {
-        const errMsg = s.video_error || 'Video generation unavailable.';
+        const errMsg = s.video_error || t('veo.unavailable');
         thumbBox.title = errMsg;
         thumbBox.innerHTML = '<svg class="broll-thumb-placeholder" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="1.5"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>';
       }
 
       const retryBtn = document.createElement('button');
       retryBtn.className = 'broll-retry';
-      retryBtn.textContent = '↻ new video';
-      retryBtn.title = 'Coming soon';
+      retryBtn.textContent = t('veo.newVideo');
+      retryBtn.title = t('veo.soon');
       retryBtn.disabled = true;
 
       thumbWrap.appendChild(thumbBox);
@@ -2755,7 +2746,7 @@
       if (!s.video_key && s.video_error) {
         const vidErr = document.createElement('div');
         vidErr.style.cssText = 'font-size:0.72rem;color:var(--amber);margin-top:4px;';
-        vidErr.textContent = `⚠ ${s.video_error}`;
+        vidErr.textContent = t('stock.videoErr', {msg: s.video_error});
         content.appendChild(vidErr);
       }
 
@@ -2815,7 +2806,7 @@
       inp.value     = val.toFixed(2);
       inp.step      = '0.1';
       inp.min       = '0';
-      inp.title     = 'Click to seek player here';
+      inp.title     = t('cap.seek');
       inp.dataset.seek = '1';
       inp.addEventListener('click', e => {
         e.stopPropagation();
@@ -2861,7 +2852,7 @@
     const splitBtn = document.createElement('button');
     splitBtn.className  = 'cap-btn cap-btn-split';
     splitBtn.textContent = '✂';
-    splitBtn.title      = 'Split at cursor';
+    splitBtn.title      = t('cap.split');
     splitBtn.addEventListener('click', () => {
       const pos   = textInp.selectionStart ?? textInp.value.length;
       const left  = textInp.value.slice(0, pos).trim();
@@ -2884,7 +2875,7 @@
     const addBtn = document.createElement('button');
     addBtn.className  = 'cap-btn cap-btn-add';
     addBtn.textContent = '+';
-    addBtn.title      = 'Add caption line below';
+    addBtn.title      = t('cap.addLine');
     addBtn.addEventListener('click', () => {
       const e = parseFloat(endInp.value) || 0;
       const nextStart = e;
@@ -2903,7 +2894,7 @@
     const delBtn = document.createElement('button');
     delBtn.className  = 'cap-btn cap-btn-del';
     delBtn.textContent = '−';
-    delBtn.title      = 'Remove this line';
+    delBtn.title      = t('cap.removeLine');
     delBtn.addEventListener('click', () => {
       row.remove();
       _updateDeleteButtons();
@@ -2964,9 +2955,9 @@
     if (!videoKey) return;
     if (captionsData.length === 0 && selectedBrolls.length === 0 && Object.keys(stockBrollSelections).length === 0) return;
     const confirmed = await showConfirmModal(
-      'Ready to burn?',
-      'Finished editing? Click Burn to generate and download your final video.',
-      'Burn & Download'
+      t('confirm.burnTitle'),
+      t('confirm.burnBody'),
+      t('confirm.burnOk').replace('&amp;', '&')
     );
     if (!confirmed) return;
     lockPipelineActions({ activeBtn: 'runBtn' });
@@ -2992,7 +2983,7 @@
     const burnErrorEl   = document.getElementById('burnError');
     const reprocessBtn  = document.getElementById('reprocessBtn');
     runBtn.disabled     = true;
-    runBtn.textContent  = '⏳ Burning…';
+    runBtn.textContent  = t('run.burning');
     burnErrorEl.style.display    = 'none';
     if (reprocessBtn) reprocessBtn.disabled = true;
     let burnBtnTimer = null;
@@ -3068,7 +3059,7 @@
       window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 
       // Download to the device (optional — does NOT gate scheduling)
-      runBtn.textContent = '⏳ Downloading…';
+      runBtn.textContent = t('run.downloading');
       try {
         const dlAbort  = new AbortController();
         const dlKillId = setTimeout(() => dlAbort.abort(), 10 * 60 * 1000);
@@ -3220,7 +3211,7 @@
       jobs.forEach(job => list.appendChild(_historyCard(job)));
     } catch (e) {
       loading.style.display = 'none';
-      empty.textContent = 'Could not load history \u2014 try again in a moment.';
+      empty.textContent = t('hist.loadError');
       empty.style.display = '';
     }
   }
@@ -3252,7 +3243,7 @@
     info.className = 'history-info';
     const name = document.createElement('div');
     name.className = 'history-name';
-    name.textContent = job.name || 'video';
+    name.textContent = job.name || t('hist.videoFallback');
     const meta = document.createElement('div');
     meta.className = 'history-meta';
     const bits = [_fmtJobDate(job.ts)];
@@ -3266,7 +3257,7 @@
     const dl = document.createElement('button');
     dl.className = 'history-btn';
     dl.textContent = '\u2B07\uFE0F';
-    dl.title = 'Download';
+    dl.title = t('hist.download');
     dl.onclick = () => {
       const fname = (job.name || 'video').replace(/\.mp4$/i, '') + '_edited.mp4';
       window.location.href = _withToken(`${API_BASE}/download/${job.key}/?filename=${encodeURIComponent(fname)}`);
@@ -3274,10 +3265,10 @@
     const del = document.createElement('button');
     del.className = 'history-btn history-btn-danger';
     del.textContent = '\uD83D\uDDD1\uFE0F';
-    del.title = 'Delete';
+    del.title = t('hist.delete');
     del.onclick = async () => {
-      const ok = await showConfirmModal('Delete this video?',
-        `\u201C${job.name}\u201D will be removed from history and can no longer be downloaded.`, 'Delete');
+      const ok = await showConfirmModal(t('hist.deleteTitle'),
+        t('hist.deleteBody', {name: job.name}), t('confirm.delete'));
       if (!ok) return;
       try {
         await apiFetch(`${API_BASE}/jobs/${job.key}/`, { method: 'DELETE' });
@@ -3408,7 +3399,7 @@
     const sb = document.getElementById('suggestCaptionBtn');
     if (sb) {
       sb.disabled = !_hasTranscript();
-      sb.textContent = _hasTranscript() ? '✨ Suggest caption from video' : '✨ Suggest caption (turn captions on to enable)';
+      sb.textContent = _hasTranscript() ? t('sched.suggest') : t('sched.suggestOff');
     }
     checkMetricoolStatus();
   }
@@ -3446,8 +3437,8 @@
 
   document.getElementById('schedAutoPublish').addEventListener('change', (e) => {
     document.getElementById('autoPublishDesc').textContent = e.target.checked
-      ? 'On — Metricool posts it automatically at the scheduled time'
-      : 'Off — post waits in Metricool for your approval';
+      ? t('sched.apOn')
+      : t('sched.apOff');
   });
 
   async function suggestCaption() {
@@ -3457,7 +3448,7 @@
     const errEl = document.getElementById('schedError');
     const orig = btn.textContent;
     lockPipelineActions({ activeBtn: 'suggestCaptionBtn', activeCard: 'scheduleCard' });
-    btn.disabled = true; btn.textContent = '✨ Generating…';
+    btn.disabled = true; btn.textContent = t('sched.generating');
     errEl.style.display = 'none';
     try {
       const resp = await apiFetch(`${API_BASE}/generate-caption/`, {
@@ -3482,7 +3473,7 @@
         throw new Error(`Server error ${poll.status}`);
       }
     } catch (e) {
-      errEl.textContent = `Couldn't generate a caption (${String(e.message).slice(0, 80)}). You can write one manually.`;
+      errEl.textContent = t('sched.captionFailed', {msg: String(e.message).slice(0, 80)});
       errEl.style.display = 'block';
     } finally {
       unlockPipelineActions();
@@ -3505,13 +3496,13 @@
     const ytTitle = document.getElementById('ytTitle').value.trim();
 
     const problems = [];
-    if (!platforms.length) problems.push('pick at least one platform');
-    if (!caption) problems.push('add a caption');
-    if (!date || !time) problems.push('set a publish date and time');
-    if (ytOn && !ytTitle) problems.push('add a YouTube title');
-    if (!ctx.outputKey) problems.push('burn a video first');
+    if (!platforms.length) problems.push(t('sched.fix.platform'));
+    if (!caption) problems.push(t('sched.fix.caption'));
+    if (!date || !time) problems.push(t('sched.fix.datetime'));
+    if (ytOn && !ytTitle) problems.push(t('sched.fix.ytTitle'));
+    if (!ctx.outputKey) problems.push(t('sched.fix.burn'));
     if (problems.length) {
-      errEl.textContent = 'Please ' + problems.join(', ') + '.';
+      errEl.textContent = t('sched.fixPrefix', {list: problems.join(', ')});
       errEl.style.display = 'block';
       return;
     }
@@ -3530,13 +3521,13 @@
 
     const orig = btn.textContent;
     lockPipelineActions({ activeBtn: 'scheduleBtn', activeCard: 'scheduleCard' });
-    btn.disabled = true; btn.textContent = '⏳ Scheduling…';
-    statusEl.className = 'sched-status busy'; statusEl.textContent = 'Sending to Metricool…'; statusEl.style.display = 'block';
+    btn.disabled = true; btn.textContent = t('sched.scheduling');
+    statusEl.className = 'sched-status busy'; statusEl.textContent = t('sched.sending'); statusEl.style.display = 'block';
     try {
       const spawn = await apiFetch(`${API_BASE}/schedule/`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       });
-      if (spawn.status === 400) { checkMetricoolStatus(); throw new Error('Metricool isn\'t connected. Tap Connect Metricool first.'); }
+      if (spawn.status === 400) { checkMetricoolStatus(); throw new Error(t('sched.notConnected')); }
       if (!spawn.ok) throw new Error(`HTTP ${spawn.status}`);
       const { call_id } = await spawn.json();
 
@@ -3552,17 +3543,17 @@
       const plannerUrl = result.post && result.post.plannerUrl;
       statusEl.className = 'sched-status ok';
       const publishNote = payload.autoPublish
-        ? ' It will publish automatically at that time.'
-        : ' Approve the final publish in Metricool.';
-      statusEl.innerHTML = `✅ Scheduled on Metricool for ${date} ${time} (Israel time).` +
-        (plannerUrl ? ` <a href="${plannerUrl}" target="_blank" rel="noopener">Open in Metricool ↗</a>` : publishNote);
-      btn.textContent = '✅ Scheduled';
+        ? t('sched.autoNote')
+        : t('sched.approveNote');
+      statusEl.innerHTML = t('sched.okLine', {date: date, time: time}) +
+        (plannerUrl ? ` <a href="${plannerUrl}" target="_blank" rel="noopener">${t('sched.openLink')}</a>` : publishNote);
+      btn.textContent = t('sched.scheduled');
       unlockPipelineActions();
       setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);
     } catch (e) {
       unlockPipelineActions();
       statusEl.style.display = 'none';
-      errEl.textContent = `Couldn't schedule: ${String(e.message).slice(0, 160)}`;
+      errEl.textContent = t('sched.cantSchedule', {msg: String(e.message).slice(0, 160)});
       errEl.style.display = 'block';
       btn.textContent = orig; btn.disabled = false;
     }
@@ -3580,3 +3571,22 @@
       _sessionExpired();
     }
   })();
+
+  // ── Language switch: refresh state-driven labels that data-i18n can't cover ──
+  document.addEventListener('langchange', () => {
+    const a = AGGR_MAP[aggrSlider.value - 1];
+    aggrDesc.textContent = t(a.label);
+    document.getElementById('enhanceVideoDesc').innerHTML = t(_EV_DESCS[_enhanceVideoMode()]);
+    updateTimeEstimate();
+    if (burnMode && !runBtn.disabled) updateBurnBtn();
+    if (authMode === 'register') {
+      document.getElementById('authSubmitBtn').textContent = t('auth.register');
+      document.getElementById('authModeBtn').textContent = t('auth.toSignin');
+    }
+    const ap = document.getElementById('schedAutoPublish');
+    if (ap && ap.checked) document.getElementById('autoPublishDesc').textContent = t('sched.apOn');
+    const sb = document.getElementById('suggestCaptionBtn');
+    if (sb && window._schedCtx) sb.textContent = _hasTranscript() ? t('sched.suggest') : t('sched.suggestOff');
+    const upLbl = document.querySelector('#checkUpscale .check-label');
+    if (upLbl) upLbl.textContent = _enhanceVideoMode() === 'esrgan' ? t('prog.upscale') : t('prog.enhanceVideo');
+  });
