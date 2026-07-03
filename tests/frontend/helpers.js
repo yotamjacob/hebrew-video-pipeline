@@ -23,7 +23,7 @@ async function bootApp(page, { me } = {}) {
     r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
   await page.route(/fonts\.gstatic\.com/, r => r.abort());
   await page.addInitScript(() => localStorage.setItem('hebpipe_token', 'test-token'));
-  const mePayload = JSON.stringify(me || { username: 'tester', role: 'user', videos_used: 0, video_limit: 5 });
+  const mePayload = JSON.stringify(me || { username: 'tester', role: 'user', videos_used: 0, video_limit: -1 });
   await page.route(/\/auth\/me/, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: mePayload }));
   await page.goto('/');

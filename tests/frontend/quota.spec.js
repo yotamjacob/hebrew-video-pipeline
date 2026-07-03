@@ -44,7 +44,49 @@ test('server 402 limit_reached maps to the friendly message', async ({ page }) =
   await selectFile(page);
   await page.waitForSelector('#runBtn:not([disabled])');
   await page.click('#runBtn');
+  await page.click('#confirmOk');   // quota confirmation modal
   await expect(page.locator('#errorMsg')).toContainText('צרו קשר עם מנהל האפליקציה', { timeout: 10_000 });
+});
+
+test('non-admin confirms before spending a trial video; cancel spends nothing', async ({ page }) => {
+  await bootApp(page, { me: { username: 'tester', role: 'user', videos_used: 1, video_limit: 5 } });
+  await mockAllApis(page);
+  let processCalls = 0;
+  await page.route(/\/process\/[^_]/, (route, request) => {
+    if (request.method() === 'POST') processCalls++;
+    return route.fulfill({ status: 202, contentType: 'application/json',
+                           body: JSON.stringify({ call_id: 'mock-process-call-id' }) });
+  });
+
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+
+  // Modal shows remaining count
+  await expect(page.locator('#confirmOverlay')).toBeVisible();
+  await expect(page.locator('#confirmTitle')).toHaveText('להשתמש בסרטון ניסיון אחד?');
+  await expect(page.locator('#confirmBody')).toContainText('נשארו לכם 4 מתוך 5');
+
+  // Cancel: nothing spent
+  await page.click('#confirmCancel');
+  await expect(page.locator('#confirmOverlay')).toBeHidden();
+  expect(processCalls).toBe(0);
+
+  // Confirm: processing starts
+  await page.click('#runBtn');
+  await page.click('#confirmOk');
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 10_000 });
+  expect(processCalls).toBe(1);
+});
+
+test('admins process without a confirmation modal', async ({ page }) => {
+  await bootApp(page, { me: { username: 'boss', role: 'admin', videos_used: 0, video_limit: null } });
+  await mockAllApis(page);
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await expect(page.locator('#confirmOverlay')).toBeHidden();
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 10_000 });
 });
 
 test('admin sees no pill and gets the admin tab with user limit controls', async ({ page }) => {

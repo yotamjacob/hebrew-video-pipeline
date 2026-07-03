@@ -337,6 +337,10 @@
     'admin.save':       { en: 'Save', he: 'שמירה' },
     'admin.saveFailed': { en: 'Failed', he: 'נכשל' },
 
+    'quota.confirmTitle': { en: 'Use 1 trial video?', he: 'להשתמש בסרטון ניסיון אחד?' },
+    'quota.confirmBody':  { en: 'You have {left} of {limit} trial videos left. Processing this video will use one of them.', he: 'נשארו לכם {left} מתוך {limit} סרטוני ניסיון. עיבוד הסרטון ישתמש באחד מהם.' },
+    'quota.confirmOk':    { en: 'Process video', he: 'עיבוד הסרטון' },
+
     // ── Language toggle ──
     'lang.switch': { en: 'עברית', he: 'English' },
   };

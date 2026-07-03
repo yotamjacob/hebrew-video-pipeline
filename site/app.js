@@ -57,6 +57,17 @@
     updateQuotaUI();
   }
 
+  // Non-admin users confirm before spending a trial video
+  async function _confirmQuotaUse() {
+    if (!quotaInfo || quotaInfo.role === 'admin' ||
+        quotaInfo.video_limit == null || quotaInfo.video_limit < 0) return true;
+    const left = Math.max(0, quotaInfo.video_limit - quotaInfo.videos_used);
+    return showConfirmModal(
+      t('quota.confirmTitle'),
+      t('quota.confirmBody', {left: left, limit: quotaInfo.video_limit}),
+      t('quota.confirmOk'));
+  }
+
   function _quotaExhausted() {
     return !!(quotaInfo && quotaInfo.role !== 'admin' &&
               quotaInfo.video_limit != null && quotaInfo.video_limit >= 0 &&
@@ -608,6 +619,7 @@
       showBlockNotice(t('quota.pillZero'), t('quota.exhausted'));
       return;
     }
+    if (!(await _confirmQuotaUse())) return;
 
     resultBlob = null;
     showUploadProgress();
@@ -695,6 +707,7 @@
       showBlockNotice(t('quota.pillZero'), t('quota.exhausted'));
       return;
     }
+    if (!(await _confirmQuotaUse())) return;
 
     // Hide editor cards and reset to pre-caption state
     burnMode = false;
