@@ -12,7 +12,6 @@
     'footer.line':     { en: 'פייפליין &nbsp;·&nbsp; Video editing at the click of a button', he: 'פייפליין &nbsp;·&nbsp; עריכות וידאו בלחיצת כפתור' },
     'tab.create':      { en: '🎬 Create', he: '🎬 יצירה' },
     'tab.history':     { en: '🗂️ History', he: '🗂️ היסטוריה' },
-    'tab.stats':       { en: '📊 Statistics', he: '📊 סטטיסטיקות' },
     'tab.logout':      { en: '🚪 Logout', he: '🚪 התנתקות' },
     'reconnect.msg':     { en: 'A previous job is still running - tap to reconnect and get your result.', he: 'עבודה קודמת עדיין רצה - הקישו כדי להתחבר מחדש ולקבל את התוצאה.' },
     'reconnect.resume':  { en: 'Resume', he: 'המשך' },

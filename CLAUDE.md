@@ -12,15 +12,13 @@
 | `broll_fns.py` | Veo generation + `analyze_broll`, `analyze_stock_broll`, `search_stock_clips`, `_process_moment` |
 | `content_fns.py` | `generate_hook_options`, `generate_caption_options` |
 | `metricool_fns.py` | Metricool OAuth store, MCP client, `schedule_post_fn` |
-| `site/index.html` | Vercel frontend markup — "פייפליין" branding (catchphrase: עריכות וידאו בלחיצת כפתור); tabs: **Create** (upload/process/download), **History**, and a hidden **Statistics** tab (Yogalina Metricool snapshot); no framework |
+| `site/index.html` | Vercel frontend markup — "פייפליין" branding (catchphrase: עריכות וידאו בלחיצת כפתור); tabs: **Create** (upload/process/download) and **History**; no framework |
 | `DESIGN_LEGACY.md` | The pre-2026-07 Yogalina design, preserved at tag `design-yogalina-classic` — how to revert |
 | `site/app.js` | All frontend logic (upload, polling, editor, burn, debug panel, stats tab, scheduling) |
 | `site/i18n.js` | EN/HE dictionary + engine: `t(key, vars)`, `data-i18n` attrs, `setLang` (sets `dir=rtl`, persists `hebpipe_lang`, fires `langchange`); toggle button `#langToggle` in hero |
 | `site/app.css` | All frontend styles |
 | `site/sw.js` | Service worker — background job polling only (no asset caching) |
 | `site/vercel.json` | SPA rewrite rule (all routes → index.html) |
-| `site/stats.json` | Committed Metricool stats snapshot the Statistics tab renders (generated, not hand-edited) |
-| `generate_stats.py` | Regenerates `site/stats.json` from a Metricool MCP pull — the refresh tool for the Statistics tab |
 | `captions_template.ass` | ASS subtitle format reference and style examples |
 | `requirements.txt` | `faster-whisper`, `requests` |
 | `README.md` | Full usage docs, architecture, "how to add a stock source", "how to swap models" |
@@ -135,28 +133,6 @@ OPUS_MODEL   = "claude-opus-4-7"             # Veo B-roll analysis (dead code �
 TRANSCRIPT_ANALYSIS_MODEL = "gemini-2.5-flash"
 VIDEO_GENERATION_MODEL    = "veo-3.0-generate-001"
 ```
-
-## Statistics Tab (site)
-
-**Hidden since the generic "Swiftcut" redesign (2026-07-03)** — the tab button (`#tabStats` in `index.html`) has `display:none`; all code, data, and the refresh workflow below remain intact. Unhide the button to bring it back (see `DESIGN_LEGACY.md`).
-
-The site's second tab shows a social-media performance snapshot for the Yogalina brand, pulled from Metricool. Its goal: let Alina see at a glance **what performs and what doesn't** across her channels.
-
-**Data flow (snapshot model, not live):**
-1. `generate_stats.py` holds the raw per-network numbers (hardcoded arrays from a Metricool pull) + hand-written strategist verdicts, computes summaries, and writes `site/stats.json` (stamping `period.generatedAt` in Asia/Jerusalem).
-2. `site/app.js` fetches `stats.json` on tab open and renders network cards (status pill + metrics + verdict), best time to post, and top posts.
-3. Deploy publishes the new `stats.json`. The page shows a "🕒 Stats from <date>" timestamp + a note telling users to ask Yotam for a refresh.
-
-**Why it's a snapshot, not live:** the account is on Metricool's **free tier** → no API token → no server-side pull possible (a Modal `/stats` proxy would need an Advanced-plan token). The Metricool MCP that produces the data is only available in an interactive Claude session — **not** in cloud/cron routines — so automatic refresh isn't possible either.
-
-**To refresh the stats** (on request — "refresh the Yogalina stats"):
-1. Re-pull via the Metricool MCP for brand `4497778` (see `[[project_metricool_stats]]` memory for IDs/field IDs): network `evolution` metrics over the trailing ~90 days, `brandSummary posts` for top posts, `getBestTimeToPostByNetwork` for timing.
-2. Update the data arrays in `generate_stats.py`; rewrite a verdict/status only if a channel's standing materially changed.
-3. `python3 generate_stats.py` → regenerates `site/stats.json`.
-4. `npx vercel deploy --prod` from the project root, then commit + push.
-
-- Verdicts are curated strategic prose — refresh the **numbers** each time, but don't auto-rewrite the prose unless a status pill flips.
-- Card order is intentional: strongest channels first (currently Instagram, YouTube, then Facebook, TikTok).
 
 ## Conventions
 

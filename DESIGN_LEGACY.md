@@ -21,9 +21,9 @@ npx vercel deploy --prod
 - **Title tag:** `Hebrew Video Pipeline · Yogalina`.
 - **Tabs:** 🎬 Hebrew Pipeline / 🗂️ History / 📊 Statistics / 🚪 Logout.
 - **Statistics tab:** visible — Yogalina's Metricool snapshot (`site/stats.json`,
-  refreshed via `generate_stats.py`). In the generic design the tab button is hidden
-  (`display:none` on `#tabStats` in `index.html`) but all its code and data remain —
-  unhide the button to bring it back.
+  refreshed via `generate_stats.py`). The feature was removed entirely on 2026-07-03
+  (commit history has the code, `generate_stats.py`, and the last `stats.json`);
+  the tag below still contains the fully working version.
 - Same purple palette as the current design (the redesign kept it).
 
 `site/img/cover.webp` is intentionally kept in the repo even though the generic

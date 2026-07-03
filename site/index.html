@@ -54,8 +54,6 @@
 <div class="tabs" role="tablist" id="tabsBar" style="display:none">
   <button class="tab active" id="tabPipeline" role="tab" aria-selected="true" onclick="switchTab('pipeline')" data-i18n="tab.create">🎬 Create</button>
   <button class="tab" id="tabHistory" role="tab" aria-selected="false" onclick="switchTab('history')" data-i18n="tab.history">🗂️ History</button>
-  <!-- Yogalina-era Metricool stats tab - hidden for the generic release; see DESIGN_LEGACY.md -->
-  <button class="tab" id="tabStats" role="tab" aria-selected="false" onclick="switchTab('stats')" style="display:none" data-i18n="tab.stats">📊 Statistics</button>
   <button class="tab" id="logoutTab" onclick="logout()" title="Sign out" data-i18n="tab.logout">🚪 Logout</button>
 </div>
 
@@ -642,49 +640,6 @@
     <div id="historyEmpty" class="history-empty" style="display:none" data-i18n="hist.empty">No videos yet - burn your first video and it will show up here.</div>
     <div id="historyList"></div>
     </div>
-  </div>
-  <p class="footer" data-i18n="footer.line">פייפליין &nbsp;·&nbsp; עריכות וידאו בלחיצת כפתור</p>
-</div>
-
-<!-- ── Statistics view ── -->
-<div class="container" id="statsView" style="display:none">
-  <div class="stats-loading" id="statsLoading">Loading statistics…</div>
-  <div id="statsContent" style="display:none">
-    <div class="stats-intro">
-      <p class="stats-headline" id="statsHeadline"></p>
-      <p class="stats-period" id="statsPeriod"></p>
-      <div class="stats-refresh-row">
-        <span class="stats-asof" id="statsAsOf"></span>
-      </div>
-      <div class="stats-note">
-        <span class="stats-note-icon">ℹ️</span>
-        <span>These numbers are a manual snapshot, current as of the date above. To refresh them, ask <b>Yotam</b> to run an update - or upgrade the Metricool plan to unlock automatic live stats.</span>
-      </div>
-    </div>
-
-    <p class="stats-section-title">Your channels</p>
-    <div id="statsNetworks"></div>
-
-    <p class="stats-section-title">Best time to post</p>
-    <div class="card besttime-card">
-      <div class="besttime-clock">
-        <div class="besttime-hour" id="btHour"></div>
-        <div class="besttime-city" id="btCity"></div>
-      </div>
-      <div class="besttime-text">
-        <div class="besttime-lead" id="btLead"></div>
-        <div class="besttime-note" id="btNote"></div>
-        <div class="besttime-why" id="btWhy"></div>
-      </div>
-    </div>
-
-    <p class="stats-section-title">Top posts (by reach)</p>
-    <div class="card" id="statsTopPosts"></div>
-
-    <p class="stats-foot" id="statsFoot"></p>
-  </div>
-  <div class="stats-error" id="statsError" style="display:none">
-    Couldn't load statistics right now. Please try again later.
   </div>
   <p class="footer" data-i18n="footer.line">פייפליין &nbsp;·&nbsp; עריכות וידאו בלחיצת כפתור</p>
 </div>

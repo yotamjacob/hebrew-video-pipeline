@@ -32,7 +32,7 @@
   function showAuthView() {
     document.getElementById('authView').style.display = 'block';
     document.getElementById('tabsBar').style.display = 'none';
-    ['pipelineView', 'historyView', 'statsView'].forEach(id => {
+    ['pipelineView', 'historyView'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
@@ -3179,18 +3179,14 @@
   push('info', [`Page loaded - ${navigator.userAgent}`]);
 })();
 
-/* ── Statistics tab ── */
-  let _statsLoaded = false;
-
   function switchTab(which) {
-    const views = { pipeline: 'pipelineView', history: 'historyView', stats: 'statsView' };
-    const tabs  = { pipeline: 'tabPipeline',  history: 'tabHistory',  stats: 'tabStats' };
+    const views = { pipeline: 'pipelineView', history: 'historyView' };
+    const tabs  = { pipeline: 'tabPipeline',  history: 'tabHistory' };
     for (const k of Object.keys(views)) {
       document.getElementById(views[k]).style.display = (k === which) ? '' : 'none';
       document.getElementById(tabs[k]).classList.toggle('active', k === which);
       document.getElementById(tabs[k]).setAttribute('aria-selected', String(k === which));
     }
-    if (which === 'stats' && !_statsLoaded) loadStats();
     if (which === 'history') loadHistory();
   }
 
@@ -3279,105 +3275,6 @@
 
     card.append(thumb, info, actions);
     return card;
-  }
-
-  const _fmt = n => (n == null ? '-' : Number(n).toLocaleString('en-US'));
-  const _monthDay = yyyymmdd => {
-    const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    return `${M[+yyyymmdd.slice(4,6)-1]} ${+yyyymmdd.slice(6,8)}`;
-  };
-
-  function _changeHtml(change) {
-    if (change == null || change === 0) return '<span class="metric-change flat">±0</span>';
-    const up = change > 0;
-    return `<span class="metric-change ${up ? 'up' : 'down'}">${up ? '▲' : '▼'} ${Math.abs(change)}</span>`;
-  }
-
-  function _relTime(iso) {
-    if (!iso) return '';
-    const then = new Date(iso).getTime();
-    if (isNaN(then)) return '';
-    const mins = Math.round((Date.now() - then) / 60000);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins} min ago`;
-    const hrs = Math.round(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    const days = Math.round(hrs / 24);
-    return `${days}d ago`;
-  }
-
-  function renderStats(d) {
-    document.getElementById('statsHeadline').textContent = d.headline;
-    document.getElementById('statsPeriod').innerHTML =
-      `<span>Last 90 days · ${d.period.label}</span>`;
-
-    const rel = _relTime(d.period.generatedAt);
-    document.getElementById('statsAsOf').textContent =
-      `Stats from ${d.period.generatedAtLabel}${rel ? ' · ' + rel : ''}`;
-
-    // Network cards
-    document.getElementById('statsNetworks').innerHTML = d.networks.map(n => {
-      const metrics = n.metrics.map(m => `
-        <div class="metric">
-          <div class="metric-label">${m.label}</div>
-          <div class="metric-value">${_fmt(m.value)}${'change' in m ? _changeHtml(m.change) : ''}</div>
-        </div>`).join('');
-      return `
-        <div class="card net-card ${n.status}">
-          <div class="net-head">
-            <div class="net-badge ${n.key}">${n.icon}</div>
-            <div class="net-title">
-              <div class="net-name">${n.name}</div>
-              <div class="net-handle">${n.handle}</div>
-            </div>
-            <span class="status-pill ${n.status}">${n.statusLabel}</span>
-          </div>
-          <div class="net-metrics">${metrics}</div>
-          <p class="net-verdict">${n.verdict}</p>
-        </div>`;
-    }).join('');
-
-    // Best time
-    document.getElementById('btHour').textContent = d.bestTime.peakHour;
-    document.getElementById('btCity').textContent = d.bestTime.timezone || d.bestTime.city || '';
-    document.getElementById('btLead').textContent = `Post on ${d.bestTime.network} around ${d.bestTime.window}`;
-    document.getElementById('btNote').textContent = d.bestTime.note;
-    document.getElementById('btWhy').innerHTML = d.bestTime.why ? `<b>Why:</b> ${d.bestTime.why}` : '';
-
-    // Top posts
-    document.getElementById('statsTopPosts').innerHTML = d.topPosts.map((p, i) => `
-      <div class="post-row">
-        <div class="post-rank">${i + 1}</div>
-        <div class="post-meta">
-          <div class="post-net">${p.network} ${p.type}</div>
-          <div class="post-sub">${_monthDay(p.date)} · ${p.interactions} interactions</div>
-        </div>
-        <div class="post-stats">
-          <div class="post-imp">${_fmt(p.impressions)}</div>
-          <div class="post-eng">reach</div>
-        </div>
-      </div>`).join('');
-
-    document.getElementById('statsFoot').textContent =
-      `Source: Metricool · organic + paid. Numbers are a snapshot generated ${d.period.generatedAtLabel}, not live.`;
-  }
-
-  async function loadStats() {
-    const loading = document.getElementById('statsLoading');
-    const content = document.getElementById('statsContent');
-    const errBox  = document.getElementById('statsError');
-    try {
-      const resp = await fetch('stats.json?v=' + Date.now(), { cache: 'no-store' });
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      const data = await resp.json();
-      renderStats(data);
-      _statsLoaded = true;
-      loading.style.display = 'none';
-      errBox.style.display = 'none';
-      content.style.display = '';
-    } catch (e) {
-      if (!_statsLoaded) { loading.style.display = 'none'; errBox.style.display = ''; }
-    }
   }
 
 /* ── Schedule this video (Metricool handoff helper) ── */
