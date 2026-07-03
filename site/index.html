@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Hebrew Video Pipeline · Yogalina</title>
+  <title>Swiftcut — Social Video Studio</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;700&family=Assistant:wght@400;700&family=Frank+Ruhl+Libre:wght@400;700&family=Secular+One&family=Noto+Sans+Hebrew:wght@400;700&display=swap" rel="stylesheet" />
@@ -19,17 +19,20 @@
 </div>
 
 <div class="hero">
-  <img src="img/cover.webp" alt="Yogalina — School of Quiet Yoga" />
+  <div class="hero-glow hero-glow-a"></div>
+  <div class="hero-glow hero-glow-b"></div>
   <div class="hero-overlay">
-    <h1 class="hero-title">Hebrew Video Pipeline</h1>
-    <p class="hero-sub">Upload · Edit · Download</p>
+    <div class="hero-brand"><span class="hero-brand-mark">✂︎</span> Swiftcut</div>
+    <h1 class="hero-title">Hours of editing, done in minutes</h1>
+    <p class="hero-sub">Auto-cut · Captions · Hooks · B-roll · Schedule</p>
   </div>
 </div>
 
 <div class="tabs" role="tablist" id="tabsBar" style="display:none">
-  <button class="tab active" id="tabPipeline" role="tab" aria-selected="true" onclick="switchTab('pipeline')">🎬 Hebrew Pipeline</button>
+  <button class="tab active" id="tabPipeline" role="tab" aria-selected="true" onclick="switchTab('pipeline')">🎬 Create</button>
   <button class="tab" id="tabHistory" role="tab" aria-selected="false" onclick="switchTab('history')">🗂️ History</button>
-  <button class="tab" id="tabStats" role="tab" aria-selected="false" onclick="switchTab('stats')">📊 Statistics</button>
+  <!-- Yogalina-era Metricool stats tab — hidden for the generic release; see DESIGN_LEGACY.md -->
+  <button class="tab" id="tabStats" role="tab" aria-selected="false" onclick="switchTab('stats')" style="display:none">📊 Statistics</button>
   <button class="tab" id="logoutTab" onclick="logout()" title="Sign out">🚪 Logout</button>
 </div>
 
@@ -53,7 +56,7 @@
       <button class="action-btn" style="margin-top:10px" id="authModeBtn" onclick="toggleAuthMode()">New here? Create an account</button>
     </div>
   </div>
-  <p class="footer">יוגלינה &nbsp;·&nbsp; School of Quiet Yoga</p>
+  <p class="footer">✂︎ Swiftcut &nbsp;·&nbsp; Save hours on every video</p>
 </div>
 
 <div class="container" id="pipelineView" style="display:none">
@@ -592,6 +595,7 @@
     <div class="status-done" id="statusDone">
       <div class="done-icon">✅</div>
       <div class="done-label">Done! Your video is ready.</div>
+      <div class="done-saved" id="doneSaved" style="display:none"></div>
       <div class="done-time" id="doneTime" style="display:none"></div>
       <button class="download-btn" id="downloadBtn">⬇&nbsp; Download video</button>
     </div>
@@ -607,7 +611,7 @@
 
   <button id="startOverBtn" class="start-over-btn">↩&nbsp; Start over</button>
 
-  <p class="footer">יוגלינה &nbsp;·&nbsp; School of Quiet Yoga</p>
+  <p class="footer">✂︎ Swiftcut &nbsp;·&nbsp; Save hours on every video</p>
 </div>
 
 <!-- ── History view ── -->
@@ -624,7 +628,7 @@
     <div id="historyList"></div>
     </div>
   </div>
-  <p class="footer">יוגלינה &nbsp;·&nbsp; School of Quiet Yoga</p>
+  <p class="footer">✂︎ Swiftcut &nbsp;·&nbsp; Save hours on every video</p>
 </div>
 
 <!-- ── Statistics view ── -->
@@ -667,7 +671,7 @@
   <div class="stats-error" id="statsError" style="display:none">
     Couldn't load statistics right now. Please try again later.
   </div>
-  <p class="footer">יוגלינה &nbsp;·&nbsp; School of Quiet Yoga</p>
+  <p class="footer">✂︎ Swiftcut &nbsp;·&nbsp; Save hours on every video</p>
 </div>
 
 <!-- ── Confirm dialog ── -->

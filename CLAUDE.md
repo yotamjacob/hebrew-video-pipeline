@@ -12,7 +12,8 @@
 | `broll_fns.py` | Veo generation + `analyze_broll`, `analyze_stock_broll`, `search_stock_clips`, `_process_moment` |
 | `content_fns.py` | `generate_hook_options`, `generate_caption_options` |
 | `metricool_fns.py` | Metricool OAuth store, MCP client, `schedule_post_fn` |
-| `site/index.html` | Vercel frontend markup — two tabs: **Hebrew Pipeline** (upload/process/download) and **Statistics** (Metricool snapshot); no framework |
+| `site/index.html` | Vercel frontend markup — "Swiftcut" generic branding; tabs: **Create** (upload/process/download), **History**, and a hidden **Statistics** tab (Yogalina Metricool snapshot); no framework |
+| `DESIGN_LEGACY.md` | The pre-2026-07 Yogalina design, preserved at tag `design-yogalina-classic` — how to revert |
 | `site/app.js` | All frontend logic (upload, polling, editor, burn, debug panel, stats tab, scheduling) |
 | `site/app.css` | All frontend styles |
 | `site/sw.js` | Service worker — background job polling only (no asset caching) |
@@ -135,6 +136,8 @@ VIDEO_GENERATION_MODEL    = "veo-3.0-generate-001"
 ```
 
 ## Statistics Tab (site)
+
+**Hidden since the generic "Swiftcut" redesign (2026-07-03)** — the tab button (`#tabStats` in `index.html`) has `display:none`; all code, data, and the refresh workflow below remain intact. Unhide the button to bring it back (see `DESIGN_LEGACY.md`).
 
 The site's second tab shows a social-media performance snapshot for the Yogalina brand, pulled from Metricool. Its goal: let Alina see at a glance **what performs and what doesn't** across her channels.
 

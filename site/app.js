@@ -1134,7 +1134,22 @@
       doneTimeEl.textContent = `Total processing time: ${formatTime(totalSec)}`;
       doneTimeEl.style.display = 'block';
     }
+    _showTimeSaved();
     triggerDownload();
+  }
+
+  // Cutting silences and captioning by hand runs ~6× realtime in an NLE —
+  // surface that as the payoff stat next to the finished video.
+  function _showTimeSaved() {
+    const el = document.getElementById('doneSaved');
+    if (!el || !videoDuration) return;
+    const cutVid = document.getElementById('cutVideo');
+    const cutDur = cutVid && isFinite(cutVid.duration) && cutVid.duration > 0 ? cutVid.duration : null;
+    const trimmed = cutDur && videoDuration - cutDur > 1 ? videoDuration - cutDur : null;
+    const manualMin = Math.max(5, Math.round(videoDuration * 6 / 60 / 5) * 5);
+    el.innerHTML = `⚡ Saved you <b>~${manualMin} min</b> of manual editing` +
+      (trimmed ? ` · ✂︎ ${formatDuration(trimmed)} of silence removed` : '');
+    el.style.display = 'block';
   }
 
   function showError(msg) {
@@ -1158,6 +1173,8 @@
     runStartTime = null;
     const doneTimeEl = document.getElementById('doneTime');
     if (doneTimeEl) doneTimeEl.style.display = 'none';
+    const doneSavedEl = document.getElementById('doneSaved');
+    if (doneSavedEl) doneSavedEl.style.display = 'none';
     statusCard.classList.remove('visible');
     checklistEl.style.display = 'none';
     _resetChecklist();
