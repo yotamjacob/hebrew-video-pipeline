@@ -116,12 +116,3 @@ test('full flow works on mobile viewport', async ({ page, browserName }) => {
   await input.fill('מבחן מובייל');
   await expect(input).toHaveValue('מבחן מובייל');
 });
-
-test('debug panel is present and toggleable', async ({ page }) => {
-  // The debug panel is always present; clicking it should expand it
-  const panel = page.locator('#debugPanel');
-  await expect(panel).toBeVisible();
-  const bar = page.locator('#debugBar');
-  await bar.click();
-  await expect(panel).toHaveClass(/open/);
-});

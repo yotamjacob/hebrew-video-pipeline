@@ -1179,52 +1179,6 @@
       .tabs { padding: 12px 12px 0; }
     }
 
-/* ── Debug log panel ── */
-  #debugPanel {
-    position: fixed;
-    bottom: 0; left: 0; right: 0;
-    font-family: monospace;
-    font-size: 11px;
-    z-index: 9999;
-    background: rgba(15,10,30,0.92);
-    color: #a0f0a0;
-    max-height: 32px;
-    overflow: hidden;
-    transition: max-height 0.25s ease;
-    backdrop-filter: blur(4px);
-  }
-  #debugPanel.open { max-height: 40vh; }
-  #debugBar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 6px 12px;
-    cursor: pointer;
-    user-select: none;
-    border-top: 1px solid rgba(255,255,255,0.08);
-  }
-  #debugLabel { color: #7c7c9c; font-size: 10px; letter-spacing: 0.05em; }
-  #debugCopy {
-    background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.15);
-    color: #aaa;
-    font-size: 10px;
-    padding: 2px 8px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-family: monospace;
-  }
-  #debugCopy:hover { background: rgba(255,255,255,0.15); color: #fff; }
-  #debugBody {
-    overflow-y: auto;
-    max-height: calc(40vh - 32px);
-    padding: 4px 12px 8px;
-  }
-  .dl { padding: 1px 0; white-space: pre-wrap; word-break: break-all; }
-  .dl.err { color: #ff8080; }
-  .dl.warn { color: #ffd080; }
-  .dl.info { color: #80d0ff; }
-
 /* ── History tab ── */
 .history-note { font-size: 0.8rem; color: var(--muted); margin-bottom: 14px; }
 .history-loading, .history-empty { font-size: 0.9rem; color: var(--muted); text-align: center; padding: 24px 0; }
@@ -1315,8 +1269,6 @@
 [dir="rtl"] .history-meta,
 [dir="rtl"] .upload-bar-pct { direction: ltr; unicode-bidi: isolate; }
 
-/* Technical debug log stays LTR */
-#debugPanel { direction: ltr; }
 
 /* ── Quota pill + admin view ── */
 .quota-pill {

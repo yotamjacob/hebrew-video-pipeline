@@ -123,12 +123,14 @@ def api():
                 new_uid = _secrets.token_hex(16)
                 users_store[username] = {"uid": new_uid, "salt": salt, "pw": ph, "created": _time.time(),
                                          "video_limit": DEFAULT_VIDEO_LIMIT, "videos_used": 0}
+                users_store[f"uid:{new_uid}"] = username
             else:
                 rec = users_store.get(username)
                 if not rec or not _verify_password(password, rec["salt"], rec["pw"]):
                     await send_error("Invalid username or password", 401)
                     return
                 new_uid = rec["uid"]
+                users_store[f"uid:{new_uid}"] = username   # backfill reverse index
             token = _sign_token(new_uid, os.environ["AUTH_SECRET"])
             body = json.dumps({"token": token, "username": username}).encode()
             await send({"type": "http.response.start", "status": 200,
@@ -171,10 +173,25 @@ def api():
             return bool(meta) and meta.get("uid") == uid
 
         def _user_by_uid():
-            """(username, record) for the authenticated uid. O(n) — fine at this scale."""
+            """(username, record) for the authenticated uid.
+
+            Fast path: reverse index key `uid:<uid>` → username (2 Dict RPCs).
+            Fallback: legacy full scan (one RPC per user), backfilling the
+            index so the next call is fast."""
+            uname = users_store.get(f"uid:{uid}")
+            if isinstance(uname, str):
+                rec = users_store.get(uname)
+                if rec and rec.get("uid") == uid:
+                    return uname, rec
             for _u in users_store.keys():
+                if _u.startswith("uid:"):
+                    continue
                 _r = users_store.get(_u) or {}
                 if _r.get("uid") == uid:
+                    try:
+                        users_store[f"uid:{uid}"] = _u
+                    except Exception:
+                        pass
                     return _u, _r
             return None, None
 
@@ -444,6 +461,8 @@ def api():
                 return
             out = []
             for _u in users_store.keys():
+                if _u.startswith("uid:"):
+                    continue
                 _r = users_store.get(_u) or {}
                 _adm, _used, _limit = _quota_state(_r, _os.environ.get("ADMIN_USERS"), _u)
                 out.append({"username": _u, "role": "admin" if _adm else "user",

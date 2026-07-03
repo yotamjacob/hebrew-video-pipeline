@@ -42,7 +42,7 @@
     document.getElementById('authView').style.display = 'none';
     document.getElementById('tabsBar').style.display = 'flex';
     document.getElementById('pipelineView').style.display = 'block';
-    refreshQuota();
+    if (quotaInfo) updateQuotaUI(); else refreshQuota();
   }
 
   // ── Video quota (free tier) ──
@@ -3169,65 +3169,6 @@
     }
   }
 
-/* ── Debug log panel ── */
-(function () {
-  const lines = [];
-  const el = () => document.getElementById('debugLines');
-  const lbl = () => document.getElementById('debugLabel');
-
-  function stamp() {
-    const d = new Date();
-    return d.toTimeString().slice(0,8) + '.' + String(d.getMilliseconds()).padStart(3,'0');
-  }
-
-  function push(cls, args) {
-    const text = args.map(a => {
-      if (typeof a === 'string') return a;
-      try { return JSON.stringify(a, null, 0); } catch { return String(a); }
-    }).join(' ');
-    const entry = `[${stamp()}] ${text}`;
-    lines.push({ cls, entry });
-    const row = document.createElement('div');
-    row.className = 'dl ' + cls;
-    row.textContent = entry;
-    const container = el();
-    if (container) {
-      container.appendChild(row);
-      container.scrollTop = container.scrollHeight;
-    }
-    const label = lbl();
-    if (label && cls === 'err') label.textContent = '▸ log ⚠';
-  }
-
-  const _log   = console.log.bind(console);
-  const _warn  = console.warn.bind(console);
-  const _error = console.error.bind(console);
-  const _info  = console.info.bind(console);
-
-  console.log   = (...a) => { _log(...a);   push('',     a); };
-  console.warn  = (...a) => { _warn(...a);  push('warn', a); };
-  console.error = (...a) => { _error(...a); push('err',  a); };
-  console.info  = (...a) => { _info(...a);  push('info', a); };
-
-  window.addEventListener('error', e => {
-    push('err', [`Uncaught: ${e.message} (${e.filename}:${e.lineno})`]);
-  });
-  window.addEventListener('unhandledrejection', e => {
-    push('err', [`UnhandledRejection: ${e.reason}`]);
-  });
-
-  window.copyDebugLog = function () {
-    const text = lines.map(l => l.entry).join('\n');
-    navigator.clipboard.writeText(text).then(() => {
-      const btn = document.getElementById('debugCopy');
-      if (btn) { btn.textContent = 'copied!'; setTimeout(() => btn.textContent = 'copy', 1500); }
-    });
-  };
-
-  // Log page load + UA for mobile context
-  push('info', [`Page loaded - ${navigator.userAgent}`]);
-})();
-
   function switchTab(which) {
     const views = { pipeline: 'pipelineView', history: 'historyView', admin: 'adminView' };
     const tabs  = { pipeline: 'tabPipeline',  history: 'tabHistory',  admin: 'tabAdmin' };
@@ -3570,7 +3511,7 @@
     try {
       const r = await fetch(`${API_BASE}/auth/me`, { headers: { 'Authorization': 'Bearer ' + authToken } });
       if (!r.ok) throw new Error('unauthorized');
-      await r.json();
+      quotaInfo = await r.json();   // reuse for the quota pill - no second /auth/me
       showApp();
     } catch {
       _sessionExpired();
