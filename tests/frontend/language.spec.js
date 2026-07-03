@@ -8,7 +8,7 @@ test('site boots in Hebrew RTL by default with the toggle visible', async ({ pag
   await expect(page.locator('html')).toHaveAttribute('lang', 'he');
   await expect(page.locator('#langToggle')).toBeVisible();
   await expect(page.locator('#langToggle')).toHaveText('English');
-  await expect(page.locator('.hero-sub')).toHaveText('סטודיו לסרטוני רשת בעברית');
+  await expect(page.locator('.hero-sub')).toHaveText('עריכות וידאו בלחיצת כפתור');
   await expect(page.locator('#tabPipeline')).toContainText('יצירה');
 });
 
@@ -18,7 +18,7 @@ test('toggle switches to English, sets LTR, and translates static text', async (
   await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await expect(page.locator('#langToggle')).toHaveText('עברית');
-  await expect(page.locator('.hero-sub')).toHaveText('Hebrew-first social video studio');
+  await expect(page.locator('.hero-sub')).toHaveText('Video editing at the click of a button');
   await expect(page.locator('#tabPipeline')).toHaveText('🎬 Create');
   await expect(page.locator('.upload-main')).toHaveText('Drop your video here');
   await expect(page.locator('#runBtn')).toContainText('Run Pipeline');

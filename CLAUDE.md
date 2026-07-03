@@ -12,7 +12,7 @@
 | `broll_fns.py` | Veo generation + `analyze_broll`, `analyze_stock_broll`, `search_stock_clips`, `_process_moment` |
 | `content_fns.py` | `generate_hook_options`, `generate_caption_options` |
 | `metricool_fns.py` | Metricool OAuth store, MCP client, `schedule_post_fn` |
-| `site/index.html` | Vercel frontend markup — "Swiftcut" generic branding; tabs: **Create** (upload/process/download), **History**, and a hidden **Statistics** tab (Yogalina Metricool snapshot); no framework |
+| `site/index.html` | Vercel frontend markup — "עריכתור" branding (catchphrase: עריכות וידאו בלחיצת כפתור); tabs: **Create** (upload/process/download), **History**, and a hidden **Statistics** tab (Yogalina Metricool snapshot); no framework |
 | `DESIGN_LEGACY.md` | The pre-2026-07 Yogalina design, preserved at tag `design-yogalina-classic` — how to revert |
 | `site/app.js` | All frontend logic (upload, polling, editor, burn, debug panel, stats tab, scheduling) |
 | `site/i18n.js` | EN/HE dictionary + engine: `t(key, vars)`, `data-i18n` attrs, `setLang` (sets `dir=rtl`, persists `hebpipe_lang`, fires `langchange`); toggle button `#langToggle` in hero |

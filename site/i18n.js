@@ -1,4 +1,4 @@
-// ── Swiftcut i18n ──
+// ── עריכתור i18n ──
 // English is the source language; Hebrew mirrors it 1:1 with full RTL.
 // Static HTML opts in via data-i18n / data-i18n-placeholder / data-i18n-title
 // attributes; JS strings go through t('key', {vars}).
@@ -7,9 +7,9 @@
 
   const I18N = {
     // ── Hero / chrome ──
-    'hero.sub':        { en: 'Hebrew-first social video studio', he: 'סטודיו לסרטוני רשת בעברית' },
+    'hero.sub':        { en: 'Video editing at the click of a button', he: 'עריכות וידאו בלחיצת כפתור' },
     'hero.tags':       { en: 'Auto-cut · Captions · Hooks · B-roll · Schedule', he: 'חיתוך אוטומטי · כתוביות · הוקים · בי-רול · תזמון' },
-    'footer.line':     { en: 'Swiftcut &nbsp;·&nbsp; Hebrew videos, edited in minutes', he: 'Swiftcut &nbsp;·&nbsp; סרטונים בעברית, ערוכים בדקות' },
+    'footer.line':     { en: 'עריכתור &nbsp;·&nbsp; Video editing at the click of a button', he: 'עריכתור &nbsp;·&nbsp; עריכות וידאו בלחיצת כפתור' },
     'tab.create':      { en: '🎬 Create', he: '🎬 יצירה' },
     'tab.history':     { en: '🗂️ History', he: '🗂️ היסטוריה' },
     'tab.stats':       { en: '📊 Statistics', he: '📊 סטטיסטיקות' },
