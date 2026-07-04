@@ -26,6 +26,14 @@ async function bootApp(page, { me } = {}) {
   const mePayload = JSON.stringify(me || { username: 'tester', role: 'user', videos_used: 0, video_limit: -1 });
   await page.route(/\/auth\/me/, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: mePayload }));
+  // showApp() fires these on EVERY boot (media token + Metricool chip). Unmocked
+  // they hit the real API with the fake token, 401, and apiFetch bounces the app
+  // back to the login view mid-test. Stub them for every bootApp test; mockAllApis
+  // may re-stub /oauth/status later (last route wins) — same result.
+  await page.route(/\/auth\/media-token/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"token":"m.test"}' }));
+  await page.route(/\/oauth\/status/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"connected":false}' }));
   await page.goto('/');
 }
 
