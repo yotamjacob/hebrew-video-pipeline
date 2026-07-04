@@ -1080,11 +1080,11 @@
       font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; padding-top: 8px;
     }
     .footer-contact {
-      color: var(--purple-400); text-decoration: none;
-      border: 1.5px solid var(--purple-100); border-radius: 999px;
-      padding: 6px 14px; display: inline-block; transition: color 0.15s, border-color 0.15s;
+      color: var(--purple-500); text-decoration: none; font-weight: 700;
+      border: 2px solid var(--purple-400); border-radius: 999px; background: #fff;
+      padding: 7px 16px; display: inline-block; transition: color 0.15s, border-color 0.15s;
     }
-    .footer-contact:hover { color: var(--purple-700); border-color: var(--purple-400); }
+    .footer-contact:hover { color: var(--purple-700); border-color: var(--purple-700); }
 
     /* ── Schedule card ── */
     .sched-intro { font-size: 0.82rem; color: var(--muted); line-height: 1.5; margin-bottom: 16px; }
