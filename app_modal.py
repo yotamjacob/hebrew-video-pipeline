@@ -678,9 +678,13 @@ def api():
                 return
             out = []
             for _u in users_store.keys():
-                if _u.startswith("uid:"):
+                # Skip index entries (uid:<uid>, email:<addr>) — they map to
+                # username STRINGS, not user records.
+                if _u.startswith("uid:") or _u.startswith("email:"):
                     continue
-                _r = users_store.get(_u) or {}
+                _r = users_store.get(_u)
+                if not isinstance(_r, dict):
+                    continue
                 _adm, _used, _limit = _quota_state(_r, _os.environ.get("ADMIN_USERS"), _u)
                 out.append({"username": _u, "role": "admin" if _adm else "user",
                             "videos_used": _used,
