@@ -9,7 +9,7 @@
     // ── Hero / chrome ──
     'hero.sub':        { en: 'Video editing at the click of a button', he: 'עריכות וידאו בלחיצת כפתור' },
     'hero.tags':       { en: 'Auto-cut · Captions · Hooks · B-roll · Schedule', he: 'חיתוך אוטומטי · כתוביות · הוקים · בי-רול · תזמון' },
-    'footer.line':     { en: 'פייפליין &nbsp;·&nbsp; Video editing at the click of a button', he: 'פייפליין &nbsp;·&nbsp; עריכות וידאו בלחיצת כפתור' },
+    'footer.contact':  { en: '💬 Contact us / leave feedback', he: '💬 צרו קשר / שלחו משוב' },
     'tab.create':      { en: '🎬 Create', he: '🎬 יצירה' },
     'tab.history':     { en: '🗂️ History', he: '🗂️ היסטוריה' },
     'tab.logout':      { en: '🚪 Logout', he: '🚪 התנתקות' },
