@@ -1391,7 +1391,8 @@
   cursor: pointer; font-family: inherit;
 }
 .mc-chip:hover { background: var(--purple-50); }
-.mc-chip.connected { background: #ECFDF5; border-color: #A7F3D0; color: #059669; cursor: default; }
+.mc-chip.connected { background: #ECFDF5; border-color: #A7F3D0; color: #059669; cursor: pointer; }
+.mc-chip.connected:hover { background: #FEF2F2; border-color: #FECACA; color: #B91C1C; }
 
 .admin-row {
   display: flex; align-items: center; gap: 10px;
