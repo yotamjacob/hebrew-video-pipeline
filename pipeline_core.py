@@ -160,6 +160,40 @@ def _verify_token(token: str, secret: str, now: float = None):
         return None
 
 
+# Short-lived token used ONLY in GET media URLs (img/video src, downloads) so
+# the long-lived session token stays out of query strings, access logs and
+# browser history. Format `m.<uid>.<exp>.<sig>` (4 parts) is disjoint from the
+# 3-part session token, so the two verifiers can never be confused.
+MEDIA_TOKEN_TTL_SECONDS = 3600
+
+
+def _sign_media_token(uid: str, secret: str, ttl: int = MEDIA_TOKEN_TTL_SECONDS, now: float = None) -> str:
+    import hmac, hashlib, time
+    exp = int((now if now is not None else time.time()) + ttl)
+    msg = f"m.{uid}.{exp}"
+    sig = hmac.new(secret.encode(), msg.encode(), hashlib.sha256).hexdigest()
+    return f"{msg}.{sig}"
+
+
+def _verify_media_token(token: str, secret: str, now: float = None):
+    """Return uid for a valid, unexpired media token — else None."""
+    import hmac, hashlib, time, re
+    try:
+        prefix, uid, exp_s, sig = token.split(".")
+        if prefix != "m":
+            return None
+        expect = hmac.new(secret.encode(), f"m.{uid}.{exp_s}".encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expect):
+            return None
+        if (now if now is not None else time.time()) > int(exp_s):
+            return None
+        if not re.match(r"^[0-9a-f]{32}$", uid):
+            return None
+        return uid
+    except Exception:
+        return None
+
+
 def _user_prefix(uid: str) -> str:
     return f"u{uid}__"
 
@@ -224,6 +258,49 @@ import threading as _threading
 
 _SAFE_KEY_RE = _re.compile(r'^[a-zA-Z0-9_\-]{1,128}$')
 _SAFE_DOWNLOAD_KEY_RE = _re.compile(r'^[a-zA-Z0-9_\-\.]{1,128}$')
+
+# ── B-roll item validation (SSRF / IDOR / path-traversal guard) ──
+# Generated & stock B-roll clips are stored on the shared volume as
+# `broll_<uuid>.mp4` (see broll_fns) — they are NOT u{uid}__-namespaced, so a
+# strict format match (not _owned_key) is what stops a burn request from
+# escaping to an arbitrary file or another tenant's video. Remote clips carry a
+# stock URL that the burn worker fetches server-side; only trusted hosts are
+# allowed so the fetch can't be aimed at internal/metadata endpoints.
+_BROLL_KEY_RE = _re.compile(r'^broll_[0-9a-f]{32}\.mp4$')
+_BROLL_URL_HOSTS = ("pexels.com", "pixabay.com", "vimeocdn.com", "vimeo.com")
+
+
+def _is_allowed_broll_url(url) -> bool:
+    """True iff url is an https link to a trusted stock-video host."""
+    if not isinstance(url, str) or not url:
+        return False
+    import urllib.parse as _up
+    try:
+        p = _up.urlparse(url)
+    except Exception:
+        return False
+    if p.scheme != "https" or not p.hostname:
+        return False
+    host = p.hostname.lower()
+    return any(host == h or host.endswith("." + h) for h in _BROLL_URL_HOSTS)
+
+
+def _broll_item_safe(item) -> bool:
+    """Reject burn B-roll items that could reach an arbitrary file or host.
+
+    Mirrors the burn worker's own precedence (video_key wins over a URL): a
+    local clip must match the broll_<uuid>.mp4 shape; a remote clip must point
+    at a trusted stock host. Items with no source are harmless — the worker
+    skips them."""
+    if not isinstance(item, dict):
+        return False
+    vk = item.get("video_key")
+    if vk:
+        return isinstance(vk, str) and bool(_BROLL_KEY_RE.match(vk))
+    url = item.get("download_url") or item.get("preview_url")
+    if url:
+        return _is_allowed_broll_url(url)
+    return True
 
 def _sanitize_transcript(text: str, max_chars: int = 50_000) -> str:
     """Strip control chars (keep newline/tab), cap length."""

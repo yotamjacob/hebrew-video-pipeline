@@ -4,13 +4,30 @@
   // ── Auth: session token, authenticated fetch, login gate ──
   let authToken = localStorage.getItem('hebpipe_token') || '';
 
+  // Short-lived, GET-only token used in media URLs (img/video src, downloads)
+  // so the long-lived session token never rides in a query string / browser
+  // history. Falls back to the session token until the first one arrives.
+  let mediaToken = '';
+
+  async function refreshMediaToken() {
+    if (!authToken) { mediaToken = ''; return; }
+    try {
+      const r = await apiFetch(`${API_BASE}/auth/media-token`);
+      if (r.ok) mediaToken = (await r.json()).token || '';
+    } catch { /* keep falling back to the session token */ }
+  }
+  // Re-mint well before the 1h server TTL so long sessions never lapse.
+  setInterval(() => { refreshMediaToken(); }, 45 * 60 * 1000);
+
   function _withToken(url) {
-    if (!authToken) return url;
-    return url + (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(authToken);
+    const tok = mediaToken || authToken;
+    if (!tok) return url;
+    return url + (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(tok);
   }
 
   function _sessionExpired() {
     authToken = '';
+    mediaToken = '';
     localStorage.removeItem('hebpipe_token');
     showAuthView();
   }
@@ -42,6 +59,7 @@
     document.getElementById('authView').style.display = 'none';
     document.getElementById('tabsBar').style.display = 'flex';
     document.getElementById('pipelineView').style.display = 'block';
+    refreshMediaToken();
     if (quotaInfo) updateQuotaUI(); else refreshQuota();
   }
 

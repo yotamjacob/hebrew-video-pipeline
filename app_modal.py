@@ -22,7 +22,8 @@ from pipeline_core import (
     _SAFE_KEY_RE, _SAFE_DOWNLOAD_KEY_RE, _check_rate_limit, _get_client_ip,
     _poll_fn_call,
     _USERNAME_RE, _hash_password, _verify_password, _sign_token, _verify_token,
-    _user_prefix, _owned_key,
+    _sign_media_token, _verify_media_token, MEDIA_TOKEN_TTL_SECONDS,
+    _user_prefix, _owned_key, _broll_item_safe,
     DEFAULT_VIDEO_LIMIT, _quota_state, _quota_allows,
 )
 from pipeline_fns import process_video, burn_captions_fn, burn_hook_fn
@@ -156,6 +157,12 @@ def api():
             if not _tok:
                 _tok = parse_qs(scope.get("query_string", b"").decode()).get("token", [""])[0] or None
             uid = _verify_token(_tok, os.environ["AUTH_SECRET"]) if _tok else None
+            # A short-lived, GET-only media token may stand in for the session
+            # token on read requests (img/video src, downloads) so the 30-day
+            # token never has to ride in a query string. Never accept it for
+            # mutations.
+            if not uid and _tok and method == "GET":
+                uid = _verify_media_token(_tok, os.environ["AUTH_SECRET"])
             if not uid:
                 await send_error("Authentication required", 401)
                 return
@@ -204,6 +211,16 @@ def api():
                                "role": "admin" if is_admin else "user",
                                "videos_used": used,
                                "video_limit": None if is_admin else limit}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── Mint a short-lived media token for GET media URLs ──
+        if path in ("/auth/media-token", "/auth/media-token/") and method == "GET":
+            import os as _os
+            mtok = _sign_media_token(uid, _os.environ["AUTH_SECRET"])
+            body = json.dumps({"token": mtok, "expires_in": MEDIA_TOKEN_TTL_SECONDS}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})
@@ -569,6 +586,17 @@ def api():
                 hook_json     = ""
 
             if not _owned_key(video_key, uid):
+                await send_error("Forbidden", 403)
+                return
+            # Every B-roll item is fetched/composited server-side by the worker.
+            # Validate each one here so a crafted item can't reach an arbitrary
+            # file (path traversal / another tenant's video) or make the worker
+            # fetch an arbitrary URL (SSRF).
+            try:
+                _broll_items = json.loads(broll_json)
+            except Exception:
+                _broll_items = []
+            if not isinstance(_broll_items, list) or not all(_broll_item_safe(it) for it in _broll_items):
                 await send_error("Forbidden", 403)
                 return
             try:

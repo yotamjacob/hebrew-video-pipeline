@@ -7,6 +7,7 @@ from pipeline_core import (
     app, burn_image, model_volume, MODEL_DIR,
     WHISPER_MODEL, tmp_vol, TMP_DIR, _fix_rtl_punct,
     _rtl_ass_text, _censor_caption_text, _SAFE_KEY_RE,
+    _BROLL_KEY_RE, _is_allowed_broll_url,
     jobs_store, JOB_RETENTION_DAYS, SCRATCH_RETENTION_HOURS,
     progress_store, calls_store, CALL_RETENTION_SECONDS, _UID_PREFIX_RE,
 )
@@ -836,11 +837,18 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             vid_key      = item.get("video_key")
             download_url = item.get("download_url") or item.get("preview_url")
             if vid_key:
+                # Defense in depth (the /burn route validates too): a broll key
+                # must match broll_<uuid>.mp4 — never an arbitrary path.
+                if not (isinstance(vid_key, str) and _BROLL_KEY_RE.match(vid_key)):
+                    continue
                 src = Path(TMP_DIR) / vid_key
                 if not src.exists():
                     continue
                 shutil.copy(src, dst)
             elif download_url:
+                # Defense in depth: only fetch trusted stock hosts (anti-SSRF).
+                if not _is_allowed_broll_url(download_url):
+                    continue
                 try:
                     r = _req_burn.get(download_url, timeout=30, stream=True)
                     r.raise_for_status()

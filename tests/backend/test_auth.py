@@ -10,15 +10,20 @@ from tests.backend.conftest import MODAL_SRC, _extract_fn, _build_ns
 
 _ns = _build_ns()
 _ns["TOKEN_TTL_SECONDS"] = 30 * 24 * 3600   # module constant referenced by _sign_token's default
+_ns["MEDIA_TOKEN_TTL_SECONDS"] = 3600       # referenced by _sign_media_token's default
 _auth = _extract_fn(MODAL_SRC, "_hash_password", "_verify_password",
-                    "_sign_token", "_verify_token", "_user_prefix", "_owned_key",
+                    "_sign_token", "_verify_token",
+                    "_sign_media_token", "_verify_media_token",
+                    "_user_prefix", "_owned_key",
                     extra_ns=_ns)
-_hash_password   = _auth["_hash_password"]
-_verify_password = _auth["_verify_password"]
-_sign_token      = _auth["_sign_token"]
-_verify_token    = _auth["_verify_token"]
-_user_prefix     = _auth["_user_prefix"]
-_owned_key       = _auth["_owned_key"]
+_hash_password    = _auth["_hash_password"]
+_verify_password  = _auth["_verify_password"]
+_sign_token       = _auth["_sign_token"]
+_verify_token     = _auth["_verify_token"]
+_sign_media_token = _auth["_sign_media_token"]
+_verify_media_token = _auth["_verify_media_token"]
+_user_prefix      = _auth["_user_prefix"]
+_owned_key        = _auth["_owned_key"]
 
 SECRET = "test-secret"
 UID    = "ab" * 16   # 32 hex chars
@@ -100,3 +105,37 @@ def test_owned_key_prefix_spoof_rejected():
 
 def test_prefix_format():
     assert re.match(r"^u[0-9a-f]{32}__$", _user_prefix(UID))
+
+
+# ── Media tokens (short-lived, GET-media-scoped) ─────────────────────────────
+
+def test_media_token_roundtrip():
+    tok = _sign_media_token(UID, SECRET, now=1000)
+    assert _verify_media_token(tok, SECRET, now=1000) == UID
+
+def test_media_token_expired_rejected():
+    tok = _sign_media_token(UID, SECRET, ttl=3600, now=1000)
+    assert _verify_media_token(tok, SECRET, now=1000 + 3601) is None
+
+def test_media_token_forged_sig_rejected():
+    tok = _sign_media_token(UID, SECRET, now=1000)
+    forged = tok[:-1] + ("0" if tok[-1] != "0" else "1")
+    assert _verify_media_token(forged, SECRET, now=1000) is None
+
+def test_media_token_wrong_secret_rejected():
+    tok = _sign_media_token(UID, SECRET, now=1000)
+    assert _verify_media_token(tok, "other-secret", now=1000) is None
+
+def test_media_and_session_tokens_not_interchangeable():
+    # A session token must not verify as a media token, and vice-versa —
+    # the format is disjoint (3 parts vs 4, and the "m." prefix).
+    sess  = _sign_token(UID, SECRET, now=1000)
+    media = _sign_media_token(UID, SECRET, now=1000)
+    assert _verify_media_token(sess, SECRET, now=1000) is None
+    assert _verify_token(media, SECRET, now=1000) is None
+
+def test_media_token_bad_uid_rejected():
+    # A tampered uid segment that isn't 32 hex chars is rejected even if the
+    # rest parses — mirrors _verify_token's uid guard.
+    assert _verify_media_token("m.notauid.9999999999.deadbeef", SECRET, now=1000) is None
+    assert _verify_media_token("garbage", SECRET, now=1000) is None
