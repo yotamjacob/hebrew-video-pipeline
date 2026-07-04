@@ -17,14 +17,15 @@ import modal
 
 from pipeline_core import (
     light_image,
-    jobs_store, progress_store, users_store, calls_store,
+    jobs_store, progress_store, users_store, calls_store, quota_store,
     app, image, tmp_vol, TMP_DIR,
     _SAFE_KEY_RE, _SAFE_DOWNLOAD_KEY_RE, _check_rate_limit, _get_client_ip,
+    throttle_store, _throttle_allowed, _throttle_record_fail, _throttle_clear,
     _poll_fn_call,
     _USERNAME_RE, _hash_password, _verify_password, _sign_token, _verify_token,
     _sign_media_token, _verify_media_token, MEDIA_TOKEN_TTL_SECONDS,
     _user_prefix, _owned_key, _broll_item_safe,
-    DEFAULT_VIDEO_LIMIT, _quota_state, _quota_allows,
+    DEFAULT_VIDEO_LIMIT, _quota_state, _quota_allows, _count_quota_used,
 )
 from pipeline_fns import process_video, burn_captions_fn, burn_hook_fn
 from broll_fns import generate_broll_video, analyze_broll, analyze_stock_broll, search_stock_clips
@@ -96,10 +97,12 @@ def api():
 
         # ── Auth: register (invite-gated) / login ──
         if path in ("/auth/register", "/auth/register/", "/auth/login", "/auth/login/") and method == "POST":
-            if not _check_rate_limit(_get_client_ip(scope)):
+            _ip = _get_client_ip(scope)
+            if not _check_rate_limit(_ip):
                 await send_error("Rate limit exceeded. Try again in a minute.", 429)
                 return
             import os, secrets as _secrets, time as _time
+            _now = _time.time()
             try:
                 data = json.loads((await _read_body(receive)).decode("utf-8"))
             except Exception:
@@ -111,9 +114,16 @@ def api():
                 await send_error("Username must be 3-32 characters: letters, digits, - or _", 400)
                 return
             if path.startswith("/auth/register"):
+                # Throttle invite-code guessing per source IP.
+                _ok, _retry = _throttle_allowed(throttle_store, f"invite:{_ip}", _now)
+                if not _ok:
+                    await send_error(f"Too many attempts. Try again in {_retry // 60 + 1} min.", 429)
+                    return
                 if (data.get("invite") or "").strip() != os.environ.get("INVITE_CODE", ""):
+                    _throttle_record_fail(throttle_store, f"invite:{_ip}", _now)
                     await send_error("Invalid invite code", 403)
                     return
+                _throttle_clear(throttle_store, f"invite:{_ip}")
                 if len(password) < 8:
                     await send_error("Password must be at least 8 characters", 400)
                     return
@@ -126,10 +136,20 @@ def api():
                                          "video_limit": DEFAULT_VIDEO_LIMIT, "videos_used": 0}
                 users_store[f"uid:{new_uid}"] = username
             else:
+                # Throttle password guessing per username AND per source IP.
+                _ok_u, _retry_u   = _throttle_allowed(throttle_store, f"login:{username}", _now)
+                _ok_ip, _retry_ip = _throttle_allowed(throttle_store, f"loginip:{_ip}", _now)
+                if not (_ok_u and _ok_ip):
+                    await send_error(f"Too many attempts. Try again in {max(_retry_u, _retry_ip) // 60 + 1} min.", 429)
+                    return
                 rec = users_store.get(username)
                 if not rec or not _verify_password(password, rec["salt"], rec["pw"]):
+                    _throttle_record_fail(throttle_store, f"login:{username}", _now)
+                    _throttle_record_fail(throttle_store, f"loginip:{_ip}", _now)
                     await send_error("Invalid username or password", 401)
                     return
+                _throttle_clear(throttle_store, f"login:{username}")
+                _throttle_clear(throttle_store, f"loginip:{_ip}")
                 new_uid = rec["uid"]
                 users_store[f"uid:{new_uid}"] = username   # backfill reverse index
             token = _sign_token(new_uid, os.environ["AUTH_SECRET"])
@@ -416,12 +436,17 @@ def api():
             min_silence          = float(qs.get("min_silence", ["0.5"])[0])
             padding              = float(qs.get("padding",     ["0.2"])[0])
 
-            import os as _os
+            import os as _os, time as _time
             uname, urec = _user_by_uid()
             is_admin, used, limit = _quota_state(urec, _os.environ.get("ADMIN_USERS"), uname)
-            if not _quota_allows(is_admin, used, limit):
-                await send_error("limit_reached", 402)
-                return
+            if not is_admin:
+                # Authoritative count from unique per-credit keys (race-proof);
+                # the record's videos_used is a floor so existing testers'
+                # usage isn't reset when this migrates in.
+                used = max(used, _count_quota_used(quota_store, uid))
+                if not _quota_allows(is_admin, used, limit):
+                    await send_error("limit_reached", 402)
+                    return
             try:
                 if upload_key:
                     if not _SAFE_KEY_RE.match(upload_key):
@@ -458,6 +483,12 @@ def api():
                     )
                 _record_call(call)
                 if not is_admin and uname:
+                    # Unique key = one consumed credit; atomic, so concurrent
+                    # spawns can't clobber each other's increment.
+                    try:
+                        quota_store[f"{uid}:{call.object_id}"] = _time.time()
+                    except Exception:
+                        pass
                     urec["videos_used"] = used + 1
                     users_store[uname] = urec
                 body = json.dumps({"call_id": call.object_id}).encode()

@@ -8,9 +8,18 @@ from tests.backend.conftest import MODAL_SRC, _extract_fn, _build_ns
 
 _ns = _build_ns()
 _ns["DEFAULT_VIDEO_LIMIT"] = 5
-_quota = _extract_fn(MODAL_SRC, "_quota_state", "_quota_allows", extra_ns=_ns)
-_quota_state  = _quota["_quota_state"]
-_quota_allows = _quota["_quota_allows"]
+_quota = _extract_fn(MODAL_SRC, "_quota_state", "_quota_allows", "_count_quota_used", extra_ns=_ns)
+_quota_state      = _quota["_quota_state"]
+_quota_allows     = _quota["_quota_allows"]
+_count_quota_used = _quota["_count_quota_used"]
+
+
+class _FakeStore:
+    """Minimal stand-in for a modal.Dict — only .keys() is exercised."""
+    def __init__(self, keys):
+        self._keys = list(keys)
+    def keys(self):
+        return list(self._keys)
 
 
 # ── _quota_state ─────────────────────────────────────────────────────────────
@@ -67,3 +76,34 @@ def test_negative_limit_is_unlimited():
 
 def test_zero_limit_blocks_everything():
     assert not _quota_allows(False, 0, 0)
+
+
+# ── _count_quota_used (race-proof authoritative count) ───────────────────────
+
+UID  = "ab" * 16
+UID2 = "cd" * 16
+
+def test_counts_only_this_users_unique_entries():
+    store = _FakeStore([f"{UID}:call1", f"{UID}:call2", f"{UID2}:call3", "unrelated"])
+    assert _count_quota_used(store, UID) == 2
+    assert _count_quota_used(store, UID2) == 1
+
+def test_empty_store_is_zero():
+    assert _count_quota_used(_FakeStore([]), UID) == 0
+
+def test_prefix_is_not_substring_matched():
+    # A different uid whose entries merely contain this uid must not count.
+    store = _FakeStore([f"x{UID}:call1", f"{UID2}:call2"])
+    assert _count_quota_used(store, UID) == 0
+
+def test_concurrent_spawns_each_add_a_distinct_credit():
+    # The whole point: N concurrent spawns write N distinct keys, so the count
+    # reflects every consumed credit rather than collapsing to one.
+    store = _FakeStore([f"{UID}:call{i}" for i in range(7)])
+    assert _count_quota_used(store, UID) == 7
+
+def test_store_failure_is_safe():
+    class _Boom:
+        def keys(self):
+            raise RuntimeError("dict unavailable")
+    assert _count_quota_used(_Boom(), UID) == 0

@@ -111,6 +111,7 @@ progress_store = modal.Dict.from_name("hebpipe-progress", create_if_missing=True
 # ---------------------------------------------------------------------------
 users_store = modal.Dict.from_name("hebpipe-users", create_if_missing=True)   # username → {uid, salt, pw, created}
 calls_store = modal.Dict.from_name("hebpipe-calls", create_if_missing=True)   # call_id  → {uid, ts}
+quota_store = modal.Dict.from_name("hebpipe-quota", create_if_missing=True)   # f"{uid}:{call_id}" → ts (one unique entry per consumed credit)
 
 import re as _auth_re
 
@@ -222,6 +223,22 @@ def _quota_state(rec: dict, admin_users: str = None, username: str = None):
 
 def _quota_allows(is_admin: bool, used: int, limit: int) -> bool:
     return is_admin or limit < 0 or used < limit
+
+
+def _count_quota_used(store, uid: str) -> int:
+    """Authoritative consumed-credit count for a uid.
+
+    Each /process spawn writes a unique `{uid}:{call_id}` key, so counting
+    them is immune to the lost-update race a single mutable `videos_used`
+    counter suffers when concurrent /process calls read-modify-write it (they
+    would all read the same value and clobber each other, yielding many videos
+    for one credit). Per-user entries are bounded by the limit, so the scan
+    stays small."""
+    prefix = f"{uid}:"
+    try:
+        return sum(1 for k in store.keys() if isinstance(k, str) and k.startswith(prefix))
+    except Exception:
+        return 0
 
 TRANSCRIPT_ANALYSIS_MODEL   = "gemini-2.5-flash"
 IMAGE_GENERATION_MODEL      = "gemini-3.1-flash-image-preview"
@@ -394,6 +411,56 @@ def _get_client_ip(scope) -> str:
         return xff.decode().split(",")[0].strip()
     client = scope.get("client")
     return client[0] if client else "unknown"
+
+
+# ── Brute-force throttle (persistent, cross-container) ──
+# _check_rate_limit above is a coarse per-container burst cap. This is the
+# real defense for password / invite-code guessing: failed attempts against a
+# key (a username, or an IP) accumulate in a Modal Dict, and once they cross a
+# threshold within a rolling window the key is locked out for the rest of that
+# window. It survives container recycling and is shared across instances, so
+# an attacker can't reset it by spreading requests over containers.
+throttle_store = modal.Dict.from_name("hebpipe-throttle", create_if_missing=True)
+THROTTLE_MAX_FAILS      = 8
+THROTTLE_WINDOW_SECONDS = 15 * 60
+
+
+def _throttle_allowed(store, key: str, now: float,
+                      max_fails: int = THROTTLE_MAX_FAILS,
+                      window: float = THROTTLE_WINDOW_SECONDS):
+    """(allowed, retry_after_seconds) for an attempt against `key`."""
+    try:
+        rec = store.get(f"t:{key}") or {}
+    except Exception:
+        return True, 0
+    first = rec.get("first", now)
+    if now - first > window:          # window elapsed → clean slate
+        return True, 0
+    if rec.get("fails", 0) >= max_fails:
+        return False, int(window - (now - first)) + 1
+    return True, 0
+
+
+def _throttle_record_fail(store, key: str, now: float,
+                          window: float = THROTTLE_WINDOW_SECONDS):
+    """Count a failed attempt, starting a fresh window if the last one aged out."""
+    try:
+        rec = store.get(f"t:{key}") or {}
+        first = rec.get("first", now)
+        fails = rec.get("fails", 0)
+        if now - first > window:
+            first, fails = now, 0
+        store[f"t:{key}"] = {"fails": fails + 1, "first": first}
+    except Exception:
+        pass
+
+
+def _throttle_clear(store, key: str):
+    """Reset the counter after a successful attempt."""
+    try:
+        store.pop(f"t:{key}")
+    except Exception:
+        pass
 
 
 def _poll_fn_call(fn_call):
