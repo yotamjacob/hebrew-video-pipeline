@@ -140,6 +140,7 @@
     'sched.approveNote': { en: ' Approve the final publish in Metricool.', he: ' אשרו את הפרסום הסופי ב-Metricool.' },
     'sched.autoNote':    { en: ' It will publish automatically at that time.', he: ' הוא יפורסם אוטומטית במועד שנקבע.' },
     'sched.notConnected': { en: "Metricool isn't connected. Tap Connect Metricool first.", he: 'Metricool לא מחובר. הקישו קודם על חיבור Metricool.' },
+    'sched.noBrand': { en: "We couldn't find a brand on your Metricool account. Add a brand in Metricool, then try again.", he: 'לא מצאנו מותג בחשבון ה-Metricool שלכם. הוסיפו מותג ב-Metricool ונסו שוב.' },
     'sched.cantSchedule': { en: "Couldn't schedule: {msg}", he: 'התזמון נכשל: {msg}' },
     'sched.fix.platform': { en: 'pick at least one platform', he: 'בחרו לפחות פלטפורמה אחת' },
     'sched.fix.caption':  { en: 'add a caption', he: 'הוסיפו כיתוב' },

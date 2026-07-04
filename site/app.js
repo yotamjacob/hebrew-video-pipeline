@@ -3520,7 +3520,9 @@
         if (poll.status === 202) { await new Promise(r => setTimeout(r, 2500)); continue; }
         throw new Error(`Server error ${poll.status}`);
       }
-      if (result.error) throw new Error(result.error);
+      if (result.error) {
+        throw new Error(result.error === 'no_brand' ? t('sched.noBrand') : result.error);
+      }
 
       const plannerUrl = result.post && result.post.plannerUrl;
       statusEl.className = 'sched-status ok';

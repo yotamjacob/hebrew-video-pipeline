@@ -254,7 +254,9 @@ def api():
             challenge = base64.urlsafe_b64encode(
                 hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
             state = secrets.token_urlsafe(24)
-            oauth_store[f"pkce:{state}"] = verifier
+            # Bind the flow to the initiating user — the callback is public
+            # (no session), so the uid must travel with the state.
+            oauth_store[f"pkce:{state}"] = {"verifier": verifier, "uid": uid}
             q = _up.urlencode({
                 "response_type": "code", "client_id": MC_CLIENT_ID,
                 "redirect_uri": MC_REDIRECT, "scope": MC_SCOPE, "state": state,
@@ -273,7 +275,14 @@ def api():
             qs = parse_qs(scope.get("query_string", b"").decode())
             code = qs.get("code", [""])[0]
             state = qs.get("state", [""])[0]
-            verifier = oauth_store.get(f"pkce:{state}") if state else None
+            pkce = oauth_store.get(f"pkce:{state}") if state else None
+            # Backward-compat: older entries stored the bare verifier string.
+            if isinstance(pkce, str):
+                verifier, flow_uid = pkce, None
+            elif isinstance(pkce, dict):
+                verifier, flow_uid = pkce.get("verifier"), pkce.get("uid")
+            else:
+                verifier, flow_uid = None, None
 
             def _html(msg, ok=True):
                 color = "#059669" if ok else "#DC2626"
@@ -285,7 +294,7 @@ def api():
                         f"<h2 style='color:{color};margin:12px 0 6px'>{'Metricool connected' if ok else 'Connection failed'}</h2>"
                         f"<p style='color:#6B7080;font-size:14px'>{msg}</p></div></body>").encode()
 
-            if not code or not verifier:
+            if not code or not verifier or not flow_uid:
                 await send({"type": "http.response.start", "status": 400,
                             "headers": [(b"content-type", b"text/html; charset=utf-8")]})
                 await send({"type": "http.response.body", "body": _html("Missing or expired authorization. Please try connecting again.", ok=False)})
@@ -301,8 +310,8 @@ def api():
                 tr = json.loads(await asyncio.to_thread(lambda: urllib.request.urlopen(req, timeout=30).read()))
                 if not tr.get("refresh_token"):
                     raise RuntimeError("no refresh_token in response")
-                oauth_store["tokens"] = {"refresh_token": tr["refresh_token"],
-                                         "access_token": tr.get("access_token")}
+                oauth_store[f"tokens:{flow_uid}"] = {"refresh_token": tr["refresh_token"],
+                                                     "access_token": tr.get("access_token")}
                 try:
                     del oauth_store[f"pkce:{state}"]
                 except KeyError:
@@ -317,7 +326,7 @@ def api():
 
         # ── Metricool connection status ──
         if path in ("/oauth/status", "/oauth/status/") and method == "GET":
-            connected = bool(oauth_store.get("tokens"))
+            connected = bool(oauth_store.get(f"tokens:{uid}"))
             body = json.dumps({"connected": connected}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
@@ -329,7 +338,7 @@ def api():
             if not _check_rate_limit(_get_client_ip(scope)):
                 await send_error("Rate limit exceeded. Try again in a minute.", 429)
                 return
-            if not oauth_store.get("tokens"):
+            if not oauth_store.get(f"tokens:{uid}"):
                 await send_error("not_connected", 400)
                 return
             body = await _read_body(receive)
@@ -340,7 +349,7 @@ def api():
                     if _v and not _owned_key(_v, uid):
                         await send_error("Forbidden", 403)
                         return
-                call = schedule_post_fn.spawn(json.dumps(data))
+                call = schedule_post_fn.spawn(json.dumps(data), uid)
                 _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
