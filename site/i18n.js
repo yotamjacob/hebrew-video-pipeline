@@ -277,6 +277,8 @@
     'run.pipelinePlain': { en: '▶  Run Pipeline', he: '▶  הפעלת העיבוד' },
     'run.burnPlain':     { en: '▶  Burn & Download', he: '▶  צריבה והורדה' },
     'run.burnBrolls':    { en: '▶  Burn & Download  (+{n} B-roll{s})', he: '▶  צריבה והורדה  (+{n} בי-רול)' },
+    'run.reburnPlain':   { en: '🔁  Re-burn & Download', he: '🔁  צריבה מחדש והורדה' },
+    'run.reburnBrolls':  { en: '🔁  Re-burn & Download  (+{n} B-roll{s})', he: '🔁  צריבה מחדש והורדה  (+{n} בי-רול)' },
     'run.burning':       { en: '⏳ Burning…', he: '⏳ צורב…' },
     'run.downloading':   { en: '⏳ Downloading…', he: '⏳ מוריד…' },
     'prog.enhanceVideo': { en: 'Enhance video', he: 'שיפור וידאו' },

@@ -409,6 +409,7 @@
   let captionMarginPct = 0.08;
   let captionFontSize  = 48;
   let burnMode        = false;
+  let hasBurnedOnce   = false;   // flips the burn button to "Re-burn & Download" after the first burn
   let currentUploadKey = null;
   let pendingAnalyses        = 0;
   let stockBrollAnalyzed     = false;
@@ -593,6 +594,10 @@
 
   function lockPipelineActions({ activeBtn = null, activeCard = null } = {}) {
     if (++_actionLockDepth > 1) return;
+    // Switching language mid-flow re-renders state-driven labels and can corrupt
+    // an in-flight process/burn/download — lock the toggle for the duration.
+    const _lt = document.getElementById('langToggle');
+    if (_lt) _lt.disabled = true;
     LOCK_BTN_IDS.forEach(id => {
       if (id === activeBtn) return;               // the active flow manages its own button
       const el = document.getElementById(id);
@@ -608,6 +613,8 @@
 
   function unlockPipelineActions() {
     if (_actionLockDepth === 0 || --_actionLockDepth > 0) return;
+    const _lt = document.getElementById('langToggle');
+    if (_lt) _lt.disabled = false;
     LOCK_BTN_IDS.forEach(id => {
       const el = document.getElementById(id);
       if (el && _actionLockSaved.has(id)) el.disabled = _actionLockSaved.get(id);
@@ -910,6 +917,7 @@
 
     // Hide editor cards and reset to pre-caption state
     burnMode = false;
+    hasBurnedOnce = false;
     captionsData = [];
     videoKey = null;
     resultBlob = null;
@@ -1454,6 +1462,7 @@
     stockBrollAnalyzed    = false;
     lastAnalyzedSignature = '';
     burnMode = false;
+    hasBurnedOnce = false;
     currentUploadKey = null;
     document.getElementById('reprocessBtn').style.display = 'none';
     setSetupLocked(false);
@@ -1777,9 +1786,16 @@
   function updateBurnBtn() {
     if (!burnMode) return;
     const n = selectedBrolls.length + Object.keys(stockBrollSelections).length;
-    runBtn.textContent = n > 0
-      ? t('run.burnBrolls', {n: n, s: n > 1 ? 's' : ''})
-      : t('run.burnPlain');
+    // Once the video has been burned + downloaded once, subsequent burns are re-burns.
+    if (hasBurnedOnce) {
+      runBtn.textContent = n > 0
+        ? t('run.reburnBrolls', {n: n, s: n > 1 ? 's' : ''})
+        : t('run.reburnPlain');
+    } else {
+      runBtn.textContent = n > 0
+        ? t('run.burnBrolls', {n: n, s: n > 1 ? 's' : ''})
+        : t('run.burnPlain');
+    }
   }
   function validateCaptionTimes() {
     if (!burnMode) return;
@@ -2145,9 +2161,9 @@
       el.innerHTML = '<p style="font-size:0.82rem;color:var(--muted);text-align:center">' + t('tpl.none') + '</p>';
       return;
     }
-    el.innerHTML = list.map((t, i) => `
+    el.innerHTML = list.map((tpl, i) => `
       <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--purple-100);border-radius:10px;background:var(--purple-50)">
-        <span style="flex:1;font-size:0.85rem;font-weight:600;color:var(--purple-800);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.name}</span>
+        <span style="flex:1;font-size:0.85rem;font-weight:600;color:var(--purple-800);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${tpl.name}</span>
         <button data-tidx="${i}" class="hook-tpl-apply"
           style="padding:4px 10px;border-radius:7px;border:none;background:var(--purple-600);color:#fff;font-size:0.78rem;font-weight:700;cursor:pointer;flex-shrink:0">
           ${t('tpl.apply')}
@@ -3184,6 +3200,7 @@
       }
       // Burn + initial download finished - now the success banner (with
       // Download again) is truthful and usable.
+      hasBurnedOnce = true;   // subsequent burns are re-burns
       document.getElementById('burnSuccessBanner').style.display = 'flex';
       // Re-enable editors for another round of changes on the same video
       editorIds.forEach(id => document.getElementById(id).classList.remove('burning'));

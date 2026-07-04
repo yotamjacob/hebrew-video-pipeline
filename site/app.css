@@ -1340,8 +1340,9 @@
   backdrop-filter: blur(6px);
   transition: background 0.15s, transform 0.15s;
 }
-.lang-toggle:hover { background: rgba(255, 255, 255, 0.26); }
-.lang-toggle:active { transform: scale(0.95); }
+.lang-toggle:hover:not(:disabled) { background: rgba(255, 255, 255, 0.26); }
+.lang-toggle:active:not(:disabled) { transform: scale(0.95); }
+.lang-toggle:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ── RTL (Hebrew) mirroring ── */
 [dir="rtl"] .toggle-thumb { left: auto; right: 3px; }
