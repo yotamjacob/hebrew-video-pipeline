@@ -320,7 +320,7 @@
     .action-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
     .link-btn {
-      display: block; width: 100%; margin-top: 8px; padding: 6px;
+      display: block; width: 100%; margin-top: 6px; padding: 11px 6px; min-height: 40px;
       background: none; border: none; color: var(--purple-500);
       font-size: 0.82rem; font-weight: 600; cursor: pointer; font-family: inherit;
       text-decoration: underline; text-underline-offset: 2px;

@@ -8,18 +8,21 @@ from tests.backend.conftest import MODAL_SRC, _extract_fn, _build_ns
 
 _ns = _build_ns()
 _ns["DEFAULT_VIDEO_LIMIT"] = 5
-_quota = _extract_fn(MODAL_SRC, "_quota_state", "_quota_allows", "_count_quota_used", extra_ns=_ns)
+_quota = _extract_fn(MODAL_SRC, "_quota_state", "_quota_allows", "_count_quota_used", "_usage_since", extra_ns=_ns)
 _quota_state      = _quota["_quota_state"]
 _quota_allows     = _quota["_quota_allows"]
 _count_quota_used = _quota["_count_quota_used"]
+_usage_since      = _quota["_usage_since"]
 
 
 class _FakeStore:
-    """Minimal stand-in for a modal.Dict — only .keys() is exercised."""
-    def __init__(self, keys):
-        self._keys = list(keys)
+    """Stand-in for a modal.Dict — supports .keys() and .get()."""
+    def __init__(self, keys=None, mapping=None):
+        self._map = dict(mapping) if mapping else {k: 0 for k in (keys or [])}
     def keys(self):
-        return list(self._keys)
+        return list(self._map.keys())
+    def get(self, k, default=None):
+        return self._map.get(k, default)
 
 
 # ── _quota_state ─────────────────────────────────────────────────────────────
@@ -107,3 +110,23 @@ def test_store_failure_is_safe():
         def keys(self):
             raise RuntimeError("dict unavailable")
     assert _count_quota_used(_Boom(), UID) == 0
+
+
+# ── _usage_since (daily digest) ──────────────────────────────────────────────
+
+def test_usage_since_counts_recent_only():
+    store = _FakeStore(mapping={
+        f"{UID}:c1": 1000, f"{UID}:c2": 2000,
+        f"{UID2}:c3": 2000, f"{UID2}:c4": 500,   # 500 is stale
+    })
+    count, users = _usage_since(store, since_ts=1000)
+    assert count == 3          # c1, c2, c3 (c4 too old)
+    assert users == 2          # UID and UID2
+
+def test_usage_since_empty():
+    assert _usage_since(_FakeStore(mapping={}), since_ts=0) == (0, 0)
+
+def test_usage_since_ignores_malformed_keys():
+    store = _FakeStore(mapping={"nocolon": 9999, f"{UID}:c1": 9999})
+    count, users = _usage_since(store, since_ts=0)
+    assert (count, users) == (1, 1)

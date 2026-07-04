@@ -3,14 +3,45 @@ Core video pipeline Modal functions: process_video (GPU transcribe/cut),
 burn_captions_fn and burn_hook_fn (ffmpeg + libass burn workers).
 """
 
+import modal
+
 from pipeline_core import (
-    app, burn_image, model_volume, MODEL_DIR,
+    app, burn_image, light_image, model_volume, MODEL_DIR,
     WHISPER_MODEL, tmp_vol, TMP_DIR, _fix_rtl_punct,
     _rtl_ass_text, _censor_caption_text, _SAFE_KEY_RE,
     _BROLL_KEY_RE, _is_allowed_broll_url,
     jobs_store, JOB_RETENTION_DAYS, SCRATCH_RETENTION_HOURS,
     progress_store, calls_store, CALL_RETENTION_SECONDS, _UID_PREFIX_RE,
+    quota_store, _usage_since, _send_email, _email_html,
 )
+
+
+# ---------------------------------------------------------------------------
+# Daily GPU-spend digest — a cost guardrail. Counts credits consumed in the
+# last 24h and emails the admin, flagging days over USAGE_ALERT_THRESHOLD.
+# Video count is a good proxy for GPU spend (each /process is the expensive
+# stage). Best-effort: no ADMIN_EMAIL/RESEND_API_KEY just logs.
+# ---------------------------------------------------------------------------
+@app.function(image=light_image, schedule=modal.Period(days=1))
+def daily_usage_report() -> dict:
+    import os, time
+    since = time.time() - 24 * 3600
+    count, users = _usage_since(quota_store, since)
+    threshold = int(os.environ.get("USAGE_ALERT_THRESHOLD", "50") or "50")
+    admin_email = os.environ.get("ADMIN_EMAIL")
+    over = count > threshold
+    print(f"[usage] 24h: {count} videos, {users} users (threshold {threshold})")
+    if admin_email:
+        site = os.environ.get("SITE_URL", "https://site-theta-six-76.vercel.app")
+        flag = " - OVER THRESHOLD" if over else ""
+        _send_email(admin_email, f"Pipeline usage: {count} videos in 24h{flag}",
+                    _email_html("Daily usage digest",
+                                f"{count} videos processed by {users} user(s) in the last 24 hours "
+                                f"(alert threshold: {threshold}).",
+                                "Open the app", site))
+    else:
+        print("[usage] ADMIN_EMAIL not set — digest logged only")
+    return {"count": count, "users": users, "over_threshold": over}
 
 # ---------------------------------------------------------------------------
 # Shared pure helpers

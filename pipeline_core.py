@@ -317,6 +317,23 @@ def _count_quota_used(store, uid: str) -> int:
     except Exception:
         return 0
 
+
+def _usage_since(quota_store, since_ts: float):
+    """(video_count, distinct_user_count) for credits consumed since since_ts.
+    Backs the daily GPU-spend digest. Each quota key is `{uid}:{call_id}` → ts."""
+    n, uids = 0, set()
+    try:
+        for k in quota_store.keys():
+            if not isinstance(k, str) or ":" not in k:
+                continue
+            ts = quota_store.get(k)
+            if isinstance(ts, (int, float)) and ts >= since_ts:
+                n += 1
+                uids.add(k.split(":", 1)[0])
+    except Exception:
+        pass
+    return n, len(uids)
+
 TRANSCRIPT_ANALYSIS_MODEL   = "gemini-2.5-flash"
 IMAGE_GENERATION_MODEL      = "gemini-3.1-flash-image-preview"
 VIDEO_GENERATION_MODEL      = "veo-3.0-generate-001"
