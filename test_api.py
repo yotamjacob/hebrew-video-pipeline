@@ -1,126 +1,138 @@
 #!/usr/bin/env python3
 """
-End-to-end API test (async polling pattern):
-  1. Health check
-  2. POST /process  → 202 with call_id
-     GET  /process_poll/{id} until 200 → binary (captions JSON + cut video)
-  3. POST /burn     → 202 with call_id
-     GET  /burn_poll/{id}    until 200 → final video with captions
+End-to-end API test against the LIVE production API (auth + chunked upload +
+video_key burn). Costs real GPU time and consumes ONE video quota credit — run
+only when you mean to.
+
+Auth (pick one, via env):
+  HEBPIPE_TOKEN=...                         # a session token, or
+  HEBPIPE_USER=... HEBPIPE_PASS=...         # logs in, or
+  HEBPIPE_USER/PASS + HEBPIPE_INVITE + HEBPIPE_EMAIL   # registers first
+
+Optional:
+  HEBPIPE_VIDEO=input_vids/original.mp4     # test clip (default shown)
+  API_BASE=https://...modal.run             # override target
+
+  python test_api.py
 """
 import json
-import struct
+import os
 import sys
 import time
+import uuid
 from pathlib import Path
 
 import requests
 
-API_BASE = "https://yotamjacob--hebrew-video-pipeline-api.modal.run"
-VIDEO = Path("input_vids/WhatsApp Video 2026-04-22 at 11.11.43.mp4")
+API_BASE = os.environ.get("API_BASE", "https://yotamjacob--hebrew-video-pipeline-api.modal.run")
+VIDEO = Path(os.environ.get("HEBPIPE_VIDEO", "input_vids/original.mp4"))
+CHUNK = 5 * 1024 * 1024
 
 PASS = "\033[32m✓\033[0m"
 FAIL = "\033[31m✗\033[0m"
 
+
 def check(label, cond, detail=""):
-    if cond:
-        print(f"  {PASS}  {label}")
-    else:
-        print(f"  {FAIL}  {label}" + (f" — {detail}" if detail else ""))
+    print(f"  {PASS if cond else FAIL}  {label}" + (f" — {detail}" if (detail and not cond) else ""))
+    if not cond:
         sys.exit(1)
 
-def poll(url, poll_interval=5, timeout=900):
-    """Poll url every poll_interval seconds until 200. Returns response."""
+
+def get_token():
+    tok = os.environ.get("HEBPIPE_TOKEN")
+    if tok:
+        return tok
+    user, pw = os.environ.get("HEBPIPE_USER"), os.environ.get("HEBPIPE_PASS")
+    if not (user and pw):
+        print("No credentials. Set HEBPIPE_TOKEN, or HEBPIPE_USER + HEBPIPE_PASS "
+              "(+ HEBPIPE_INVITE + HEBPIPE_EMAIL to register).")
+        sys.exit(2)
+    invite, email = os.environ.get("HEBPIPE_INVITE"), os.environ.get("HEBPIPE_EMAIL")
+    if invite and email:
+        r = requests.post(f"{API_BASE}/auth/register", timeout=30,
+                          json={"username": user, "password": pw, "invite": invite, "email": email})
+        if r.status_code == 200:
+            return r.json()["token"]
+        # 409 = already exists → fall through to login
+        if r.status_code != 409:
+            check("register", False, f"{r.status_code}: {r.text[:200]}")
+    r = requests.post(f"{API_BASE}/auth/login", timeout=30, json={"username": user, "password": pw})
+    check("login", r.status_code == 200, f"{r.status_code}: {r.text[:200]}")
+    return r.json()["token"]
+
+
+def poll(url, hdrs, poll_interval=5, timeout=1200):
     deadline = time.time() + timeout
     while time.time() < deadline:
-        r = requests.get(url, timeout=60)
+        r = requests.get(url, headers=hdrs, timeout=60)
         if r.status_code == 200:
             return r
         if r.status_code == 202:
             time.sleep(poll_interval)
             continue
-        check(f"poll status", False, f"got {r.status_code}: {r.text[:200]}")
+        check("poll status", False, f"got {r.status_code}: {r.text[:200]}")
     check("poll timeout", False, f"still running after {timeout}s")
 
-# ── 1. Health check ──────────────────────────────────────────────────────────
-print("\n[1/3] Health check")
+
+# ── 0. Auth ───────────────────────────────────────────────────────────────────
+print("\n[0/4] Auth")
+token = get_token()
+H = {"Authorization": f"Bearer {token}"}
+check("got a session token", bool(token))
+check(f"test video exists ({VIDEO})", VIDEO.exists(), str(VIDEO))
+
+# ── 1. Health check ────────────────────────────────────────────────────────────
+print("\n[1/4] Health check")
 r = requests.get(f"{API_BASE}/", timeout=60)
-check("status 200",          r.status_code == 200)
+check("status 200", r.status_code == 200)
 check('body {"status":"ok"}', r.json().get("status") == "ok")
 
-# ── 2. /process ─────────────────────────────────────────────────────────────
-print(f"\n[2/3] /process  (uploading {VIDEO.stat().st_size // 1024 // 1024} MB, please wait…)")
-video_bytes = VIDEO.read_bytes()
+# ── 2. Chunked upload ──────────────────────────────────────────────────────────
+data = VIDEO.read_bytes()
+key = uuid.uuid4().hex
+n_chunks = (len(data) + CHUNK - 1) // CHUNK
+print(f"\n[2/4] Upload  ({len(data)//1024//1024} MB in {n_chunks} chunks)")
+for i in range(n_chunks):
+    part = data[i * CHUNK:(i + 1) * CHUNK]
+    r = requests.post(f"{API_BASE}/upload_chunk/?key={key}&index={i}", headers=H,
+                      data=part, timeout=120)
+    check(f"chunk {i + 1}/{n_chunks}", r.status_code == 200, f"{r.status_code}: {r.text[:120]}")
 
+# ── 3. /process ─────────────────────────────────────────────────────────────────
+print("\n[3/4] /process")
 t0 = time.time()
-r = requests.post(
-    f"{API_BASE}/process/",
-    params=dict(
-        filename=VIDEO.name,
-        cut_silences="true",
-        burn_captions="true",
-        enhance_audio="true",
-        min_silence="0.5",
-        padding="0.2",
-    ),
-    data=video_bytes,
-    headers={"Content-Type": "application/octet-stream"},
-    timeout=60,
-)
-check(f"spawn status 202", r.status_code == 202, f"got {r.status_code}: {r.text[:200]}")
+r = requests.post(f"{API_BASE}/process/", headers=H, timeout=60, params=dict(
+    key=key, filename=VIDEO.name, cut_silences="true", burn_captions="true",
+    enhance_audio="false", min_silence="0.5", padding="0.2"))
+check("spawn 202", r.status_code == 202, f"{r.status_code}: {r.text[:200]}")
 call_id = r.json().get("call_id", "")
-check("call_id present", bool(call_id), f"response: {r.text}")
+check("call_id present", bool(call_id))
+print(f"  polling {call_id}…")
+pr = poll(f"{API_BASE}/process_poll/{call_id}/?key={key}", H, timeout=1200)
+res = pr.json()
+captions = res.get("captions", [])
+video_key = res.get("video_key", "")
+check(f"process done ({time.time()-t0:.0f}s)", True)
+check(f"captions returned ({len(captions)} cues)", isinstance(captions, list) and len(captions) > 0)
+check("video_key returned", bool(video_key), json.dumps(res)[:200])
 
-print(f"  Job spawned: {call_id}  — polling…")
-poll_url = f"{API_BASE}/process_poll/{call_id}/?filename={requests.utils.quote(VIDEO.name)}"
-pr = poll(poll_url, poll_interval=5, timeout=1200)
-elapsed = time.time() - t0
-check(f"process done (took {elapsed:.0f}s)", pr.status_code == 200)
-
-body = pr.content
-check(f"response not empty ({len(body):,} bytes)", len(body) > 8)
-
-json_len = struct.unpack("<I", body[:4])[0]
-check(f"json_len plausible ({json_len} bytes)", 0 < json_len < len(body) - 4)
-
-captions_json = body[4:4 + json_len].decode("utf-8")
-captions = json.loads(captions_json)
-check(f"captions valid JSON list ({len(captions)} cues)", isinstance(captions, list) and len(captions) > 0)
-
-cut_video = body[4 + json_len:]
-check(f"cut video non-empty ({len(cut_video):,} bytes)", len(cut_video) > 1000)
-check("cut video looks like MP4", cut_video[4:8] == b"ftyp", f"got {cut_video[4:8]!r}")
-print(f"  Sample captions: {captions[:2]}")
-
-# ── 3. /burn ─────────────────────────────────────────────────────────────────
-print(f"\n[3/3] /burn  (sending {len(cut_video):,} bytes + {len(captions)} captions…)")
-
-captions_bytes = captions_json.encode("utf-8")
-packed = struct.pack("<I", len(captions_bytes)) + captions_bytes + cut_video
-
+# ── 4. /burn ─────────────────────────────────────────────────────────────────────
+print("\n[4/4] /burn")
 t0 = time.time()
-r = requests.post(
-    f"{API_BASE}/burn/",
-    params=dict(filename=VIDEO.name),
-    data=packed,
-    headers={"Content-Type": "application/octet-stream"},
-    timeout=60,
-)
-check(f"burn spawn status 202", r.status_code == 202, f"got {r.status_code}: {r.text[:200]}")
+r = requests.post(f"{API_BASE}/burn/", headers={**H, "Content-Type": "application/json"},
+                  params=dict(video_key=video_key, filename=VIDEO.name),
+                  data=json.dumps(captions), timeout=60)
+check("burn spawn 202", r.status_code == 202, f"{r.status_code}: {r.text[:200]}")
 burn_id = r.json().get("call_id", "")
 check("burn call_id present", bool(burn_id))
-
-print(f"  Burn job spawned: {burn_id}  — polling…")
-burn_poll_url = f"{API_BASE}/burn_poll/{burn_id}/?filename={requests.utils.quote(VIDEO.name)}"
-br = poll(burn_poll_url, poll_interval=5, timeout=600)
-elapsed = time.time() - t0
-check(f"burn done (took {elapsed:.0f}s)", br.status_code == 200)
-
+print(f"  polling {burn_id}…")
+br = poll(f"{API_BASE}/burn_poll/{burn_id}/", H, timeout=600)
 final = br.content
+check(f"burn done ({time.time()-t0:.0f}s)", br.status_code == 200)
 check(f"final video non-empty ({len(final):,} bytes)", len(final) > 1000)
-check("final video looks like MP4", final[4:8] == b"ftyp", f"got {final[4:8]!r}")
-
+check("final looks like MP4", final[4:8] == b"ftyp", f"got {final[4:8]!r}")
 out = Path("test_output_edited.mp4")
 out.write_bytes(final)
 check(f"saved to {out}", out.exists())
 
-print("\n\033[32mAll tests passed.\033[0m\n")
+print("\n\033[32mAll e2e tests passed.\033[0m\n")
