@@ -29,6 +29,8 @@
     'auth.working':    { en: '⏳ Working…', he: '⏳ רגע…' },
     'auth.failed':     { en: 'Something went wrong. Try again.', he: 'משהו השתבש. נסו שוב.' },
     'auth.email':      { en: 'Email', he: 'אימייל' },
+    'auth.showPw':     { en: 'Show password', he: 'הצג סיסמה' },
+    'auth.hidePw':     { en: 'Hide password', he: 'הסתר סיסמה' },
     'auth.forgot':     { en: 'Forgot your password?', he: 'שכחתם סיסמה?' },
     'auth.identifier': { en: 'Username or email', he: 'שם משתמש או אימייל' },
     'auth.sendReset':  { en: 'Send reset link', he: 'שליחת קישור לאיפוס' },

@@ -327,6 +327,18 @@
     }
     .link-btn:hover { color: var(--purple-700); }
 
+    /* Show/hide password toggle */
+    .pw-wrap { position: relative; }
+    .pw-wrap .sched-input { padding-inline-end: 42px; }
+    .pw-toggle {
+      position: absolute; inset-inline-end: 6px; top: 50%; transform: translateY(-50%);
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none; cursor: pointer; padding: 6px;
+      color: var(--purple-400); border-radius: 8px; line-height: 0;
+    }
+    .pw-toggle:hover { color: var(--purple-700); background: var(--purple-50); }
+    .pw-toggle svg { display: block; }
+
     /* ── Email verification nudge ── */
     .verify-banner {
       display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
