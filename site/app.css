@@ -160,6 +160,11 @@
     .upload-sub { font-size: 0.85rem; color: var(--muted); }
     .upload-link { color: var(--purple-600); text-decoration: underline; }
     .upload-hint { margin-top: 10px; font-size: 0.75rem; color: var(--purple-400); }
+    .upload-note {
+      margin-top: 12px; padding: 9px 12px; font-size: 0.8rem; line-height: 1.45;
+      color: var(--purple-700); background: var(--purple-50); border: 1px solid var(--purple-100);
+      border-radius: 10px; text-align: center;
+    }
 
     /* ── File info strip ── */
     .file-info {

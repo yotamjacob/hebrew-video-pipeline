@@ -2440,59 +2440,11 @@
     const list = document.getElementById('stockBrollList');
     list.innerHTML = '';
 
-    // 2-pass summary row + global debug toggle
-    const nEmphasis = moments.filter(m => m.moment_type !== 'coverage').length;
-    const nCoverage = moments.filter(m => m.moment_type === 'coverage').length;
     if (moments.length > 0) {
-      const summaryRow = document.createElement('div');
-      summaryRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px';
-
       const summary = document.createElement('div');
       summary.className = 'broll-summary';
-      summary.style.margin = '0';
-      const parts = [t('stock.momentsFound', {n: moments.length, s: moments.length !== 1 ? 's' : ''})];
-      if (nEmphasis > 0) parts.push(t('stock.emphasis', {n: nEmphasis}));
-      if (nCoverage > 0) parts.push(t('stock.coverage', {n: nCoverage}));
-      summary.textContent = parts.join(' · ');
-
-      const debugBtn = document.createElement('button');
-      debugBtn.className = 'debug-toggle-btn';
-      const debugOn = localStorage.getItem('brollDebugMode') === 'on';
-      debugBtn.textContent = debugOn ? '⚙ Debug on' : '⚙ Debug';
-      if (debugOn) debugBtn.classList.add('active');
-      debugBtn.addEventListener('click', () => {
-        const wrapper = list.querySelector('.broll-moments-wrapper');
-        if (!wrapper) return;
-        const isOn = wrapper.classList.toggle('debug-mode');
-        localStorage.setItem('brollDebugMode', isOn ? 'on' : 'off');
-        debugBtn.textContent = isOn ? '⚙ Debug on' : '⚙ Debug';
-        debugBtn.classList.toggle('active', isOn);
-      });
-
-      summaryRow.appendChild(summary);
-      summaryRow.appendChild(debugBtn);
-      list.appendChild(summaryRow);
-
-      // Video context debug panel - visible only when debug toggle is on
-      if (videoCtx && Object.keys(videoCtx).length > 0) {
-        const ctxDiv = document.createElement('div');
-        ctxDiv.className = 'moment-debug';
-        ctxDiv.style.cssText = 'margin-bottom:10px;padding:8px 10px;background:var(--purple-50,#f5f3ff);border-radius:6px;border:1px solid var(--purple-200,#ddd6fe)';
-        const rows = [
-          ['Genre', videoCtx.video_genre],
-          ['Register', videoCtx.speaker_emotional_register],
-          ['Setting', videoCtx.setting_description],
-          ['Topic', videoCtx.topic_summary],
-          ['B-roll style', videoCtx.broll_style_recommendation],
-          ['Cultural notes', videoCtx.cultural_context_notes],
-          ['Sensitive topics', (videoCtx.sensitive_topics || []).join('; ') || 'none'],
-        ];
-        ctxDiv.innerHTML = '<strong style="font-size:0.71rem;color:var(--purple-700,#6d28d9)">VIDEO CONTEXT</strong>' +
-          rows.filter(([, v]) => v).map(([k, v]) =>
-            `<div style="margin-top:3px"><span style="color:var(--muted);font-size:0.68rem">${k}:</span> <span style="font-size:0.71rem">${v}</span></div>`
-          ).join('');
-        list.appendChild(ctxDiv);
-      }
+      summary.textContent = t('stock.momentsFound', {n: moments.length, s: moments.length !== 1 ? 's' : ''});
+      list.appendChild(summary);
     }
 
     const wrapper = document.createElement('div');
@@ -2500,7 +2452,6 @@
     if (moments.length > 6) {
       wrapper.style.cssText = 'max-height:520px;overflow-y:auto;padding-right:4px';
     }
-    if (localStorage.getItem('brollDebugMode') === 'on') wrapper.classList.add('debug-mode');
     list.appendChild(wrapper);
 
     moments.forEach((m, momentIdx) => {
@@ -2559,35 +2510,6 @@
       });
 
       header.appendChild(badge);
-      if (m.broll_duration_seconds) {
-        const durBadge = document.createElement('span');
-        durBadge.className = 'moment-dur-badge';
-        durBadge.textContent = m.broll_duration_seconds.toFixed(1) + 's';
-        header.appendChild(durBadge);
-      }
-      // Type badge: coverage gets "rhythm" label; other non-concrete types show their type
-      if (isCoverage) {
-        const rhythmBadge = document.createElement('span');
-        rhythmBadge.className = 'moment-badge-rhythm';
-        rhythmBadge.title = t('stock.rhythmTitle');
-        rhythmBadge.textContent = t('stock.rhythm');
-        header.appendChild(rhythmBadge);
-      } else if (m.moment_type && m.moment_type !== 'concrete') {
-        const typeBadge = document.createElement('span');
-        typeBadge.className = 'moment-confidence-badge';
-        typeBadge.style.cssText = m.moment_type === 'emotional'
-          ? 'background:#fce7f3;color:#9d174d;border-color:#f9a8d4'
-          : 'background:#ede9fe;color:#6d28d9;border-color:#c4b5fd';
-        typeBadge.textContent = m.moment_type;
-        header.appendChild(typeBadge);
-      }
-      if (m.confidence) {
-        const confBadge = document.createElement('span');
-        confBadge.className = `moment-confidence-badge confidence-${m.confidence}`;
-        confBadge.title = m.intensity_score != null ? t('stock.intensity', {n: m.intensity_score}) : '';
-        confBadge.textContent = m.confidence;
-        header.appendChild(confBadge);
-      }
       header.appendChild(label);
       header.appendChild(dismissBtn);
       card.appendChild(header);
@@ -2604,14 +2526,6 @@
         card.appendChild(excerpt);
       }
 
-      // Reasoning (Hebrew)
-      if (m.reasoning) {
-        const reasoning = document.createElement('div');
-        reasoning.className = 'moment-reasoning';
-        reasoning.textContent = m.reasoning;
-        card.appendChild(reasoning);
-      }
-
       // Clips row
       const clipsContainer = document.createElement('div');
       renderClips(clipsContainer, m.clips || [], m.broad_search_prompt || m.search_query, momentCtx);
@@ -2623,52 +2537,6 @@
         clipsContainer.appendChild(wm);
       }
       card.appendChild(clipsContainer);
-
-      // Debug panel - shown only when global debug toggle is active
-      const dbg = document.createElement('div');
-      dbg.className = 'moment-debug';
-      const body = document.createElement('div');
-      body.className = 'moment-debug-body';
-      const markersStr = (m.intensity_markers && m.intensity_markers.length)
-        ? m.intensity_markers.join(', ')
-        : null;
-      const passLabel = isCoverage
-        ? 'Pass 2 - coverage (rhythm)'
-        : `Pass 1 - emphasis (${m.moment_type || 'concrete'})`;
-      // Per-variant retrieval stats
-      const variantStatsStr = (() => {
-        const stats = m._variant_stats;
-        if (!stats || !stats.length) return null;
-        return stats.map(s => `'${s.variant}': ${s.count} clips`).join('\n');
-      })();
-      // Winner variant
-      const winnerClip = m.clips && m.clips[0];
-      const winnerVariant = winnerClip && winnerClip._source_variant
-        ? `'${winnerClip._source_variant}' (score ${winnerClip.score ?? '?'})` : null;
-      const rows = [
-        ['Pass', passLabel],
-        ['Type', m.moment_type ? `${m.moment_type} · intensity ${m.intensity_score ?? '?'}/10` : null],
-        ['Intensity markers', markersStr],
-        ['Key insight', m.key_insight],
-        ['Visual anchor', m.visual_anchor],
-        ['Search variants', m.search_variants && m.search_variants.length
-          ? m.search_variants.map((v, i) => `${i+1}. ${v}`).join('\n') : null],
-        ['Variant retrieval', variantStatsStr],
-        ['Winning variant', winnerVariant],
-        ['Scoring target (strict)', m.strict_eval_prompt],
-        ['Duration reasoning', m.duration_reasoning],
-      ];
-      rows.forEach(([label, value]) => {
-        if (!value) return;
-        const row = document.createElement('div');
-        row.className = 'moment-debug-row';
-        row.innerHTML = `<strong>${label}:</strong>${value}`;
-        body.appendChild(row);
-      });
-      if (body.childElementCount > 0) {
-        dbg.appendChild(body);
-        card.appendChild(dbg);
-      }
 
       // Find different clips button
       let clipPage = 2;
@@ -2732,37 +2600,8 @@
       srcBadge.textContent = clip.source === 'pixabay' ? 'Pixabay' : 'Pexels';
       thumbDiv.appendChild(srcBadge);
 
-      if (clip.score !== undefined) {
-        const level = clip.score >= 8 ? 'high' : clip.score >= 5 ? 'mid' : 'low';
-        const scoreBadge = document.createElement('span');
-        scoreBadge.className = 'clip-score-badge ' + level;
-        scoreBadge.textContent = clip.score + '/10';
-        const tooltipParts = [];
-        if (clip.frames_observed)    tooltipParts.push('Frames: ' + clip.frames_observed);
-        if (clip.score_reason)       tooltipParts.push('Reason: ' + clip.score_reason);
-        if (clip.step1_disqualified) tooltipParts.push('⚠ STEP 1 disqualified');
-        if (clip.frame_sample_failed) tooltipParts.push('(thumbnail fallback - frame sampling failed)');
-        if (clip.title)              tooltipParts.push('Title: ' + clip.title);
-        if (clip.tags && clip.tags.length) tooltipParts.push('Tags: ' + clip.tags.slice(0, 5).join(', '));
-        if (tooltipParts.length) scoreBadge.title = tooltipParts.join('\n');
-        thumbDiv.appendChild(scoreBadge);
-      }
-
       const meta = document.createElement('div');
       meta.className = 'clip-meta';
-
-      if (clip.title) {
-        const titleEl = document.createElement('span');
-        titleEl.className = 'clip-title';
-        titleEl.textContent = clip.title;
-        meta.appendChild(titleEl);
-      }
-      if (clip.tags && clip.tags.length) {
-        const tagsEl = document.createElement('span');
-        tagsEl.className = 'clip-tags';
-        tagsEl.textContent = clip.tags.slice(0, 5).join(', ');
-        meta.appendChild(tagsEl);
-      }
 
       const authorLink = document.createElement('a');
       authorLink.className = 'clip-author';

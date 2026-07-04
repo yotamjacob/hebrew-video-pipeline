@@ -7,8 +7,9 @@
 
   const I18N = {
     // ── Hero / chrome ──
-    'hero.sub':        { en: 'Video editing at the click of a button', he: 'עריכות וידאו בלחיצת כפתור' },
+    'hero.sub':        { en: 'Hebrew video editing at the click of a button', he: 'עריכת וידאו בעברית בלחיצת כפתור' },
     'hero.tags':       { en: 'Auto-cut · Captions · Hooks · B-roll · Schedule', he: 'חיתוך אוטומטי · כתוביות · הוקים · בי-רול · תזמון' },
+    'upload.bestFor':  { en: '🗣️ Built for Hebrew talking videos - the clearer the audio, the better the captions.', he: '🗣️ מותאם לסרטוני דיבור בעברית - ככל שהאודיו ברור יותר, הכתוביות טובות יותר.' },
     'footer.contact':  { en: '💬 Contact us / leave feedback', he: '💬 צרו קשר / שלחו משוב' },
     'tab.create':      { en: '🎬 Create', he: '🎬 יצירה' },
     'tab.history':     { en: '🗂️ History', he: '🗂️ היסטוריה' },
