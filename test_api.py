@@ -75,14 +75,14 @@ def poll(url, hdrs, poll_interval=5, timeout=1200):
 
 
 # ── 0. Auth ───────────────────────────────────────────────────────────────────
-print("\n[0/4] Auth")
+print("\n[0/5] Auth")
 token = get_token()
 H = {"Authorization": f"Bearer {token}"}
 check("got a session token", bool(token))
 check(f"test video exists ({VIDEO})", VIDEO.exists(), str(VIDEO))
 
 # ── 1. Health check ────────────────────────────────────────────────────────────
-print("\n[1/4] Health check")
+print("\n[1/5] Health check")
 r = requests.get(f"{API_BASE}/", timeout=60)
 check("status 200", r.status_code == 200)
 check('body {"status":"ok"}', r.json().get("status") == "ok")
@@ -91,7 +91,7 @@ check('body {"status":"ok"}', r.json().get("status") == "ok")
 data = VIDEO.read_bytes()
 key = uuid.uuid4().hex
 n_chunks = (len(data) + CHUNK - 1) // CHUNK
-print(f"\n[2/4] Upload  ({len(data)//1024//1024} MB in {n_chunks} chunks)")
+print(f"\n[2/5] Upload  ({len(data)//1024//1024} MB in {n_chunks} chunks)")
 for i in range(n_chunks):
     part = data[i * CHUNK:(i + 1) * CHUNK]
     r = requests.post(f"{API_BASE}/upload_chunk/?key={key}&index={i}", headers=H,
@@ -99,7 +99,7 @@ for i in range(n_chunks):
     check(f"chunk {i + 1}/{n_chunks}", r.status_code == 200, f"{r.status_code}: {r.text[:120]}")
 
 # ── 3. /process ─────────────────────────────────────────────────────────────────
-print("\n[3/4] /process")
+print("\n[3/5] /process")
 t0 = time.time()
 r = requests.post(f"{API_BASE}/process/", headers=H, timeout=60, params=dict(
     key=key, filename=VIDEO.name, cut_silences="true", burn_captions="true",
@@ -117,7 +117,7 @@ check(f"captions returned ({len(captions)} cues)", isinstance(captions, list) an
 check("video_key returned", bool(video_key), json.dumps(res)[:200])
 
 # ── 4. /burn ─────────────────────────────────────────────────────────────────────
-print("\n[4/4] /burn")
+print("\n[4/5] /burn")
 t0 = time.time()
 r = requests.post(f"{API_BASE}/burn/", headers={**H, "Content-Type": "application/json"},
                   params=dict(video_key=video_key, filename=VIDEO.name),
@@ -127,8 +127,16 @@ burn_id = r.json().get("call_id", "")
 check("burn call_id present", bool(burn_id))
 print(f"  polling {burn_id}…")
 br = poll(f"{API_BASE}/burn_poll/{burn_id}/", H, timeout=600)
-final = br.content
 check(f"burn done ({time.time()-t0:.0f}s)", br.status_code == 200)
+burn_res = br.json()
+output_key = burn_res.get("output_key", "")
+check("burn returned output_key", bool(output_key), json.dumps(burn_res)[:200])
+
+# ── 5. Download the burned video ────────────────────────────────────────────
+print(f"\n[5/5] /download  ({output_key})")
+dl = requests.get(f"{API_BASE}/download/{output_key}/", headers=H, timeout=120)
+check(f"download 200", dl.status_code == 200, f"{dl.status_code}: {dl.text[:200]}")
+final = dl.content
 check(f"final video non-empty ({len(final):,} bytes)", len(final) > 1000)
 check("final looks like MP4", final[4:8] == b"ftyp", f"got {final[4:8]!r}")
 out = Path("test_output_edited.mp4")
