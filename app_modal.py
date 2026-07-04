@@ -324,9 +324,13 @@ def api():
                 if rec and rec.get("uid") == uid:
                     return uname, rec
             for _u in users_store.keys():
-                if _u.startswith("uid:"):
+                # Skip index entries — `uid:<uid>` and `email:<addr>` map to
+                # username STRINGS, not user records; only dict values are records.
+                if _u.startswith("uid:") or _u.startswith("email:"):
                     continue
-                _r = users_store.get(_u) or {}
+                _r = users_store.get(_u)
+                if not isinstance(_r, dict):
+                    continue
                 if _r.get("uid") == uid:
                     try:
                         users_store[f"uid:{uid}"] = _u
