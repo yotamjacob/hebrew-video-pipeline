@@ -22,7 +22,8 @@ from pipeline_core import (
 # Video count is a good proxy for GPU spend (each /process is the expensive
 # stage). Best-effort: no ADMIN_EMAIL/RESEND_API_KEY just logs.
 # ---------------------------------------------------------------------------
-@app.function(image=light_image, schedule=modal.Period(days=1))
+@app.function(image=light_image, schedule=modal.Period(days=1),
+              secrets=[modal.Secret.from_name("hebpipe-auth")])
 def daily_usage_report() -> dict:
     import os, time
     since = time.time() - 24 * 3600
