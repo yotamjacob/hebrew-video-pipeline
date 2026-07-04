@@ -493,6 +493,17 @@ def api():
             await send({"type": "http.response.body", "body": body})
             return
 
+        # ── Disconnect Metricool (drop this user's stored tokens) ──
+        if path in ("/oauth/disconnect", "/oauth/disconnect/") and method == "POST":
+            try:
+                del oauth_store[f"tokens:{uid}"]
+            except KeyError:
+                pass
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": b'{"ok":true}'})
+            return
+
         # ── Schedule a post (spawn) ──
         if path in ("/schedule", "/schedule/") and method == "POST":
             if not _check_rate_limit(_get_client_ip(scope)):

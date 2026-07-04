@@ -83,11 +83,18 @@ test('logout clears the session and returns to login', async ({ page }) => {
   // re-seed it on the reload that logout performs)
   await page.route(/\/auth\/me/, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"username":"tester"}' }));
+  // Boot fires these on every showApp — stub so they don't 401-bounce in CI.
+  await page.route(/\/auth\/media-token/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"token":"m.test"}' }));
+  await page.route(/\/oauth\/status/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"connected":false}' }));
   await page.goto('/');
   await page.evaluate(() => localStorage.setItem('hebpipe_token', 'test-token'));
   await page.reload();
   await expect(page.locator('#pipelineView')).toBeVisible();
   await page.click('#logoutTab');
+  // Logout now asks for confirmation.
+  await page.click('#confirmOk');
   await expect(page.locator('#authView')).toBeVisible();
   const stored = await page.evaluate(() => localStorage.getItem('hebpipe_token'));
   expect(stored).toBeNull();

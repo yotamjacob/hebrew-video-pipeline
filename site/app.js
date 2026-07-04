@@ -8,7 +8,20 @@
   const EMAIL_UI_ENABLED = false;
 
   // ── Auth: session token, authenticated fetch, login gate ──
-  let authToken = localStorage.getItem('hebpipe_token') || '';
+  // Remembered sessions live in localStorage (survive browser close); when
+  // "remember me" is off, the token lives in sessionStorage (cleared on close).
+  let authToken = localStorage.getItem('hebpipe_token') || sessionStorage.getItem('hebpipe_token') || '';
+
+  function _storeToken(tok, remember) {
+    authToken = tok;
+    if (remember) { localStorage.setItem('hebpipe_token', tok); sessionStorage.removeItem('hebpipe_token'); }
+    else          { sessionStorage.setItem('hebpipe_token', tok); localStorage.removeItem('hebpipe_token'); }
+  }
+  function _clearToken() {
+    authToken = ''; mediaToken = '';
+    localStorage.removeItem('hebpipe_token');
+    sessionStorage.removeItem('hebpipe_token');
+  }
 
   // Short-lived, GET-only token used in media URLs (img/video src, downloads)
   // so the long-lived session token never rides in a query string / browser
@@ -44,10 +57,22 @@
   }
 
   function _sessionExpired() {
-    authToken = '';
-    mediaToken = '';
-    localStorage.removeItem('hebpipe_token');
+    _clearToken();
     showAuthView();
+  }
+
+  // Swap a button's content for a spinner while an async action runs, and
+  // restore its original label afterwards. Reusable across the app.
+  function _btnBusy(btn, busy) {
+    if (!btn) return;
+    if (busy) {
+      if (btn.dataset.label == null) btn.dataset.label = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
+    } else {
+      btn.disabled = false;
+      if (btn.dataset.label != null) { btn.innerHTML = btn.dataset.label; delete btn.dataset.label; }
+    }
   }
 
   // All API calls go through here - attaches the bearer token, and drops the
@@ -64,7 +89,10 @@
     return resp;
   }
 
+  function _hideBootLoader() { const bl = document.getElementById('bootLoader'); if (bl) bl.style.display = 'none'; }
+
   function showAuthView() {
+    _hideBootLoader();
     document.getElementById('authView').style.display = 'block';
     document.getElementById('resetView').style.display = 'none';
     document.getElementById('tabsBar').style.display = 'none';
@@ -80,6 +108,7 @@
   }
 
   function showApp() {
+    _hideBootLoader();
     document.getElementById('authView').style.display = 'none';
     document.getElementById('resetView').style.display = 'none';
     document.getElementById('tabsBar').style.display = 'flex';
@@ -131,6 +160,7 @@
 
   // ── Password reset (opened via ?reset=token from the email) ──
   function showResetView(token) {
+    _hideBootLoader();
     window._resetToken = token;
     document.getElementById('authView').style.display = 'none';
     document.getElementById('tabsBar').style.display = 'none';
@@ -147,7 +177,7 @@
     const pw = document.getElementById('resetPassword').value;
     errEl.style.display = 'none'; infoEl.style.display = 'none';
     if (pw.length < 8) { errEl.textContent = t('reset.tooShort'); errEl.style.display = 'block'; return; }
-    btn.disabled = true;
+    _btnBusy(btn, true);
     try {
       const r = await fetch(`${API_BASE}/auth/reset`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -155,6 +185,7 @@
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || t('auth.errStatus', { status: r.status }));
+      _btnBusy(btn, false);
       infoEl.textContent = t('reset.done');
       infoEl.style.display = 'block';
       // Drop the token from the URL and return to sign-in shortly.
@@ -162,8 +193,7 @@
     } catch (e) {
       errEl.textContent = e.message || String(e);
       errEl.style.display = 'block';
-    } finally {
-      btn.disabled = false;
+      _btnBusy(btn, false);
     }
   }
 
@@ -227,6 +257,7 @@
     document.getElementById('authPasswordRow').style.display = forgot ? 'none' : 'block';
     document.getElementById('authEmailRow').style.display    = reg ? 'block' : 'none';
     document.getElementById('authInviteRow').style.display   = reg ? 'block' : 'none';
+    document.getElementById('rememberRow').style.display     = forgot ? 'none' : 'flex';
     document.getElementById('authForgotLink').style.display  = (EMAIL_UI_ENABLED && !forgot) ? 'block' : 'none';
     document.getElementById('authUsernameLabel').textContent =
       forgot ? t('auth.identifier') : t('auth.username');
@@ -252,7 +283,7 @@
     const btn = document.getElementById('authSubmitBtn');
     const errEl = document.getElementById('authError');
     const infoEl = document.getElementById('authInfo');
-    btn.disabled = true;
+    _btnBusy(btn, true);
     errEl.style.display = 'none';
     infoEl.style.display = 'none';
 
@@ -264,14 +295,10 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ identifier: document.getElementById('authUsername').value.trim() }),
         });
-        infoEl.textContent = t('auth.resetSent');
-        infoEl.style.display = 'block';
-      } catch {
-        infoEl.textContent = t('auth.resetSent');   // never reveal existence
-        infoEl.style.display = 'block';
-      } finally {
-        btn.disabled = false;
-      }
+      } catch { /* never reveal existence */ }
+      infoEl.textContent = t('auth.resetSent');
+      infoEl.style.display = 'block';
+      _btnBusy(btn, false);
       return;
     }
 
@@ -291,21 +318,22 @@
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || t('auth.errStatus', {status: resp.status}));
-      authToken = data.token;
-      localStorage.setItem('hebpipe_token', authToken);
+      const remember = document.getElementById('rememberMe')?.checked ?? true;
+      _storeToken(data.token, remember);
       showApp();
       fetch(API_BASE + '/warmup/', { headers: { 'Authorization': 'Bearer ' + authToken } }).catch(() => {});
     } catch (e) {
       errEl.textContent = e.message || String(e);
       errEl.style.display = 'block';
     } finally {
-      btn.disabled = false;
+      _btnBusy(btn, false);
     }
   }
 
-  function logout() {
-    authToken = '';
-    localStorage.removeItem('hebpipe_token');
+  async function logout() {
+    const ok = await showConfirmModal(t('logout.title'), t('logout.body'), t('logout.confirm'));
+    if (!ok) return;
+    _clearToken();
     location.reload();
   }
 
@@ -3579,6 +3607,7 @@
     chip.style.display = 'inline-block';
     chip.textContent = metricoolConnected ? t('mc.connected') : t('mc.connect');
     chip.classList.toggle('connected', !!metricoolConnected);
+    chip.title = metricoolConnected ? t('mc.disconnectHint') : '';
   }
   async function refreshMetricoolChip() {
     try {
@@ -3587,9 +3616,15 @@
     } catch { metricoolConnected = false; }
     renderMetricoolChip();
   }
-  function onMetricoolChip() {
-    if (metricoolConnected) return;   // already connected
-    connectMetricool();
+  async function onMetricoolChip() {
+    if (!metricoolConnected) { connectMetricool(); return; }
+    // Connected → offer to disconnect.
+    const ok = await showConfirmModal(t('mc.disconnectTitle'), t('mc.disconnectBody'), t('mc.disconnectOk'));
+    if (!ok) return;
+    try {
+      await apiFetch(`${API_BASE}/oauth/disconnect`, { method: 'POST' });
+    } catch { /* fall through — refresh reflects real state */ }
+    await refreshMetricoolChip();
   }
 
   // Show YouTube-only required fields when YouTube is selected

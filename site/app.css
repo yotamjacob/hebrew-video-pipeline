@@ -339,6 +339,26 @@
     .pw-toggle:hover { color: var(--purple-700); background: var(--purple-50); }
     .pw-toggle svg { display: block; }
 
+    /* Loading spinner (inherits currentColor, so it works on any button) */
+    .spinner {
+      display: inline-block; width: 16px; height: 16px; vertical-align: middle;
+      border: 2px solid currentColor; border-top-color: transparent;
+      border-radius: 50%; animation: spin 0.6s linear infinite;
+    }
+    .spinner-lg { width: 34px; height: 34px; border-width: 3px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .boot-loader {
+      display: flex; align-items: center; justify-content: center;
+      padding: 80px 0; color: var(--purple-500);
+    }
+
+    /* Remember-me row */
+    .remember-row {
+      display: flex; align-items: center; gap: 8px; margin-top: 14px;
+      font-size: 0.85rem; color: var(--muted); cursor: pointer; user-select: none;
+    }
+    .remember-row input { width: 16px; height: 16px; accent-color: var(--purple-600); cursor: pointer; }
+
     /* ── Email verification nudge ── */
     .verify-banner {
       display: flex; align-items: center; gap: 10px; flex-wrap: wrap;

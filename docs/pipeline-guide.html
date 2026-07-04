@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  :root{
+    --p900:#3B0764; --p800:#4C1D95; --p700:#6D28D9; --p600:#7C3AED;
+    --p100:#EDE9FE; --p50:#F5F3FF; --ink:#1E1033; --muted:#6B7080;
+    --bg:#F2EEF8; --green:#059669; --greenbg:#ECFDF5; --greenbd:#A7F3D0;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html{-webkit-print-color-adjust:exact; print-color-adjust:exact;}
+  body{
+    font-family:"Heebo","Arial Hebrew","Assistant",-apple-system,"Segoe UI",Arial,sans-serif;
+    color:var(--ink); background:#fff; font-size:12px; line-height:1.5;
+  }
+  .page{padding:26px 44px;}
+  @page{size:A4; margin:0;}
+
+  /* Cover header */
+  .hero{
+    background:linear-gradient(135deg,var(--p900),var(--p600));
+    color:#fff; border-radius:20px; padding:30px 30px 26px;
+    display:flex; align-items:center; gap:18px; margin-bottom:18px;
+  }
+  .hero svg{width:56px; height:56px; flex-shrink:0;}
+  .hero-title{font-size:30px; font-weight:800; letter-spacing:.5px; line-height:1;}
+  .hero-en{font-size:15px; font-weight:600; opacity:.85; margin-top:4px;}
+  .hero-tag{font-size:12.5px; opacity:.9; margin-top:9px;}
+  .hero-badge{
+    margin-inline-start:auto; background:rgba(255,255,255,.15);
+    border:1px solid rgba(255,255,255,.35); border-radius:999px;
+    padding:7px 15px; font-size:12px; font-weight:700; white-space:nowrap;
+  }
+
+  /* Steps */
+  .step{
+    display:flex; gap:14px; padding:9.5px 0; border-bottom:1px solid var(--p100);
+    break-inside:avoid;
+  }
+  .num{
+    flex-shrink:0; width:30px; height:30px; border-radius:50%;
+    background:var(--p600); color:#fff; font-weight:800; font-size:14px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .body{flex:1;}
+  .step-title{font-size:14px; font-weight:800; color:var(--p700); margin-bottom:5px;}
+  .step-title .opt{font-weight:600; color:var(--muted); font-size:11.5px;}
+  .he{direction:rtl; text-align:right; font-size:12.5px; color:var(--ink); margin-bottom:3px;}
+  .en{direction:ltr; text-align:left; font-size:11.5px; color:var(--muted);}
+
+  /* Tips */
+  .foot{margin-top:16px; text-align:center; font-size:10.5px; color:var(--muted);}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="hero">
+    <svg viewBox="0 0 48 48" aria-hidden="true">
+      <rect x="2" y="2" width="44" height="44" rx="13" fill="rgba(255,255,255,0.16)" stroke="rgba(255,255,255,0.4)" stroke-width="1.5"/>
+      <rect x="10" y="17" width="28" height="14" fill="rgba(255,255,255,0.9)"/>
+      <rect x="5.5" y="14" width="5" height="20" rx="1.7" fill="#fff"/>
+      <rect x="37.5" y="14" width="5" height="20" rx="1.7" fill="#fff"/>
+      <polygon points="20.6,19.6 29.6,24.6 20.6,29.6" fill="rgba(59,7,100,0.9)"/>
+    </svg>
+    <div>
+      <div class="hero-title">פייפליין</div>
+      <div class="hero-en">Pipeline</div>
+      <div class="hero-tag">עריכות וידאו בלחיצת כפתור · Video editing at the click of a button</div>
+    </div>
+    <div class="hero-badge">מדריך מהיר<br>Quick-Start</div>
+  </div>
+
+  <div class="step">
+    <div class="num">1</div>
+    <div class="body">
+      <div class="step-title">התחברות · Sign in</div>
+      <div class="he">היכנסו עם שם משתמש וסיסמה. משתמשים חדשים - הזינו את קוד ההזמנה והאימייל כדי ליצור חשבון.</div>
+      <div class="en">Log in with your username and password. New here? Enter your invite code and email to create an account.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num">2</div>
+    <div class="body">
+      <div class="step-title">חיבור Metricool · Connect Metricool <span class="opt">(רשות · optional)</span></div>
+      <div class="he">כדי לתזמן פוסטים, הקישו על תווית "חיבור Metricool" בראש העמוד וחברו את החשבון שלכם. פעולה חד-פעמית.</div>
+      <div class="en">To schedule posts, tap the "Connect Metricool" chip at the top and link your account. One time only.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num">3</div>
+    <div class="body">
+      <div class="step-title">העלאת סרטון · Upload your video</div>
+      <div class="he">בלשונית "יצירה", בחרו סרטון (עד 500MB). סרטונים אנכיים מתאימים במיוחד לרילים.</div>
+      <div class="en">In the Create tab, pick a video (up to 500 MB). Vertical videos work best for reels.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num">4</div>
+    <div class="body">
+      <div class="step-title">בחירת אפשרויות · Choose your options</div>
+      <div class="he">הפעילו לפי הצורך: חיתוך שתיקות, כתוביות, ושיפור אודיו/וידאו. כל סרטון מנצל קרדיט אחד מתוך 5 החינמיים.</div>
+      <div class="en">Toggle what you need: cut silences, captions, audio/video enhance. Each video uses one of your 5 free credits.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num">5</div>
+    <div class="body">
+      <div class="step-title">עיבוד · Process</div>
+      <div class="he">הקישו "הפעלה". השאירו את העמוד פתוח - תראו התקדמות אמיתית. בסיום מתקבל סרטון חתוך עם כתוביות בעברית.</div>
+      <div class="en">Tap Run. Keep the page open - you'll see live progress. You get an auto-cut video with Hebrew captions.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num">6</div>
+    <div class="body">
+      <div class="step-title">עריכה ושכלול · Polish <span class="opt">(רשות · optional)</span></div>
+      <div class="he">ערכו כתוביות, הוסיפו הוק פותח, מצאו קטעי בי-רול, או הפיקו הצעת כיתוב מתוך הסרטון.</div>
+      <div class="en">Edit captions, add an opening hook, find B-roll clips, or generate a caption suggestion from the video.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num">7</div>
+    <div class="body">
+      <div class="step-title">צריבה והורדה · Burn &amp; download</div>
+      <div class="he">הקישו "צריבה" כדי לצרוב את הכתוביות, ההוק והבי-רול לסרטון הסופי, ואז הורידו אותו.</div>
+      <div class="en">Tap Burn to render the captions, hook and B-roll into the final MP4, then download it.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num">8</div>
+    <div class="body">
+      <div class="step-title">תזמון לרשתות · Schedule <span class="opt">(רשות · optional)</span></div>
+      <div class="he">הקישו "תזמון" (על הסרטון או מההיסטוריה), בחרו פלטפורמות, שעה וכיתוב, ושלחו ל-Metricool. אלא אם "פרסום אוטומטי" מופעל, אתם מאשרים את הפרסום הסופי ב-Metricool.</div>
+      <div class="en">Tap Schedule (on the video or from History), choose platforms, time and caption, and send to Metricool. Unless Auto-publish is on, you approve the final post inside Metricool.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num">9</div>
+    <div class="body">
+      <div class="step-title">היסטוריה · History</div>
+      <div class="he">לשונית "היסטוריה" שומרת סרטונים מוגמרים ל-30 יום - אפשר להוריד שוב, לתזמן או למחוק.</div>
+      <div class="en">The History tab keeps finished videos for 30 days - re-download, schedule, or delete.</div>
+    </div>
+  </div>
+
+  <div class="foot">פייפליין · Pipeline — עריכות וידאו בלחיצת כפתור</div>
+
+</div>
+</body>
+</html>

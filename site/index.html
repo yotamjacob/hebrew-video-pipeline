@@ -73,6 +73,9 @@
   <button id="verifyBannerBtn" class="verify-banner-btn" onclick="requestVerification()"></button>
 </div>
 
+<!-- ── Boot loader (shown until the session check resolves) ── -->
+<div id="bootLoader" class="boot-loader"><span class="spinner spinner-lg"></span></div>
+
 <!-- ── Sign in / register ── -->
 <div class="container" id="authView" style="display:none">
   <div class="card">
@@ -95,6 +98,10 @@
         <label class="sched-label" data-i18n="auth.email">Email</label>
         <input type="email" id="authEmail" class="sched-input" style="width:100%" autocomplete="email" />
       </div>
+      <label class="remember-row" id="rememberRow">
+        <input type="checkbox" id="rememberMe" checked>
+        <span data-i18n="auth.remember">Remember me</span>
+      </label>
       <div id="authInviteRow" style="display:none">
         <label class="sched-label" data-i18n="auth.invite">Invite code</label>
         <input type="text" id="authInvite" class="sched-input" style="width:100%" autocomplete="off" />
