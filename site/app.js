@@ -1,6 +1,12 @@
   const API_BASE = 'https://yotamjacob--hebrew-video-pipeline-api.modal.run';
   const API      = API_BASE + '/process/';
 
+  // Gates all user-facing email flows (verify nudge + password reset). Off
+  // until a sending domain is verified in Resend — with the test sender,
+  // emails only reach the account owner, so these flows would send mail that
+  // never arrives. Flip to true once EMAIL_FROM uses a verified domain.
+  const EMAIL_UI_ENABLED = false;
+
   // ── Auth: session token, authenticated fetch, login gate ──
   let authToken = localStorage.getItem('hebpipe_token') || '';
 
@@ -56,6 +62,7 @@
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
+    applyAuthMode();   // reflect EMAIL_UI_ENABLED (forgot link) on first paint
   }
 
   function showApp() {
@@ -70,7 +77,7 @@
   // ── Email verification nudge (non-blocking) ──
   function updateVerifyBanner() {
     const banner = document.getElementById('verifyBanner');
-    if (!quotaInfo || quotaInfo.email_verified) { banner.style.display = 'none'; return; }
+    if (!EMAIL_UI_ENABLED || !quotaInfo || quotaInfo.email_verified) { banner.style.display = 'none'; return; }
     const hasEmail = !!quotaInfo.email;
     document.getElementById('verifyBannerMsg').textContent =
       hasEmail ? t('verify.pending', { email: quotaInfo.email }) : t('verify.noEmail');
@@ -205,7 +212,7 @@
     document.getElementById('authPasswordRow').style.display = forgot ? 'none' : 'block';
     document.getElementById('authEmailRow').style.display    = reg ? 'block' : 'none';
     document.getElementById('authInviteRow').style.display   = reg ? 'block' : 'none';
-    document.getElementById('authForgotLink').style.display  = forgot ? 'none' : 'block';
+    document.getElementById('authForgotLink').style.display  = (EMAIL_UI_ENABLED && !forgot) ? 'block' : 'none';
     document.getElementById('authUsernameLabel').textContent =
       forgot ? t('auth.identifier') : t('auth.username');
     document.getElementById('authSubmitBtn').textContent =
