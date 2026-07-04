@@ -24,9 +24,15 @@ from pipeline_core import (
     _poll_fn_call,
     _USERNAME_RE, _hash_password, _verify_password, _sign_token, _verify_token,
     _sign_media_token, _verify_media_token, MEDIA_TOKEN_TTL_SECONDS,
+    _EMAIL_RE, _sign_scoped_token, _verify_scoped_token, _send_email, _email_html,
+    EMAIL_VERIFY_TTL_SECONDS, PASSWORD_RESET_TTL_SECONDS,
     _user_prefix, _owned_key, _broll_item_safe,
     DEFAULT_VIDEO_LIMIT, _quota_state, _quota_allows, _count_quota_used,
 )
+
+# Public base URLs used to build email links. SITE_URL can be overridden via
+# env once a custom domain is set; the API base is stable.
+API_BASE_URL = "https://yotamjacob--hebrew-video-pipeline-api.modal.run"
 from pipeline_fns import process_video, burn_captions_fn, burn_hook_fn
 from broll_fns import generate_broll_video, analyze_broll, analyze_stock_broll, search_stock_clips
 from content_fns import generate_hook_options, generate_caption_options
@@ -127,14 +133,30 @@ def api():
                 if len(password) < 8:
                     await send_error("Password must be at least 8 characters", 400)
                     return
+                email = (data.get("email") or "").strip().lower()
+                if not _EMAIL_RE.match(email):
+                    await send_error("A valid email address is required", 400)
+                    return
                 if users_store.contains(username):
                     await send_error("Username already taken", 409)
                     return
                 salt, ph = _hash_password(password)
                 new_uid = _secrets.token_hex(16)
                 users_store[username] = {"uid": new_uid, "salt": salt, "pw": ph, "created": _time.time(),
+                                         "email": email, "email_verified": False,
                                          "video_limit": DEFAULT_VIDEO_LIMIT, "videos_used": 0}
                 users_store[f"uid:{new_uid}"] = username
+                users_store[f"email:{email}"] = username   # reverse index for password reset
+                # Fire the verification email (best-effort — a failure must not
+                # block sign-up, since verification is a nudge, not a gate).
+                try:
+                    _vtok = _sign_scoped_token(new_uid, "verify", os.environ["AUTH_SECRET"], EMAIL_VERIFY_TTL_SECONDS)
+                    _send_email(email, "Verify your email - פייפליין",
+                                _email_html("Verify your email",
+                                            "Tap the button to confirm this address so you can recover your account later.",
+                                            "Verify email", f"{API_BASE_URL}/auth/verify?token={_vtok}"))
+                except Exception as _mail_err:
+                    print(f"[email] verification send failed: {_mail_err}")
             else:
                 # Throttle password guessing per username AND per source IP.
                 _ok_u, _retry_u   = _throttle_allowed(throttle_store, f"login:{username}", _now)
@@ -157,6 +179,97 @@ def api():
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── Email verification (public link from the verification email) ──
+        if path in ("/auth/verify", "/auth/verify/") and method == "GET":
+            import os as _os
+            _vt = parse_qs(scope.get("query_string", b"").decode()).get("token", [""])[0]
+            _vuid = _verify_scoped_token(_vt, "verify", _os.environ["AUTH_SECRET"]) if _vt else None
+
+            def _vhtml(msg, ok=True):
+                color = "#059669" if ok else "#DC2626"
+                return (f"<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+                        f"<body style='font-family:system-ui;background:#F2EEF8;color:#1E1033;display:flex;"
+                        f"align-items:center;justify-content:center;height:100vh;margin:0;text-align:center'>"
+                        f"<div style='background:#fff;border:1.5px solid #EDE9FE;border-radius:20px;padding:36px 28px;max-width:360px'>"
+                        f"<div style='font-size:44px'>{'✅' if ok else '⚠️'}</div>"
+                        f"<h2 style='color:{color};margin:12px 0 6px'>{'Email verified' if ok else 'Link invalid or expired'}</h2>"
+                        f"<p style='color:#6B7080;font-size:14px'>{msg}</p></div></body>").encode()
+
+            if _vuid:
+                _vuname = users_store.get(f"uid:{_vuid}")
+                _vrec = users_store.get(_vuname) if _vuname else None
+                if _vrec:
+                    _vrec["email_verified"] = True
+                    users_store[_vuname] = _vrec
+                page, status = _vhtml("You can close this tab and head back to the app."), 200
+            else:
+                page, status = _vhtml("Please request a fresh verification email from the app.", ok=False), 400
+            await send({"type": "http.response.start", "status": status,
+                        "headers": [(b"content-type", b"text/html; charset=utf-8")]})
+            await send({"type": "http.response.body", "body": page})
+            return
+
+        # ── Password reset: request a link (public) ──
+        if path in ("/auth/forgot", "/auth/forgot/") and method == "POST":
+            import os as _os
+            if not _check_rate_limit(_get_client_ip(scope)):
+                await send_error("Rate limit exceeded. Try again in a minute.", 429)
+                return
+            try:
+                _d = json.loads((await _read_body(receive)).decode("utf-8"))
+            except Exception:
+                _d = {}
+            _ident = (_d.get("identifier") or "").strip().lower()
+            # Accept either a username or an email; resolve to a user record.
+            _uname = None
+            if _ident:
+                if users_store.contains(_ident):
+                    _uname = _ident
+                else:
+                    _uname = users_store.get(f"email:{_ident}")
+            _rec = users_store.get(_uname) if _uname else None
+            if _rec and _rec.get("email"):
+                _site = _os.environ.get("SITE_URL", "https://site-theta-six-76.vercel.app")
+                _rt = _sign_scoped_token(_rec["uid"], "reset", _os.environ["AUTH_SECRET"], PASSWORD_RESET_TTL_SECONDS)
+                _send_email(_rec["email"], "Reset your password - פייפליין",
+                            _email_html("Reset your password",
+                                        "Tap below to choose a new password. This link expires in an hour. If you didn't ask for this, ignore this email.",
+                                        "Reset password", f"{_site}/?reset={_rt}"))
+            # Always 200 — never reveal whether an account exists.
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": b'{"ok":true}'})
+            return
+
+        # ── Password reset: set a new password with a valid token (public) ──
+        if path in ("/auth/reset", "/auth/reset/") and method == "POST":
+            import os as _os
+            try:
+                _d = json.loads((await _read_body(receive)).decode("utf-8"))
+            except Exception:
+                _d = {}
+            _rtok = _d.get("token") or ""
+            _newpw = _d.get("password") or ""
+            _ruid = _verify_scoped_token(_rtok, "reset", _os.environ["AUTH_SECRET"]) if _rtok else None
+            if not _ruid:
+                await send_error("This reset link is invalid or expired.", 400)
+                return
+            if len(_newpw) < 8:
+                await send_error("Password must be at least 8 characters", 400)
+                return
+            _runame = users_store.get(f"uid:{_ruid}")
+            _rrec = users_store.get(_runame) if _runame else None
+            if not _rrec:
+                await send_error("This reset link is invalid or expired.", 400)
+                return
+            _salt, _ph = _hash_password(_newpw)
+            _rrec["salt"], _rrec["pw"] = _salt, _ph
+            users_store[_runame] = _rrec
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": b'{"ok":true}'})
             return
 
         # ── Session guard — every route below requires a valid token. ──
@@ -230,7 +343,50 @@ def api():
             body = json.dumps({"username": uname,
                                "role": "admin" if is_admin else "user",
                                "videos_used": used,
-                               "video_limit": None if is_admin else limit}).encode()
+                               "video_limit": None if is_admin else limit,
+                               "email": (urec or {}).get("email", ""),
+                               "email_verified": bool((urec or {}).get("email_verified", False))}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── Verification email: (re)send, optionally setting the address ──
+        if path in ("/auth/request-verification", "/auth/request-verification/") and method == "POST":
+            import os as _os
+            uname, urec = _user_by_uid()
+            if not urec:
+                await send_error("Unknown user", 400)
+                return
+            try:
+                _d = json.loads((await _read_body(receive)).decode("utf-8"))
+            except Exception:
+                _d = {}
+            _newemail = (_d.get("email") or "").strip().lower()
+            if _newemail:
+                if not _EMAIL_RE.match(_newemail):
+                    await send_error("A valid email address is required", 400)
+                    return
+                _old = urec.get("email")
+                if _old and _old != _newemail:
+                    try:
+                        del users_store[f"email:{_old}"]
+                    except KeyError:
+                        pass
+                urec["email"] = _newemail
+                urec["email_verified"] = False
+                users_store[uname] = urec
+                users_store[f"email:{_newemail}"] = uname
+            _addr = urec.get("email")
+            if not _addr:
+                await send_error("Add an email address first", 400)
+                return
+            _vtok = _sign_scoped_token(uid, "verify", _os.environ["AUTH_SECRET"], EMAIL_VERIFY_TTL_SECONDS)
+            _sent = _send_email(_addr, "Verify your email - פייפליין",
+                                _email_html("Verify your email",
+                                            "Tap the button to confirm this address so you can recover your account later.",
+                                            "Verify email", f"{API_BASE_URL}/auth/verify?token={_vtok}"))
+            body = json.dumps({"ok": True, "sent": bool(_sent), "email": _addr}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})

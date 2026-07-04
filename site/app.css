@@ -319,6 +319,34 @@
     .action-btn:hover:not(:disabled) { background: var(--purple-50); }
     .action-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
+    .link-btn {
+      display: block; width: 100%; margin-top: 8px; padding: 6px;
+      background: none; border: none; color: var(--purple-500);
+      font-size: 0.82rem; font-weight: 600; cursor: pointer; font-family: inherit;
+      text-decoration: underline; text-underline-offset: 2px;
+    }
+    .link-btn:hover { color: var(--purple-700); }
+
+    /* ── Email verification nudge ── */
+    .verify-banner {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      max-width: 720px; margin: 10px auto 0; padding: 10px 14px;
+      background: #FFFBEB; border: 1.5px solid #FDE68A; border-radius: 12px;
+      color: #92400E; font-size: 0.84rem;
+    }
+    .verify-banner-msg { flex: 1 1 auto; min-width: 180px; }
+    .verify-banner-input {
+      flex: 1 1 160px; padding: 7px 10px; border: 1.5px solid #FDE68A;
+      border-radius: 9px; font-size: 0.84rem; font-family: inherit;
+    }
+    .verify-banner-btn {
+      flex: 0 0 auto; padding: 7px 14px; border-radius: 999px; cursor: pointer;
+      background: #F59E0B; border: none; color: #fff; font-weight: 700;
+      font-size: 0.82rem; font-family: inherit;
+    }
+    .verify-banner-btn:hover:not(:disabled) { background: #D97706; }
+    .verify-banner-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
     .ev-warn { color: var(--red); font-weight: 600; }
 
     .reprocess-btn {

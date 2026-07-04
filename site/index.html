@@ -63,6 +63,13 @@
 <div class="quota-pill-row"><div id="quotaPill" class="quota-pill" style="display:none"></div></div>
 </div>
 
+<!-- ── Email verification nudge (non-blocking) ── -->
+<div id="verifyBanner" class="verify-banner" style="display:none">
+  <span id="verifyBannerMsg" class="verify-banner-msg"></span>
+  <input type="email" id="verifyEmailInput" class="verify-banner-input" style="display:none" data-i18n-placeholder="verify.emailPlaceholder" placeholder="you@example.com" />
+  <button id="verifyBannerBtn" class="verify-banner-btn" onclick="requestVerification()"></button>
+</div>
+
 <!-- ── Sign in / register ── -->
 <div class="container" id="authView" style="display:none">
   <div class="card">
@@ -70,17 +77,42 @@
       <p class="options-title" data-i18n="auth.title">🔐 Sign In</p>
     </div>
     <div style="padding-top:14px">
-      <label class="sched-label" data-i18n="auth.username">Username</label>
+      <label class="sched-label" id="authUsernameLabel" data-i18n="auth.username">Username</label>
       <input type="text" id="authUsername" class="sched-input" style="width:100%" autocomplete="username" />
-      <label class="sched-label" data-i18n="auth.password">Password</label>
-      <input type="password" id="authPassword" class="sched-input" style="width:100%" autocomplete="current-password" />
+      <div id="authPasswordRow">
+        <label class="sched-label" data-i18n="auth.password">Password</label>
+        <input type="password" id="authPassword" class="sched-input" style="width:100%" autocomplete="current-password" />
+      </div>
+      <div id="authEmailRow" style="display:none">
+        <label class="sched-label" data-i18n="auth.email">Email</label>
+        <input type="email" id="authEmail" class="sched-input" style="width:100%" autocomplete="email" />
+      </div>
       <div id="authInviteRow" style="display:none">
         <label class="sched-label" data-i18n="auth.invite">Invite code</label>
         <input type="text" id="authInvite" class="sched-input" style="width:100%" autocomplete="off" />
       </div>
       <div id="authError" class="sched-error" style="display:none;margin-top:12px"></div>
+      <div id="authInfo" class="sched-status ok" style="display:none;margin-top:12px"></div>
       <button class="run-btn" id="authSubmitBtn" style="margin-top:18px" onclick="authSubmit()" data-i18n="auth.signin">Sign in</button>
       <button class="action-btn" style="margin-top:10px" id="authModeBtn" onclick="toggleAuthMode()" data-i18n="auth.toRegister">New here? Create an account</button>
+      <button class="link-btn" id="authForgotLink" style="margin-top:10px" onclick="showForgot()" data-i18n="auth.forgot">Forgot your password?</button>
+    </div>
+  </div>
+  <p class="footer"><a class="footer-contact" href="mailto:yotajacob@gmail.com" data-i18n="footer.contact">💬 צרו קשר / שלחו משוב</a></p>
+</div>
+
+<!-- ── Reset password (opened from the email link, ?reset=token) ── -->
+<div class="container" id="resetView" style="display:none">
+  <div class="card">
+    <div class="card-header" style="cursor:default">
+      <p class="options-title" data-i18n="reset.title">🔑 Set a new password</p>
+    </div>
+    <div style="padding-top:14px">
+      <label class="sched-label" data-i18n="auth.password">Password</label>
+      <input type="password" id="resetPassword" class="sched-input" style="width:100%" autocomplete="new-password" />
+      <div id="resetError" class="sched-error" style="display:none;margin-top:12px"></div>
+      <div id="resetInfo" class="sched-status ok" style="display:none;margin-top:12px"></div>
+      <button class="run-btn" id="resetSubmitBtn" style="margin-top:18px" onclick="resetSubmit()" data-i18n="reset.submit">Save new password</button>
     </div>
   </div>
   <p class="footer"><a class="footer-contact" href="mailto:yotajacob@gmail.com" data-i18n="footer.contact">💬 צרו קשר / שלחו משוב</a></p>

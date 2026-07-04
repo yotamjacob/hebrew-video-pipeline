@@ -195,6 +195,83 @@ def _verify_media_token(token: str, secret: str, now: float = None):
         return None
 
 
+# ── Scoped one-time tokens (email verification, password reset) ──
+# Same HMAC construction as the media token but with a purpose scope baked into
+# the signed message, so a verify token can't be replayed as a reset token (or
+# vice-versa) and neither is accepted where a session token is expected.
+EMAIL_VERIFY_TTL_SECONDS   = 7 * 24 * 3600   # a week to click "verify"
+PASSWORD_RESET_TTL_SECONDS = 3600            # reset links lapse in an hour
+
+
+def _sign_scoped_token(uid: str, scope: str, secret: str, ttl: int, now: float = None) -> str:
+    import hmac, hashlib, time
+    exp = int((now if now is not None else time.time()) + ttl)
+    msg = f"{scope}.{uid}.{exp}"
+    sig = hmac.new(secret.encode(), msg.encode(), hashlib.sha256).hexdigest()
+    return f"{msg}.{sig}"
+
+
+def _verify_scoped_token(token: str, scope: str, secret: str, now: float = None):
+    """Return uid for a valid, unexpired token of exactly this scope — else None."""
+    import hmac, hashlib, time, re
+    try:
+        sc, uid, exp_s, sig = token.split(".")
+        if sc != scope:
+            return None
+        expect = hmac.new(secret.encode(), f"{sc}.{uid}.{exp_s}".encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expect):
+            return None
+        if (now if now is not None else time.time()) > int(exp_s):
+            return None
+        if not re.match(r"^[0-9a-f]{32}$", uid):
+            return None
+        return uid
+    except Exception:
+        return None
+
+
+_EMAIL_RE = _auth_re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _send_email(to: str, subject: str, html: str) -> bool:
+    """Send one transactional email via Resend. Best-effort: returns False and
+    logs on any failure (a missing RESEND_API_KEY, network error, etc.) so
+    callers never fail a request just because mail didn't go out."""
+    import os, json, urllib.request
+    api_key = os.environ.get("RESEND_API_KEY")
+    if not api_key:
+        print("[email] RESEND_API_KEY not set — skipping send")
+        return False
+    frm = os.environ.get("EMAIL_FROM", "Pipeline <onboarding@resend.dev>")
+    body = json.dumps({"from": frm, "to": [to], "subject": subject, "html": html}).encode()
+    req = urllib.request.Request(
+        "https://api.resend.com/emails", data=body,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+    try:
+        urllib.request.urlopen(req, timeout=15).read()
+        return True
+    except Exception as e:
+        print(f"[email] send failed: {e}")
+        return False
+
+
+def _email_html(title: str, body_line: str, button_label: str, url: str) -> str:
+    """Small branded HTML wrapper shared by verification + reset emails."""
+    return (
+        "<div style='font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;"
+        "background:#F2EEF8;padding:32px;text-align:center'>"
+        "<div style='max-width:440px;margin:0 auto;background:#fff;border:1.5px solid #EDE9FE;"
+        "border-radius:20px;padding:32px 28px'>"
+        "<div style='font-weight:800;font-size:20px;color:#6D28D9;margin-bottom:14px'>פייפליין</div>"
+        f"<h2 style='color:#1E1033;font-size:19px;margin:0 0 10px'>{title}</h2>"
+        f"<p style='color:#6B7080;font-size:14px;line-height:1.6;margin:0 0 22px'>{body_line}</p>"
+        f"<a href='{url}' style='display:inline-block;background:#7C3AED;color:#fff;text-decoration:none;"
+        f"font-weight:700;font-size:15px;padding:12px 26px;border-radius:999px'>{button_label}</a>"
+        f"<p style='color:#9AA0AC;font-size:12px;margin:22px 0 0;word-break:break-all'>{url}</p>"
+        "</div></div>"
+    )
+
+
 def _user_prefix(uid: str) -> str:
     return f"u{uid}__"
 

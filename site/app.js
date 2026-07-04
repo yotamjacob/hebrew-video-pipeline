@@ -48,7 +48,10 @@
 
   function showAuthView() {
     document.getElementById('authView').style.display = 'block';
+    document.getElementById('resetView').style.display = 'none';
     document.getElementById('tabsBar').style.display = 'none';
+    const vb = document.getElementById('verifyBanner');
+    if (vb) vb.style.display = 'none';
     ['pipelineView', 'historyView', 'adminView'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
@@ -57,10 +60,89 @@
 
   function showApp() {
     document.getElementById('authView').style.display = 'none';
+    document.getElementById('resetView').style.display = 'none';
     document.getElementById('tabsBar').style.display = 'flex';
     document.getElementById('pipelineView').style.display = 'block';
     refreshMediaToken();
-    if (quotaInfo) updateQuotaUI(); else refreshQuota();
+    if (quotaInfo) { updateQuotaUI(); updateVerifyBanner(); } else refreshQuota();
+  }
+
+  // ── Email verification nudge (non-blocking) ──
+  function updateVerifyBanner() {
+    const banner = document.getElementById('verifyBanner');
+    if (!quotaInfo || quotaInfo.email_verified) { banner.style.display = 'none'; return; }
+    const hasEmail = !!quotaInfo.email;
+    document.getElementById('verifyBannerMsg').textContent =
+      hasEmail ? t('verify.pending', { email: quotaInfo.email }) : t('verify.noEmail');
+    document.getElementById('verifyEmailInput').style.display = hasEmail ? 'none' : 'inline-block';
+    document.getElementById('verifyBannerBtn').textContent =
+      hasEmail ? t('verify.resend') : t('verify.add');
+    banner.style.display = 'flex';
+  }
+
+  async function requestVerification() {
+    const btn = document.getElementById('verifyBannerBtn');
+    const input = document.getElementById('verifyEmailInput');
+    const body = {};
+    if (input.style.display !== 'none') {
+      const em = input.value.trim();
+      if (!em) return;
+      body.email = em;
+    }
+    btn.disabled = true;
+    try {
+      const r = await apiFetch(`${API_BASE}/auth/request-verification`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'error');
+      if (body.email && quotaInfo) quotaInfo.email = body.email;
+      document.getElementById('verifyBannerMsg').textContent = t('verify.sent', { email: data.email || '' });
+      input.style.display = 'none';
+      btn.style.display = 'none';
+    } catch (e) {
+      document.getElementById('verifyBannerMsg').textContent = t('verify.sendFailed');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // ── Password reset (opened via ?reset=token from the email) ──
+  function showResetView(token) {
+    window._resetToken = token;
+    document.getElementById('authView').style.display = 'none';
+    document.getElementById('tabsBar').style.display = 'none';
+    ['pipelineView', 'historyView', 'adminView'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.style.display = 'none';
+    });
+    document.getElementById('resetView').style.display = 'block';
+  }
+
+  async function resetSubmit() {
+    const btn = document.getElementById('resetSubmitBtn');
+    const errEl = document.getElementById('resetError');
+    const infoEl = document.getElementById('resetInfo');
+    const pw = document.getElementById('resetPassword').value;
+    errEl.style.display = 'none'; infoEl.style.display = 'none';
+    if (pw.length < 8) { errEl.textContent = t('reset.tooShort'); errEl.style.display = 'block'; return; }
+    btn.disabled = true;
+    try {
+      const r = await fetch(`${API_BASE}/auth/reset`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: window._resetToken, password: pw }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || t('auth.errStatus', { status: r.status }));
+      infoEl.textContent = t('reset.done');
+      infoEl.style.display = 'block';
+      // Drop the token from the URL and return to sign-in shortly.
+      setTimeout(() => { history.replaceState(null, '', location.pathname); showAuthView(); }, 1800);
+    } catch (e) {
+      errEl.textContent = e.message || String(e);
+      errEl.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   // ── Video quota (free tier) ──
@@ -73,6 +155,7 @@
       quotaInfo = await resp.json();
     } catch { return; }
     updateQuotaUI();
+    updateVerifyBanner();
   }
 
   // Non-admin users confirm before spending a trial video
@@ -115,26 +198,69 @@
     pill.style.display = '';
   }
 
-  let authMode = 'login';
-  function toggleAuthMode() {
-    authMode = authMode === 'login' ? 'register' : 'login';
-    document.getElementById('authInviteRow').style.display = authMode === 'register' ? 'block' : 'none';
-    document.getElementById('authSubmitBtn').textContent = authMode === 'register' ? t('auth.register') : t('auth.signin');
+  let authMode = 'login';   // 'login' | 'register' | 'forgot'
+
+  function applyAuthMode() {
+    const reg = authMode === 'register', forgot = authMode === 'forgot';
+    document.getElementById('authPasswordRow').style.display = forgot ? 'none' : 'block';
+    document.getElementById('authEmailRow').style.display    = reg ? 'block' : 'none';
+    document.getElementById('authInviteRow').style.display   = reg ? 'block' : 'none';
+    document.getElementById('authForgotLink').style.display  = forgot ? 'none' : 'block';
+    document.getElementById('authUsernameLabel').textContent =
+      forgot ? t('auth.identifier') : t('auth.username');
+    document.getElementById('authSubmitBtn').textContent =
+      reg ? t('auth.register') : forgot ? t('auth.sendReset') : t('auth.signin');
     document.getElementById('authModeBtn').textContent =
-      authMode === 'register' ? t('auth.toSignin') : t('auth.toRegister');
+      reg ? t('auth.toSignin') : forgot ? t('auth.toSignin') : t('auth.toRegister');
     document.getElementById('authError').style.display = 'none';
+    document.getElementById('authInfo').style.display = 'none';
+  }
+
+  function toggleAuthMode() {
+    authMode = authMode === 'register' ? 'login' : (authMode === 'forgot' ? 'login' : 'register');
+    applyAuthMode();
+  }
+
+  function showForgot() {
+    authMode = 'forgot';
+    applyAuthMode();
   }
 
   async function authSubmit() {
     const btn = document.getElementById('authSubmitBtn');
     const errEl = document.getElementById('authError');
+    const infoEl = document.getElementById('authInfo');
+    btn.disabled = true;
+    errEl.style.display = 'none';
+    infoEl.style.display = 'none';
+
+    // ── Forgot password: request a reset link, always report success ──
+    if (authMode === 'forgot') {
+      try {
+        await fetch(`${API_BASE}/auth/forgot`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identifier: document.getElementById('authUsername').value.trim() }),
+        });
+        infoEl.textContent = t('auth.resetSent');
+        infoEl.style.display = 'block';
+      } catch {
+        infoEl.textContent = t('auth.resetSent');   // never reveal existence
+        infoEl.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+      }
+      return;
+    }
+
     const payload = {
       username: document.getElementById('authUsername').value.trim(),
       password: document.getElementById('authPassword').value,
     };
-    if (authMode === 'register') payload.invite = document.getElementById('authInvite').value.trim();
-    btn.disabled = true;
-    errEl.style.display = 'none';
+    if (authMode === 'register') {
+      payload.invite = document.getElementById('authInvite').value.trim();
+      payload.email = document.getElementById('authEmail').value.trim();
+    }
     try {
       const resp = await fetch(`${API_BASE}/auth/${authMode}`, {
         method: 'POST',
@@ -3545,6 +3671,9 @@
 
   // ── Session boot ──
   (async function initAuth() {
+    // A password-reset link takes priority over any existing session.
+    const resetTok = new URLSearchParams(location.search).get('reset');
+    if (resetTok) { showResetView(resetTok); return; }
     if (!authToken) { showAuthView(); return; }
     try {
       const r = await fetch(`${API_BASE}/auth/me`, { headers: { 'Authorization': 'Bearer ' + authToken } });
