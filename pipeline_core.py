@@ -246,12 +246,20 @@ def _send_email(to: str, subject: str, html: str) -> bool:
     body = json.dumps({"from": frm, "to": [to], "subject": subject, "html": html}).encode()
     req = urllib.request.Request(
         "https://api.resend.com/emails", data=body,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json",
+                 # A real User-Agent is REQUIRED: api.resend.com sits behind
+                 # Cloudflare, which blocks urllib's default UA with a 1010.
+                 "User-Agent": "hebrew-video-pipeline/1.0", "Accept": "application/json"})
     try:
         urllib.request.urlopen(req, timeout=15).read()
         return True
     except Exception as e:
-        print(f"[email] send failed: {e}")
+        detail = ""
+        try:
+            detail = " — " + e.read().decode()[:200]   # HTTPError carries the API message
+        except Exception:
+            pass
+        print(f"[email] send failed: {e}{detail}")
         return False
 
 
