@@ -125,7 +125,10 @@
     'burn.downloadAgain': { en: '⬇&nbsp; Download again', he: '⬇&nbsp; הורדה חוזרת' },
 
     // ── Schedule card ──
-    'sched.title':       { en: '📅 Schedule This Video', he: '📅 תזמון הסרטון' },
+    'sched.title':       { en: '📅 Schedule Video', he: '📅 תזמון סרטון' },
+    'sched.open':        { en: '📅  Schedule this video', he: '📅  תזמון הסרטון' },
+    'mc.connect':        { en: '🔗 Connect Metricool', he: '🔗 חיבור Metricool' },
+    'mc.connected':      { en: '✓ Metricool connected', he: '✓ Metricool מחובר' },
     'sched.intro':       { en: 'Schedule this video straight to Metricool. Unless <b>Auto-publish</b> is on, you approve the final publish inside Metricool.', he: 'תזמנו את הסרטון ישירות ל-Metricool. אלא אם <b>פרסום אוטומטי</b> מופעל, הפרסום הסופי מאושר על ידכם בתוך Metricool.' },
     'sched.platforms':   { en: 'Platforms', he: 'פלטפורמות' },
     'sched.publishTime': { en: 'Publish time', he: 'מועד פרסום' },
@@ -188,6 +191,7 @@
     'hist.loading':    { en: 'Loading…', he: 'טוען…' },
     'hist.empty':      { en: 'No videos yet - burn your first video and it will show up here.', he: 'אין עדיין סרטונים - צרבו את הסרטון הראשון והוא יופיע כאן.' },
     'hist.download':   { en: 'Download', he: 'הורדה' },
+    'hist.schedule':   { en: 'Schedule', he: 'תזמון' },
     'hist.delete':     { en: 'Delete', he: 'מחיקה' },
     'hist.deleteTitle': { en: 'Delete this video?', he: 'למחוק את הסרטון?' },
     'hist.deleteBody': { en: '“{name}” will be removed from history and can no longer be downloaded.', he: '"{name}" יוסר מההיסטוריה ולא ניתן יהיה להוריד אותו יותר.' },

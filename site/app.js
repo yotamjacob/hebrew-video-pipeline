@@ -58,6 +58,8 @@
     document.getElementById('tabsBar').style.display = 'none';
     const vb = document.getElementById('verifyBanner');
     if (vb) vb.style.display = 'none';
+    const mc = document.getElementById('metricoolChip');
+    if (mc) mc.style.display = 'none';
     ['pipelineView', 'historyView', 'adminView'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
@@ -71,6 +73,7 @@
     document.getElementById('tabsBar').style.display = 'flex';
     document.getElementById('pipelineView').style.display = 'block';
     refreshMediaToken();
+    refreshMetricoolChip();
     if (quotaInfo) { updateQuotaUI(); updateVerifyBanner(); } else refreshQuota();
   }
 
@@ -460,14 +463,14 @@
           outputKey: burnResult.output_key,
           filename:  job.outputFilename,
           videoKey:  (typeof videoKey !== 'undefined' ? videoKey : null),
+          hasTranscript: _hasTranscript(),
         };
-        // Download phase: the schedule section goes live, everything else
-        // stays greyed until the device download settles.
+        // Video is ready — reveal the Schedule button (opens the modal). Keep
+        // the rest greyed until the device download settles.
         unlockPipelineActions();
-        lockPipelineActions({ activeBtn: 'runBtn', activeCard: 'scheduleCard' });
-        if (typeof revealScheduleCard === 'function') revealScheduleCard();
-        const _sb = document.getElementById('scheduleBtn');
-        if (_sb) _sb.disabled = false;
+        lockPipelineActions({ activeBtn: 'openScheduleBtn' });
+        const _osb = document.getElementById('openScheduleBtn');
+        if (_osb) _osb.style.display = 'block';
         runBtn.disabled = true;
         // Device download is optional and non-blocking
         try {
@@ -541,10 +544,10 @@
   // cross-section action button is disabled. The active flow manages its
   // own button (spinner text etc.), so activeBtn is exempted.
   const LOCK_BTN_IDS  = ['runBtn', 'reprocessBtn', 'generateHookBtn',
-                         'findBrollBtn', 'suggestCaptionBtn', 'scheduleBtn',
+                         'findBrollBtn', 'openScheduleBtn',
                          'burnDownloadBtn'];   // startOverBtn stays clickable always
   const LOCK_CARD_IDS = ['optionsCard', 'captionEditorCard', 'hookCard', 'brollCard',
-                         'stockBrollCard', 'scheduleCard'];
+                         'stockBrollCard'];
   let _actionLockDepth = 0;
   const _actionLockSaved = new Map();
 
@@ -876,7 +879,8 @@
     });
     document.getElementById('reprocessBtn').style.display = 'none';
     document.getElementById('burnSuccessBanner').style.display = 'none';
-    { const _sc = document.getElementById('scheduleCard'); if (_sc) _sc.style.display = 'none'; }
+    { const _osb = document.getElementById('openScheduleBtn'); if (_osb) _osb.style.display = 'none';
+      const _so = document.getElementById('scheduleOverlay'); if (_so) _so.style.display = 'none'; }
     setSetupLocked(true);
 
     const aggr = AGGR_MAP[aggrSlider.value - 1];
@@ -1414,7 +1418,8 @@
     document.getElementById('reprocessBtn').style.display = 'none';
     setSetupLocked(false);
     document.getElementById('burnSuccessBanner').style.display = 'none';
-    { const _sc = document.getElementById('scheduleCard'); if (_sc) _sc.style.display = 'none'; }
+    { const _osb = document.getElementById('openScheduleBtn'); if (_osb) _osb.style.display = 'none';
+      const _so = document.getElementById('scheduleOverlay'); if (_so) _so.style.display = 'none'; }
     document.getElementById('stockBrollRerunBanner').style.display = 'none';
     document.getElementById('stockCostLimitBanner').style.display  = 'none';
     runBtn.textContent = t('run.pipelinePlain');
@@ -3185,7 +3190,8 @@
       _stepActivate('burn');
     }
     document.getElementById('burnSuccessBanner').style.display = 'none';
-    { const _sc = document.getElementById('scheduleCard'); if (_sc) _sc.style.display = 'none'; }
+    { const _osb = document.getElementById('openScheduleBtn'); if (_osb) _osb.style.display = 'none';
+      const _so = document.getElementById('scheduleOverlay'); if (_so) _so.style.display = 'none'; }
 
     const edited = getCaptionsFromEditor();
 
@@ -3264,15 +3270,15 @@
       // Video is ready on the server - reveal the schedule card NOW (scheduling
       // uses the server-side URL, it never waits on the device download). The
       // success banner appears only after the download below settles.
-      window._schedCtx = { outputKey: burnResult.output_key, filename: outFilename, videoKey: videoKey };
+      window._schedCtx = { outputKey: burnResult.output_key, filename: outFilename, videoKey: videoKey, hasTranscript: _hasTranscript() };
 
-      // Download phase: the schedule section goes live, everything else
-      // stays greyed until the device download settles.
+      // Video is ready — reveal the Schedule button (opens the modal). Keep the
+      // rest of the pipeline greyed until the device download settles; the
+      // Schedule button stays usable throughout.
       unlockPipelineActions();
-      lockPipelineActions({ activeBtn: 'runBtn', activeCard: 'scheduleCard' });
-      if (typeof revealScheduleCard === 'function') revealScheduleCard();
-      const _sb = document.getElementById('scheduleBtn');
-      if (_sb) _sb.disabled = false;
+      lockPipelineActions({ activeBtn: 'openScheduleBtn' });
+      const _osb = document.getElementById('openScheduleBtn');
+      if (_osb) _osb.style.display = 'block';
       runBtn.disabled = true;
       window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 
@@ -3476,6 +3482,14 @@
       const fname = (job.name || 'video').replace(/\.mp4$/i, '') + '_edited.mp4';
       window.location.href = _withToken(`${API_BASE}/download/${job.key}/?filename=${encodeURIComponent(fname)}`);
     };
+    const sch = document.createElement('button');
+    sch.className = 'history-btn';
+    sch.textContent = '\uD83D\uDCC5';   // \uD83D\uDCC5
+    sch.title = t('hist.schedule');
+    sch.onclick = () => openScheduleModal({
+      outputKey: job.key, filename: job.name || 'video', videoKey: '', hasTranscript: false,
+    });
+
     const del = document.createElement('button');
     del.className = 'history-btn history-btn-danger';
     del.textContent = '\uD83D\uDDD1\uFE0F';
@@ -3489,7 +3503,7 @@
       } catch (_) {}
       loadHistory();
     };
-    actions.append(dl, del);
+    actions.append(sch, dl, del);
 
     card.append(thumb, info, actions);
     return card;
@@ -3502,39 +3516,68 @@
     return typeof captionsData !== 'undefined' && Array.isArray(captionsData) && captionsData.length > 0;
   }
 
-  function revealScheduleCard() {
-    const card = document.getElementById('scheduleCard');
-    if (!card) return;
-    card.style.display = 'block';
-    expandCard('scheduleBody');
+  // Open the shared scheduling modal for one video.
+  // video = { outputKey, filename, videoKey, hasTranscript }
+  function openScheduleModal(video) {
+    window._schedCtx = video || {};
+    document.getElementById('schedVideoName').textContent = (video && video.filename) || '';
     const d = new Date();
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const dateEl = document.getElementById('schedDate');
     if (dateEl && !dateEl.value) { dateEl.value = iso; dateEl.min = iso; }
+    document.getElementById('schedStatus').style.display = 'none';
+    document.getElementById('schedError').style.display = 'none';
+    // Suggest-caption needs the in-memory transcript — fresh videos only.
     const sb = document.getElementById('suggestCaptionBtn');
     if (sb) {
-      sb.disabled = !_hasTranscript();
-      sb.textContent = _hasTranscript() ? t('sched.suggest') : t('sched.suggestOff');
+      const has = !!(video && video.hasTranscript);
+      sb.style.display = has ? 'block' : 'none';
+      sb.disabled = !has;
+      sb.textContent = t('sched.suggest');
     }
     checkMetricoolStatus();
+    document.getElementById('scheduleOverlay').style.display = 'flex';
   }
+  function openScheduleFresh() { openScheduleModal(window._schedCtx || {}); }
+  function closeScheduleModal() { document.getElementById('scheduleOverlay').style.display = 'none'; }
 
   async function checkMetricoolStatus() {
     const connectEl = document.getElementById('schedConnect');
     const schedBtn = document.getElementById('scheduleBtn');
     try {
       const r = await apiFetch(`${API_BASE}/oauth/status`, { cache: 'no-store' });
-      const { connected } = await r.json();
-      connectEl.style.display = connected ? 'none' : 'block';
-      schedBtn.style.display = connected ? 'block' : 'none';
+      metricoolConnected = (await r.json()).connected;
     } catch {
-      connectEl.style.display = 'block';
-      schedBtn.style.display = 'none';
+      metricoolConnected = false;
     }
+    if (connectEl) connectEl.style.display = metricoolConnected ? 'none' : 'block';
+    if (schedBtn)  schedBtn.style.display  = metricoolConnected ? 'block' : 'none';
+    renderMetricoolChip();
   }
 
   function connectMetricool() {
     window.open(_withToken(`${API_BASE}/oauth/start`), '_blank', 'noopener');
+  }
+
+  // ── Account-level Metricool connection chip (topbar) ──
+  let metricoolConnected = null;
+  function renderMetricoolChip() {
+    const chip = document.getElementById('metricoolChip');
+    if (!chip) return;
+    chip.style.display = 'inline-block';
+    chip.textContent = metricoolConnected ? t('mc.connected') : t('mc.connect');
+    chip.classList.toggle('connected', !!metricoolConnected);
+  }
+  async function refreshMetricoolChip() {
+    try {
+      const r = await apiFetch(`${API_BASE}/oauth/status`, { cache: 'no-store' });
+      metricoolConnected = (await r.json()).connected;
+    } catch { metricoolConnected = false; }
+    renderMetricoolChip();
+  }
+  function onMetricoolChip() {
+    if (metricoolConnected) return;   // already connected
+    connectMetricool();
   }
 
   // Show YouTube-only required fields when YouTube is selected
@@ -3562,7 +3605,6 @@
     const ta = document.getElementById('schedCaption');
     const errEl = document.getElementById('schedError');
     const orig = btn.textContent;
-    lockPipelineActions({ activeBtn: 'suggestCaptionBtn', activeCard: 'scheduleCard' });
     btn.disabled = true; btn.textContent = t('sched.generating');
     errEl.style.display = 'none';
     try {
@@ -3591,7 +3633,6 @@
       errEl.textContent = t('sched.captionFailed', {msg: String(e.message).slice(0, 80)});
       errEl.style.display = 'block';
     } finally {
-      unlockPipelineActions();
       btn.disabled = false; btn.textContent = orig;
     }
   }
@@ -3635,7 +3676,6 @@
     };
 
     const orig = btn.textContent;
-    lockPipelineActions({ activeBtn: 'scheduleBtn', activeCard: 'scheduleCard' });
     btn.disabled = true; btn.textContent = t('sched.scheduling');
     statusEl.className = 'sched-status busy'; statusEl.textContent = t('sched.sending'); statusEl.style.display = 'block';
     try {
@@ -3665,10 +3705,8 @@
       statusEl.innerHTML = t('sched.okLine', {date: date, time: time}) +
         (plannerUrl ? ` <a href="${plannerUrl}" target="_blank" rel="noopener">${t('sched.openLink')}</a>` : publishNote);
       btn.textContent = t('sched.scheduled');
-      unlockPipelineActions();
       setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);
     } catch (e) {
-      unlockPipelineActions();
       statusEl.style.display = 'none';
       errEl.textContent = t('sched.cantSchedule', {msg: String(e.message).slice(0, 160)});
       errEl.style.display = 'block';
@@ -3706,7 +3744,7 @@
     const ap = document.getElementById('schedAutoPublish');
     if (ap && ap.checked) document.getElementById('autoPublishDesc').textContent = t('sched.apOn');
     const sb = document.getElementById('suggestCaptionBtn');
-    if (sb && window._schedCtx) sb.textContent = _hasTranscript() ? t('sched.suggest') : t('sched.suggestOff');
+    if (sb) sb.textContent = t('sched.suggest');
     const upLbl = document.querySelector('#checkUpscale .check-label');
     if (upLbl) upLbl.textContent = _enhanceVideoMode() === 'esrgan' ? t('prog.upscale') : t('prog.enhanceVideo');
     updateQuotaUI();

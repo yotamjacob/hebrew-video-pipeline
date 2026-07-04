@@ -60,7 +60,10 @@
   <button class="tab" id="tabAdmin" role="tab" aria-selected="false" onclick="switchTab('admin')" style="display:none" data-i18n="tab.admin">🛠️ Admin</button>
   <button class="tab" id="logoutTab" onclick="logout()" title="Sign out" data-i18n="tab.logout">🚪 Logout</button>
 </div>
-<div class="quota-pill-row"><div id="quotaPill" class="quota-pill" style="display:none"></div></div>
+<div class="quota-pill-row">
+  <button id="metricoolChip" class="mc-chip" style="display:none" onclick="onMetricoolChip()"></button>
+  <div id="quotaPill" class="quota-pill" style="display:none"></div>
+</div>
 </div>
 
 <!-- ── Email verification nudge (non-blocking) ── -->
@@ -497,71 +500,8 @@
     <button class="download-btn" id="burnDownloadBtn" style="width:100%;margin-top:4px" data-i18n="burn.downloadAgain">⬇&nbsp; Download again</button>
   </div>
 
-  <!-- Schedule this video (handoff helper) -->
-  <div class="card" id="scheduleCard" style="display:none">
-    <div class="card-header" onclick="toggleCard('scheduleBody', this)">
-      <p class="options-title" data-i18n="sched.title">📅 Schedule This Video</p>
-      <i class="collapse-chevron">⌄</i>
-    </div>
-    <div id="scheduleBody" style="padding-top:14px">
-    <p class="sched-intro" data-i18n="sched.intro">Schedule this video straight to Metricool. Unless <b>Auto-publish</b> is on, you approve the final publish inside Metricool.</p>
-
-    <label class="sched-label" data-i18n="sched.platforms">Platforms</label>
-    <div class="platform-grid">
-      <label class="platform-opt"><input type="checkbox" class="sched-platform" value="instagram" checked><span class="pf-badge instagram">IG</span>Instagram</label>
-      <label class="platform-opt"><input type="checkbox" class="sched-platform" value="facebook"><span class="pf-badge facebook">FB</span>Facebook</label>
-      <label class="platform-opt"><input type="checkbox" class="sched-platform" value="tiktok"><span class="pf-badge tiktok">TT</span>TikTok</label>
-      <label class="platform-opt"><input type="checkbox" class="sched-platform" value="youtube"><span class="pf-badge youtube">YT</span>YouTube</label>
-    </div>
-
-    <label class="sched-label"><span data-i18n="sched.publishTime">Publish time</span> <span class="sched-hint" data-i18n="sched.timeHint">Israel time · best slot ~20:00</span></label>
-    <div class="sched-datetime">
-      <input type="date" id="schedDate" class="sched-input">
-      <input type="time" id="schedTime" class="sched-input" value="20:00">
-    </div>
-
-    <div class="option-row" style="border-bottom:none">
-      <div class="option-icon">🚀</div>
-      <div class="option-text">
-        <div class="option-label" data-i18n="sched.autoPublish">Auto-publish</div>
-        <div class="option-desc" id="autoPublishDesc" data-i18n="sched.apOff">Off - post waits in Metricool for your approval</div>
-      </div>
-      <div class="toggle-wrap">
-        <label class="toggle">
-          <input type="checkbox" id="schedAutoPublish" />
-          <div class="toggle-track"></div>
-          <div class="toggle-thumb"></div>
-        </label>
-      </div>
-    </div>
-
-    <label class="sched-label" data-i18n="sched.caption">Caption</label>
-    <textarea id="schedCaption" class="sched-caption" rows="5" placeholder="Write a caption, or generate a suggestion from the video…" data-i18n-placeholder="sched.captionPh"></textarea>
-    <button id="suggestCaptionBtn" class="action-btn" style="margin-top:10px" onclick="suggestCaption()" data-i18n="sched.suggest">✨ Suggest caption from video</button>
-
-    <div id="ytFields" class="yt-fields" style="display:none">
-      <label class="sched-label"><span data-i18n="sched.ytDetails">YouTube details</span> <span class="sched-hint" data-i18n="sched.required">required</span></label>
-      <input type="text" id="ytTitle" class="sched-input" placeholder="Video title (required for YouTube)" data-i18n-placeholder="sched.ytTitlePh">
-      <div class="yt-row">
-        <select id="ytPrivacy" class="sched-input">
-          <option value="public" data-i18n="sched.public">Public</option>
-          <option value="unlisted" data-i18n="sched.unlisted">Unlisted</option>
-          <option value="private" data-i18n="sched.private">Private</option>
-        </select>
-        <label class="yt-kids"><input type="checkbox" id="ytKids"><span data-i18n="sched.kids">Made for kids</span></label>
-      </div>
-    </div>
-
-    <div id="schedConnect" style="display:none;margin-top:16px">
-      <p class="sched-connect-note" data-i18n="sched.connectNote">🔗 Connect your Metricool account once to schedule straight from here.</p>
-      <button class="run-btn" onclick="connectMetricool()" data-i18n="sched.connect">Connect Metricool</button>
-      <button class="action-btn" style="margin-top:8px" onclick="checkMetricoolStatus()" data-i18n="sched.checkAgain">I've connected - check again</button>
-    </div>
-    <button id="scheduleBtn" class="run-btn" onclick="scheduleNow()" style="display:none;margin-top:16px" data-i18n="sched.schedule">🚀&nbsp; Schedule on Metricool</button>
-    <div id="schedStatus" class="sched-status" style="display:none"></div>
-    <div id="schedError" class="sched-error" style="display:none"></div>
-    </div>
-  </div>
+  <!-- Schedule this video — opens the shared scheduling modal -->
+  <button id="openScheduleBtn" class="run-btn" style="display:none;margin-top:16px" onclick="openScheduleFresh()" data-i18n="sched.open">📅&nbsp; Schedule this video</button>
 
   <!-- Status -->
   <div class="card status" id="statusCard">
@@ -699,6 +639,73 @@
 </div>
 
 <!-- ── Confirm dialog ── -->
+<!-- ── Schedule modal (shared by the post-burn button and History rows) ── -->
+<div id="scheduleOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeScheduleModal()">
+  <div class="modal-dialog sched-dialog">
+    <div class="sched-dialog-head">
+      <p class="modal-dialog-title" data-i18n="sched.title">📅 Schedule Video</p>
+      <button class="sched-close" onclick="closeScheduleModal()" aria-label="Close">✕</button>
+    </div>
+    <p class="sched-video-name" id="schedVideoName"></p>
+    <p class="sched-intro" data-i18n="sched.intro">Schedule this video straight to Metricool. Unless <b>Auto-publish</b> is on, you approve the final publish inside Metricool.</p>
+
+    <label class="sched-label" data-i18n="sched.platforms">Platforms</label>
+    <div class="platform-grid">
+      <label class="platform-opt"><input type="checkbox" class="sched-platform" value="instagram" checked><span class="pf-badge instagram">IG</span>Instagram</label>
+      <label class="platform-opt"><input type="checkbox" class="sched-platform" value="facebook"><span class="pf-badge facebook">FB</span>Facebook</label>
+      <label class="platform-opt"><input type="checkbox" class="sched-platform" value="tiktok"><span class="pf-badge tiktok">TT</span>TikTok</label>
+      <label class="platform-opt"><input type="checkbox" class="sched-platform" value="youtube"><span class="pf-badge youtube">YT</span>YouTube</label>
+    </div>
+
+    <label class="sched-label"><span data-i18n="sched.publishTime">Publish time</span> <span class="sched-hint" data-i18n="sched.timeHint">Israel time · best slot ~20:00</span></label>
+    <div class="sched-datetime">
+      <input type="date" id="schedDate" class="sched-input">
+      <input type="time" id="schedTime" class="sched-input" value="20:00">
+    </div>
+
+    <div class="option-row" style="border-bottom:none">
+      <div class="option-icon">🚀</div>
+      <div class="option-text">
+        <div class="option-label" data-i18n="sched.autoPublish">Auto-publish</div>
+        <div class="option-desc" id="autoPublishDesc" data-i18n="sched.apOff">Off - post waits in Metricool for your approval</div>
+      </div>
+      <div class="toggle-wrap">
+        <label class="toggle">
+          <input type="checkbox" id="schedAutoPublish" />
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
+    </div>
+
+    <label class="sched-label" data-i18n="sched.caption">Caption</label>
+    <textarea id="schedCaption" class="sched-caption" rows="5" placeholder="Write a caption, or generate a suggestion from the video…" data-i18n-placeholder="sched.captionPh"></textarea>
+    <button id="suggestCaptionBtn" class="action-btn" style="margin-top:10px" onclick="suggestCaption()" data-i18n="sched.suggest">✨ Suggest caption from video</button>
+
+    <div id="ytFields" class="yt-fields" style="display:none">
+      <label class="sched-label"><span data-i18n="sched.ytDetails">YouTube details</span> <span class="sched-hint" data-i18n="sched.required">required</span></label>
+      <input type="text" id="ytTitle" class="sched-input" placeholder="Video title (required for YouTube)" data-i18n-placeholder="sched.ytTitlePh">
+      <div class="yt-row">
+        <select id="ytPrivacy" class="sched-input">
+          <option value="public" data-i18n="sched.public">Public</option>
+          <option value="unlisted" data-i18n="sched.unlisted">Unlisted</option>
+          <option value="private" data-i18n="sched.private">Private</option>
+        </select>
+        <label class="yt-kids"><input type="checkbox" id="ytKids"><span data-i18n="sched.kids">Made for kids</span></label>
+      </div>
+    </div>
+
+    <div id="schedConnect" style="display:none;margin-top:16px">
+      <p class="sched-connect-note" data-i18n="sched.connectNote">🔗 Connect your Metricool account once to schedule straight from here.</p>
+      <button class="run-btn" onclick="connectMetricool()" data-i18n="sched.connect">Connect Metricool</button>
+      <button class="action-btn" style="margin-top:8px" onclick="checkMetricoolStatus()" data-i18n="sched.checkAgain">I've connected - check again</button>
+    </div>
+    <button id="scheduleBtn" class="run-btn" onclick="scheduleNow()" style="display:none;margin-top:16px" data-i18n="sched.schedule">🚀&nbsp; Schedule on Metricool</button>
+    <div id="schedStatus" class="sched-status" style="display:none"></div>
+    <div id="schedError" class="sched-error" style="display:none"></div>
+  </div>
+</div>
+
 <div id="confirmOverlay" class="modal-overlay" style="display:none">
   <div class="modal-dialog">
     <p class="modal-dialog-title" id="confirmTitle" data-i18n="confirm.burnTitle">Ready to burn?</p>

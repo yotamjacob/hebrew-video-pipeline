@@ -542,6 +542,16 @@
       box-shadow: 0 12px 40px rgba(55, 7, 100, 0.22);
     }
     .modal-dialog-title { font-size: 1.05rem; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+    /* Scheduling modal: taller form, scrolls inside the dialog */
+    .sched-dialog { max-width: 440px; max-height: 90vh; overflow-y: auto; }
+    .sched-dialog-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+    .sched-dialog-head .modal-dialog-title { margin-bottom: 0; }
+    .sched-close {
+      background: none; border: none; font-size: 1.05rem; color: var(--muted);
+      cursor: pointer; line-height: 1; padding: 4px 8px; border-radius: 8px; font-family: inherit;
+    }
+    .sched-close:hover { background: var(--purple-50); color: var(--text); }
+    .sched-video-name { font-size: 0.8rem; color: var(--purple-600); font-weight: 700; margin: 2px 0 14px; word-break: break-word; }
     .modal-dialog-body  { font-size: 0.88rem; color: var(--muted); margin-bottom: 24px; line-height: 1.5; }
     .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
     .modal-cancel-btn {
@@ -1334,6 +1344,16 @@
   font-weight: 700;
 }
 .quota-pill-empty { background: #FEE2E2; color: #B91C1C; }
+
+.mc-chip {
+  display: inline-block; margin: 8px 8px 8px 0;
+  padding: 7px 14px; border-radius: 999px;
+  border: 1.5px solid var(--purple-200); background: var(--white);
+  color: var(--purple-700); font-size: 0.78rem; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+}
+.mc-chip:hover { background: var(--purple-50); }
+.mc-chip.connected { background: #ECFDF5; border-color: #A7F3D0; color: #059669; cursor: default; }
 
 .admin-row {
   display: flex; align-items: center; gap: 10px;

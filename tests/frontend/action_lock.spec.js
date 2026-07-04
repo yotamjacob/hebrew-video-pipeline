@@ -53,7 +53,7 @@ test('hook generation greys out every other section but keeps its own card live'
   await expect(page.locator('#captionEditorCard')).not.toHaveClass(/action-locked/);
 });
 
-test('schedule card is usable while the device download is in flight', async ({ page }) => {
+test('schedule button is usable while the device download is in flight', async ({ page }) => {
   await runFullUpload(page);
   // Keep the post-burn device download in flight
   await page.unroute(`${API_BASE}/download/**`);
@@ -69,9 +69,9 @@ test('schedule card is usable while the device download is in flight', async ({ 
   await page.click('#runBtn');
   await page.click('#confirmOk');
 
-  // Burn done, download still running: schedule card visible AND unlocked…
-  await expect(page.locator('#scheduleCard')).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator('#scheduleCard')).not.toHaveClass(/action-locked/);
+  // Burn done, download still running: the Schedule button appears AND is usable…
+  await expect(page.locator('#openScheduleBtn')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('#openScheduleBtn')).toBeEnabled();
   // …but the success banner (with Download again) waits for the download
   await expect(page.locator('#burnSuccessBanner')).toBeHidden();
   // …while burn stays held and the other sections stay greyed until it settles
