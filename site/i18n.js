@@ -9,7 +9,7 @@
     // ── Hero / chrome ──
     'hero.sub':        { en: 'Hebrew video editing at the click of a button', he: 'עריכת וידאו בעברית בלחיצת כפתור' },
     'hero.tags':       { en: 'Auto-cut · Captions · Hooks · B-roll · Schedule', he: 'חיתוך אוטומטי · כתוביות · הוקים · בי-רול · תזמון' },
-    'upload.bestFor':  { en: '🗣️ Built for Hebrew talking videos - the clearer the audio, the better the captions.', he: '🗣️ מותאם לסרטוני דיבור בעברית - ככל שהאודיו ברור יותר, הכתוביות טובות יותר.' },
+    'upload.bestFor':  { en: 'Built for Hebrew talking videos - the clearer the audio, the better the captions.', he: 'מותאם לסרטוני דיבור בעברית - ככל שהאודיו ברור יותר, הכתוביות טובות יותר.' },
     'footer.contact':  { en: 'Contact us / leave feedback', he: 'צרו קשר / שלחו משוב' },
     'footer.legal':    { en: 'Privacy & Terms', he: 'פרטיות ותנאי שימוש' },
     'boot.waking':     { en: 'One moment, waking up the server...', he: 'רק רגע, מעירים את השרת...' },
@@ -163,7 +163,7 @@
     'sched.connectNote': { en: 'Connect your Metricool account once to schedule straight from here.', he: 'חברו את חשבון Metricool פעם אחת כדי לתזמן ישירות מכאן.' },
     'sched.connect':     { en: 'Connect Metricool', he: 'חיבור Metricool' },
     'sched.checkAgain':  { en: "I've connected - check again", he: 'התחברתי - בדקו שוב' },
-    'sched.schedule':    { en: '🚀&nbsp; Schedule on Metricool', he: '🚀&nbsp; תזמון ב-Metricool' },
+    'sched.schedule':    { en: 'Schedule on Metricool', he: 'תזמון ב-Metricool' },
     'sched.scheduling':  { en: '⏳ Scheduling…', he: '⏳ מתזמן…' },
     'sched.scheduled':   { en: '✅ Scheduled', he: '✅ תוזמן' },
     'sched.sending':     { en: 'Sending to Metricool…', he: 'שולח ל-Metricool…' },
@@ -385,7 +385,7 @@
     'admin.save':       { en: 'Save', he: 'שמירה' },
     'admin.saveFailed': { en: 'Failed', he: 'נכשל' },
 
-    'hero.hello': { en: 'Hello, {name} 👋', he: 'שלום, {name} 👋' },
+    'hero.hello': { en: 'Hello, {name}', he: 'שלום, {name}' },
     'quota.confirmTitle': { en: 'Use 1 trial video?', he: 'להשתמש בסרטון ניסיון אחד?' },
     'quota.confirmBody':  { en: 'You have {left} of {limit} trial videos left. Processing this video will use one of them.', he: 'נשארו לכם {left} מתוך {limit} סרטוני ניסיון. עיבוד הסרטון ישתמש באחד מהם.' },
     'quota.confirmOk':    { en: 'Process video', he: 'עיבוד הסרטון' },

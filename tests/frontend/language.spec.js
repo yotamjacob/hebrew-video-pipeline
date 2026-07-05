@@ -64,7 +64,7 @@ test('state-driven labels re-render on language switch', async ({ page }) => {
   await page.click('#langToggle');
   await expect(page.locator('#enhanceVideoDesc')).toContainText('adds a few minutes');
   const warnColor = await page.locator('#enhanceVideoDesc .ev-warn').evaluate(el => getComputedStyle(el).color);
-  expect(warnColor).toBe('rgb(194, 85, 75)');   // --red (warm brick)
+  expect(warnColor).toBe('rgb(176, 80, 60)');   // --red (muted brick)
   // Aggressiveness desc follows too
   await expect(page.locator('#aggrDesc')).toContainText('Aggressive');
 });
