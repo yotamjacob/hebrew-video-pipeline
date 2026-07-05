@@ -133,8 +133,19 @@ output_key = burn_res.get("output_key", "")
 check("burn returned output_key", bool(output_key), json.dumps(burn_res)[:200])
 
 # ── 5. Download the burned video ────────────────────────────────────────────
+# The first read right after a burn can stall while the container reloads the
+# volume — retry once before failing.
 print(f"\n[5/5] /download  ({output_key})")
-dl = requests.get(f"{API_BASE}/download/{output_key}/", headers=H, timeout=120)
+dl = None
+for attempt in (1, 2):
+    try:
+        dl = requests.get(f"{API_BASE}/download/{output_key}/", headers=H, timeout=300)
+        break
+    except requests.exceptions.RequestException as e:
+        if attempt == 2:
+            check("download 200", False, f"{type(e).__name__}: {e}")
+        print(f"  download attempt {attempt} failed ({type(e).__name__}) — retrying…")
+        time.sleep(5)
 check(f"download 200", dl.status_code == 200, f"{dl.status_code}: {dl.text[:200]}")
 final = dl.content
 check(f"final video non-empty ({len(final):,} bytes)", len(final) > 1000)
