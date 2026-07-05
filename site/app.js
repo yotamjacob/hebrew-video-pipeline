@@ -716,9 +716,13 @@
       return;
     }
 
-    // Read duration from the video element
+    // Read duration + resolution from the video element
     fileDetail.textContent = t('file.reading', {size: formatSize(file.size)});
-    videoDuration = await getVideoDuration(file);
+    const meta = await getVideoMeta(file);
+    videoDuration = meta.duration;
+    // 4K if the long edge is ~3840 (landscape) or ~2160 tall portrait 4K -
+    // i.e. the larger dimension reaches ~3000px. QHD (2560) is not flagged.
+    const is4K = Math.max(meta.width || 0, meta.height || 0) >= 3000;
 
     if (videoDuration !== null) {
       fileDetail.textContent = formatSize(file.size) + ' · ' + formatDuration(videoDuration);
@@ -737,8 +741,12 @@
     blocked = false;
     runBtn.disabled = false;
 
-    // Warnings
-    if (file.size > WARN_BYTES) {
+    // Warnings (one, most-specific first). 4K takes precedence: it explains
+    // WHY the upload is slow (huge bitrate) without asking the user to lower
+    // quality - just sets the expectation.
+    if (is4K) {
+      showWarnNotice(t('file.res4kTitle'), t('file.res4k'));
+    } else if (file.size > WARN_BYTES) {
       showWarnNotice(t('file.largeWarnTitle'), t('file.largeWarn', {size: formatSize(file.size)}));
     } else if (videoDuration !== null && videoDuration > WARN_SECS) {
       showWarnNotice(t('notice.longTitle'), t('notice.long', {dur: formatDuration(videoDuration)}));
@@ -763,22 +771,22 @@
     resetStatus();
   });
 
-  // ── Duration helper ──
-  function getVideoDuration(file) {
+  // ── Metadata helper (duration + resolution in one pass) ──
+  function getVideoMeta(file) {
     return new Promise(resolve => {
       const video = document.createElement('video');
       const url   = URL.createObjectURL(file);
       // Detach src before revoking - Chrome keeps fetching the blob after
       // loadedmetadata and logs ERR_FILE_NOT_FOUND if it's already revoked.
-      const done = d => {
+      const done = meta => {
         video.removeAttribute('src');
         video.load();
         URL.revokeObjectURL(url);
-        resolve(d);
+        resolve(meta);
       };
       video.preload = 'metadata';
-      video.onloadedmetadata = () => done(video.duration);
-      video.onerror = () => done(null);
+      video.onloadedmetadata = () => done({ duration: video.duration, width: video.videoWidth, height: video.videoHeight });
+      video.onerror = () => done({ duration: null, width: 0, height: 0 });
       video.src = url;
     });
   }

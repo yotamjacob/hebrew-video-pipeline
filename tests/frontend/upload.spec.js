@@ -335,3 +335,20 @@ test('resume: a retry skips chunks the server already received', async ({ page }
   expect(posts['1']).toBe(1);
   expect(posts['2']).toBeGreaterThanOrEqual(2);   // retried until it succeeded
 });
+
+test('4K video shows a slow-upload warning (quality kept as-is)', async ({ page }) => {
+  const { TINY_MP4_15S } = require('./fixtures');
+  await mockAllApis(page);
+  // Report 4K dimensions from the loaded video's metadata (the real fixture
+  // loads fine unpadded; we just override the reported resolution).
+  await page.evaluate(() => {
+    Object.defineProperty(HTMLVideoElement.prototype, 'videoWidth',  { configurable: true, get: () => 3840 });
+    Object.defineProperty(HTMLVideoElement.prototype, 'videoHeight', { configurable: true, get: () => 2160 });
+  });
+  await page.setInputFiles('#fileInput', { name: 'uhd.mp4', mimeType: 'video/mp4', buffer: TINY_MP4_15S });
+  await expect(page.locator('#noticeWarn')).toBeVisible({ timeout: 10_000 });
+  const title = await page.locator('#noticeWarnTitle').textContent();
+  expect(title).toMatch(/4K/);
+  // It's a warning, not a block - the user can still process.
+  await expect(page.locator('#runBtn')).toBeEnabled();
+});

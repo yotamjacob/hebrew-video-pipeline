@@ -253,6 +253,8 @@
     'file.tooLargeTitle': { en: 'File too large', he: 'הקובץ גדול מדי' },
     'file.tooLarge':      { en: 'Max size is 500 MB. This file is {size}. Please trim or compress it first.', he: 'הגודל המרבי הוא 500 MB. הקובץ הזה שוקל {size}. קצרו או דחסו אותו קודם.' },
     'file.reading':       { en: '{size} · reading…', he: '{size} · קורא…' },
+    'file.res4kTitle':    { en: '4K video', he: 'סרטון 4K' },
+    'file.res4k':         { en: 'This is a 4K video, so the file is large - the upload may take a few minutes on a mobile connection. Video quality is kept as-is. Keep the app open until the upload finishes.', he: 'זהו סרטון 4K, ולכן הקובץ גדול - ההעלאה עשויה לקחת כמה דקות בחיבור סלולרי. איכות הווידאו נשמרת כמו שהיא. השאירו את האפליקציה פתוחה עד שההעלאה תסתיים.' },
     'file.largeWarnTitle': { en: 'Large file', he: 'קובץ גדול' },
     'file.largeWarn':     { en: '{size} - the upload itself may take 30-60 seconds depending on your connection.', he: '{size} - ההעלאה עצמה עשויה לקחת 30-60 שניות, תלוי בחיבור.' },
     'file.removeConfirm': { en: 'Remove the attached video?', he: 'להסיר את הסרטון שצורף?' },
