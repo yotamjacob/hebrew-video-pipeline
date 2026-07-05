@@ -15,7 +15,7 @@
     'boot.waking':     { en: 'One moment, waking up the server...', he: 'רק רגע, מעירים את השרת...' },
     'tab.create':      { en: '🎬 Create', he: '🎬 יצירה' },
     'tab.history':     { en: '🗂️ History', he: '🗂️ היסטוריה' },
-    'tab.logout':      { en: 'Logout', he: 'התנתקות' },
+    'tab.logout':      { en: '🚪 Sign out', he: '🚪 התנתקות' },
     'reconnect.msg':     { en: 'A previous job is still running - tap to reconnect and get your result.', he: 'עבודה קודמת עדיין רצה - הקישו כדי להתחבר מחדש ולקבל את התוצאה.' },
     'reconnect.resume':  { en: 'Resume', he: 'המשך' },
     'reconnect.dismiss': { en: 'Dismiss', he: 'סגירה' },
