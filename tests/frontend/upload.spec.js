@@ -252,3 +252,19 @@ test('unreadable picked file fails fast with a re-select message', async ({ page
   const msg = await page.locator('#errorMsg').textContent();
   expect(msg).toMatch(/select the file again|בחרו את הקובץ מחדש/);
 });
+
+test('a stalled (silent) chunk connection aborts and surfaces an error, not an endless spin', async ({ page }) => {
+  test.setTimeout(60_000);
+  await mockAllApis(page);
+  await selectFile(page);
+  // Shrink the stall watchdog so the test runs fast, then make chunk requests
+  // hang forever (connect, no response) - the classic "0% for minutes" stall.
+  await page.evaluate(() => { window.__CHUNK_STALL_MS = 400; });
+  await page.route(/\/upload_chunk\//, () => { /* never fulfill: hang */ });
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await expect(page.locator('#statusError')).toBeVisible({ timeout: 40_000 });
+  const log = await page.locator('#errorLog').textContent();
+  expect(log.toLowerCase()).toContain('stall');
+  expect(log).toContain('giving up');
+});

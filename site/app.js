@@ -1058,68 +1058,109 @@
   // ingress reroutes the overflow with a 303 that browsers can't follow for
   // POSTs. 6 stays comfortably under the cap and saturates most uplinks.
   const UPLOAD_CONCURRENCY = 6;
+  // POST one chunk via XHR (not fetch): fetch reports no upload progress and
+  // has no timeout, so on a slow mobile uplink the bar sits at 0% until a whole
+  // 5 MB chunk finishes and a stalled connection hangs forever. XHR gives
+  // byte-level progress AND lets us abort a connection that has STALLED (no
+  // bytes moved for STALL_MS) - distinct from merely slow, which we let run.
+  // Rejects with a flagged error: isTerminal (don't retry), isServer (bounded),
+  // else network/stall (bounded, but survives backgrounding since a frozen page
+  // fires no progress and its timers are paused).
+  const CHUNK_STALL_MS = 20_000;
+  function _postChunkBytes(url, body, onLoaded) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      let watchdog;
+      const stallMs = window.__CHUNK_STALL_MS || CHUNK_STALL_MS;   // test seam
+      const arm = () => {
+        clearTimeout(watchdog);
+        watchdog = setTimeout(() => { try { xhr.abort(); } catch (_) {}
+          reject(Object.assign(new Error('upload stalled'), { isNetwork: true })); }, stallMs);
+      };
+      xhr.open('POST', url);
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      if (authToken) xhr.setRequestHeader('Authorization', 'Bearer ' + authToken);
+      xhr.upload.onprogress = e => { arm(); if (e.lengthComputable) onLoaded(e.loaded); };
+      xhr.onload = () => {
+        clearTimeout(watchdog);
+        if (xhr.status >= 200 && xhr.status < 300) { resolve(); return; }
+        if (xhr.status === 401) { _sessionExpired();
+          reject(Object.assign(new Error(t('auth.sessionExpired')), { isTerminal: true })); return; }
+        if (xhr.status >= 400 && xhr.status < 500 && xhr.status !== 408 && xhr.status !== 429) {
+          let msg; try { msg = JSON.parse(xhr.responseText).error; } catch (_) {}
+          reject(Object.assign(new Error(msg || ''), { isTerminal: true, httpStatus: xhr.status })); return;
+        }
+        reject(Object.assign(new Error(`server ${xhr.status}`), { isServer: true, httpStatus: xhr.status }));
+      };
+      xhr.onerror   = () => { clearTimeout(watchdog); reject(Object.assign(new Error('Failed to fetch'), { isNetwork: true })); };
+      xhr.ontimeout = () => { clearTimeout(watchdog); reject(Object.assign(new Error('upload stalled'), { isNetwork: true })); };
+      arm();
+      xhr.send(body);
+    });
+  }
+
   async function chunkedUpload(file, onProgress) {
     const key = crypto.randomUUID().replace(/-/g, '');
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-    let bytesUploaded = 0;
+    // Per-chunk loaded bytes - summed for accurate progress across concurrent
+    // chunks (each in-flight chunk contributes its own live byte count).
+    const loadedByChunk = new Array(totalChunks).fill(0);
+    const report = () => onProgress(loadedByChunk.reduce((a, b) => a + b, 0) / file.size);
 
     async function uploadChunk(i) {
       const start = i * CHUNK_SIZE;
       const end   = Math.min(start + CHUNK_SIZE, file.size);
+      const chunkLen = end - start;
       const slice = file.slice(start, end);
       const MAX_SERVER_ATTEMPTS = 4;    // 408/429/5xx responses
-      // Network-error retries are capped by AWAKE attempts, not wall-clock: a
-      // backgrounded page is frozen and burns no attempts, so the upload still
-      // survives the phone being minimized - but a genuinely broken connection
-      // surfaces as a real error (with the log) in ~30s instead of spinning.
-      const MAX_NET_ATTEMPTS = 12;
+      // Network/stall retries are capped by AWAKE attempts, not wall-clock: a
+      // backgrounded page is frozen and burns no attempts, so the upload
+      // survives the phone being minimized. A genuinely dead connection is
+      // bounded to ~6 attempts (each a fast error, or up to STALL_MS if it
+      // hangs) so it surfaces a real error in ~2 min instead of spinning.
+      const MAX_NET_ATTEMPTS = 6;
       let serverAttempts = 0, netAttempts = 0, attempt = 0;
       const pctEl = document.getElementById('uploadBarPct');
       while (true) {
         if (attempt++ > 0) await new Promise(r => setTimeout(r, 2000));
+        loadedByChunk[i] = 0; report();
+        // Read the chunk bytes explicitly before sending. On Android a picked
+        // file can silently become unreadable (moved, changed, or cloud-synced
+        // via Google Photos); reading first surfaces that as a terminal error
+        // (only re-selecting fixes it) instead of a generic transport failure.
+        let body;
         try {
-          // Read the chunk bytes explicitly before sending. On Android a
-          // picked file can silently become unreadable (moved, changed, or
-          // cloud-synced via Google Photos) - fetch with a Blob body then
-          // dies with a generic "Failed to fetch" on EVERY attempt. Reading
-          // first surfaces the real cause, which is terminal: only
-          // re-selecting the file fixes it.
-          let body;
-          try {
-            body = await slice.arrayBuffer();
-          } catch (readErr) {
-            console.error(`Chunk ${i}: file unreadable - ${readErr.message}`);
-            throw Object.assign(new Error(t('err.fileUnreadable')), { isTerminal: true });
-          }
-          const resp = await apiFetch(
+          body = await slice.arrayBuffer();
+        } catch (readErr) {
+          console.error(`Chunk ${i}: file unreadable - ${readErr.message}`);
+          throw Object.assign(new Error(t('err.fileUnreadable')), { isTerminal: true });
+        }
+        try {
+          await _postChunkBytes(
             `${API_BASE}/upload_chunk/?key=${key}&index=${i}`,
-            { method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body }
+            body,
+            loaded => { loadedByChunk[i] = Math.min(loaded, chunkLen); report(); }
           );
-          if (resp.ok) {
-            bytesUploaded += (end - start);
-            onProgress(bytesUploaded / file.size);
-            return;
-          }
-          // Hard client errors (not 408/429) - don't retry
-          if (resp.status >= 400 && resp.status < 500 && resp.status !== 408 && resp.status !== 429) {
-            const body = await resp.json().catch(() => ({}));
-            throw Object.assign(new Error(body.error || t('err.chunk', {i: i, status: resp.status})), { isTerminal: true });
-          }
-          // 408, 429, 5xx - bounded retries
-          if (++serverAttempts >= MAX_SERVER_ATTEMPTS)
-            throw Object.assign(new Error(t('err.chunkRetries', {i: i, n: MAX_SERVER_ATTEMPTS, status: resp.status})), { isTerminal: true });
-          console.warn(`Chunk ${i}: server ${resp.status}, retry ${serverAttempts}/${MAX_SERVER_ATTEMPTS}`);
+          loadedByChunk[i] = chunkLen; report();
+          return;
         } catch (e) {
-          if (e.isTerminal) throw e;
-          // Anything that isn't a plain network error (e.g. session expired)
-          // is unexpected - surface it instead of retrying blindly.
-          if (!_isNetErr(e)) throw e;
-          if (++netAttempts >= MAX_NET_ATTEMPTS) {
-            console.error(`Chunk ${i}: giving up after ${netAttempts} network failures`);
+          if (e.isTerminal) {
+            if (!e.message) e.message = t('err.chunk', { i: i, status: e.httpStatus || 0 });
             throw e;
           }
-          console.warn(`Chunk ${i}: ${e.message} - retry ${netAttempts}/${MAX_NET_ATTEMPTS}`);
-          if (pctEl) pctEl.textContent = t('upload.retrying');
+          if (e.isServer) {
+            if (++serverAttempts >= MAX_SERVER_ATTEMPTS)
+              throw Object.assign(new Error(t('err.chunkRetries', { i: i, n: MAX_SERVER_ATTEMPTS, status: e.httpStatus || 0 })), { isTerminal: true });
+            console.warn(`Chunk ${i}: server ${e.httpStatus}, retry ${serverAttempts}/${MAX_SERVER_ATTEMPTS}`);
+          } else {
+            // Network error or stall
+            if (++netAttempts >= MAX_NET_ATTEMPTS) {
+              console.error(`Chunk ${i}: giving up after ${netAttempts} network failures`);
+              throw Object.assign(e, { isTerminal: true });
+            }
+            console.warn(`Chunk ${i}: ${e.message} - retry ${netAttempts}/${MAX_NET_ATTEMPTS}`);
+            if (pctEl) pctEl.textContent = t('upload.retrying');
+          }
         }
       }
     }
