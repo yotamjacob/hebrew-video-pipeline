@@ -19,7 +19,7 @@ test('toggle switches to English, sets LTR, and translates static text', async (
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await expect(page.locator('#langToggle')).toHaveText('עברית');
   await expect(page.locator('.hero-sub')).toHaveText('Hebrew video editing at the click of a button');
-  await expect(page.locator('#tabPipeline')).toHaveText('🎬 Create');
+  await expect(page.locator('#tabPipeline')).toHaveText('Create');
   await expect(page.locator('.upload-main')).toHaveText('Drop your video here');
   await expect(page.locator('#runBtn')).toContainText('Run Pipeline');
   // toggle back
@@ -64,7 +64,7 @@ test('state-driven labels re-render on language switch', async ({ page }) => {
   await page.click('#langToggle');
   await expect(page.locator('#enhanceVideoDesc')).toContainText('adds a few minutes');
   const warnColor = await page.locator('#enhanceVideoDesc .ev-warn').evaluate(el => getComputedStyle(el).color);
-  expect(warnColor).toBe('rgb(220, 38, 38)');
+  expect(warnColor).toBe('rgb(194, 85, 75)');   // --red (warm brick)
   // Aggressiveness desc follows too
   await expect(page.locator('#aggrDesc')).toContainText('Aggressive');
 });

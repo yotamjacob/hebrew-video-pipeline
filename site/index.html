@@ -7,44 +7,34 @@
   <link rel="icon" type="image/svg+xml" href="img/logo.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;700&family=Assistant:wght@400;700&family=Frank+Ruhl+Libre:wght@400;700&family=Secular+One&family=Noto+Sans+Hebrew:wght@400;700&display=swap" rel="stylesheet" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&family=Assistant:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Heebo:wght@400;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="app.css" />
 </head>
 <body>
 
-<div id="reconnectBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:#4C1D95;color:#fff;padding:12px 20px;display:none;align-items:center;gap:12px;font-size:0.9rem;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,0.3)">
+<div id="reconnectBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:#4C4272;color:#fff;padding:12px 20px;display:none;align-items:center;gap:12px;font-size:0.9rem;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,0.3)">
   <span style="flex:1" data-i18n="reconnect.msg">A previous job is still running - tap to reconnect and get your result.</span>
-  <button onclick="resumeSavedJob()" style="background:#7C3AED;border:none;color:#fff;border-radius:8px;padding:8px 16px;font-size:0.85rem;font-weight:700;cursor:pointer" data-i18n="reconnect.resume">Resume</button>
+  <button onclick="resumeSavedJob()" style="background:#6B5CA5;border:none;color:#fff;border-radius:8px;padding:8px 16px;font-size:0.85rem;font-weight:700;cursor:pointer" data-i18n="reconnect.resume">Resume</button>
   <button onclick="clearSavedJob();document.getElementById('reconnectBanner').style.display='none'" style="background:none;border:1.5px solid rgba(255,255,255,0.4);color:#fff;border-radius:8px;padding:8px 12px;font-size:0.85rem;cursor:pointer" data-i18n="reconnect.dismiss">Dismiss</button>
 </div>
 
 <div class="hero">
   <button id="langToggle" class="lang-toggle" onclick="toggleLang()" data-i18n="lang.switch">עברית</button>
-  <div class="hero-glow hero-glow-a"></div>
-  <div class="hero-glow hero-glow-b"></div>
   <div class="hero-overlay">
     <div id="heroGreeting" class="hero-greeting" style="display:none"></div>
     <div class="hero-title-row">
       <svg class="hero-logo" viewBox="0 0 48 48" aria-hidden="true">
-        <defs>
-          <linearGradient id="heroBadge" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="rgba(255,255,255,0.30)"/>
-            <stop offset="1" stop-color="rgba(255,255,255,0.10)"/>
-          </linearGradient>
-        </defs>
-        <rect x="2" y="2" width="44" height="44" rx="13" fill="url(#heroBadge)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>
-        <!-- industrial pipe with a laser-engraved play button -->
-        <rect x="10" y="17" width="28" height="14" fill="rgba(255,255,255,0.82)"/>
-        <rect x="10" y="24.5" width="28" height="6.5" fill="rgba(139,92,246,0.32)"/>
+        <rect x="2" y="2" width="44" height="44" rx="13" fill="#6B5CA5"/>
+        <!-- pipe with a play button -->
+        <rect x="10" y="17" width="28" height="14" fill="rgba(255,255,255,0.92)"/>
+        <rect x="10" y="24.5" width="28" height="6.5" fill="rgba(255,255,255,0.22)"/>
         <rect x="5.5" y="14" width="5" height="20" rx="1.7" fill="#fff"/>
         <rect x="37.5" y="14" width="5" height="20" rx="1.7" fill="#fff"/>
-        <circle cx="8" cy="18.3" r="1" fill="rgba(76,29,149,0.85)"/>
-        <circle cx="8" cy="29.7" r="1" fill="rgba(76,29,149,0.85)"/>
-        <circle cx="40" cy="18.3" r="1" fill="rgba(76,29,149,0.85)"/>
-        <circle cx="40" cy="29.7" r="1" fill="rgba(76,29,149,0.85)"/>
-        <polygon points="20.6,19.6 29.6,24.6 20.6,29.6" fill="rgba(255,255,255,0.95)"/>
-        <polygon points="20,19 29,24 20,29" fill="rgba(59,7,100,0.82)"/>
+        <circle cx="8" cy="18.3" r="1" fill="rgba(59,50,92,0.6)"/>
+        <circle cx="8" cy="29.7" r="1" fill="rgba(59,50,92,0.6)"/>
+        <circle cx="40" cy="18.3" r="1" fill="rgba(59,50,92,0.6)"/>
+        <circle cx="40" cy="29.7" r="1" fill="rgba(59,50,92,0.6)"/>
+        <polygon points="20,19 29,24 20,29" fill="#6B5CA5"/>
       </svg>
       <h1 class="hero-title">פייפליין</h1>
     </div>
@@ -149,7 +139,7 @@
     <div id="uploadBody" style="padding-top:14px">
     <div class="upload-zone" id="uploadZone">
       <input type="file" id="fileInput" accept="video/*" />
-      <div class="upload-icon">🎬</div>
+      <div class="upload-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8.5" width="18" height="11.5" rx="2.5"/><path d="M3.4 8.5 6 4.2l3.4 4.3M9.4 4.1l3.4 4.4M15.2 4.2l3.4 4.3"/></svg></div>
       <p class="upload-main" data-i18n="upload.drop">Drop your video here</p>
       <p class="upload-sub" data-i18n="upload.browse">or <span class="upload-link">browse files</span></p>
       <p class="upload-hint" data-i18n="upload.hint">MP4 · MOV · MKV &nbsp;·&nbsp; max 20 min &nbsp;·&nbsp; max 500 MB</p>
@@ -199,7 +189,7 @@
     <div id="optionsBody" style="padding-top:14px">
 
     <div class="option-row" style="border-bottom:none">
-      <div class="option-icon">✂️</div>
+      <div class="option-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="7" r="2.6"/><circle cx="6" cy="17" r="2.6"/><path d="M8.2 8.7 20 17M8.2 15.3 20 7"/></svg></div>
       <div class="option-text">
         <div class="option-label" data-i18n="opt.cut.label">Cut silences</div>
         <div class="option-desc" data-i18n="opt.cut.desc">Remove pauses between speech</div>
@@ -225,7 +215,7 @@
     </div>
 
     <div class="option-row">
-      <div class="option-icon">💬</div>
+      <div class="option-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 14h4M14 14h3"/></svg></div>
       <div class="option-text">
         <div class="option-label" data-i18n="opt.captions.label">Burn Hebrew captions</div>
         <div class="option-desc" data-i18n="opt.captions.desc">Word-level subtitles baked into video</div>
@@ -240,7 +230,7 @@
     </div>
 
     <div class="option-row">
-      <div class="option-icon">🎙️</div>
+      <div class="option-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6"/></svg></div>
       <div class="option-text">
         <div class="option-label" data-i18n="opt.audio.label">Enhance audio</div>
         <div class="option-desc" data-i18n="opt.audio.desc">DeepFilterNet noise reduction</div>
@@ -255,7 +245,7 @@
     </div>
 
     <div class="option-row" style="border-bottom:none">
-      <div class="option-icon">✨</div>
+      <div class="option-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l1.6 4.4L18 10l-4.4 1.6L12 16l-1.6-4.4L6 10l4.4-1.6z"/><path d="M18.5 15.5l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6z"/></svg></div>
       <div class="option-text">
         <div class="option-label" data-i18n="opt.video.label">Enhance video</div>
         <div class="option-desc" id="enhanceVideoDesc" data-i18n="ev.desc.none">Off - video is untouched</div>
@@ -273,7 +263,7 @@
     </div>
 
     <div class="option-row" id="suggestBrollsRow">
-      <div class="option-icon">🎬</div>
+      <div class="option-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3 9h18M3 15h18M8 5v14M16 5v14"/></svg></div>
       <div class="option-text">
         <div class="option-label" data-i18n="opt.broll.label">Suggest B-rolls (Veo)</div>
         <div class="option-desc" data-i18n="opt.broll.desc">AI generates video B-rolls with Veo - coming soon</div>
