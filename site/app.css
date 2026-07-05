@@ -26,6 +26,7 @@
       --sage-100:   #E4E7D8;
       --sage-dark:  #55604A;
       --olive:      #6E7F5C;
+      --forest:     #35633F;   /* deep forest green — monstera foliage */
       --terracotta: #C4703F;   /* accent — sparing (primary CTA) */
       --terracotta-dark: #B85C38;
       --amber:      #C4913F;    /* muted ochre (warnings) */
@@ -1502,8 +1503,10 @@
       pointer-events:none; overflow:visible; opacity:.5;
     }
     #vine{ fill:none; stroke:var(--terracotta); stroke-width:2.4; stroke-linecap:round; opacity:.85; }
-    .vine-svg .leaf-body{ fill:rgba(110,127,92,0.12); stroke:var(--olive); stroke-width:2; stroke-linejoin:round; }
-    .vine-svg .leaf-vein{ fill:none; stroke:var(--olive); stroke-width:1; stroke-linecap:round; opacity:.6; }
-    .vine-svg .leaf-hole{ fill:var(--bg); stroke:var(--olive); stroke-width:1; }
-    .vine-svg .petiole{ fill:none; stroke:var(--olive); stroke-width:2; stroke-linecap:round; }
+    /* NOTE: plain class selectors (not descendant) - these style the cloned
+       content inside <use>, which browsers do NOT reach via `.vine-svg .x`. */
+    .leaf-body{ fill:rgba(60,107,69,0.20); stroke:var(--forest); stroke-width:2; stroke-linejoin:round; }
+    .leaf-vein{ fill:none; stroke:var(--forest); stroke-width:1; stroke-linecap:round; opacity:.55; }
+    .leaf-hole{ fill:var(--bg); stroke:var(--forest); stroke-width:1; }
+    .petiole{ fill:none; stroke:var(--forest); stroke-width:2; stroke-linecap:round; }
     @media (prefers-reduced-motion: reduce){ .vine-svg{ display:none; } }
