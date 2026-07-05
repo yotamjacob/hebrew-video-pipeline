@@ -3600,7 +3600,7 @@
     actions.className = 'history-actions';
     const dl = document.createElement('button');
     dl.className = 'history-btn';
-    dl.textContent = '\u2B07\uFE0F';
+    dl.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14"/></svg>';
     dl.title = t('hist.download');
     dl.onclick = () => {
       const fname = (job.name || 'video').replace(/\.mp4$/i, '') + '_edited.mp4';
@@ -3608,7 +3608,7 @@
     };
     const sch = document.createElement('button');
     sch.className = 'history-btn';
-    sch.textContent = '\uD83D\uDCC5';   // \uD83D\uDCC5
+    sch.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="16" rx="2.5"/><path d="M4 9.5h16M8 3v4M16 3v4"/></svg>';
     sch.title = t('hist.schedule');
     sch.onclick = () => openScheduleModal({
       outputKey: job.key, filename: job.name || 'video', videoKey: '', hasTranscript: false,
@@ -3616,7 +3616,7 @@
 
     const del = document.createElement('button');
     del.className = 'history-btn history-btn-danger';
-    del.textContent = '\uD83D\uDDD1\uFE0F';
+    del.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 12.5h9l1-12.5"/></svg>';
     del.title = t('hist.delete');
     del.onclick = async () => {
       const ok = await showConfirmModal(t('hist.deleteTitle'),
@@ -3879,4 +3879,12 @@
     const upLbl = document.querySelector('#checkUpscale .check-label');
     if (upLbl) upLbl.textContent = _enhanceVideoMode() === 'esrgan' ? t('prog.upscale') : t('prog.enhanceVideo');
     updateQuotaUI();
+    // Dynamic lists are built with t() at render time - re-render the open one
+    // so its rows (used/unlimited/save, etc.) switch language too.
+    if (authToken) {
+      const av = document.getElementById('adminView');
+      const hv = document.getElementById('historyView');
+      if (av && av.style.display !== 'none') loadAdmin();
+      if (hv && hv.style.display !== 'none') loadHistory();
+    }
   });

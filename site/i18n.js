@@ -21,7 +21,7 @@
     'reconnect.dismiss': { en: 'Dismiss', he: 'סגירה' },
 
     // ── Auth ──
-    'auth.title':      { en: '🔐 Sign In', he: '🔐 התחברות' },
+    'auth.title':      { en: 'Sign In', he: 'התחברות' },
     'auth.username':   { en: 'Username', he: 'שם משתמש' },
     'auth.password':   { en: 'Password', he: 'סיסמה' },
     'auth.invite':     { en: 'Invite code', he: 'קוד הזמנה' },
@@ -46,7 +46,7 @@
     'auth.identifier': { en: 'Username or email', he: 'שם משתמש או אימייל' },
     'auth.sendReset':  { en: 'Send reset link', he: 'שליחת קישור לאיפוס' },
     'auth.resetSent':  { en: "If that account exists, we've sent a reset link. Check your email.", he: 'אם החשבון קיים, שלחנו קישור לאיפוס. בדקו את האימייל.' },
-    'reset.title':     { en: '🔑 Set a new password', he: '🔑 בחירת סיסמה חדשה' },
+    'reset.title':     { en: 'Set a new password', he: 'בחירת סיסמה חדשה' },
     'reset.submit':    { en: 'Save new password', he: 'שמירת הסיסמה' },
     'reset.tooShort':  { en: 'Password must be at least 8 characters', he: 'הסיסמה חייבת להיות לפחות 8 תווים' },
     'reset.done':      { en: 'Password updated. You can sign in now.', he: 'הסיסמה עודכנה. אפשר להתחבר עכשיו.' },
