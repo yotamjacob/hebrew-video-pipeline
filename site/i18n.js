@@ -274,6 +274,7 @@
     'err.stage.processing': { en: 'while waiting for processing', he: 'בזמן העיבוד' },
     'err.stage.download':   { en: 'while downloading the result', he: 'בזמן הורדת התוצאה' },
     'err.fileUnreadable': { en: 'Could not read the video file from your device - it may have moved or be cloud-synced (e.g. Google Photos). Please select the file again.', he: 'לא ניתן לקרוא את קובץ הווידאו מהמכשיר - ייתכן שהוא הוזז או מסונכרן בענן (למשל Google Photos). בחרו את הקובץ מחדש.' },
+    'upload.keepOpen':   { en: '📱 Keep this window open while uploading. Once processing starts, you can switch away - it finishes on our servers.', he: '📱 השאירו את החלון פתוח בזמן ההעלאה. ברגע שהעיבוד מתחיל אפשר לעבור לאפליקציה אחרת - הוא ממשיך בשרתים שלנו.' },
     'upload.retrying':   { en: 'connection issue - retrying...', he: 'בעיית חיבור - מנסים שוב...' },
     'prog.errLog':       { en: 'Error log', he: 'יומן שגיאות' },
     'err.stage.burn':       { en: 'while burning the video', he: 'בזמן צריבת הסרטון' },

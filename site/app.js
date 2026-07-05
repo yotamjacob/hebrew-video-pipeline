@@ -892,6 +892,7 @@
       });
       _stepDone('upload');
       document.getElementById('uploadBarRow').style.display = 'none';
+      { const n = document.getElementById('uploadNote'); if (n) n.style.display = 'none'; }
 
       currentUploadKey = uploadKey;
 
@@ -1052,12 +1053,19 @@
 
   // Upload file in chunks to the Modal ASGI endpoint (streaming body, no 303 redirect issue).
   // Returns the upload key to pass to /process/?key=...
-  const CHUNK_SIZE = 5 * 1024 * 1024;
+  // 2 MB chunks (was 5): small enough that completed chunks "stick" quickly on
+  // a slow uplink and a killed in-flight chunk re-sends ≤2 MB, not ≤5 MB - so
+  // backgrounding barely dents progress. Throughput is uplink-bound, so smaller
+  // chunks don't slow a healthy connection (connection reuse absorbs the extra
+  // request overhead); on a flaky one they're faster (less re-send waste).
+  const CHUNK_SIZE = 2 * 1024 * 1024;
   // Modest parallelism: 16 in-flight chunks (each with a CORS preflight since
   // auth) exceeded the API container's concurrent-input cap, and Modal's
   // ingress reroutes the overflow with a 303 that browsers can't follow for
-  // POSTs. 6 stays comfortably under the cap and saturates most uplinks.
-  const UPLOAD_CONCURRENCY = 6;
+  // POSTs. 4 stays under the cap, saturates most uplinks, and caps in-flight
+  // (losable-on-background) bytes at 4×2 MB = 8 MB.
+  const UPLOAD_CONCURRENCY = 4;
+  const UPLOAD_RESUME_TTL = 24 * 60 * 60 * 1000;   // server prunes scratch chunks after 48h; stay well under
   // POST one chunk via XHR (not fetch): fetch reports no upload progress and
   // has no timeout, so on a slow mobile uplink the bar sits at 0% until a whole
   // 5 MB chunk finishes and a stalled connection hangs forever. XHR gives
@@ -1118,9 +1126,33 @@
     });
   }
 
+  // Resume state: which chunks the server already has, keyed by a stable file
+  // signature so a "try again" (same File) or a reload + re-pick (same file)
+  // reuses the upload key and skips chunks already sent. Server chunk files are
+  // keyed by (key, index) and re-POSTing an index just overwrites, so skipping
+  // completed indices is safe as long as every index's file still exists.
+  function _fileSig(file) { return `hebpipe_up_${file.name}_${file.size}_${file.lastModified}`; }
+  function _loadResume(file) {
+    try {
+      const raw = localStorage.getItem(_fileSig(file));
+      if (!raw) return null;
+      const s = JSON.parse(raw);
+      if (!s.key || Date.now() - (s.ts || 0) > UPLOAD_RESUME_TTL) { localStorage.removeItem(_fileSig(file)); return null; }
+      return s;
+    } catch (_) { return null; }
+  }
+  function _saveResume(file, key, completed) {
+    try { localStorage.setItem(_fileSig(file), JSON.stringify({ key, completed: [...completed], ts: Date.now() })); } catch (_) {}
+  }
+  function _clearResume(file) { try { localStorage.removeItem(_fileSig(file)); } catch (_) {} }
+
   async function chunkedUpload(file, onProgress) {
-    const key = crypto.randomUUID().replace(/-/g, '');
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    // Reuse a prior in-progress upload for this exact file if one exists.
+    const saved = _loadResume(file);
+    const key = (saved && saved.key) || crypto.randomUUID().replace(/-/g, '');
+    const completed = new Set((saved && saved.completed || []).filter(i => i < totalChunks));
+    if (completed.size) console.info(`Upload resume: ${completed.size}/${totalChunks} chunks already sent`);
     // Per-chunk loaded bytes - summed for accurate progress across concurrent
     // chunks (each in-flight chunk contributes its own live byte count).
     const loadedByChunk = new Array(totalChunks).fill(0);
@@ -1130,6 +1162,8 @@
       const start = i * CHUNK_SIZE;
       const end   = Math.min(start + CHUNK_SIZE, file.size);
       const chunkLen = end - start;
+      // Already on the server from a prior attempt - count it done, skip it.
+      if (completed.has(i)) { loadedByChunk[i] = chunkLen; report(); return; }
       const slice = file.slice(start, end);
       const MAX_SERVER_ATTEMPTS = 4;    // 408/429/5xx responses
       // A chunk gives up only after MAX_STUCK consecutive failures that happen
@@ -1172,6 +1206,7 @@
             loaded => { loadedByChunk[i] = Math.min(loaded, chunkLen); report(); }
           );
           loadedByChunk[i] = chunkLen; report();
+          completed.add(i); _saveResume(file, key, completed);
           return;
         } catch (e) {
           if (e.isTerminal) {
@@ -1221,6 +1256,7 @@
       while (nextChunk < totalChunks && inFlight.size < UPLOAD_CONCURRENCY) launchNext();
     }
 
+    _clearResume(file);   // fully uploaded - no stale resume state to leave behind
     return key;
   }
 
@@ -1482,6 +1518,7 @@
     document.getElementById('uploadBarRow').style.display = 'flex';
     document.getElementById('uploadBarFill').style.width = '0%';
     document.getElementById('uploadBarPct').textContent = '0%';
+    { const n = document.getElementById('uploadNote'); if (n) n.style.display = 'block'; }
 
     runBtn.disabled = true;
     runBtn.style.display = 'none';

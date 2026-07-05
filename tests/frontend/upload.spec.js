@@ -301,3 +301,37 @@ test('backgrounding-killed chunk retries do not burn the give-up budget', async 
   await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 45_000 });
   expect(failures).toBe(10);
 });
+
+test('resume: a retry skips chunks the server already received', async ({ page }) => {
+  test.setTimeout(60_000);
+  const { API_BASE } = require('./helpers');
+  await mockAllApis(page);
+  // 6 MB file @ 2 MB chunks = 3 chunks (indices 0,1,2).
+  await selectFile(page, { name: 'resume.mp4', sizeMB: 6 });
+  // Count POSTs per index across BOTH runs. First run: index 2 fails forever
+  // (visible) so the upload errors after 0 and 1 succeed. Second run (retry)
+  // must skip 0 and 1 (already on server) and only send 2.
+  const posts = {};
+  let allowIndex2 = false;
+  await page.route(/\/upload_chunk\/\?/, (route, req) => {
+    const idx = new URL(req.url()).searchParams.get('index');
+    posts[idx] = (posts[idx] || 0) + 1;
+    if (idx === '2' && !allowIndex2) return route.abort('failed');
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+  });
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await expect(page.locator('#statusError')).toBeVisible({ timeout: 30_000 });
+  const postsAfterFirst = { ...posts };
+  expect(postsAfterFirst['0']).toBe(1);   // sent once
+  expect(postsAfterFirst['1']).toBe(1);
+
+  // Now let index 2 through and retry.
+  allowIndex2 = true;
+  await page.click('#retryBtn');
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 30_000 });
+  // Chunks 0 and 1 must NOT have been re-sent on the retry.
+  expect(posts['0']).toBe(1);
+  expect(posts['1']).toBe(1);
+  expect(posts['2']).toBeGreaterThanOrEqual(2);   // retried until it succeeded
+});
