@@ -12,7 +12,7 @@ from pipeline_core import (
     _BROLL_KEY_RE, _is_allowed_broll_url,
     jobs_store, JOB_RETENTION_DAYS, SCRATCH_RETENTION_HOURS,
     progress_store, calls_store, CALL_RETENTION_SECONDS, _UID_PREFIX_RE,
-    quota_store, _usage_since, _send_email, _email_html,
+    quota_store, _usage_since, _send_email, _email_html, SONNET_MODEL,
 )
 
 
@@ -101,6 +101,56 @@ def probe_video(path):
     if rotation in (90, 270):
         w, h = h, w
     return w, h, float(d["format"]["duration"]), rotation
+
+def proofread_words(texts, client, model, chunk_size=400, max_tokens=8000):
+    """Fix Hebrew ASR spelling errors word-by-word via one LLM pass.
+
+    Whisper's Hebrew typos are homophone letter swaps (ט/ת, כ/ק, א/ע/ה) and
+    mis-heard words that only sentence context can catch. Words are sent in
+    fixed-size chunks and the model must return a JSON array of exactly the
+    same length — word count and order never change, so the word-level
+    timestamps stay valid. Any failure (API error, parse error, wrong count)
+    keeps that chunk's original words. Never raises.
+    """
+    import json
+    out = list(texts)
+    for start in range(0, len(out), chunk_size):
+        chunk = out[start:start + chunk_size]
+        prompt = (
+            "The JSON array below is a Hebrew transcript from speech "
+            "recognition, one spoken word per element, in order. Fix ONLY "
+            "clear transcription errors: wrong homophone letters (ט/ת, כ/ק, "
+            "א/ע/ה, ש/ס), missing or extra letters, or a word that is "
+            "obviously a mis-hearing given the sentence context. Keep slang "
+            "and colloquial spelling as spoken. Do NOT rephrase, merge, "
+            "split, reorder, add or remove words. Keep punctuation attached "
+            "to a word unless the punctuation itself is the error.\n"
+            f"Return ONLY a JSON array of strings with exactly {len(chunk)} "
+            "elements - no explanations.\n\n"
+            f"{json.dumps(chunk, ensure_ascii=False)}"
+        )
+        try:
+            raw = client.messages.create(
+                model=model, max_tokens=max_tokens,
+                thinking={"type": "disabled"},
+                messages=[{"role": "user", "content": prompt}],
+            ).content[0].text.strip()
+            if "```" in raw:
+                for part in raw.split("```"):
+                    part = part.strip().lstrip("json").strip()
+                    if part.startswith("["):
+                        raw = part
+                        break
+            fixed = json.loads(raw)
+            if (isinstance(fixed, list) and len(fixed) == len(chunk)
+                    and all(isinstance(w, str) and w.strip() for w in fixed)):
+                out[start:start + len(chunk)] = [w.strip() for w in fixed]
+            else:
+                print(f"[proofread] chunk at {start}: bad shape - kept original")
+        except Exception as e:
+            print(f"[proofread] chunk at {start}: {e!r} - kept original")
+    return out
+
 
 def compute_keep_segments(whisper_segs, total_dur, min_sil, pad):
     """Cut only between Whisper segments, never within one.
@@ -281,6 +331,7 @@ def render(video, audio, segs, ass_file, out, crf=18, rotation=0, extra_vf=""):
     timeout=1800,
     volumes={MODEL_DIR: model_volume, TMP_DIR: tmp_vol},
     memory=4096,
+    secrets=[modal.Secret.from_name("anthropic-secret")],
 )
 def process_video(
     upload_key: str = None,
@@ -588,6 +639,28 @@ def process_video(
         _mark(stage="cut" if need_transcription else None,
               done="enhance" if enhance_audio else None)
         whisper_segs = transcribe(clean_wav) if need_transcription else []
+
+        # LLM proofread - fixes Hebrew ASR homophone/spelling errors in place.
+        # Word count and order are preserved so timestamps stay valid; any
+        # failure keeps the raw transcript.
+        if whisper_segs:
+            try:
+                import os as _os, time as _time, anthropic as _anthropic
+                if _os.environ.get("ANTHROPIC_API_KEY"):
+                    _t0 = _time.time()
+                    _texts = [w.text for seg_words, _e in whisper_segs for w in seg_words]
+                    _fixed = proofread_words(_texts, _anthropic.Anthropic(), SONNET_MODEL)
+                    _n, _it = 0, iter(_fixed)
+                    for seg_words, _e in whisper_segs:
+                        for w in seg_words:
+                            _new = next(_it)
+                            _n += (_new != w.text)
+                            w.text = _new
+                    print(f"[proofread] {_n}/{len(_texts)} words corrected "
+                          f"in {_time.time() - _t0:.1f}s")
+            except Exception as _pe:
+                print(f"[proofread] skipped: {_pe!r}")
+
         flat_words   = [w for seg_words, _end in whisper_segs for w in seg_words]
 
         segs = (

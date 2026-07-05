@@ -38,7 +38,7 @@ for hooks/captions/stock B-roll and the `api()` router — boots in seconds).
 
 1. `extract_audio()` — ffmpeg extracts 48 kHz mono WAV
 2. `enhance_*()` — ElevenLabs API / Adobe Podcast manual / skip
-3. `transcribe()` — faster-whisper (`ivrit-ai/whisper-large-v3-turbo-ct2`), word-level timestamps
+3. `transcribe()` — faster-whisper (`ivrit-ai/whisper-large-v3-turbo-ct2`), word-level timestamps. On Modal, `process_video` then runs `proofread_words` (Sonnet 5) over the word list to fix Hebrew ASR typos — word count/order preserved so timestamps stay valid; best-effort (any failure keeps the raw transcript; local CLI has no proofread pass)
 4. `compute_keep_segments()` — silence detection from word gaps; adds padding around speech
 5. `generate_ass()` — builds ASS subtitle file; remaps timestamps to post-cut video
 6. `final_render()` — single ffmpeg pass: trim → concat → burn captions → H.264 CRF 18
