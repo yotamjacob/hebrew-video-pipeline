@@ -1507,6 +1507,5 @@
        content inside <use>, which browsers do NOT reach via `.vine-svg .x`. */
     .leaf-body{ fill:rgba(60,107,69,0.20); stroke:var(--forest); stroke-width:2; stroke-linejoin:round; }
     .leaf-vein{ fill:none; stroke:var(--forest); stroke-width:1; stroke-linecap:round; opacity:.55; }
-    .leaf-hole{ fill:var(--bg); stroke:var(--forest); stroke-width:1; }
     .petiole{ fill:none; stroke:var(--forest); stroke-width:2; stroke-linecap:round; }
     @media (prefers-reduced-motion: reduce){ .vine-svg{ display:none; } }
