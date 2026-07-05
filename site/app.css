@@ -1477,8 +1477,11 @@
       position: fixed; inset: 0; z-index: 0;
       pointer-events: none; overflow: hidden;
     }
-    /* Keep all real content above the decoration */
-    .hero, .app-topbar, .container, #verifyBanner, .modal-overlay, #reconnectBanner, .boot-loader {
+    /* Keep in-flow content above the decoration. Fixed overlays (.modal-overlay
+       z-index:900, #reconnectBanner) already sit above it via their own
+       positioning - do NOT set position:relative on them or it clobbers their
+       position:fixed and drops them into normal flow. */
+    .hero, .app-topbar, .container, #verifyBanner, .boot-loader {
       position: relative; z-index: 1;
     }
     .boho-blob {
