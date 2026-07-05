@@ -1,26 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#7C3AED"/>
-      <stop offset="1" stop-color="#4C1D95"/>
-    </linearGradient>
-    <linearGradient id="pipe" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#F5F3FF"/>
-      <stop offset="0.45" stop-color="#FFFFFF"/>
-      <stop offset="1" stop-color="#C4B5FD"/>
-    </linearGradient>
-  </defs>
-  <rect width="48" height="48" rx="11" fill="url(#g)"/>
-  <!-- industrial pipe spanning the badge -->
-  <rect x="9" y="16.5" width="30" height="15" fill="url(#pipe)"/>
-  <rect x="4" y="13.5" width="5.5" height="21" rx="1.8" fill="#fff"/>
-  <rect x="38.5" y="13.5" width="5.5" height="21" rx="1.8" fill="#fff"/>
+  <rect width="48" height="48" rx="11" fill="#C4703F"/>
+  <!-- pipe spanning the badge -->
+  <rect x="9" y="16.5" width="30" height="15" fill="#F7F0E6"/>
+  <rect x="9" y="24" width="30" height="7.5" fill="#F7F0E6" opacity="0.35"/>
+  <rect x="4" y="13.5" width="5.5" height="21" rx="1.8" fill="#F7F0E6"/>
+  <rect x="38.5" y="13.5" width="5.5" height="21" rx="1.8" fill="#F7F0E6"/>
   <!-- flange bolts -->
-  <circle cx="6.75" cy="18" r="1.05" fill="#5B21B6"/>
-  <circle cx="6.75" cy="30" r="1.05" fill="#5B21B6"/>
-  <circle cx="41.25" cy="18" r="1.05" fill="#5B21B6"/>
-  <circle cx="41.25" cy="30" r="1.05" fill="#5B21B6"/>
-  <!-- play button laser-engraved into the metal: light glint edge under a dark inset -->
-  <polygon points="20.1,19.1 29.6,24.6 20.1,30.1" fill="#fff" opacity="0.9"/>
-  <polygon points="19.5,18.5 29,24 19.5,29.5" fill="#4C1D95"/>
+  <circle cx="6.75" cy="18" r="1.05" fill="#3E3A34" opacity="0.5"/>
+  <circle cx="6.75" cy="30" r="1.05" fill="#3E3A34" opacity="0.5"/>
+  <circle cx="41.25" cy="18" r="1.05" fill="#3E3A34" opacity="0.5"/>
+  <circle cx="41.25" cy="30" r="1.05" fill="#3E3A34" opacity="0.5"/>
+  <!-- play button -->
+  <polygon points="20,18.5 32,24 20,29.5" fill="#C4703F"/>
 </svg>
