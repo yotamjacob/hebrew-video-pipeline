@@ -17,6 +17,28 @@
 <div class="boho-bg" aria-hidden="true">
   <svg class="boho-blob boho-blob-1" viewBox="-100 -100 200 200"><path d="M42,-60C55,-51,66,-40,71,-25C76,-10,74,8,66,24C58,40,44,53,28,61C12,69,-6,72,-24,66C-42,60,-58,45,-67,28C-76,11,-77,-9,-70,-27C-63,-45,-49,-60,-32,-68C-15,-76,4,-76,42,-60Z"/></svg>
   <svg class="boho-blob boho-blob-2" viewBox="-100 -100 200 200"><path d="M46,-58C60,-47,71,-31,73,-14C75,3,68,21,57,36C46,51,31,62,13,68C-5,74,-25,74,-42,66C-59,58,-73,41,-77,23C-81,4,-75,-17,-63,-33C-51,-49,-33,-60,-15,-66C3,-72,23,-71,46,-58Z"/></svg>
+  <!-- Scroll-grown monstera vine (draws down as you scroll, retracts up) -->
+  <svg class="vine-svg" viewBox="0 0 260 1000" preserveAspectRatio="xMinYMid meet" aria-hidden="true">
+    <defs>
+      <g id="mleaf">
+        <path class="petiole" d="M0,4 C1,-1 0,-4 0,-8"/>
+        <path class="leaf-body" d="M0,-6 C-40,-9 -50,-42 -48,-80 C-46,-112 -27,-138 0,-146 C27,-138 46,-112 48,-80 C50,-42 40,-9 0,-6 Z"/>
+        <path class="leaf-vein" d="M0,-8 L0,-142 M0,-26 L-38,-33 M0,-26 L38,-33 M0,-54 L-46,-63 M0,-54 L46,-63 M0,-84 L-44,-97 M0,-84 L44,-97 M0,-112 L-30,-126 M0,-112 L30,-126"/>
+        <ellipse class="leaf-hole" cx="-36" cy="-46" rx="3.4" ry="17" transform="rotate(60 -36 -46)"/>
+        <ellipse class="leaf-hole" cx="-41" cy="-76" rx="3.4" ry="18" transform="rotate(52 -41 -76)"/>
+        <ellipse class="leaf-hole" cx="-37" cy="-104" rx="3" ry="15" transform="rotate(42 -37 -104)"/>
+        <ellipse class="leaf-hole" cx="-25" cy="-125" rx="2.6" ry="11" transform="rotate(32 -25 -125)"/>
+        <ellipse class="leaf-hole" cx="36" cy="-46" rx="3.4" ry="17" transform="rotate(-60 36 -46)"/>
+        <ellipse class="leaf-hole" cx="41" cy="-76" rx="3.4" ry="18" transform="rotate(-52 41 -76)"/>
+        <ellipse class="leaf-hole" cx="37" cy="-104" rx="3" ry="15" transform="rotate(-42 37 -104)"/>
+        <ellipse class="leaf-hole" cx="25" cy="-125" rx="2.6" ry="11" transform="rotate(-32 25 -125)"/>
+        <ellipse class="leaf-hole" cx="-10" cy="-64" rx="3.6" ry="10"/>
+        <ellipse class="leaf-hole" cx="11" cy="-88" rx="3.6" ry="10"/>
+      </g>
+    </defs>
+    <path id="vine" d="M50,8 C104,150 12,272 60,396 C110,506 20,624 72,744 C108,846 62,910 58,1010"/>
+    <g id="vineLeaves"></g>
+  </svg>
 </div>
 
 <div id="reconnectBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:#55563F;color:#F7F0E6;padding:12px 20px;display:none;align-items:center;gap:12px;font-size:0.9rem;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,0.3)">
@@ -771,5 +793,50 @@
 
 <script src="i18n.js"></script>
 <script src="app.js"></script>
+<!-- Monstera vine: scroll-scrubbed growth (grows down, retracts up) -->
+<script>
+(function(){
+  var vine = document.getElementById('vine');
+  var g = document.getElementById('vineLeaves');
+  if (!vine || !g || !vine.getTotalLength) return;
+  if (matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  // t = fraction along vine where the leaf sprouts; side alternates; s = scale; j = angle jitter
+  var LEAVES = [
+    {t:0.05,side:-1,s:0.42,j:-8},{t:0.11,side:1,s:0.60,j:6},{t:0.18,side:-1,s:0.82,j:-4},
+    {t:0.25,side:1,s:0.55,j:10},{t:0.32,side:-1,s:1.00,j:4},{t:0.40,side:1,s:0.78,j:-6},
+    {t:0.47,side:-1,s:0.50,j:8},{t:0.55,side:1,s:1.02,j:-4},{t:0.62,side:-1,s:0.72,j:6},
+    {t:0.70,side:1,s:0.92,j:-8},{t:0.77,side:-1,s:0.55,j:5},{t:0.85,side:1,s:0.80,j:-5},
+    {t:0.93,side:-1,s:0.48,j:8}
+  ];
+  var SVGNS='http://www.w3.org/2000/svg';
+  var len = vine.getTotalLength();
+  vine.style.strokeDasharray = len;
+  var nodes = LEAVES.map(function(L){
+    var el = document.createElementNS(SVGNS,'use');
+    el.setAttribute('href','#mleaf');
+    g.appendChild(el);
+    var at = len*L.t, p = vine.getPointAtLength(at), p2 = vine.getPointAtLength(Math.min(len,at+1));
+    var tan = Math.atan2(p2.y-p.y, p2.x-p.x)*180/Math.PI;
+    return { el:el, x:p.x, y:p.y, rot: tan + L.side*90 + 90 + L.j };
+  });
+  function ease(p){ return 1 - Math.pow(1-p, 2.2); }
+  function render(){
+    var max = document.documentElement.scrollHeight - window.innerHeight;
+    var prog = max>0 ? Math.min(1, Math.max(0, window.scrollY/max)) : 0;
+    vine.style.strokeDashoffset = len*(1-prog);
+    for (var i=0;i<LEAVES.length;i++){
+      var L=LEAVES[i], n=nodes[i];
+      var e = ease(Math.min(1, Math.max(0, (prog-L.t)/0.13)));
+      var s = (L.s*(0.12+0.88*e));
+      n.el.setAttribute('transform','translate('+n.x.toFixed(1)+','+n.y.toFixed(1)+') rotate('+n.rot.toFixed(1)+') scale('+s.toFixed(3)+')');
+      n.el.style.opacity = (0.15+0.85*e).toFixed(3);
+    }
+  }
+  var ticking=false;
+  addEventListener('scroll', function(){ if(!ticking){ ticking=true; requestAnimationFrame(function(){render();ticking=false;}); } }, {passive:true});
+  addEventListener('resize', render);
+  render();
+})();
+</script>
 </body>
 </html>

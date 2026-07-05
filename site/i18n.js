@@ -140,7 +140,7 @@
     // ── Schedule card ──
     'sched.title':       { en: 'Schedule Video', he: 'תזמון סרטון' },
     'sched.open':        { en: 'Schedule this video', he: 'תזמון הסרטון' },
-    'mc.connect':        { en: '🔗 Connect Metricool', he: '🔗 חיבור Metricool' },
+    'mc.connect':        { en: 'Connect Metricool', he: 'חיבור Metricool' },
     'mc.connected':      { en: '✓ Metricool', he: '✓ Metricool' },
     'sched.intro':       { en: 'Schedule this video straight to Metricool. Unless <b>Auto-publish</b> is on, you approve the final publish inside Metricool.', he: 'תזמנו את הסרטון ישירות ל-Metricool. אלא אם <b>פרסום אוטומטי</b> מופעל, הפרסום הסופי מאושר על ידכם בתוך Metricool.' },
     'sched.platforms':   { en: 'Platforms', he: 'פלטפורמות' },

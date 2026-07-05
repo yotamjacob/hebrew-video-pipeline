@@ -89,9 +89,9 @@
     }
     .hero-sub {
       color: var(--text);
-      font-family: 'Frank Ruhl Libre', 'David', serif;
-      font-size: clamp(0.95rem, 2.4vw, 1.08rem);
-      font-weight: 500;
+      font-family: 'Assistant', sans-serif;
+      font-size: clamp(0.92rem, 2.3vw, 1.02rem);
+      font-weight: 600;
       letter-spacing: 0;
       text-transform: none;
     }
@@ -248,9 +248,9 @@
 
     /* ── Options ── */
     .options-title {
-      font-family: 'Frank Ruhl Libre', 'David', serif;
-      font-size: 1.18rem;
-      font-weight: 500;
+      font-family: 'Assistant', sans-serif;
+      font-size: 1.02rem;
+      font-weight: 600;
       letter-spacing: 0;
       text-transform: none;
       color: var(--text);
@@ -267,7 +267,7 @@
     .option-icon { color: var(--purple-600); flex-shrink: 0; width: 28px; display: flex; justify-content: center; }
     .option-icon svg { width: 23px; height: 23px; }
     .option-text { flex: 1; }
-    .option-label { font-family: 'Frank Ruhl Libre', 'David', serif; font-size: 0.95rem; font-weight: 500; color: var(--text); }
+    .option-label { font-family: 'Assistant', sans-serif; font-size: 0.95rem; font-weight: 600; color: var(--text); }
     .option-desc { font-size: 0.78rem; color: var(--muted); margin-top: 1px; }
     .option-row.disabled .option-label,
     .option-row.disabled .option-desc { color: var(--purple-300); }
@@ -1279,9 +1279,9 @@
       border: 1px solid var(--line);
       background: var(--white);
       color: var(--muted);
-      font-family: 'Frank Ruhl Libre', 'David', serif;
+      font-family: 'Assistant', sans-serif;
       font-size: 0.92rem;
-      font-weight: 500;
+      font-weight: 600;
       padding: 12px 14px;
       border-radius: 14px 14px 0 0;
       cursor: pointer;
@@ -1494,3 +1494,16 @@
     .boho-blob-2 path { fill: var(--terracotta); }
     .boho-blob-2 { inset-block-end: -14vh; inset-inline-end: -16vw; opacity: 0.10; width: 55vw; }
     /* Mirror the contour so it "flows" naturally in RTL */
+
+    /* ── Scroll-grown monstera vine (subtle, behind content) ── */
+    .vine-svg{
+      position:fixed; inset-block:0; inset-inline-start:0;
+      width:min(230px,44vw); height:100vh; z-index:0;
+      pointer-events:none; overflow:visible; opacity:.5;
+    }
+    #vine{ fill:none; stroke:var(--terracotta); stroke-width:2.4; stroke-linecap:round; opacity:.85; }
+    .vine-svg .leaf-body{ fill:rgba(110,127,92,0.12); stroke:var(--olive); stroke-width:2; stroke-linejoin:round; }
+    .vine-svg .leaf-vein{ fill:none; stroke:var(--olive); stroke-width:1; stroke-linecap:round; opacity:.6; }
+    .vine-svg .leaf-hole{ fill:var(--bg); stroke:var(--olive); stroke-width:1; }
+    .vine-svg .petiole{ fill:none; stroke:var(--olive); stroke-width:2; stroke-linecap:round; }
+    @media (prefers-reduced-motion: reduce){ .vine-svg{ display:none; } }

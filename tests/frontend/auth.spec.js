@@ -1,6 +1,13 @@
 const { test, expect } = require('@playwright/test');
 const { API_BASE, bootApp, mockAllApis, selectFile } = require('./helpers');
 
+// These tests call page.goto('/') directly (no bootApp), so stub the Google
+// Fonts CDN - otherwise the `load` event waits on the external stylesheet and
+// flakes when the CDN is slow.
+test.beforeEach(async ({ page }) => {
+  await page.route(/fonts\.(googleapis|gstatic)\.com/, r => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
+});
+
 test('no session: login view shows, app hidden', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('#authView')).toBeVisible();
