@@ -11,6 +11,7 @@
     'hero.tags':       { en: 'Auto-cut · Captions · Hooks · B-roll · Schedule', he: 'חיתוך אוטומטי · כתוביות · הוקים · בי-רול · תזמון' },
     'upload.bestFor':  { en: '🗣️ Built for Hebrew talking videos - the clearer the audio, the better the captions.', he: '🗣️ מותאם לסרטוני דיבור בעברית - ככל שהאודיו ברור יותר, הכתוביות טובות יותר.' },
     'footer.contact':  { en: '💬 Contact us / leave feedback', he: '💬 צרו קשר / שלחו משוב' },
+    'footer.legal':    { en: '🔒 Privacy & Terms', he: '🔒 פרטיות ותנאי שימוש' },
     'tab.create':      { en: '🎬 Create', he: '🎬 יצירה' },
     'tab.history':     { en: '🗂️ History', he: '🗂️ היסטוריה' },
     'tab.logout':      { en: '🚪 Logout', he: '🚪 התנתקות' },

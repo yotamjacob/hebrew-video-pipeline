@@ -23,7 +23,8 @@ from pipeline_core import (
 # stage). Best-effort: no ADMIN_EMAIL/RESEND_API_KEY just logs.
 # ---------------------------------------------------------------------------
 @app.function(image=light_image, schedule=modal.Period(days=1),
-              secrets=[modal.Secret.from_name("hebpipe-auth")])
+              secrets=[modal.Secret.from_name("hebpipe-auth"),
+                       modal.Secret.from_name("hebpipe-usage")])
 def daily_usage_report() -> dict:
     import os, time
     since = time.time() - 24 * 3600

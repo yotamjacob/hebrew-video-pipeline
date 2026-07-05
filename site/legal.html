@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>פייפליין - פרטיות ותנאי שימוש</title>
+  <link rel="icon" type="image/svg+xml" href="img/logo.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --purple-800: #4C1D95; --purple-700: #6D28D9; --purple-600: #7C3AED;
+      --purple-100: #EDE9FE; --purple-50: #F5F3FF;
+      --bg: #F2EEF8; --white: #FFFFFF; --text: #1E1033; --muted: #6B7080;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Heebo', 'Inter', sans-serif; line-height: 1.7; }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 64px; }
+    .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 24px; }
+    .back { color: var(--purple-700); text-decoration: none; font-weight: 600; font-size: 0.95rem; }
+    .back:hover { text-decoration: underline; }
+    .lang-btn { background: var(--white); border: 1.5px solid var(--purple-100); color: var(--purple-700);
+      border-radius: 999px; padding: 6px 16px; font-family: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; }
+    .lang-btn:hover { background: var(--purple-50); }
+    .card { background: var(--white); border: 1px solid var(--purple-100); border-radius: 18px; padding: 32px 28px; }
+    h1 { font-size: 1.6rem; color: var(--purple-800); margin-bottom: 4px; }
+    .updated { color: var(--muted); font-size: 0.85rem; margin-bottom: 24px; }
+    h2 { font-size: 1.15rem; color: var(--purple-700); margin: 28px 0 8px; }
+    h3 { font-size: 1rem; color: var(--purple-800); margin: 18px 0 6px; }
+    p, li { font-size: 0.95rem; }
+    ul { padding-inline-start: 22px; margin: 6px 0 10px; }
+    li { margin-bottom: 4px; }
+    a { color: var(--purple-600); }
+    .divider { border: none; border-top: 1px solid var(--purple-100); margin: 32px 0; }
+    [dir="ltr"] .wrap { font-family: 'Inter', 'Heebo', sans-serif; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="back" href="/" id="backLink">→ חזרה לפייפליין</a>
+    <button class="lang-btn" id="langBtn" onclick="switchLang()">English</button>
+  </div>
+
+  <!-- ─────────────────────────── HEBREW ─────────────────────────── -->
+  <div class="card" id="he">
+    <h1>מדיניות פרטיות ותנאי שימוש</h1>
+    <p class="updated">עודכן לאחרונה: 5 ביולי 2026</p>
+
+    <h2>מדיניות פרטיות</h2>
+
+    <h3>איזה מידע אנחנו אוספים</h3>
+    <ul>
+      <li><b>פרטי חשבון</b> - שם משתמש, כתובת אימייל וסיסמה (נשמרת מוצפנת, לעולם לא כטקסט גלוי).</li>
+      <li><b>סרטונים</b> - הסרטונים שאתם מעלים והקבצים המעובדים שנוצרים מהם.</li>
+      <li><b>נתוני שימוש</b> - כמה סרטונים עיבדתם (לצורך מכסת השימוש).</li>
+      <li><b>חיבור Metricool</b> - אם חיברתם חשבון Metricool, נשמר אסימון גישה כדי לתזמן פוסטים בשמכם.</li>
+    </ul>
+
+    <h3>איך אנחנו משתמשים במידע</h3>
+    <ul>
+      <li>הסרטונים מעובדים בענן (Modal) כדי ליצור כתוביות, לחתוך שקטים ולשפר איכות.</li>
+      <li>תמלול הסרטון נשלח למודלים של בינה מלאכותית (Anthropic Claude, Google Gemini) כדי להציע הוקים, כיתובים וקטעי B-roll. התמלול אינו משמש לאימון המודלים.</li>
+      <li>קטעי וידאו ממאגרים חינמיים נטענים מ-Pexels ו-Pixabay.</li>
+      <li>אימיילים (אימות כתובת ואיפוס סיסמה) נשלחים דרך Resend.</li>
+    </ul>
+
+    <h3>כמה זמן המידע נשמר</h3>
+    <ul>
+      <li>סרטונים מעובדים נמחקים אוטומטית לאחר 30 יום.</li>
+      <li>קבצי ביניים נמחקים לאחר 48 שעות.</li>
+      <li>פרטי החשבון נשמרים עד שתבקשו למחוק את החשבון.</li>
+    </ul>
+
+    <h3>שיתוף מידע</h3>
+    <p>אנחנו לא מוכרים את המידע שלכם ולא משתפים אותו עם גורמים שלישיים, מלבד ספקי השירות שמפעילים את המערכת: Modal (עיבוד ואחסון), Vercel (אתר), Resend (אימייל), Anthropic ו-Google (ניתוח תמלול), Pexels ו-Pixabay (מאגרי וידאו) ו-Metricool (רק אם חיברתם חשבון ותזמנתם פוסט).</p>
+
+    <h3>אבטחה</h3>
+    <p>סיסמאות נשמרות בגיבוב חזק (PBKDF2), כל התעבורה מוצפנת (HTTPS), והנתונים של כל משתמש מבודדים ממשתמשים אחרים.</p>
+
+    <h3>הזכויות שלכם</h3>
+    <p>אפשר לבקש בכל עת עותק של המידע שלכם או מחיקה מלאה של החשבון והקבצים - שלחו מייל ל-<a href="mailto:yotamjacob@gmail.com">yotamjacob@gmail.com</a>.</p>
+
+    <hr class="divider" />
+
+    <h2>תנאי שימוש</h2>
+
+    <h3>השירות</h3>
+    <p>פייפליין הוא כלי לעריכת סרטוני וידאו בעברית: כתוביות אוטומטיות, חיתוך שקטים, שיפור איכות, הוקים ותזמון פרסום. השירות נמצא בשלב מוקדם ומסופק כמות שהוא (as is), ללא התחייבות לזמינות או לתוצאה מסוימת.</p>
+
+    <h3>התוכן שלכם</h3>
+    <p>הסרטונים שלכם נשארים שלכם. בהעלאת סרטון אתם מאשרים לנו לעבד אותו אך ורק לצורך מתן השירות. אתם מתחייבים להעלות רק תוכן שיש לכם זכויות בו, ולא תוכן בלתי חוקי או פוגעני.</p>
+
+    <h3>מכסות</h3>
+    <p>לחשבון חינמי יש מכסת סרטונים מוגבלת. המכסות עשויות להשתנות; נעדכן על שינויים מהותיים.</p>
+
+    <h3>הגבלת אחריות</h3>
+    <p>במידה המרבית המותרת בחוק, לא נהיה אחראים לנזק עקיף שייגרם משימוש בשירות, לרבות אובדן קבצים לאחר תקופת השמירה (30 יום). מומלץ לשמור עותק מקומי של הסרטונים שלכם.</p>
+
+    <h3>סיום ושינויים</h3>
+    <p>אנחנו רשאים להשעות חשבון שמפר את התנאים. נוכל לעדכן תנאים אלה מעת לעת; המשך שימוש לאחר עדכון מהווה הסכמה. על תנאים אלה חל הדין הישראלי.</p>
+
+    <h3>יצירת קשר</h3>
+    <p>שאלות? <a href="mailto:yotamjacob@gmail.com">yotamjacob@gmail.com</a></p>
+  </div>
+
+  <!-- ─────────────────────────── ENGLISH ─────────────────────────── -->
+  <div class="card" id="en" dir="ltr" style="display:none">
+    <h1>Privacy Policy &amp; Terms of Use</h1>
+    <p class="updated">Last updated: July 5, 2026</p>
+
+    <h2>Privacy Policy</h2>
+
+    <h3>What we collect</h3>
+    <ul>
+      <li><b>Account details</b> - username, email address and password (stored hashed, never as plain text).</li>
+      <li><b>Videos</b> - the videos you upload and the processed files created from them.</li>
+      <li><b>Usage data</b> - how many videos you have processed (for the usage quota).</li>
+      <li><b>Metricool connection</b> - if you connect a Metricool account, an access token is stored so we can schedule posts on your behalf.</li>
+    </ul>
+
+    <h3>How we use it</h3>
+    <ul>
+      <li>Videos are processed in the cloud (Modal) to create captions, cut silences and enhance quality.</li>
+      <li>The video transcript is sent to AI models (Anthropic Claude, Google Gemini) to suggest hooks, captions and B-roll clips. Transcripts are not used to train the models.</li>
+      <li>Stock footage is fetched from Pexels and Pixabay.</li>
+      <li>Emails (address verification and password reset) are sent via Resend.</li>
+    </ul>
+
+    <h3>How long we keep it</h3>
+    <ul>
+      <li>Processed videos are deleted automatically after 30 days.</li>
+      <li>Intermediate files are deleted after 48 hours.</li>
+      <li>Account details are kept until you ask us to delete your account.</li>
+    </ul>
+
+    <h3>Sharing</h3>
+    <p>We do not sell your data and do not share it with third parties, other than the service providers that run the system: Modal (processing and storage), Vercel (website), Resend (email), Anthropic and Google (transcript analysis), Pexels and Pixabay (stock footage) and Metricool (only if you connect an account and schedule a post).</p>
+
+    <h3>Security</h3>
+    <p>Passwords are stored with strong hashing (PBKDF2), all traffic is encrypted (HTTPS), and each user's data is isolated from other users.</p>
+
+    <h3>Your rights</h3>
+    <p>You can request a copy of your data or full deletion of your account and files at any time - email <a href="mailto:yotamjacob@gmail.com">yotamjacob@gmail.com</a>.</p>
+
+    <hr class="divider" />
+
+    <h2>Terms of Use</h2>
+
+    <h3>The service</h3>
+    <p>Pipeline is a tool for editing Hebrew videos: automatic captions, silence cutting, quality enhancement, hooks and post scheduling. The service is at an early stage and is provided as is, with no guarantee of availability or of any particular result.</p>
+
+    <h3>Your content</h3>
+    <p>Your videos remain yours. By uploading a video you allow us to process it solely to provide the service. You agree to upload only content you have the rights to, and no illegal or abusive content.</p>
+
+    <h3>Quotas</h3>
+    <p>Free accounts have a limited video quota. Quotas may change; we will announce material changes.</p>
+
+    <h3>Limitation of liability</h3>
+    <p>To the maximum extent permitted by law, we are not liable for indirect damage caused by use of the service, including loss of files after the retention period (30 days). We recommend keeping a local copy of your videos.</p>
+
+    <h3>Termination and changes</h3>
+    <p>We may suspend accounts that violate these terms. We may update these terms from time to time; continued use after an update constitutes acceptance. These terms are governed by Israeli law.</p>
+
+    <h3>Contact</h3>
+    <p>Questions? <a href="mailto:yotamjacob@gmail.com">yotamjacob@gmail.com</a></p>
+  </div>
+</div>
+
+<script>
+  var lang = 'he';
+  try { lang = localStorage.getItem('hebpipe_lang') || 'he'; } catch (e) {}
+  function render() {
+    var he = lang === 'he';
+    document.getElementById('he').style.display = he ? 'block' : 'none';
+    document.getElementById('en').style.display = he ? 'none' : 'block';
+    document.getElementById('langBtn').textContent = he ? 'English' : 'עברית';
+    document.getElementById('backLink').textContent = he ? '→ חזרה לפייפליין' : '← Back to Pipeline';
+    document.documentElement.lang = he ? 'he' : 'en';
+    document.documentElement.dir = he ? 'rtl' : 'ltr';
+    document.title = he ? 'פייפליין - פרטיות ותנאי שימוש' : 'Pipeline - Privacy & Terms';
+  }
+  function switchLang() {
+    lang = lang === 'he' ? 'en' : 'he';
+    try { localStorage.setItem('hebpipe_lang', lang); } catch (e) {}
+    render();
+  }
+  render();
+</script>
+</body>
+</html>

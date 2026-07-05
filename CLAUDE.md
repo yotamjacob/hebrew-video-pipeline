@@ -18,6 +18,7 @@
 | `site/i18n.js` | EN/HE dictionary + engine: `t(key, vars)`, `data-i18n` attrs, `setLang` (sets `dir=rtl`, persists `hebpipe_lang`, fires `langchange`); toggle button `#langToggle` in hero |
 | `site/app.css` | All frontend styles |
 | `site/sw.js` | Service worker — background job polling only (no asset caching) |
+| `site/legal.html` | Standalone bilingual privacy policy + terms (HE default, EN toggle, shares `hebpipe_lang`); linked from every footer (`footer.legal`); served as a real file, bypassing the SPA rewrite |
 | `site/vercel.json` | SPA rewrite rule (all routes → index.html) |
 | `captions_template.ass` | ASS subtitle format reference and style examples |
 | `requirements.txt` | `faster-whisper`, `requests` |
