@@ -146,3 +146,21 @@ test('time estimate shows for a real video and grows with AI upscale', async ({ 
   await page.click('label[for="ev_none"]');
   await expect(est).toHaveText(`הערכה: ${base[0]}-${base[1]} דקות`);
 });
+
+test('polling survives repeated network failures (mobile background/foreground)', async ({ page }) => {
+  const { API_BASE } = require('./helpers');
+  await mockAllApis(page);
+  // Simulate the OS killing in-flight poll fetches: first 5 poll requests die
+  // with a network error ("Failed to fetch"), then connectivity returns.
+  // The old code gave up after 3 retries and showed the error card.
+  let failures = 0;
+  await page.route(`${API_BASE}/process_poll/**`, (route) => {
+    if (failures < 5) { failures++; return route.abort('failed'); }
+    return route.fallback();
+  });
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 30_000 });
+  expect(failures).toBe(5);
+});

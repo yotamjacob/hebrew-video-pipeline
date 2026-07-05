@@ -1165,14 +1165,14 @@
 
     // Page-side poll - calls _resolve/_reject directly, never leaves a dangling promise
     (async () => {
-      let networkRetries = 0;
-      const MAX_RETRIES = 3;
+      let serverRetries = 0;
+      const MAX_SERVER_RETRIES = 3;
       while (Date.now() < deadline) {
         try {
           const resp = await fetch(pollUrl, { signal });
-          if (resp.status === 200) { networkRetries = 0; _resolve(await resp.json()); return; }
+          if (resp.status === 200) { _resolve(await resp.json()); return; }
           if (resp.status === 202) {
-            networkRetries = 0;
+            serverRetries = 0;
             if (onProgress) {
               try { onProgress((await resp.json()).progress); } catch {}
             }
@@ -1183,19 +1183,24 @@
             continue;
           }
           const text = await resp.text();
-          throw new Error(t('err.server', {status: resp.status, text: text.slice(0, 200)}));
+          const err = new Error(t('err.server', {status: resp.status, text: text.slice(0, 200)}));
+          err.isServer = true;
+          throw err;
         } catch (e) {
           if (e.name === 'AbortError') { _reject(e); return; }
-          if (++networkRetries <= MAX_RETRIES) {
-            console.warn(`Poll network error (retry ${networkRetries}/${MAX_RETRIES}): ${e.message}`);
-            await new Promise((res, rej) => {
-              const t = setTimeout(res, Math.min(2000, deadline - Date.now()));
-              signal.addEventListener('abort', () => { clearTimeout(t); rej(new DOMException('aborted', 'AbortError')); });
-            });
-            continue;
+          if (e.isServer && ++serverRetries > MAX_SERVER_RETRIES) {
+            console.error('Poll failed after server retries:', e.message);
+            _reject(e); return;
           }
-          console.error('Poll failed after retries:', e.message);
-          _reject(e); return;
+          // Pure network failures ("Failed to fetch") are never fatal before
+          // the deadline: mobile OSes kill in-flight fetches on background/
+          // foreground transitions while the job keeps running server-side.
+          console.warn(`Poll error, retrying: ${e.message}`);
+          await new Promise((res, rej) => {
+            const t = setTimeout(res, Math.min(2000, deadline - Date.now()));
+            signal.addEventListener('abort', () => { clearTimeout(t); rej(new DOMException('aborted', 'AbortError')); });
+          });
+          continue;
         }
       }
       _reject(new Error(t('err.resultTimeout')));
