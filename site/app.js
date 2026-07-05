@@ -1067,9 +1067,14 @@
       const start = i * CHUNK_SIZE;
       const end   = Math.min(start + CHUNK_SIZE, file.size);
       const slice = file.slice(start, end);
-      const MAX_SERVER_ATTEMPTS = 4;                      // 408/429/5xx responses
-      const deadline = Date.now() + 10 * 60 * 1000;       // network errors retry until this
-      let serverAttempts = 0, attempt = 0;
+      const MAX_SERVER_ATTEMPTS = 4;    // 408/429/5xx responses
+      // Network-error retries are capped by AWAKE attempts, not wall-clock: a
+      // backgrounded page is frozen and burns no attempts, so the upload still
+      // survives the phone being minimized - but a genuinely broken connection
+      // surfaces as a real error (with the log) in ~30s instead of spinning.
+      const MAX_NET_ATTEMPTS = 12;
+      let serverAttempts = 0, netAttempts = 0, attempt = 0;
+      const pctEl = document.getElementById('uploadBarPct');
       while (true) {
         if (attempt++ > 0) await new Promise(r => setTimeout(r, 2000));
         try {
@@ -1093,11 +1098,15 @@
           console.warn(`Chunk ${i}: server ${resp.status}, retry ${serverAttempts}/${MAX_SERVER_ATTEMPTS}`);
         } catch (e) {
           if (e.isTerminal) throw e;
-          // Pure network errors (incl. fetches killed by mobile background/
-          // foreground transitions) retry until the deadline - the upload
-          // resumes when the page thaws instead of dying at the 4th attempt.
-          if (Date.now() > deadline) throw e;
-          console.warn(`Chunk ${i}: ${e.message} - retrying`);
+          // Anything that isn't a plain network error (e.g. session expired)
+          // is unexpected - surface it instead of retrying blindly.
+          if (!_isNetErr(e)) throw e;
+          if (++netAttempts >= MAX_NET_ATTEMPTS) {
+            console.error(`Chunk ${i}: giving up after ${netAttempts} network failures`);
+            throw e;
+          }
+          console.warn(`Chunk ${i}: ${e.message} - retry ${netAttempts}/${MAX_NET_ATTEMPTS}`);
+          if (pctEl) pctEl.textContent = t('upload.retrying');
         }
       }
     }

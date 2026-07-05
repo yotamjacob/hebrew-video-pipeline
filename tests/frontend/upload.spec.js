@@ -205,3 +205,32 @@ test('upload chunk survives repeated network failures (mobile backgrounding)', a
   await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 40_000 });
   expect(failures).toBe(5);
 });
+
+test('persistent upload failure surfaces an error instead of spinning forever', async ({ page }) => {
+  test.setTimeout(60_000);   // error surfaces after ~24s of capped retries
+  const { API_BASE } = require('./helpers');
+  await mockAllApis(page);
+  // Connection is genuinely broken: every chunk request dies, forever.
+  await page.route(/\/upload_chunk\//, route => route.abort('failed'));
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  // Must give up after the awake-attempt cap (~30s), not spin for minutes
+  await expect(page.locator('#statusError')).toBeVisible({ timeout: 45_000 });
+  const detail = await page.locator('#errorDetail').textContent();
+  expect(detail).toContain('upload');
+  const log = await page.locator('#errorLog').textContent();
+  expect(log).toContain('giving up');
+});
+
+test('401 during upload fails fast to the login view, no endless retry', async ({ page }) => {
+  const { API_BASE } = require('./helpers');
+  await mockAllApis(page);
+  await page.route(/\/upload_chunk\//, route =>
+    route.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"unauthorized"}' }));
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  // Session-expired path must surface within seconds - not retry blindly
+  await expect(page.locator('#authView')).toBeVisible({ timeout: 10_000 });
+});
