@@ -183,4 +183,25 @@ test('network error shows friendly message plus technical detail line', async ({
   expect(detail).toContain('spawn');
   expect(detail.toLowerCase()).toContain('fetch');
   expect(detail).toContain('online');
+  // Expandable console log carries the actual error trail
+  await expect(page.locator('#errorLogWrap')).toBeVisible();
+  const log = await page.locator('#errorLog').textContent();
+  expect(log.toLowerCase()).toContain('fetch');
+});
+
+test('upload chunk survives repeated network failures (mobile backgrounding)', async ({ page }) => {
+  const { API_BASE } = require('./helpers');
+  await mockAllApis(page);
+  // Chunk 0 dies with a network error 5 times, then connectivity returns.
+  // The old code gave up after 4 attempts per chunk.
+  let failures = 0;
+  await page.route(/\/upload_chunk\/\?.*index=0/, (route) => {
+    if (failures < 5) { failures++; return route.abort('failed'); }
+    return route.fallback();
+  });
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 40_000 });
+  expect(failures).toBe(5);
 });

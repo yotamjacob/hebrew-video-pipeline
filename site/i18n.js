@@ -273,6 +273,7 @@
     'err.stage.spawn':      { en: 'while starting the job', he: 'בזמן הפעלת העבודה' },
     'err.stage.processing': { en: 'while waiting for processing', he: 'בזמן העיבוד' },
     'err.stage.download':   { en: 'while downloading the result', he: 'בזמן הורדת התוצאה' },
+    'prog.errLog':       { en: 'Error log', he: 'יומן שגיאות' },
     'err.stage.burn':       { en: 'while burning the video', he: 'בזמן צריבת הסרטון' },
 
     // ── Net notices (dynamic) ──

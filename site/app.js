@@ -1,6 +1,28 @@
   const API_BASE = 'https://yotamjacob--hebrew-video-pipeline-api.modal.run';
   const API      = API_BASE + '/process/';
 
+  // ── Console capture ──
+  // Ring buffer of recent console output, surfaced in the error card so
+  // mobile users (no devtools) can see and report what actually happened.
+  const consoleLog = [];
+  ['error', 'warn', 'info'].forEach(level => {
+    const orig = console[level].bind(console);
+    console[level] = (...args) => {
+      try {
+        const line = args.map(a => typeof a === 'string' ? a : (a && a.message) || String(a)).join(' ');
+        const d = new Date();
+        const ts = [d.getHours(), d.getMinutes(), d.getSeconds()].map(n => String(n).padStart(2, '0')).join(':');
+        consoleLog.push(`${ts} [${level}] ${line}`.slice(0, 300));
+        if (consoleLog.length > 40) consoleLog.shift();
+      } catch (_) {}
+      orig(...args);
+    };
+  });
+  window.addEventListener('error', ev =>
+    console.error(`Uncaught: ${ev.message} (${ev.filename ? ev.filename.split('/').pop() : ''}:${ev.lineno || ''})`));
+  window.addEventListener('unhandledrejection', ev =>
+    console.error(`Unhandled rejection: ${(ev.reason && ev.reason.message) || ev.reason}`));
+
   // Gates all user-facing email flows (verify nudge + password reset). Off
   // until a sending domain is verified in Resend — with the test sender,
   // emails only reach the account owner, so these flows would send mail that
@@ -1045,9 +1067,11 @@
       const start = i * CHUNK_SIZE;
       const end   = Math.min(start + CHUNK_SIZE, file.size);
       const slice = file.slice(start, end);
-      const MAX_ATTEMPTS = 4;
-      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-        if (attempt > 0) await new Promise(r => setTimeout(r, attempt * 1500));
+      const MAX_SERVER_ATTEMPTS = 4;                      // 408/429/5xx responses
+      const deadline = Date.now() + 10 * 60 * 1000;       // network errors retry until this
+      let serverAttempts = 0, attempt = 0;
+      while (true) {
+        if (attempt++ > 0) await new Promise(r => setTimeout(r, 2000));
         try {
           const resp = await apiFetch(
             `${API_BASE}/upload_chunk/?key=${key}&index=${i}`,
@@ -1061,15 +1085,19 @@
           // Hard client errors (not 408/429) - don't retry
           if (resp.status >= 400 && resp.status < 500 && resp.status !== 408 && resp.status !== 429) {
             const body = await resp.json().catch(() => ({}));
-            throw new Error(body.error || t('err.chunk', {i: i, status: resp.status}));
+            throw Object.assign(new Error(body.error || t('err.chunk', {i: i, status: resp.status})), { isTerminal: true });
           }
-          // 408, 429, 5xx - fall through to retry
-          if (attempt === MAX_ATTEMPTS - 1)
-            throw new Error(t('err.chunkRetries', {i: i, n: MAX_ATTEMPTS, status: resp.status}));
+          // 408, 429, 5xx - bounded retries
+          if (++serverAttempts >= MAX_SERVER_ATTEMPTS)
+            throw Object.assign(new Error(t('err.chunkRetries', {i: i, n: MAX_SERVER_ATTEMPTS, status: resp.status})), { isTerminal: true });
+          console.warn(`Chunk ${i}: server ${resp.status}, retry ${serverAttempts}/${MAX_SERVER_ATTEMPTS}`);
         } catch (e) {
-          // Re-throw terminal errors immediately
-          if (e.message.startsWith('Upload failed') || attempt === MAX_ATTEMPTS - 1) throw e;
-          // Network error or CORS-blocked error response - retry
+          if (e.isTerminal) throw e;
+          // Pure network errors (incl. fetches killed by mobile background/
+          // foreground transitions) retry until the deadline - the upload
+          // resumes when the page thaws instead of dying at the 4th attempt.
+          if (Date.now() > deadline) throw e;
+          console.warn(`Chunk ${i}: ${e.message} - retrying`);
         }
       }
     }
@@ -1469,6 +1497,14 @@
         `${hh}:${mm}`,
       ].join(' · ');
       detailEl.style.display = 'block';
+    }
+    // Expandable console log - the last few warn/error lines leading up here
+    const logWrap = document.getElementById('errorLogWrap');
+    const logEl   = document.getElementById('errorLog');
+    if (logWrap && logEl) {
+      logEl.textContent = consoleLog.slice(-10).join('\n');
+      logWrap.style.display = consoleLog.length ? 'block' : 'none';
+      logWrap.open = false;
     }
     runBtn.disabled = false;
     runBtn.style.display = 'block';
