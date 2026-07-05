@@ -268,6 +268,12 @@
     'err.uploadTimeout': { en: 'Upload timed out.', he: 'זמן ההעלאה פג.' },
     'err.resultTimeout': { en: 'Timed out waiting for server result. The job may have failed - check Modal logs.', he: 'תם הזמן בהמתנה לתוצאה מהשרת. ייתכן שהעבודה נכשלה.' },
     'err.unknown':       { en: 'Unknown error', he: 'שגיאה לא ידועה' },
+    'err.netDropped':    { en: 'The connection dropped {stage}. If processing already started, it is still running on the server - reopen the app and tap Resume.', he: 'החיבור נקטע {stage}. אם העיבוד כבר התחיל, הוא ממשיך לרוץ בשרת - פתחו שוב את האפליקציה והקישו \u05e2\u05dc \"המשך\".' },
+    'err.stage.upload':     { en: 'while uploading', he: 'בזמן ההעלאה' },
+    'err.stage.spawn':      { en: 'while starting the job', he: 'בזמן הפעלת העבודה' },
+    'err.stage.processing': { en: 'while waiting for processing', he: 'בזמן העיבוד' },
+    'err.stage.download':   { en: 'while downloading the result', he: 'בזמן הורדת התוצאה' },
+    'err.stage.burn':       { en: 'while burning the video', he: 'בזמן צריבת הסרטון' },
 
     // ── Net notices (dynamic) ──
     'net.cellTitle': { en: 'Mobile data detected', he: 'זוהתה גלישה סלולרית' },

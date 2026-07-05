@@ -164,3 +164,23 @@ test('polling survives repeated network failures (mobile background/foreground)'
   await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 30_000 });
   expect(failures).toBe(5);
 });
+
+test('network error shows friendly message plus technical detail line', async ({ page }) => {
+  const { API_BASE } = require('./helpers');
+  await mockAllApis(page);
+  // Spawn request dies with a network error (phone lost connectivity)
+  await page.route(/\/process\/\?/, route => route.abort('failed'));
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await expect(page.locator('#statusError')).toBeVisible({ timeout: 15_000 });
+  // Friendly message replaces the raw "Failed to fetch"
+  const msg = await page.locator('#errorMsg').textContent();
+  expect(msg.toLowerCase()).not.toContain('failed to fetch');
+  // Technical detail line: stage + raw error + connectivity, for bug reports
+  await expect(page.locator('#errorDetail')).toBeVisible();
+  const detail = await page.locator('#errorDetail').textContent();
+  expect(detail).toContain('spawn');
+  expect(detail.toLowerCase()).toContain('fetch');
+  expect(detail).toContain('online');
+});

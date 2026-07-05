@@ -362,6 +362,15 @@
   const statusError    = document.getElementById('statusError');
   const errorMsg       = document.getElementById('errorMsg');
 
+  // Which phase of the flow is running - gives errors context ("while uploading").
+  let flowStage = null;
+  function _setStage(s) { flowStage = s; }
+  // Browsers word network-layer TypeErrors differently: Chrome "Failed to fetch",
+  // Safari/iOS "Load failed", Firefox "NetworkError when attempting to fetch".
+  function _isNetErr(e) {
+    return /failed to fetch|load failed|networkerror|network error|network request failed/i.test(e && e.message || '');
+  }
+
   // Checklist step elements
   const checkItems = {
     upload:  document.getElementById('checkUpload'),
@@ -463,6 +472,7 @@
       _procStartMs = Date.now();
       if (job.key) currentUploadKey = job.key;
       try {
+        _setStage('processing');
         const keyQs = job.key ? `?key=${encodeURIComponent(job.key)}` : '';
         const result = await pollForJSON(`${API_BASE}/process_poll/${job.callId}/${keyQs}`, 900_000, job.callId, _applyProgress);
         _stepsDoneProcessing(result.step_times);
@@ -479,9 +489,9 @@
           showDone();
         }
       } catch (err) {
-        clearSavedJob();
+        if (!_isNetErr(err)) clearSavedJob();
         if (err.name !== 'AbortError')
-          showError(t('err.reconnect'));
+          showError(_isNetErr(err) ? err.message : t('err.reconnect'));
       }
 
     } else if (job.type === 'burn') {
@@ -499,6 +509,7 @@
       runBtn.disabled = true;
       lockPipelineActions({ activeBtn: 'runBtn' });
       try {
+        _setStage('burn');
         const burnResult = await pollForJSON(`${API_BASE}/burn_poll/${job.callId}/`, 600_000, job.callId);
         _stepDone('burn');
         clearSavedJob();
@@ -533,9 +544,9 @@
         }
         document.getElementById('burnSuccessBanner').style.display = 'flex';
       } catch (err) {
-        clearSavedJob();
+        if (!_isNetErr(err)) clearSavedJob();
         if (err.name !== 'AbortError')
-          showError(t('err.reconnect'));
+          showError(_isNetErr(err) ? err.message : t('err.reconnect'));
       } finally {
         unlockPipelineActions();
         runBtn.disabled = false;
@@ -852,6 +863,7 @@
 
     try {
       // Phase 1: upload video in chunks
+      _setStage('upload');
       const uploadKey = await chunkedUpload(selectedFile, (pct) => {
         document.getElementById('uploadBarFill').style.width = (pct * 100).toFixed(0) + '%';
         document.getElementById('uploadBarPct').textContent  = (pct * 100).toFixed(0) + '%';
@@ -865,6 +877,7 @@
       runStartTime = Date.now();
       showProcessing();
       params.set('key', uploadKey);
+      _setStage('spawn');
       const spawnResp = await apiFetch(`${API_BASE}/process/?${params}`, { method: 'POST' });
       if (spawnResp.status !== 202) {
         const body = await spawnResp.json().catch(() => ({}));
@@ -876,6 +889,7 @@
       // Poll until processing is done - returns JSON {captions, video_key}
       currentCallId = call_id;
       saveJob('process', call_id, { filename: selectedFile.name, key: uploadKey });
+      _setStage('processing');
       const pollUrl = `${API_BASE}/process_poll/${call_id}/?key=${encodeURIComponent(uploadKey)}`;
       const result = await pollForJSON(pollUrl, 900_000, call_id, _applyProgress);
       _stepsDoneProcessing(result.step_times);
@@ -892,6 +906,7 @@
         startBrollAnalysis();
       } else {
         // No captions, no B-roll - download directly
+        _setStage('download');
         const dlResp = await apiFetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
         resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
         resultName = cutFilename;
@@ -900,7 +915,9 @@
     } catch (err) {
       if (err.name === 'AbortError') return;
       console.error('Process error:', err.message);
-      clearSavedJob();
+      // A network drop doesn't kill the server-side job - keep the saved job
+      // so the Resume banner can reconnect to it on the next visit.
+      if (!_isNetErr(err)) clearSavedJob();
       if (!isRetry && err.message.includes('Network error')) {
         // GPU warmup retry - keep checklist, just update upload step label
         checkItems.upload.className = 'check-item done';
@@ -968,6 +985,7 @@
     showProcessing();
 
     try {
+      _setStage('spawn');
       const spawnResp = await apiFetch(`${API_BASE}/process/?${params}`, { method: 'POST' });
       if (spawnResp.status !== 202) {
         const body = await spawnResp.json().catch(() => ({}));
@@ -978,6 +996,7 @@
 
       currentCallId = call_id;
       saveJob('process', call_id, { filename: selectedFile.name, key: currentUploadKey });
+      _setStage('processing');
       const result = await pollForJSON(`${API_BASE}/process_poll/${call_id}/?key=${encodeURIComponent(currentUploadKey)}`, 900_000, call_id, _applyProgress);
       _stepsDoneProcessing(result.step_times);
       clearSavedJob();
@@ -992,6 +1011,7 @@
         showCaptionEditor();
         startBrollAnalysis();
       } else {
+        _setStage('download');
         const dlResp = await apiFetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
         resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
         resultName = cutFilename;
@@ -1001,7 +1021,7 @@
       unlockPipelineActions();
       if (err.name === 'AbortError') return;
       console.error('Re-process error:', err.message);
-      clearSavedJob();
+      if (!_isNetErr(err)) clearSavedJob();
       showError(err.message);
     }
   }
@@ -1432,7 +1452,24 @@
     Object.keys(stepTimers).forEach(k => { if (stepTimers[k]) { clearInterval(stepTimers[k].id); stepTimers[k] = null; } });
     checklistEl.style.display = 'none';
     statusError.classList.add('visible');
-    errorMsg.textContent = msg.length > 200 ? msg.slice(0, 200) + '…' : msg;
+    const isNet = _isNetErr({ message: msg });
+    const friendly = isNet
+      ? t('err.netDropped', { stage: flowStage ? t('err.stage.' + flowStage) : '' }).replace('  ', ' ')
+      : msg;
+    errorMsg.textContent = friendly.length > 200 ? friendly.slice(0, 200) + '…' : friendly;
+    // Technical detail line - locale-neutral, for screenshots/bug reports.
+    const detailEl = document.getElementById('errorDetail');
+    if (detailEl) {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0'), mm = String(now.getMinutes()).padStart(2, '0');
+      detailEl.textContent = [
+        flowStage || 'unknown stage',
+        msg.slice(0, 120),
+        navigator.onLine ? 'online' : 'offline',
+        `${hh}:${mm}`,
+      ].join(' · ');
+      detailEl.style.display = 'block';
+    }
     runBtn.disabled = false;
     runBtn.style.display = 'block';
   }
@@ -3155,6 +3192,7 @@
       }
 
       pollController = new AbortController();
+      _setStage('burn');
       const spawnResp = await apiFetch(burnUrl.toString(), {
         method: 'POST',
         body: JSON.stringify({ captions: edited, broll: allBroll, ...(hookPayload ? { hook: hookPayload } : {}) }),
@@ -3224,7 +3262,7 @@
         if (h) { h.classList.remove('collapsed'); if (b) b.style.display = 'block'; }
       });
     } catch (err) {
-      clearSavedJob();
+      if (!_isNetErr(err)) clearSavedJob();
       // Burn didn't finish - stop and hide its checklist row
       if (stepTimers.burn) { clearInterval(stepTimers.burn.id); stepTimers.burn = null; }
       if (checkItems.burn) { checkItems.burn.className = 'check-item pending'; checkItems.burn.style.display = 'none'; }
