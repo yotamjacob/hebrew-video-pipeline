@@ -108,6 +108,8 @@ npx vercel deploy --prod
 
 **Stock search two-prompt split** — `broad_search_prompt` is sent to Pexels/Pixabay (optimized for recall); `strict_eval_prompt` is sent to Haiku vision scoring only (optimized for precision). Never swap them — the stock libraries can't handle the strict prompt and return zero results.
 
+**Mobile upload resilience (design, 2026-07-05)** - `pollForJSON` and `uploadChunk` never treat pure network errors ("Failed to fetch"/"Load failed") as fatal: polls retry until the deadline, chunks retry up to 12 AWAKE attempts (a frozen background page burns none, so minimize-during-upload survives; genuine outages surface in ~30s). Non-network errors are terminal immediately. Every chunk reads `slice.arrayBuffer()` BEFORE fetch: on Android a gallery-picked file can become unreadable (Google Photos cloud-sync / file changed = ERR_UPLOAD_FILE_CHANGED), which otherwise looks like "Failed to fetch" on every attempt forever - the explicit read turns it into a clear "select the file again" error. The error card shows a stage+raw-error detail line and an expandable console log (`consoleLog` ring buffer) for mobile bug reports.
+
 **Chunk streaming** — `upload_chunk` writes each chunk to a separate Volume file. `process_video` reassembles them with `shutil.copyfileobj` directly to the tempdir, one chunk at a time. This keeps RAM usage flat regardless of video size.
 
 **Rate limiting scope** — `_check_rate_limit` uses an in-memory dict per Modal container instance (10 req/60 s per IP). Multiple concurrent container instances each have their own limit — effective limit is `10 × N_instances` per minute. Sufficient for abuse prevention; not a per-user quota.
