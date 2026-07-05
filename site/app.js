@@ -1066,6 +1066,25 @@
   // Rejects with a flagged error: isTerminal (don't retry), isServer (bounded),
   // else network/stall (bounded, but survives backgrounding since a frozen page
   // fires no progress and its timers are paused).
+  // Resolves immediately if the page is visible, else when it next becomes
+  // visible. Used to park upload retries while the phone is backgrounded so
+  // an interruption doesn't burn the retry budget.
+  function _whenVisible() {
+    if (!document.hidden) return Promise.resolve();
+    return new Promise(res => {
+      const h = () => { if (!document.hidden) { document.removeEventListener('visibilitychange', h); res(); } };
+      document.addEventListener('visibilitychange', h);
+    });
+  }
+
+  // Bumped every time the page goes hidden. An upload attempt captures this
+  // before sending; if it changed by the time the request fails, the failure
+  // coincided with backgrounding (the OS killed the in-flight request) and
+  // must NOT count against the dead-connection budget - only failures that
+  // happen while the page stays visible are genuine network problems.
+  let _hiddenEpoch = 0;
+  document.addEventListener('visibilitychange', () => { if (document.hidden) _hiddenEpoch++; });
+
   const CHUNK_STALL_MS = 20_000;
   function _postChunkBytes(url, body, onLoaded) {
     return new Promise((resolve, reject) => {
@@ -1113,16 +1132,26 @@
       const chunkLen = end - start;
       const slice = file.slice(start, end);
       const MAX_SERVER_ATTEMPTS = 4;    // 408/429/5xx responses
-      // Network/stall retries are capped by AWAKE attempts, not wall-clock: a
-      // backgrounded page is frozen and burns no attempts, so the upload
-      // survives the phone being minimized. A genuinely dead connection is
-      // bounded to ~6 attempts (each a fast error, or up to STALL_MS if it
-      // hangs) so it surfaces a real error in ~2 min instead of spinning.
-      const MAX_NET_ATTEMPTS = 6;
-      let serverAttempts = 0, netAttempts = 0, attempt = 0;
+      // A chunk gives up only after MAX_STUCK consecutive failures that happen
+      // WHILE THE PAGE IS VISIBLE - a genuinely dead connection. Failures that
+      // coincide with the page being backgrounded (the OS killing in-flight
+      // requests) don't count, so an upload interrupted by minimizing the
+      // browser repeatedly never exhausts its budget. MAX_TOTAL is an absolute
+      // backstop against a pathological retry loop.
+      const MAX_STUCK = 6, MAX_TOTAL = 60;
+      let serverAttempts = 0, stuckTries = 0, totalTries = 0;
       const pctEl = document.getElementById('uploadBarPct');
       while (true) {
-        if (attempt++ > 0) await new Promise(r => setTimeout(r, 2000));
+        if (totalTries++ > 0) {
+          // Park (and don't count tries) while the page is hidden - wait until
+          // it's foregrounded again, so backgrounding costs no attempts.
+          await _whenVisible();
+          await new Promise(r => setTimeout(r, 2000));
+        }
+        if (totalTries > MAX_TOTAL) {
+          console.error(`Chunk ${i}: giving up after ${totalTries} total attempts`);
+          throw Object.assign(new Error(t('err.chunkRetries', { i: i, n: MAX_TOTAL, status: 0 })), { isTerminal: true });
+        }
         loadedByChunk[i] = 0; report();
         // Read the chunk bytes explicitly before sending. On Android a picked
         // file can silently become unreadable (moved, changed, or cloud-synced
@@ -1135,6 +1164,7 @@
           console.error(`Chunk ${i}: file unreadable - ${readErr.message}`);
           throw Object.assign(new Error(t('err.fileUnreadable')), { isTerminal: true });
         }
+        const epoch0 = _hiddenEpoch;
         try {
           await _postChunkBytes(
             `${API_BASE}/upload_chunk/?key=${key}&index=${i}`,
@@ -1153,12 +1183,17 @@
               throw Object.assign(new Error(t('err.chunkRetries', { i: i, n: MAX_SERVER_ATTEMPTS, status: e.httpStatus || 0 })), { isTerminal: true });
             console.warn(`Chunk ${i}: server ${e.httpStatus}, retry ${serverAttempts}/${MAX_SERVER_ATTEMPTS}`);
           } else {
-            // Network error or stall
-            if (++netAttempts >= MAX_NET_ATTEMPTS) {
-              console.error(`Chunk ${i}: giving up after ${netAttempts} network failures`);
+            // Network error or stall. If the page was backgrounded during this
+            // attempt, the OS killed the request - don't count it, just retry.
+            const backgrounded = document.hidden || _hiddenEpoch !== epoch0;
+            if (backgrounded) {
+              console.warn(`Chunk ${i}: ${e.message} during backgrounding - retrying (not counted)`);
+            } else if (++stuckTries >= MAX_STUCK) {
+              console.error(`Chunk ${i}: giving up after ${stuckTries} network failures`);
               throw Object.assign(e, { isTerminal: true });
+            } else {
+              console.warn(`Chunk ${i}: ${e.message} - retry ${stuckTries}/${MAX_STUCK}`);
             }
-            console.warn(`Chunk ${i}: ${e.message} - retry ${netAttempts}/${MAX_NET_ATTEMPTS}`);
             if (pctEl) pctEl.textContent = t('upload.retrying');
           }
         }

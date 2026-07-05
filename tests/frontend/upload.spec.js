@@ -268,3 +268,36 @@ test('a stalled (silent) chunk connection aborts and surfaces an error, not an e
   expect(log.toLowerCase()).toContain('stall');
   expect(log).toContain('giving up');
 });
+
+test('backgrounding-killed chunk retries do not burn the give-up budget', async ({ page }) => {
+  test.setTimeout(60_000);
+  const { mockAllApis: mk, selectFile: sf, bootApp: boot } = require('./helpers');
+  // Stub document.hidden and expose a helper that pulses "hidden" (bumping the
+  // app's _hiddenEpoch) then returns to visible - simulating a brief minimize.
+  await page.addInitScript(() => {
+    let hidden = false;
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+    window.__pulseHidden = () => {
+      hidden = true;  document.dispatchEvent(new Event('visibilitychange'));
+      hidden = false; document.dispatchEvent(new Event('visibilitychange'));
+    };
+  });
+  await boot(page);
+  await mk(page);
+  await sf(page);
+  // Chunk 0 fails 10 times; each failure is made to coincide with a background
+  // pulse. Old code gave up at 6 network failures - now these don't count.
+  let failures = 0;
+  await page.route(/\/upload_chunk\/\?.*index=0/, async (route) => {
+    if (failures < 10) {
+      failures++;
+      await page.evaluate(() => window.__pulseHidden());
+      return route.abort('failed');
+    }
+    return route.fallback();
+  });
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 45_000 });
+  expect(failures).toBe(10);
+});
