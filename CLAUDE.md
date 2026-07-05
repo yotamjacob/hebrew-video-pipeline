@@ -14,7 +14,7 @@
 | `metricool_fns.py` | Metricool OAuth store, MCP client, `schedule_post_fn` |
 | `site/index.html` | Vercel frontend markup — "פייפליין" branding (catchphrase: עריכות וידאו בלחיצת כפתור); tabs: **Create** (upload/process/download) and **History**; no framework |
 | `DESIGN_LEGACY.md` | The pre-2026-07 Yogalina design, preserved at tag `design-yogalina-classic` — how to revert |
-| `site/app.js` | All frontend logic (upload, polling, editor, burn, debug panel, stats tab, scheduling). Metricool **connection** is an account-level topbar chip (`#metricoolChip`, `refreshMetricoolChip`) surfaced up front; **scheduling** is a shared modal (`#scheduleOverlay`, `openScheduleModal(video)`) opened from BOTH the post-burn `#openScheduleBtn` and each History row's 📅. Suggest-caption only shows for fresh videos (needs the in-memory transcript, not stored per job). |
+| `site/app.js` | All frontend logic (upload, polling, editor, burn, debug panel, stats tab, scheduling). Metricool **connection** is an account-level topbar chip (`#metricoolChip`, `refreshMetricoolChip`) surfaced up front — when connected the chip itself is the disconnect button (confirm modal → `POST /oauth/disconnect`); **scheduling** is a shared modal (`#scheduleOverlay`, `openScheduleModal(video)`) opened from BOTH the post-burn `#openScheduleBtn` and each History row's 📅. Suggest-caption only shows for fresh videos (needs the in-memory transcript, not stored per job). |
 | `site/i18n.js` | EN/HE dictionary + engine: `t(key, vars)`, `data-i18n` attrs, `setLang` (sets `dir=rtl`, persists `hebpipe_lang`, fires `langchange`); toggle button `#langToggle` in hero |
 | `site/app.css` | All frontend styles |
 | `site/sw.js` | Service worker — background job polling only (no asset caching) |
