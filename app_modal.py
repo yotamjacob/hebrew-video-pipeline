@@ -1080,9 +1080,24 @@ def api():
             try:
                 import subprocess as _sp, asyncio as _asyncio
                 file_path = _Path(TMP_DIR) / key
+                # Cached thumbnail from a previous request — serve instantly
+                # instead of re-running ffmpeg (~5s on a large file).
+                cache_path = _Path(TMP_DIR) / (key + ".jpg")
+                _thumb_headers = CORS + [(b"content-type", b"image/jpeg"),
+                                         (b"cache-control", b"max-age=86400")]
+                if cache_path.exists():
+                    await send({"type": "http.response.start", "status": 200,
+                                "headers": _thumb_headers})
+                    await send({"type": "http.response.body", "body": cache_path.read_bytes()})
+                    return
                 for _attempt in range(10):
                     try:
                         tmp_vol.reload()
+                        if cache_path.exists():
+                            await send({"type": "http.response.start", "status": 200,
+                                        "headers": _thumb_headers})
+                            await send({"type": "http.response.body", "body": cache_path.read_bytes()})
+                            return
                         if file_path.exists():
                             break
                         print(f"[thumbnail] attempt {_attempt}: {key!r} not found")
@@ -1114,9 +1129,13 @@ def api():
                     print(f"[thumbnail] ss=0 failed (rc={r.returncode}): {r.stderr.decode(errors='replace')}")
                     await send_error("Thumbnail extraction failed", 500)
                     return
+                try:
+                    cache_path.write_bytes(r.stdout)
+                    tmp_vol.commit()
+                except Exception as _ce:
+                    print(f"[thumbnail] cache write skipped: {_ce!r}")
                 await send({"type": "http.response.start", "status": 200,
-                            "headers": CORS + [(b"content-type", b"image/jpeg"),
-                                               (b"cache-control", b"max-age=300")]})
+                            "headers": _thumb_headers})
                 await send({"type": "http.response.body", "body": r.stdout})
             except Exception as e:
                 print(f"[thumbnail] ERROR key={key!r} err={e!r}")

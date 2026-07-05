@@ -58,11 +58,11 @@
   <button class="tab active" id="tabPipeline" role="tab" aria-selected="true" onclick="switchTab('pipeline')" data-i18n="tab.create">🎬 Create</button>
   <button class="tab" id="tabHistory" role="tab" aria-selected="false" onclick="switchTab('history')" data-i18n="tab.history">🗂️ History</button>
   <button class="tab" id="tabAdmin" role="tab" aria-selected="false" onclick="switchTab('admin')" style="display:none" data-i18n="tab.admin">🛠️ Admin</button>
-  <button class="tab" id="logoutTab" onclick="logout()" title="Sign out" data-i18n="tab.logout">🚪 Logout</button>
 </div>
 <div class="quota-pill-row">
   <button id="metricoolChip" class="mc-chip" style="display:none" onclick="onMetricoolChip()"></button>
   <div id="quotaPill" class="quota-pill" style="display:none"></div>
+  <button id="logoutTab" class="logout-btn" style="display:none" onclick="logout()" title="Logout" data-i18n-title="tab.logout">🚪</button>
 </div>
 </div>
 
@@ -74,7 +74,7 @@
 </div>
 
 <!-- ── Boot loader (shown until the session check resolves) ── -->
-<div id="bootLoader" class="boot-loader"><span class="spinner spinner-lg"></span></div>
+<div id="bootLoader" class="boot-loader"><span class="spinner spinner-lg"></span><span class="boot-msg" data-i18n="boot.waking">רק רגע, מעירים את השרת...</span></div>
 
 <!-- ── Sign in / register ── -->
 <div class="container" id="authView" style="display:none">
@@ -618,7 +618,7 @@
     </div>
   </div>
 
-  <button id="startOverBtn" class="start-over-btn" data-i18n="startOver">↩&nbsp; Start over</button>
+  <button id="startOverBtn" class="start-over-btn" style="display:none" data-i18n="startOver">↩&nbsp; Start over</button>
 
   <p class="footer"><a class="footer-contact" href="mailto:yotamjacob@gmail.com" data-i18n="footer.contact">💬 צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" data-i18n="footer.legal">🔒 פרטיות ותנאי שימוש</a></p>
 </div>

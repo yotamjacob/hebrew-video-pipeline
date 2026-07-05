@@ -1019,10 +1019,15 @@ def prune_volume():
             meta = jobs_store.get(key) or {}
             if now - meta.get("ts", 0) > JOB_RETENTION_DAYS * 86400:
                 (Path(TMP_DIR) / key).unlink(missing_ok=True)
+                (Path(TMP_DIR) / (key + ".jpg")).unlink(missing_ok=True)  # thumbnail cache
                 jobs_store.pop(key)
         protected = set(jobs_store.keys())
         for p in Path(TMP_DIR).iterdir():
             if p.name in protected or not p.is_file():
+                continue
+            # Thumbnail caches live as `<job key>.jpg` — keep them as long as
+            # their video is protected.
+            if p.name.endswith(".jpg") and p.name[:-4] in protected:
                 continue
             if now - p.stat().st_mtime > SCRATCH_RETENTION_HOURS * 3600:
                 p.unlink(missing_ok=True)

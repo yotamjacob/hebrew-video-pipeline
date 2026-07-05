@@ -100,6 +100,8 @@
     if (vb) vb.style.display = 'none';
     const mc = document.getElementById('metricoolChip');
     if (mc) mc.style.display = 'none';
+    const lo = document.getElementById('logoutTab');
+    if (lo) lo.style.display = 'none';
     ['pipelineView', 'historyView', 'adminView'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
@@ -112,6 +114,7 @@
     document.getElementById('authView').style.display = 'none';
     document.getElementById('resetView').style.display = 'none';
     document.getElementById('tabsBar').style.display = 'flex';
+    document.getElementById('logoutTab').style.display = 'inline-block';
     document.getElementById('pipelineView').style.display = 'block';
     refreshMediaToken();
     refreshMetricoolChip();
@@ -164,6 +167,7 @@
     window._resetToken = token;
     document.getElementById('authView').style.display = 'none';
     document.getElementById('tabsBar').style.display = 'none';
+    document.getElementById('logoutTab').style.display = 'none';
     ['pipelineView', 'historyView', 'adminView'].forEach(id => {
       const el = document.getElementById(id); if (el) el.style.display = 'none';
     });
@@ -444,6 +448,7 @@
     const job = loadSavedJob();
     document.getElementById('reconnectBanner').style.display = 'none';
     if (!job) return;
+    document.getElementById('startOverBtn').style.display = '';
 
     if (job.type === 'process') {
       // Reconnect: real progress from the poll tells us which step is running
@@ -665,6 +670,7 @@
     selectedFile = file;
     fileName.textContent = file.name;
     fileInfo.classList.add('visible');
+    document.getElementById('startOverBtn').style.display = '';
     clearNotices();
     resetStatus();
 
