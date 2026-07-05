@@ -1078,9 +1078,22 @@
       while (true) {
         if (attempt++ > 0) await new Promise(r => setTimeout(r, 2000));
         try {
+          // Read the chunk bytes explicitly before sending. On Android a
+          // picked file can silently become unreadable (moved, changed, or
+          // cloud-synced via Google Photos) - fetch with a Blob body then
+          // dies with a generic "Failed to fetch" on EVERY attempt. Reading
+          // first surfaces the real cause, which is terminal: only
+          // re-selecting the file fixes it.
+          let body;
+          try {
+            body = await slice.arrayBuffer();
+          } catch (readErr) {
+            console.error(`Chunk ${i}: file unreadable - ${readErr.message}`);
+            throw Object.assign(new Error(t('err.fileUnreadable')), { isTerminal: true });
+          }
           const resp = await apiFetch(
             `${API_BASE}/upload_chunk/?key=${key}&index=${i}`,
-            { method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: slice }
+            { method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body }
           );
           if (resp.ok) {
             bytesUploaded += (end - start);

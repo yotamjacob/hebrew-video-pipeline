@@ -234,3 +234,21 @@ test('401 during upload fails fast to the login view, no endless retry', async (
   // Session-expired path must surface within seconds - not retry blindly
   await expect(page.locator('#authView')).toBeVisible({ timeout: 10_000 });
 });
+
+test('unreadable picked file fails fast with a re-select message', async ({ page }) => {
+  // Android: a gallery-picked file can become unreadable (cloud-synced or
+  // changed on disk) - every read then fails. Simulate by making Blob reads
+  // reject the way Chrome does for a stale content:// file.
+  await mockAllApis(page);
+  await selectFile(page);
+  await page.evaluate(() => {
+    Blob.prototype.arrayBuffer = () =>
+      Promise.reject(new DOMException('The requested file could not be read', 'NotReadableError'));
+  });
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  // Terminal error, no retry spin - must appear within seconds
+  await expect(page.locator('#statusError')).toBeVisible({ timeout: 10_000 });
+  const msg = await page.locator('#errorMsg').textContent();
+  expect(msg).toMatch(/select the file again|בחרו את הקובץ מחדש/);
+});
