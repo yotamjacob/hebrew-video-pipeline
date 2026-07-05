@@ -1166,6 +1166,7 @@
       padding: 7px 16px; display: inline-block; transition: color 0.15s, border-color 0.15s;
     }
     .footer-contact:hover { color: var(--purple-700); border-color: var(--purple-700); }
+    .footer-contact + .footer-contact { margin-inline-start: 10px; margin-top: 6px; }
 
     /* ── Schedule card ── */
     .sched-intro { font-size: 0.82rem; color: var(--muted); line-height: 1.5; margin-bottom: 16px; }
