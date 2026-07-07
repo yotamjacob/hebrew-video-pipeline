@@ -3622,7 +3622,14 @@
     _guideReturn = { tab: curTab, cardId: originCardId || null };
     switchTab('guide', true);
     const bb = document.getElementById('guideBackBar');
-    if (bb) bb.style.display = _guideReturn.cardId ? 'block' : 'none';
+    if (bb) {
+      bb.style.display = _guideReturn.cardId ? 'block' : 'none';
+      if (_guideReturn.cardId) {
+        const bar = document.querySelector('.app-topbar');
+        const h = (bar && getComputedStyle(bar).position === 'sticky') ? bar.getBoundingClientRect().height : 0;
+        bb.style.top = Math.round(h + 8) + 'px';
+      }
+    }
     const gs = document.getElementById('guideSearch');
     if (gs && gs.value) { gs.value = ''; filterGuide(''); }
     const sec = document.getElementById('gsec-' + key);
@@ -3831,6 +3838,7 @@
   // video = { outputKey, filename, videoKey, hasTranscript }
   function openScheduleModal(video) {
     window._schedCtx = video || {};
+    window._schedSubmitted = false;   // fresh open - close-guard armed
     document.getElementById('schedVideoName').textContent = (video && video.filename) || '';
     const d = new Date();
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -3850,7 +3858,29 @@
     document.getElementById('scheduleOverlay').style.display = 'flex';
   }
   function openScheduleFresh() { openScheduleModal(window._schedCtx || {}); }
-  function closeScheduleModal() { document.getElementById('scheduleOverlay').style.display = 'none'; }
+
+  // True if the user has entered anything worth warning about before closing.
+  function _schedFormDirty() {
+    if (window._schedSubmitted) return false;   // already scheduled - nothing to lose
+    const cap = (document.getElementById('schedCaption').value || '').trim();
+    if (cap) return true;
+    if (document.getElementById('schedAutoPublish').checked) return true;
+    const yt = document.getElementById('ytTitle');
+    if (yt && yt.value.trim()) return true;
+    const checked = [...document.querySelectorAll('.sched-platform')].filter(c => c.checked).map(c => c.value).sort().join(',');
+    if (checked !== 'instagram') return true;   // default is Instagram only
+    const time = document.getElementById('schedTime');
+    if (time && time.value && time.value !== '20:00') return true;
+    return false;
+  }
+
+  async function closeScheduleModal(force) {
+    if (!force && _schedFormDirty()) {
+      const ok = await showConfirmModal(t('sched.discardTitle'), t('sched.discardBody'), t('sched.discardOk'));
+      if (!ok) return;
+    }
+    document.getElementById('scheduleOverlay').style.display = 'none';
+  }
 
   async function checkMetricoolStatus() {
     const connectEl = document.getElementById('schedConnect');
@@ -4023,6 +4053,7 @@
       statusEl.innerHTML = t('sched.okLine', {date: date, time: time}) +
         (plannerUrl ? ` <a href="${plannerUrl}" target="_blank" rel="noopener">${t('sched.openLink')}</a>` : publishNote);
       btn.textContent = t('sched.scheduled');
+      window._schedSubmitted = true;   // scheduled - don't warn on close
       setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);
     } catch (e) {
       statusEl.style.display = 'none';

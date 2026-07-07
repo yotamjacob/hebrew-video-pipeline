@@ -151,6 +151,9 @@
 
     // ── Schedule card ──
     'sched.title':       { en: 'Schedule Video', he: 'תזמון סרטון' },
+    'sched.discardTitle':{ en: 'Discard this post?', he: 'לבטל את הפוסט?' },
+    'sched.discardBody': { en: 'You have unsaved changes to this scheduled post. Close without scheduling?', he: 'יש שינויים שלא נשמרו בפוסט המתוזמן. לסגור בלי לתזמן?' },
+    'sched.discardOk':   { en: 'Discard', he: 'סגירה ומחיקה' },
     'sched.open':        { en: 'Schedule this video', he: 'תזמון הסרטון' },
     'mc.connect':        { en: 'Connect Metricool', he: 'חיבור Metricool' },
     'mc.connected':      { en: '✓ Metricool', he: '✓ Metricool' },
