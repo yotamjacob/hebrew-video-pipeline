@@ -862,7 +862,10 @@ def api():
             try:
                 jobs = []
                 for key in list(jobs_store.keys()):
-                    if not key.endswith("_out.mp4") or not _owned_key(key, uid):
+                    # Burned outputs (_out.mp4) AND terminal cut-only results
+                    # (_cut.mp4) are both recorded in jobs_store and belong in
+                    # History — listing only _out.mp4 hid silence-cut videos.
+                    if not key.endswith(("_out.mp4", "_cut.mp4")) or not _owned_key(key, uid):
                         continue
                     meta = jobs_store.get(key) or {}
                     jobs.append({"key": key, "name": meta.get("name", "video"),
@@ -881,7 +884,7 @@ def api():
         if path.startswith("/jobs/") and method == "DELETE":
             from pathlib import Path as _Path
             key = path[len("/jobs/"):].rstrip("/")
-            if not key or not _SAFE_DOWNLOAD_KEY_RE.match(key) or not key.endswith("_out.mp4"):
+            if not key or not _SAFE_DOWNLOAD_KEY_RE.match(key) or not key.endswith(("_out.mp4", "_cut.mp4")):
                 await send_error("Invalid key", 400)
                 return
             if not _owned_key(key, uid):

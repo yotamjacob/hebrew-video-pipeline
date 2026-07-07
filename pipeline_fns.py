@@ -1147,15 +1147,27 @@ def prune_volume():
                 (Path(TMP_DIR) / (key + ".jpg")).unlink(missing_ok=True)  # thumbnail cache
                 jobs_store.pop(key)
         protected = set(jobs_store.keys())
-        for p in Path(TMP_DIR).iterdir():
-            if p.name in protected or not p.is_file():
-                continue
-            # Thumbnail caches live as `<job key>.jpg` — keep them as long as
-            # their video is protected.
-            if p.name.endswith(".jpg") and p.name[:-4] in protected:
-                continue
-            if now - p.stat().st_mtime > SCRATCH_RETENTION_HOURS * 3600:
-                p.unlink(missing_ok=True)
+        # Fail-safe: the scratch sweep deletes every unprotected file older than
+        # SCRATCH_RETENTION_HOURS, using jobs_store as the sole source of truth
+        # for "keep this". If jobs_store is unexpectedly empty (Dict lost /
+        # cleared / corrupted) it would wipe EVERY user output past 48h. An empty
+        # store while output videos still sit on the volume is that anomaly — skip
+        # the sweep and alert rather than risk catastrophic data loss.
+        vol_files = list(Path(TMP_DIR).iterdir())
+        has_outputs = any(f.name.endswith(("_out.mp4", "_cut.mp4")) for f in vol_files)
+        if not protected and has_outputs:
+            print("[prune] ABORT scratch sweep: jobs_store empty but output "
+                  "videos present on volume — suspected Dict loss, not deleting.")
+        else:
+            for p in vol_files:
+                if p.name in protected or not p.is_file():
+                    continue
+                # Thumbnail caches live as `<job key>.jpg` — keep them as long as
+                # their video is protected.
+                if p.name.endswith(".jpg") and p.name[:-4] in protected:
+                    continue
+                if now - p.stat().st_mtime > SCRATCH_RETENTION_HOURS * 3600:
+                    p.unlink(missing_ok=True)
         # Progress entries left behind by crashed jobs
         for key in list(progress_store.keys()):
             entry = progress_store.get(key) or {}

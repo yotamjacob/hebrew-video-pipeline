@@ -209,7 +209,7 @@
 
     // ── History ──
     'hist.title':      { en: 'Previous Videos', he: 'סרטונים קודמים' },
-    'hist.note':       { en: 'Finished videos are kept for 30 days, then deleted automatically.', he: 'סרטונים מוכנים נשמרים 30 יום ואז נמחקים אוטומטית.' },
+    'hist.note':       { en: 'Videos are kept here for 30 days, then deleted automatically. Download anything you want to keep - we do not store backups.', he: 'סרטונים נשמרים כאן ל-30 יום ואז נמחקים אוטומטית. הורידו כל מה שחשוב לכם לשמור - איננו שומרים גיבוי.' },
     'hist.loading':    { en: 'Loading…', he: 'טוען…' },
     'hist.empty':      { en: 'No videos yet - burn your first video and it will show up here.', he: 'אין עדיין סרטונים - צרבו את הסרטון הראשון והוא יופיע כאן.' },
     'hist.download':   { en: 'Download', he: 'הורדה' },
