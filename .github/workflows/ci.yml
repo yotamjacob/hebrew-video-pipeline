@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: "17 6 * * *"   # daily at 06:17 UTC (off the top-of-hour rush)
+  workflow_dispatch: {}     # allow manual runs from the Actions tab
 
 jobs:
   backend:

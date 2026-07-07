@@ -135,7 +135,9 @@ test('time estimate shows for a real video and grows with AI upscale', async ({ 
 
   const est = page.locator('#timeEstimateText');
   await expect(page.locator('#timeEstimate')).toBeVisible({ timeout: 10_000 });
-  await expect(est).toHaveText(/^הערכה: \d+-\d+ דקות$/);
+  // Copy is intentionally loose here (see est.simple in i18n) — assert the
+  // behaviour (a minute range that grows with AI upscale), not the exact label.
+  await expect(est).toHaveText(/\d+-\d+ דקות/);
   const base = (await est.textContent()).match(/(\d+)-(\d+)/).slice(1, 3).map(Number);
 
   await page.click('label[for="ev_esrgan"]');
@@ -144,7 +146,8 @@ test('time estimate shows for a real video and grows with AI upscale', async ({ 
   expect(ai[1]).toBeGreaterThan(base[1]);
 
   await page.click('label[for="ev_none"]');
-  await expect(est).toHaveText(`הערכה: ${base[0]}-${base[1]} דקות`);
+  const back = (await est.textContent()).match(/(\d+)-(\d+)/).slice(1, 3).map(Number);
+  expect(back).toEqual(base);               // reverts to the base estimate
 });
 
 test('polling survives repeated network failures (mobile background/foreground)', async ({ page }) => {
