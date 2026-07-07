@@ -141,6 +141,7 @@
     refreshMediaToken();
     refreshMetricoolChip();
     if (quotaInfo) { updateQuotaUI(); updateVerifyBanner(); } else refreshQuota();
+    restoreTab();
   }
 
   // ── Email verification nudge (non-blocking) ──
@@ -262,6 +263,11 @@
     }
     const adminTab = document.getElementById('tabAdmin');
     if (adminTab) adminTab.style.display = quotaInfo.role === 'admin' ? '' : 'none';
+    // A saved Admin tab could only be restored once the role loaded.
+    if (_pendingTabRestore === 'admin' && quotaInfo.role === 'admin') {
+      _pendingTabRestore = null;
+      switchTab('admin');
+    }
     const pill = document.getElementById('quotaPill');
     if (!pill) return;
     if (quotaInfo.role === 'admin' || quotaInfo.video_limit == null || quotaInfo.video_limit < 0) {
@@ -3587,6 +3593,23 @@
       const bb = document.getElementById('guideBackBar');
       if (bb) bb.style.display = 'none';
     }
+    // Remember the tab so a page refresh returns to it.
+    try { localStorage.setItem('hebpipe_tab', which); } catch (_) {}
+  }
+
+  // Restore the last-open tab after the app is shown. History/Guide are always
+  // available; Admin waits until the role is known (see updateQuotaUI).
+  let _pendingTabRestore = null;
+  function restoreTab() {
+    let saved = null;
+    try { saved = localStorage.getItem('hebpipe_tab'); } catch (_) {}
+    if (!saved || saved === 'pipeline') return;
+    if (saved === 'admin') {
+      if (quotaInfo && quotaInfo.role === 'admin') switchTab('admin');
+      else _pendingTabRestore = 'admin';
+      return;
+    }
+    if (saved === 'history' || saved === 'guide') switchTab(saved);
   }
 
   // ── Guide: accordion, search, deep-link from app "i" icons + back ──
