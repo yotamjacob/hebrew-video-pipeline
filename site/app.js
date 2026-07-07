@@ -3554,7 +3554,7 @@
     }
   }
 
-  function switchTab(which) {
+  function switchTab(which, keepGuideCtx) {
     const views = { pipeline: 'pipelineView', history: 'historyView', guide: 'guideView', admin: 'adminView' };
     const tabs  = { pipeline: 'tabPipeline',  history: 'tabHistory',  guide: 'tabGuide',  admin: 'tabAdmin' };
     for (const k of Object.keys(views)) {
@@ -3564,6 +3564,74 @@
     }
     if (which === 'history') loadHistory();
     if (which === 'admin') loadAdmin();
+    // Any tab change that isn't an "i"-icon jump into the guide clears the
+    // "back to where you were" context.
+    if (!keepGuideCtx) {
+      _guideReturn = null;
+      const bb = document.getElementById('guideBackBar');
+      if (bb) bb.style.display = 'none';
+    }
+  }
+
+  // ── Guide: accordion, search, deep-link from app "i" icons + back ──
+  let _guideReturn = null;   // { tab, cardId } — where an "i" icon jumped from
+
+  function toggleGuideSec(head) {
+    const sec = head.closest('.guide-sec');
+    const open = sec.classList.toggle('open');
+    head.setAttribute('aria-expanded', String(open));
+  }
+
+  // Called by the small "i" icons in app card headers.
+  function openGuideSection(key, originCardId) {
+    const curTab = document.getElementById('tabHistory').classList.contains('active') ? 'history'
+                 : document.getElementById('tabAdmin').classList.contains('active') ? 'admin' : 'pipeline';
+    _guideReturn = { tab: curTab, cardId: originCardId || null };
+    switchTab('guide', true);
+    const bb = document.getElementById('guideBackBar');
+    if (bb) bb.style.display = _guideReturn.cardId ? 'block' : 'none';
+    const gs = document.getElementById('guideSearch');
+    if (gs && gs.value) { gs.value = ''; filterGuide(''); }
+    const sec = document.getElementById('gsec-' + key);
+    if (!sec) return;
+    document.querySelectorAll('.guide-sec.open').forEach(s => {
+      if (s !== sec) { s.classList.remove('open'); s.querySelector('.guide-sec-head').setAttribute('aria-expanded', 'false'); }
+    });
+    sec.classList.add('open');
+    sec.querySelector('.guide-sec-head').setAttribute('aria-expanded', 'true');
+    requestAnimationFrame(() => {
+      sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      sec.classList.add('gsec-flash');
+      setTimeout(() => sec.classList.remove('gsec-flash'), 1600);
+    });
+    try { history.replaceState(null, '', '#guide/' + key); } catch (_) {}
+  }
+
+  function returnFromGuide() {
+    const r = _guideReturn;   // switchTab() below clears _guideReturn
+    switchTab(r && r.tab ? r.tab : 'pipeline');
+    if (r && r.cardId) {
+      const el = document.getElementById(r.cardId);
+      if (el) requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    }
+    try { history.replaceState(null, '', location.pathname); } catch (_) {}
+  }
+
+  // Filter sections by text (searches full content even while collapsed, via
+  // textContent), auto-expanding matches and showing a no-results note.
+  function filterGuide(q) {
+    q = (q || '').trim().toLowerCase();
+    let shown = 0;
+    document.querySelectorAll('.guide-sec').forEach(sec => {
+      const match = !q || (sec.textContent || '').toLowerCase().indexOf(q) !== -1;
+      sec.style.display = match ? '' : 'none';
+      if (match) shown++;
+      const head = sec.querySelector('.guide-sec-head');
+      if (q) { sec.classList.toggle('open', match); head.setAttribute('aria-expanded', String(match)); }
+      else   { sec.classList.remove('open'); head.setAttribute('aria-expanded', 'false'); }
+    });
+    const nr = document.getElementById('guideNoResults');
+    if (nr) nr.style.display = (q && shown === 0) ? 'block' : 'none';
   }
 
   // ── Admin: user limits ──

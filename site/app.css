@@ -1386,14 +1386,57 @@
   font-size: 0.9rem; color: var(--muted); line-height: 1.55;
   margin: 12px 0 6px; padding-bottom: 14px; border-bottom: 1px solid var(--line);
 }
-.guide-steps { display: flex; flex-direction: column; }
-.guide-step { padding: 13px 0; border-bottom: 1px solid var(--line); }
-.guide-step:last-child { border-bottom: none; padding-bottom: 2px; }
-.guide-step-title {
-  font-family: 'Assistant', sans-serif; font-weight: 700; font-size: 0.98rem;
-  color: var(--forest); margin-bottom: 4px;
+/* ── Guide: search + collapsible sections with screenshots ── */
+.guide-search-wrap { position: relative; margin: 14px 0 8px; }
+.guide-search-icon { position: absolute; inset-inline-start: 13px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.guide-search {
+  width: 100%; box-sizing: border-box; padding: 11px 14px; padding-inline-start: 42px;
+  border: 1.5px solid var(--line); border-radius: 12px; background: var(--white);
+  font-family: 'Assistant', sans-serif; font-size: 0.92rem; color: var(--text);
 }
-.guide-step-text { font-size: 0.88rem; color: var(--text); line-height: 1.55; }
+.guide-search:focus { outline: none; border-color: var(--purple-400); }
+.guide-noresults { font-size: 0.88rem; color: var(--muted); text-align: center; padding: 12px 0 4px; }
+
+.guide-backbar { margin: 8px 0 2px; }
+.guide-back-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 14px; border-radius: 999px; cursor: pointer;
+  border: 1.5px solid var(--purple-300); background: var(--purple-50);
+  color: var(--purple-700); font-family: 'Assistant', sans-serif; font-size: 0.84rem; font-weight: 600;
+}
+.guide-back-btn:hover { background: var(--purple-100); }
+[dir="rtl"] .guide-back-btn svg { transform: scaleX(-1); }
+
+.guide-secs { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.guide-sec { border: 1.5px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--white); scroll-margin-top: 16px; }
+.guide-sec-head {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 14px 16px; border: none; background: none; cursor: pointer; text-align: start;
+  font-family: 'Frank Ruhl Libre', serif; font-weight: 500; font-size: 1.02rem; color: var(--forest);
+}
+.guide-sec-head .collapse-chevron { transition: transform .2s; flex-shrink: 0; color: var(--muted); }
+.guide-sec:not(.open) .guide-sec-head .collapse-chevron { transform: rotate(-90deg); }
+.guide-sec-body { display: none; padding: 0 16px 18px; }
+.guide-sec.open .guide-sec-body { display: block; }
+.guide-sec.gsec-flash { border-color: var(--terracotta); box-shadow: 0 0 0 3px color-mix(in srgb, var(--terracotta) 20%, transparent); }
+.guide-shot {
+  display: block; width: 100%; max-width: 330px; height: auto; margin: 2px auto 14px;
+  border-radius: 12px; border: 1px solid var(--line);
+}
+.guide-sec-text { font-size: 0.9rem; color: var(--text); line-height: 1.6; }
+.guide-sec-text ul { margin: 8px 0; padding-inline-start: 20px; }
+.guide-sec-text li { margin: 5px 0; }
+.guide-sec-text b, .guide-sec-text strong { color: var(--forest); font-weight: 600; }
+
+/* Small "i" info button in app card headers → jumps to the guide */
+.info-dot {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; flex-shrink: 0; margin-inline-start: 8px;
+  border-radius: 50%; border: 1.5px solid var(--purple-300); background: none;
+  color: var(--purple-600); cursor: pointer; padding: 0;
+}
+.info-dot:hover { background: var(--purple-50); }
+.info-dot svg { width: 13px; height: 13px; }
 
 /* ── History tab ── */
 .history-note {
