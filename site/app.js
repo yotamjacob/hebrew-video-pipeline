@@ -287,8 +287,8 @@
   function applyAuthMode() {
     const reg = authMode === 'register', forgot = authMode === 'forgot';
     document.getElementById('authPasswordRow').style.display = forgot ? 'none' : 'block';
-    document.getElementById('authEmailRow').style.display    = reg ? 'block' : 'none';
-    document.getElementById('authMarketingRow').style.display = reg ? 'flex' : 'none';
+    document.getElementById('authEmailRow').style.display    = (reg && EMAIL_UI_ENABLED) ? 'block' : 'none';
+    document.getElementById('authMarketingRow').style.display = (reg && EMAIL_UI_ENABLED) ? 'flex' : 'none';
     document.getElementById('authTermsRow').style.display    = reg ? 'flex' : 'none';
     document.getElementById('authInviteRow').style.display   = reg ? 'block' : 'none';
     document.getElementById('rememberRow').style.display     = forgot ? 'none' : 'flex';
@@ -341,20 +341,19 @@
       password: document.getElementById('authPassword').value,
     };
     if (authMode === 'register') {
-      // Both are mandatory: Terms/Privacy acceptance and acknowledgment of
-      // service/product-update emails (which are part of using the app).
-      const termsOk   = document.getElementById('authTermsCheck').checked;
-      const updatesOk = document.getElementById('authMarketing').checked;
-      if (!termsOk || !updatesOk) {
-        errEl.textContent = t('auth.requiredError');
+      if (!document.getElementById('authTermsCheck').checked) {
+        errEl.textContent = t('auth.termsError');
         errEl.style.display = 'block';
         _btnBusy(btn, false);
         return;
       }
       payload.invite = document.getElementById('authInvite').value.trim();
-      payload.email = document.getElementById('authEmail').value.trim();
-      payload.marketing_consent = true;
       payload.terms_accepted = true;
+      // Email + update/promo consent are deferred for now (EMAIL_UI_ENABLED).
+      if (EMAIL_UI_ENABLED) {
+        payload.email = document.getElementById('authEmail').value.trim();
+        payload.marketing_consent = document.getElementById('authMarketing').checked;
+      }
     }
     try {
       const resp = await fetch(`${API_BASE}/auth/${authMode}`, {

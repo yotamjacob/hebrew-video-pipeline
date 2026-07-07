@@ -125,7 +125,9 @@ def api():
                 if not _ok:
                     await send_error(f"Too many attempts. Try again in {_retry // 60 + 1} min.", 429)
                     return
-                if (data.get("invite") or "").strip() != os.environ.get("INVITE_CODE", ""):
+                # Invite is matched case-insensitively and whitespace-trimmed, so
+                # a stray capital or space doesn't reject a valid code.
+                if (data.get("invite") or "").strip().casefold() != os.environ.get("INVITE_CODE", "").strip().casefold():
                     _throttle_record_fail(throttle_store, f"invite:{_ip}", _now)
                     await send_error("Invalid invite code", 403)
                     return
@@ -133,8 +135,10 @@ def api():
                 if len(password) < 8:
                     await send_error("Password must be at least 8 characters", 400)
                     return
+                # Email is optional at signup for now (kept simple); validate only
+                # if one was actually provided.
                 email = (data.get("email") or "").strip().lower()
-                if not _EMAIL_RE.match(email):
+                if email and not _EMAIL_RE.match(email):
                     await send_error("A valid email address is required", 400)
                     return
                 # Accepting the Terms + Privacy Policy is mandatory to register.
@@ -157,17 +161,18 @@ def api():
                                          "terms_accepted_ts": _time.time(),
                                          "video_limit": DEFAULT_VIDEO_LIMIT, "videos_used": 0}
                 users_store[f"uid:{new_uid}"] = username
-                users_store[f"email:{email}"] = username   # reverse index for password reset
-                # Fire the verification email (best-effort — a failure must not
-                # block sign-up, since verification is a nudge, not a gate).
-                try:
-                    _vtok = _sign_scoped_token(new_uid, "verify", os.environ["AUTH_SECRET"], EMAIL_VERIFY_TTL_SECONDS)
-                    _send_email(email, "Verify your email - פייפליין",
-                                _email_html("Verify your email",
-                                            "Tap the button to confirm this address so you can recover your account later.",
-                                            "Verify email", f"{API_BASE_URL}/auth/verify?token={_vtok}"))
-                except Exception as _mail_err:
-                    print(f"[email] verification send failed: {_mail_err}")
+                if email:
+                    users_store[f"email:{email}"] = username   # reverse index for password reset
+                    # Fire the verification email (best-effort — a failure must not
+                    # block sign-up, since verification is a nudge, not a gate).
+                    try:
+                        _vtok = _sign_scoped_token(new_uid, "verify", os.environ["AUTH_SECRET"], EMAIL_VERIFY_TTL_SECONDS)
+                        _send_email(email, "Verify your email - פייפליין",
+                                    _email_html("Verify your email",
+                                                "Tap the button to confirm this address so you can recover your account later.",
+                                                "Verify email", f"{API_BASE_URL}/auth/verify?token={_vtok}"))
+                    except Exception as _mail_err:
+                        print(f"[email] verification send failed: {_mail_err}")
             else:
                 # Throttle password guessing per username AND per source IP.
                 _ok_u, _retry_u   = _throttle_allowed(throttle_store, f"login:{username}", _now)
