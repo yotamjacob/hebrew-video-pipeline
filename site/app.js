@@ -335,15 +335,19 @@
       password: document.getElementById('authPassword').value,
     };
     if (authMode === 'register') {
-      if (!document.getElementById('authTermsCheck').checked) {
-        errEl.textContent = t('auth.termsError');
+      // Both are mandatory: Terms/Privacy acceptance and acknowledgment of
+      // service/product-update emails (which are part of using the app).
+      const termsOk   = document.getElementById('authTermsCheck').checked;
+      const updatesOk = document.getElementById('authMarketing').checked;
+      if (!termsOk || !updatesOk) {
+        errEl.textContent = t('auth.requiredError');
         errEl.style.display = 'block';
         _btnBusy(btn, false);
         return;
       }
       payload.invite = document.getElementById('authInvite').value.trim();
       payload.email = document.getElementById('authEmail').value.trim();
-      payload.marketing_consent = document.getElementById('authMarketing').checked;
+      payload.marketing_consent = true;
       payload.terms_accepted = true;
     }
     try {
