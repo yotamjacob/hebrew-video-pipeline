@@ -283,7 +283,7 @@
     document.getElementById('authPasswordRow').style.display = forgot ? 'none' : 'block';
     document.getElementById('authEmailRow').style.display    = reg ? 'block' : 'none';
     document.getElementById('authMarketingRow').style.display = reg ? 'flex' : 'none';
-    document.getElementById('authTermsLine').style.display   = reg ? 'block' : 'none';
+    document.getElementById('authTermsRow').style.display    = reg ? 'flex' : 'none';
     document.getElementById('authInviteRow').style.display   = reg ? 'block' : 'none';
     document.getElementById('rememberRow').style.display     = forgot ? 'none' : 'flex';
     document.getElementById('authForgotLink').style.display  = (EMAIL_UI_ENABLED && !forgot) ? 'block' : 'none';
@@ -335,9 +335,16 @@
       password: document.getElementById('authPassword').value,
     };
     if (authMode === 'register') {
+      if (!document.getElementById('authTermsCheck').checked) {
+        errEl.textContent = t('auth.termsError');
+        errEl.style.display = 'block';
+        _btnBusy(btn, false);
+        return;
+      }
       payload.invite = document.getElementById('authInvite').value.trim();
       payload.email = document.getElementById('authEmail').value.trim();
       payload.marketing_consent = document.getElementById('authMarketing').checked;
+      payload.terms_accepted = true;
     }
     try {
       const resp = await fetch(`${API_BASE}/auth/${authMode}`, {

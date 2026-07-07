@@ -122,7 +122,10 @@
       </div>
       <div id="authError" class="sched-error" style="display:none;margin-top:12px"></div>
       <div id="authInfo" class="sched-status ok" style="display:none;margin-top:12px"></div>
-      <p id="authTermsLine" class="auth-terms" style="display:none;margin-top:14px" data-i18n="auth.terms">By creating an account you agree to our <a href="/legal.html" target="_blank" rel="noopener">Privacy Policy &amp; Terms</a>.</p>
+      <label class="remember-row" id="authTermsRow" style="display:none;margin-top:12px;align-items:flex-start">
+        <input type="checkbox" id="authTermsCheck">
+        <span data-i18n="auth.terms">I have read and agree to the <a href="/legal.html" target="_blank" rel="noopener">Privacy Policy &amp; Terms of Use</a></span>
+      </label>
       <button class="run-btn" id="authSubmitBtn" style="margin-top:18px" onclick="authSubmit()" data-i18n="auth.signin">Sign in</button>
       <button class="action-btn" style="margin-top:10px" id="authModeBtn" onclick="toggleAuthMode()" data-i18n="auth.toRegister">New here? Create an account</button>
       <button class="link-btn" id="authForgotLink" style="margin-top:10px;display:none" onclick="showForgot()" data-i18n="auth.forgot">Forgot your password?</button>
@@ -229,13 +232,13 @@
     </div>
     <div class="aggr-panel" id="aggrPanel">
       <div class="slider-row" style="margin-top:0">
-        <div class="slider-label"><span data-i18n="opt.aggr.label">How aggressively to cut silences</span><span class="slider-val" id="aggrVal">0.3 s</span></div>
+        <div class="slider-label"><span data-i18n="opt.aggr.label">How aggressively to cut silences</span><span class="slider-val" id="aggrVal">0.2 s</span></div>
         <div class="aggr-track">
           <span class="aggr-end" data-i18n="opt.aggr.gentle">Gentle</span>
-          <input type="range" id="aggrSlider" min="1" max="5" step="1" value="4" />
+          <input type="range" id="aggrSlider" min="1" max="5" step="1" value="5" />
           <span class="aggr-end" data-i18n="opt.aggr.aggressive">Aggressive</span>
         </div>
-        <div class="slider-desc" id="aggrDesc" data-i18n="aggr.4">Aggressive - cuts pauses over 0.3 s</div>
+        <div class="slider-desc" id="aggrDesc" data-i18n="aggr.5">Very aggressive - cuts pauses over 0.2 s</div>
       </div>
     </div>
 

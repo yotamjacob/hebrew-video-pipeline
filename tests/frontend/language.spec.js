@@ -65,8 +65,8 @@ test('state-driven labels re-render on language switch', async ({ page }) => {
   await expect(page.locator('#enhanceVideoDesc')).toContainText('adds a few minutes');
   const warnColor = await page.locator('#enhanceVideoDesc .ev-warn').evaluate(el => getComputedStyle(el).color);
   expect(warnColor).toBe('rgb(176, 80, 60)');   // --red (muted brick)
-  // Aggressiveness desc follows too
-  await expect(page.locator('#aggrDesc')).toContainText('Aggressive');
+  // Aggressiveness desc follows too (default is now the most-aggressive level)
+  await expect(page.locator('#aggrDesc')).toContainText('Very aggressive');
 });
 
 test('RTL flips layout primitives correctly', async ({ page }) => {

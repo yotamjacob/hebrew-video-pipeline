@@ -137,6 +137,10 @@ def api():
                 if not _EMAIL_RE.match(email):
                     await send_error("A valid email address is required", 400)
                     return
+                # Accepting the Terms + Privacy Policy is mandatory to register.
+                if not data.get("terms_accepted"):
+                    await send_error("You must accept the Privacy Policy and Terms of Use", 400)
+                    return
                 if users_store.contains(username):
                     await send_error("Username already taken", 409)
                     return
@@ -150,6 +154,7 @@ def api():
                                          "email": email, "email_verified": False,
                                          "marketing_consent": _mkt,
                                          "marketing_consent_ts": _time.time() if _mkt else None,
+                                         "terms_accepted_ts": _time.time(),
                                          "video_limit": DEFAULT_VIDEO_LIMIT, "videos_used": 0}
                 users_store[f"uid:{new_uid}"] = username
                 users_store[f"email:{email}"] = username   # reverse index for password reset

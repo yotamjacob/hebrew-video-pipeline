@@ -1344,9 +1344,8 @@
     }
     .tab {
       flex: 1;
-      position: relative;
       appearance: none;
-      border: 1px solid var(--line);
+      border: 2px solid var(--line);
       background: var(--white);
       color: var(--muted);
       font-family: 'Assistant', sans-serif;
@@ -1363,22 +1362,13 @@
       gap: 8px;
     }
     .tab:hover { color: var(--purple-700); background: var(--purple-50); }
+    /* Selected tab: the whole tab gets a bold terracotta border. */
     .tab.active {
       color: var(--purple-800);
       background: var(--white);
-      border-color: var(--purple-500);
+      border-color: var(--terracotta);
       font-weight: 700;
       box-shadow: 0 -3px 12px rgba(62, 58, 52, 0.08);
-    }
-    /* Bold accent bar so the selected tab is unmistakable. */
-    .tab.active::after {
-      content: '';
-      position: absolute;
-      inset-inline: 0;
-      top: -1px;
-      height: 3px;
-      background: var(--terracotta);
-      border-radius: 3px 3px 0 0;
     }
 
     /* ── Mobile ── */

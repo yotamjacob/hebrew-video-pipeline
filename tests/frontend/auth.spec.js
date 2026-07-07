@@ -68,6 +68,7 @@ test('register mode reveals the invite field and posts it', async ({ page }) => 
   await page.fill('#authUsername', 'newbie');
   await page.fill('#authPassword', 'longenough');
   await page.fill('#authInvite', 'the-invite');
+  await page.check('#authTermsCheck');   // Terms acceptance is now mandatory
   await page.click('#authSubmitBtn');
   await expect(page.locator('#pipelineView')).toBeVisible();
   expect(sentInvite).toBe('the-invite');
