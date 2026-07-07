@@ -36,7 +36,7 @@
     'auth.showPw':     { en: 'Show password', he: 'הצג סיסמה' },
     'auth.hidePw':     { en: 'Hide password', he: 'הסתר סיסמה' },
     'auth.remember':   { en: 'Remember me', he: 'זכור אותי' },
-    'auth.marketing':  { en: 'I understand Pipeline will email me updates about the app - new features and important changes (no ads or promotions).', he: 'אני מבין/ה שפייפליין תשלח לי במייל עדכונים על האפליקציה - תכונות חדשות ושינויים חשובים (ללא פרסומות או קידום מכירות).' },
+    'auth.marketing':  { en: 'I agree to receive updates and promotions from Pipeline', he: 'אני מאשר/ת קבלת עדכונים ופרסומים מפייפליין' },
     'auth.requiredError': { en: 'Please check the required boxes to continue.', he: 'יש לסמן את התיבות הנדרשות כדי להמשיך.' },
     'auth.terms':      { en: 'I have read and agree to the <a href="/legal.html" target="_blank" rel="noopener">Privacy Policy &amp; Terms of Use</a>', he: 'קראתי ואני מסכים/ה ל<a href="/legal.html" target="_blank" rel="noopener">מדיניות הפרטיות ותנאי השימוש</a>' },
     'auth.termsError': { en: 'Please accept the Privacy Policy and Terms of Use to continue.', he: 'יש לאשר את מדיניות הפרטיות ותנאי השימוש כדי להמשיך.' },
