@@ -43,7 +43,7 @@ final ffmpeg re-encode, so quality stays high.
 | `hebrew_video_pipeline.py` | Local CLI orchestrator (6-step pipeline) |
 | `app_modal.py` | Modal deploy entrypoint — imports backend modules + the `api()` ASGI router (all HTTP routes) |
 | `pipeline_core.py` | Modal app/images/volumes, model constants, security/RTL/auth/quota/throttle helpers |
-| `pipeline_fns.py` | `process_video` (GPU), `burn_captions_fn`, `burn_hook_fn`, job history + retention, daily spend digest |
+| `pipeline_fns.py` | `process_video` (GPU), `burn_captions_fn`, `burn_hook_fn`, job history + retention, daily spend digest, daily metadata backup (`backup_dicts`/`restore_dicts` → R2/B2) |
 | `stock_helpers.py` | Pure stock helpers: Pexels/Pixabay fetch, frame sampling, `score_clips`, `add_clip_window` |
 | `broll_fns.py` | `analyze_stock_broll`, `search_stock_clips`, `_process_moment` (Veo is dead code) |
 | `content_fns.py` | `generate_hook_options`, `generate_caption_options` |
