@@ -116,6 +116,12 @@
   function showAuthView() {
     _hideBootLoader();
     document.getElementById('authView').style.display = 'block';
+    // Prefill the last-used email (saved on sign-in while "remember me" is
+    // checked) so returning users only retype their password.
+    const emailInput = document.getElementById('authEmail');
+    if (emailInput && !emailInput.value) {
+      emailInput.value = localStorage.getItem('hebpipe_email') || '';
+    }
     document.getElementById('resetView').style.display = 'none';
     document.getElementById('tabsBar').style.display = 'none';
     const vb = document.getElementById('verifyBanner');
@@ -411,6 +417,10 @@
       if (!resp.ok) throw new Error(data.error || t('auth.errStatus', {status: resp.status}));
       const remember = document.getElementById('rememberMe')?.checked ?? true;
       _storeToken(data.token, remember);
+      // Remember the sign-in email for next time's prefill - but never on a
+      // shared/incognito-style session where "remember me" was unchecked.
+      if (remember) localStorage.setItem('hebpipe_email', payload.email);
+      else          localStorage.removeItem('hebpipe_email');
       showApp();
       fetch(API_BASE + '/warmup/', { headers: { 'Authorization': 'Bearer ' + authToken } }).catch(() => {});
     } catch (e) {

@@ -90,6 +90,40 @@ test('register rejects a non-email identifier inline, before any request', async
   expect(posted).toBe(false);
 });
 
+test('remembered email prefills the login form on the next visit', async ({ page }) => {
+  await page.route(/\/auth\/login/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json',
+                body: JSON.stringify({ token: 'fresh-token', username: 'alina@example.com' }) }));
+  await page.route(/\/warmup/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' }));
+  await page.goto('/');
+  await page.fill('#authEmail', 'alina@example.com');
+  await page.fill('#authPassword', 'secret-password');
+  await page.click('#authSubmitBtn');   // rememberMe is checked by default
+  await expect(page.locator('#pipelineView')).toBeVisible();
+  // Simulate a later visit where the session is gone but the device remembers.
+  await page.evaluate(() => localStorage.removeItem('hebpipe_token'));
+  await page.reload();
+  await expect(page.locator('#authView')).toBeVisible();
+  await expect(page.locator('#authEmail')).toHaveValue('alina@example.com');
+});
+
+test('unchecking remember me leaves no email behind', async ({ page }) => {
+  await page.route(/\/auth\/login/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json',
+                body: JSON.stringify({ token: 'fresh-token', username: 'alina@example.com' }) }));
+  await page.route(/\/warmup/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' }));
+  await page.goto('/');
+  await page.fill('#authEmail', 'alina@example.com');
+  await page.fill('#authPassword', 'secret-password');
+  await page.uncheck('#rememberMe');
+  await page.click('#authSubmitBtn');
+  await expect(page.locator('#pipelineView')).toBeVisible();
+  const saved = await page.evaluate(() => localStorage.getItem('hebpipe_email'));
+  expect(saved).toBeNull();
+});
+
 test('api requests carry the bearer token', async ({ page }) => {
   let authHeader = null;
   await bootApp(page);
