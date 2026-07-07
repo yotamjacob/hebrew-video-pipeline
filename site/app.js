@@ -2573,12 +2573,17 @@
         drawHookPreview();
       });
 
-      const rationale = document.createElement('p');
-      rationale.style.cssText = 'font-size:0.76rem;color:var(--muted);margin:0;pointer-events:none;';
-      rationale.textContent = h.rationale || '';
-
       card.appendChild(ta);
-      card.appendChild(rationale);
+      if (h.rationale) {
+        const rationale = document.createElement('p');
+        rationale.className = 'hook-tip';
+        const lbl = document.createElement('span');
+        lbl.className = 'hook-tip-label';
+        lbl.textContent = t('hook.tipLabel');
+        rationale.appendChild(lbl);
+        rationale.appendChild(document.createTextNode(' ' + h.rationale));
+        card.appendChild(rationale);
+      }
 
       card.onclick = () => {
         if (selectedHookIdx === i) return; // already selected - don't interrupt editing
@@ -3578,8 +3583,15 @@
 
   function toggleGuideSec(head) {
     const sec = head.closest('.guide-sec');
-    const open = sec.classList.toggle('open');
-    head.setAttribute('aria-expanded', String(open));
+    const willOpen = !sec.classList.contains('open');
+    // Single-open accordion: close every other section.
+    document.querySelectorAll('.guide-sec.open').forEach(s => {
+      if (s !== sec) { s.classList.remove('open'); s.querySelector('.guide-sec-head').setAttribute('aria-expanded', 'false'); }
+    });
+    sec.classList.toggle('open', willOpen);
+    head.setAttribute('aria-expanded', String(willOpen));
+    // On open, bring the section's start to the top (below the sticky bar).
+    if (willOpen) requestAnimationFrame(() => _scrollToBelowTopbar(sec));
   }
 
   // Scroll an element to the top of the viewport, offset by the sticky top bar
@@ -3588,8 +3600,19 @@
   function _scrollToBelowTopbar(el) {
     const bar = document.querySelector('.app-topbar');
     const offset = ((bar && getComputedStyle(bar).position === 'sticky') ? bar.getBoundingClientRect().height : 0) + 12;
-    const y = el.getBoundingClientRect().top + window.scrollY - offset;
-    window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+    // A section near the bottom of the page can't be lifted to the top - there
+    // isn't enough content below it, so the browser clamps at max scroll and the
+    // header stays hidden above the fold. Add just enough bottom room so any
+    // section can reach the top.
+    const secs = document.querySelector('.guide-secs');
+    if (secs) {
+      const elTop = el.getBoundingClientRect().top + window.scrollY;
+      const needed = elTop - offset + window.innerHeight;
+      const deficit = needed - document.documentElement.scrollHeight;
+      secs.style.paddingBottom = deficit > 0 ? Math.ceil(deficit + 8) + 'px' : '';
+    }
+    el.style.scrollMarginTop = Math.round(offset) + 'px';
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   // Called by the small "i" icons in app card headers.

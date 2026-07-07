@@ -1344,6 +1344,7 @@
     }
     .tab {
       flex: 1;
+      position: relative;
       appearance: none;
       border: 1px solid var(--line);
       background: var(--white);
@@ -1365,11 +1366,19 @@
     .tab.active {
       color: var(--purple-800);
       background: var(--white);
-      border-color: var(--purple-300);
+      border-color: var(--purple-500);
+      font-weight: 700;
       box-shadow: 0 -3px 12px rgba(62, 58, 52, 0.08);
     }
+    /* Bold accent bar so the selected tab is unmistakable. */
     .tab.active::after {
       content: '';
+      position: absolute;
+      inset-inline: 0;
+      top: -1px;
+      height: 3px;
+      background: var(--terracotta);
+      border-radius: 3px 3px 0 0;
     }
 
     /* ── Mobile ── */
@@ -1437,6 +1446,14 @@
 }
 .info-dot:hover { background: var(--purple-50); }
 .info-dot svg { width: 13px; height: 13px; }
+
+/* Hook rationale shown as a clearly-marked tip */
+.hook-tip {
+  font-size: 0.8rem; color: var(--text); line-height: 1.5; margin: 8px 0 0;
+  padding: 7px 11px; border-radius: 9px; pointer-events: none;
+  background: var(--purple-50); border-inline-start: 2px solid var(--purple-400);
+}
+.hook-tip-label { font-weight: 700; color: var(--purple-700); }
 
 /* ── History tab ── */
 .history-note {

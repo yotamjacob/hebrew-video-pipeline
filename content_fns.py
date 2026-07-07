@@ -56,7 +56,7 @@ def generate_hook_options(captions_json: str, video_key: str = "") -> dict:
         "- No emojis, no hashtags\n\n"
         "Return JSON only — no markdown, no explanation:\n"
         "{\"hooks\": ["
-        "{\"text\": \"...\", \"rationale\": \"one sentence in English explaining why this hook works\"},"
+        "{\"text\": \"...\", \"rationale\": \"one short sentence IN HEBREW explaining why this hook works (e.g. the emotion or curiosity it creates)\"},"
         "{\"text\": \"...\", \"rationale\": \"...\"},"
         "{\"text\": \"...\", \"rationale\": \"...\"}"
         "]}"
