@@ -117,13 +117,12 @@ progress_store = modal.Dict.from_name("hebpipe-progress", create_if_missing=True
 # Migration note: to move to a managed provider (e.g. Supabase), swap
 # _verify_token for provider-JWT verification mapping to the same uid.
 # ---------------------------------------------------------------------------
-users_store = modal.Dict.from_name("hebpipe-users", create_if_missing=True)   # username → {uid, salt, pw, created}
+users_store = modal.Dict.from_name("hebpipe-users", create_if_missing=True)   # email (legacy: username) → {uid, salt, pw, created}
 calls_store = modal.Dict.from_name("hebpipe-calls", create_if_missing=True)   # call_id  → {uid, ts}
 quota_store = modal.Dict.from_name("hebpipe-quota", create_if_missing=True)   # f"{uid}:{call_id}" → ts (one unique entry per consumed credit)
 
 import re as _auth_re
 
-_USERNAME_RE    = _auth_re.compile(r"^[a-zA-Z0-9_\-]{3,32}$")
 _UID_RE         = _auth_re.compile(r"^[0-9a-f]{32}$")
 _UID_PREFIX_RE  = _auth_re.compile(r"^u[0-9a-f]{32}__")
 TOKEN_TTL_SECONDS       = 30 * 24 * 3600

@@ -27,11 +27,11 @@ test('expired session drops back to login', async ({ page }) => {
 test('login stores the token and reveals the app', async ({ page }) => {
   await page.route(/\/auth\/login/, r =>
     r.fulfill({ status: 200, contentType: 'application/json',
-                body: JSON.stringify({ token: 'fresh-token', username: 'alina' }) }));
+                body: JSON.stringify({ token: 'fresh-token', username: 'alina@example.com' }) }));
   await page.route(/\/warmup/, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' }));
   await page.goto('/');
-  await page.fill('#authUsername', 'alina');
+  await page.fill('#authEmail', 'alina@example.com');
   await page.fill('#authPassword', 'secret-password');
   await page.click('#authSubmitBtn');
   await expect(page.locator('#pipelineView')).toBeVisible();
@@ -43,21 +43,21 @@ test('login stores the token and reveals the app', async ({ page }) => {
 test('failed login shows the server error, app stays hidden', async ({ page }) => {
   await page.route(/\/auth\/login/, r =>
     r.fulfill({ status: 401, contentType: 'application/json',
-                body: JSON.stringify({ error: 'Invalid username or password' }) }));
+                body: JSON.stringify({ error: 'Invalid email or password' }) }));
   await page.goto('/');
-  await page.fill('#authUsername', 'alina');
+  await page.fill('#authEmail', 'alina@example.com');
   await page.fill('#authPassword', 'wrong');
   await page.click('#authSubmitBtn');
-  await expect(page.locator('#authError')).toHaveText('Invalid username or password');
+  await expect(page.locator('#authError')).toHaveText('Invalid email or password');
   await expect(page.locator('#pipelineView')).toBeHidden();
 });
 
-test('register mode reveals the invite field and posts it', async ({ page }) => {
-  let sentInvite = null;
+test('register mode reveals the invite field and posts it with the email', async ({ page }) => {
+  let sentBody = null;
   await page.route(/\/auth\/register/, (route, request) => {
-    sentInvite = JSON.parse(request.postData()).invite;
+    sentBody = JSON.parse(request.postData());
     return route.fulfill({ status: 200, contentType: 'application/json',
-                           body: JSON.stringify({ token: 'new-token', username: 'newbie' }) });
+                           body: JSON.stringify({ token: 'new-token', username: 'newbie@example.com' }) });
   });
   await page.route(/\/warmup/, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' }));
@@ -65,13 +65,29 @@ test('register mode reveals the invite field and posts it', async ({ page }) => 
   await expect(page.locator('#authInviteRow')).toBeHidden();
   await page.click('#authModeBtn');
   await expect(page.locator('#authInviteRow')).toBeVisible();
-  await page.fill('#authUsername', 'newbie');
+  await page.fill('#authEmail', 'newbie@example.com');
   await page.fill('#authPassword', 'longenough');
   await page.fill('#authInvite', 'the-invite');
   await page.check('#authTermsCheck');   // Terms acceptance is mandatory
   await page.click('#authSubmitBtn');
   await expect(page.locator('#pipelineView')).toBeVisible();
-  expect(sentInvite).toBe('the-invite');
+  expect(sentBody.invite).toBe('the-invite');
+  expect(sentBody.email).toBe('newbie@example.com');
+});
+
+test('register rejects a non-email identifier inline, before any request', async ({ page }) => {
+  let posted = false;
+  await page.route(/\/auth\/register/, r => { posted = true; return r.fulfill({ status: 400, body: '{}' }); });
+  await page.goto('/');
+  await page.click('#authModeBtn');
+  await page.fill('#authEmail', 'not-an-email');
+  await page.fill('#authPassword', 'longenough');
+  await page.fill('#authInvite', 'the-invite');
+  await page.check('#authTermsCheck');
+  await page.click('#authSubmitBtn');
+  await expect(page.locator('#authEmailErr')).toBeVisible();
+  await expect(page.locator('#pipelineView')).toBeHidden();
+  expect(posted).toBe(false);
 });
 
 test('api requests carry the bearer token', async ({ page }) => {

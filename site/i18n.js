@@ -23,7 +23,6 @@
 
     // ── Auth ──
     'auth.title':      { en: 'Sign In', he: 'התחברות' },
-    'auth.username':   { en: 'Username', he: 'שם משתמש' },
     'auth.password':   { en: 'Password', he: 'סיסמה' },
     'auth.invite':     { en: 'Invite code', he: 'קוד הזמנה' },
     'auth.signin':     { en: 'Sign in', he: 'התחברות' },
@@ -40,9 +39,8 @@
     'auth.requiredError': { en: 'Please check the required boxes to continue.', he: 'יש לסמן את התיבות הנדרשות כדי להמשיך.' },
     'auth.terms':      { en: 'I have read and agree to the <a href="/legal.html" target="_blank" rel="noopener">Privacy Policy &amp; Terms of Use</a>', he: 'קראתי ואני מסכים/ה ל<a href="/legal.html" target="_blank" rel="noopener">מדיניות הפרטיות ותנאי השימוש</a>' },
     'auth.termsError': { en: 'Please accept the Privacy Policy and Terms of Use to continue.', he: 'יש לאשר את מדיניות הפרטיות ותנאי השימוש כדי להמשיך.' },
-    'valid.userRequired':   { en: 'Please enter a username.', he: 'יש להזין שם משתמש.' },
-    'valid.userHebrew':     { en: 'The username must be in English letters - Hebrew is not supported.', he: 'שם המשתמש חייב להיות באותיות באנגלית - עברית אינה נתמכת.' },
-    'valid.userChars':      { en: 'Username: English letters, digits, - and _ only, 3 to 32 characters.', he: 'שם משתמש: רק אותיות באנגלית, ספרות, מקף (-) וקו תחתון (_), באורך 3 עד 32 תווים.' },
+    'valid.emailRequired':  { en: 'Please enter your email address.', he: 'יש להזין כתובת אימייל.' },
+    'valid.emailInvalid':   { en: 'Please enter a valid email address, like name@example.com.', he: 'יש להזין כתובת אימייל תקינה, למשל name@example.com.' },
     'valid.pwRequired':     { en: 'Please enter a password.', he: 'יש להזין סיסמה.' },
     'valid.pwShort':        { en: 'The password must be at least 8 characters.', he: 'הסיסמה חייבת לכלול לפחות 8 תווים.' },
     'valid.inviteRequired': { en: 'Please enter your invite code.', he: 'יש להזין קוד הזמנה.' },
@@ -54,7 +52,6 @@
     'mc.disconnectBody':  { en: "You won't be able to schedule until you reconnect.", he: 'לא תוכלו לתזמן עד שתתחברו מחדש.' },
     'mc.disconnectOk':    { en: 'Disconnect', he: 'ניתוק' },
     'auth.forgot':     { en: 'Forgot your password?', he: 'שכחתם סיסמה?' },
-    'auth.identifier': { en: 'Username or email', he: 'שם משתמש או אימייל' },
     'auth.sendReset':  { en: 'Send reset link', he: 'שליחת קישור לאיפוס' },
     'auth.resetSent':  { en: "If that account exists, we've sent a reset link. Check your email.", he: 'אם החשבון קיים, שלחנו קישור לאיפוס. בדקו את האימייל.' },
     'reset.title':     { en: 'Set a new password', he: 'בחירת סיסמה חדשה' },
@@ -407,7 +404,7 @@
     'guide.noResults':  { en: 'No sections match your search.', he: 'אין סעיפים שתואמים לחיפוש.' },
 
     'guide.getstarted.title': { en: 'Getting started - account & sign in', he: 'התחלה - חשבון והתחברות' },
-    'guide.getstarted.body':  { en: 'Log in with your username and password. New here? You need an invite code plus your email to create an account. Every account comes with a few free video credits (see Account & credits below).<ul><li><b>Forgot your password?</b> Use the link on the sign-in screen to get a reset email.</li><li><b>Verify your email</b> so you can recover your account later - tap the banner if you see it.</li></ul>', he: 'היכנסו עם שם משתמש וסיסמה. חדשים כאן? צריך קוד הזמנה וכתובת אימייל כדי ליצור חשבון. לכל חשבון יש כמה קרדיטים חינמיים לסרטונים (ראו "חשבון וקרדיטים" למטה).<ul><li><b>שכחתם סיסמה?</b> השתמשו בקישור במסך ההתחברות כדי לקבל מייל לאיפוס.</li><li><b>אמתו את האימייל</b> כדי שתוכלו לשחזר את החשבון בעתיד - הקישו על הבאנר אם הוא מופיע.</li></ul>' },
+    'guide.getstarted.body':  { en: 'Log in with your email and password. New here? You need an invite code to create an account. Every account comes with a few free video credits (see Account & credits below).<ul><li><b>Forgot your password?</b> Use the link on the sign-in screen to get a reset email.</li><li><b>Verify your email</b> so you can recover your account later - tap the banner if you see it.</li></ul>', he: 'היכנסו עם אימייל וסיסמה. חדשים כאן? צריך קוד הזמנה כדי ליצור חשבון. לכל חשבון יש כמה קרדיטים חינמיים לסרטונים (ראו "חשבון וקרדיטים" למטה).<ul><li><b>שכחתם סיסמה?</b> השתמשו בקישור במסך ההתחברות כדי לקבל מייל לאיפוס.</li><li><b>אמתו את האימייל</b> כדי שתוכלו לשחזר את החשבון בעתיד - הקישו על הבאנר אם הוא מופיע.</li></ul>' },
     'guide.upload.title': { en: 'Uploading a video', he: 'העלאת סרטון' },
     'guide.upload.body':  { en: 'In the Create tab, tap Choose File and pick a Hebrew talking video (up to 500 MB).<ul><li>Clearer audio means more accurate captions.</li><li>Vertical videos work best for reels and stories.</li><li>Keep the window open while the file uploads. Once processing starts you can switch away - it finishes on our servers.</li><li>On a shaky mobile connection the upload resumes on its own; if it fails, just pick the file again.</li></ul>', he: 'בלשונית "יצירה" הקישו "בחירת קובץ" ובחרו סרטון דיבור בעברית (עד 500MB).<ul><li>אודיו ברור יותר = כתוביות מדויקות יותר.</li><li>סרטונים אנכיים מתאימים במיוחד לרילים וסטוריז.</li><li>השאירו את החלון פתוח בזמן ההעלאה. ברגע שהעיבוד מתחיל אפשר לעבור לאפליקציה אחרת - הוא ממשיך בשרת.</li><li>בחיבור סלולרי חלש ההעלאה מתחדשת לבד; אם היא נכשלת, פשוט בחרו שוב את הקובץ.</li></ul>' },
     'guide.options.title': { en: 'Edit options', he: 'אפשרויות עריכה' },

@@ -258,7 +258,8 @@
     if (!quotaInfo) return;
     const greet = document.getElementById('heroGreeting');
     if (greet && quotaInfo.username) {
-      greet.textContent = t('hero.hello', {name: quotaInfo.username});
+      // Accounts are keyed by email - greet with the part before the @.
+      greet.textContent = t('hero.hello', {name: quotaInfo.username.split('@')[0]});
       greet.style.display = '';
     }
     const adminTab = document.getElementById('tabAdmin');
@@ -287,26 +288,23 @@
   function applyAuthMode() {
     const reg = authMode === 'register', forgot = authMode === 'forgot';
     document.getElementById('authPasswordRow').style.display = forgot ? 'none' : 'block';
-    document.getElementById('authEmailRow').style.display    = (reg && EMAIL_UI_ENABLED) ? 'block' : 'none';
     document.getElementById('authMarketingRow').style.display = (reg && EMAIL_UI_ENABLED) ? 'flex' : 'none';
     document.getElementById('authTermsRow').style.display    = reg ? 'flex' : 'none';
     document.getElementById('authInviteRow').style.display   = reg ? 'block' : 'none';
     document.getElementById('rememberRow').style.display     = forgot ? 'none' : 'flex';
     document.getElementById('authForgotLink').style.display  = (EMAIL_UI_ENABLED && !forgot) ? 'block' : 'none';
-    document.getElementById('authUsernameLabel').textContent =
-      forgot ? t('auth.identifier') : t('auth.username');
+    document.getElementById('authEmailLabel').textContent = t('auth.email');
     document.getElementById('authSubmitBtn').textContent =
       reg ? t('auth.register') : forgot ? t('auth.sendReset') : t('auth.signin');
     document.getElementById('authModeBtn').textContent =
       reg ? t('auth.toSignin') : forgot ? t('auth.toSignin') : t('auth.toRegister');
     document.getElementById('authError').style.display = 'none';
     document.getElementById('authInfo').style.display = 'none';
-    ['authUsernameErr', 'authPasswordErr', 'authInviteErr'].forEach(id => _fieldErr(id, ''));
+    ['authEmailErr', 'authPasswordErr', 'authInviteErr'].forEach(id => _fieldErr(id, ''));
   }
 
   // ── Inline per-field validation (helps low-tech users fix inputs) ──
-  const _USERNAME_RE = /^[a-zA-Z0-9_\-]{3,32}$/;
-  const _HEBREW_RE   = /[\u0590-\u05FF]/;
+  const _EMAIL_JS_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
   function _fieldErr(id, msg) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -315,15 +313,14 @@
   }
   // onSubmit=true also flags empty required fields; live validation (false) only
   // warns about non-empty invalid input so users aren't nagged mid-typing.
-  function validateUsername(onSubmit) {
-    const v = document.getElementById('authUsername').value.trim();
+  function validateEmail(onSubmit) {
+    const v = document.getElementById('authEmail').value.trim();
     let msg = '';
-    if (!v) { if (onSubmit) msg = t('valid.userRequired'); }
-    else if (authMode !== 'forgot') {   // forgot accepts username OR email - don't enforce the username shape
-      if (_HEBREW_RE.test(v)) msg = t('valid.userHebrew');
-      else if (!_USERNAME_RE.test(v)) msg = t('valid.userChars');
-    }
-    _fieldErr('authUsernameErr', msg);
+    if (!v) { if (onSubmit) msg = t('valid.emailRequired'); }
+    // Only registration enforces the email shape - login and forgot still
+    // accept legacy username accounts from the pre-email era.
+    else if (authMode === 'register' && !_EMAIL_JS_RE.test(v)) msg = t('valid.emailInvalid');
+    _fieldErr('authEmailErr', msg);
     return !msg;
   }
   function validatePassword(onSubmit) {
@@ -342,7 +339,7 @@
     _fieldErr('authInviteErr', msg);
     return !msg;
   }
-  document.getElementById('authUsername').addEventListener('input', () => validateUsername(false));
+  document.getElementById('authEmail').addEventListener('input', () => validateEmail(false));
   document.getElementById('authPassword').addEventListener('input', () => validatePassword(false));
   document.getElementById('authInvite').addEventListener('input', () => validateInvite(false));
 
@@ -370,7 +367,7 @@
         await fetch(`${API_BASE}/auth/forgot`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ identifier: document.getElementById('authUsername').value.trim() }),
+          body: JSON.stringify({ identifier: document.getElementById('authEmail').value.trim() }),
         });
       } catch { /* never reveal existence */ }
       infoEl.textContent = t('auth.resetSent');
@@ -381,13 +378,13 @@
 
     // Inline field validation (login + register) - run all so every bad field
     // shows its own message, then stop if any is invalid.
-    const uOk = validateUsername(true);
+    const uOk = validateEmail(true);
     const pOk = validatePassword(true);
     const iOk = validateInvite(true);
     if (!(uOk && pOk && iOk)) { _btnBusy(btn, false); return; }
 
     const payload = {
-      username: document.getElementById('authUsername').value.trim(),
+      email: document.getElementById('authEmail').value.trim(),
       password: document.getElementById('authPassword').value,
     };
     if (authMode === 'register') {
@@ -399,9 +396,8 @@
       }
       payload.invite = document.getElementById('authInvite').value.trim();
       payload.terms_accepted = true;
-      // Email + update/promo consent are deferred for now (EMAIL_UI_ENABLED).
+      // Update/promo consent is deferred for now (EMAIL_UI_ENABLED).
       if (EMAIL_UI_ENABLED) {
-        payload.email = document.getElementById('authEmail').value.trim();
         payload.marketing_consent = document.getElementById('authMarketing').checked;
       }
     }

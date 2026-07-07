@@ -22,7 +22,7 @@ from pipeline_core import (
     _SAFE_KEY_RE, _SAFE_DOWNLOAD_KEY_RE, _check_rate_limit, _get_client_ip,
     throttle_store, _throttle_allowed, _throttle_record_fail, _throttle_clear,
     _poll_fn_call,
-    _USERNAME_RE, _hash_password, _verify_password, _sign_token, _verify_token,
+    _hash_password, _verify_password, _sign_token, _verify_token,
     _sign_media_token, _verify_media_token, MEDIA_TOKEN_TTL_SECONDS,
     _EMAIL_RE, _sign_scoped_token, _verify_scoped_token, _send_email, _email_html,
     EMAIL_VERIFY_TTL_SECONDS, PASSWORD_RESET_TTL_SECONDS,
@@ -114,12 +114,20 @@ def api():
             except Exception:
                 await send_error("Invalid request body", 400)
                 return
-            username = (data.get("username") or "").strip().lower()
+            # The account identifier is an email address. `username` is still
+            # accepted as the field name so older clients keep working, and
+            # login resolves legacy username-keyed accounts (pre-email era).
+            ident = (data.get("email") or data.get("username") or "").strip().lower()
             password = data.get("password") or ""
-            if not _USERNAME_RE.match(username):
-                await send_error("Username must be 3-32 characters: letters, digits, - or _", 400)
+            # ":" is rejected so an identifier can never collide with the
+            # store's index namespaces (`uid:*`, `email:*`).
+            if not ident or len(ident) > 254 or ":" in ident:
+                await send_error("A valid email address is required", 400)
                 return
             if path.startswith("/auth/register"):
+                if not _EMAIL_RE.match(ident):
+                    await send_error("A valid email address is required", 400)
+                    return
                 # Throttle invite-code guessing per source IP.
                 _ok, _retry = _throttle_allowed(throttle_store, f"invite:{_ip}", _now)
                 if not _ok:
@@ -135,18 +143,15 @@ def api():
                 if len(password) < 8:
                     await send_error("Password must be at least 8 characters", 400)
                     return
-                # Email is optional at signup for now (kept simple); validate only
-                # if one was actually provided.
-                email = (data.get("email") or "").strip().lower()
-                if email and not _EMAIL_RE.match(email):
-                    await send_error("A valid email address is required", 400)
-                    return
                 # Accepting the Terms + Privacy Policy is mandatory to register.
                 if not data.get("terms_accepted"):
                     await send_error("You must accept the Privacy Policy and Terms of Use", 400)
                     return
-                if users_store.contains(username):
-                    await send_error("Username already taken", 409)
+                # The email must be free both as an account key (new accounts)
+                # and in the reverse index (legacy username accounts that
+                # attached this address).
+                if users_store.contains(ident) or users_store.contains(f"email:{ident}"):
+                    await send_error("An account with this email already exists", 409)
                     return
                 salt, ph = _hash_password(password)
                 new_uid = _secrets.token_hex(16)
@@ -154,44 +159,53 @@ def api():
                 # the UI). Transactional mail (verify/reset) is sent regardless;
                 # promotional mail may only go to accounts with this set true.
                 _mkt = bool(data.get("marketing_consent"))
-                users_store[username] = {"uid": new_uid, "salt": salt, "pw": ph, "created": _time.time(),
-                                         "email": email, "email_verified": False,
-                                         "marketing_consent": _mkt,
-                                         "marketing_consent_ts": _time.time() if _mkt else None,
-                                         "terms_accepted_ts": _time.time(),
-                                         "video_limit": DEFAULT_VIDEO_LIMIT, "videos_used": 0}
-                users_store[f"uid:{new_uid}"] = username
-                if email:
-                    users_store[f"email:{email}"] = username   # reverse index for password reset
-                    # Fire the verification email (best-effort — a failure must not
-                    # block sign-up, since verification is a nudge, not a gate).
-                    try:
-                        _vtok = _sign_scoped_token(new_uid, "verify", os.environ["AUTH_SECRET"], EMAIL_VERIFY_TTL_SECONDS)
-                        _send_email(email, "Verify your email - פייפליין",
-                                    _email_html("Verify your email",
-                                                "Tap the button to confirm this address so you can recover your account later.",
-                                                "Verify email", f"{API_BASE_URL}/auth/verify?token={_vtok}"))
-                    except Exception as _mail_err:
-                        print(f"[email] verification send failed: {_mail_err}")
+                users_store[ident] = {"uid": new_uid, "salt": salt, "pw": ph, "created": _time.time(),
+                                      "email": ident, "email_verified": False,
+                                      "marketing_consent": _mkt,
+                                      "marketing_consent_ts": _time.time() if _mkt else None,
+                                      "terms_accepted_ts": _time.time(),
+                                      "video_limit": DEFAULT_VIDEO_LIMIT, "videos_used": 0}
+                users_store[f"uid:{new_uid}"] = ident
+                users_store[f"email:{ident}"] = ident   # reverse index for password reset
+                # Fire the verification email (best-effort — a failure must not
+                # block sign-up, since verification is a nudge, not a gate).
+                try:
+                    _vtok = _sign_scoped_token(new_uid, "verify", os.environ["AUTH_SECRET"], EMAIL_VERIFY_TTL_SECONDS)
+                    _send_email(ident, "Verify your email - פייפליין",
+                                _email_html("Verify your email",
+                                            "Tap the button to confirm this address so you can recover your account later.",
+                                            "Verify email", f"{API_BASE_URL}/auth/verify?token={_vtok}"))
+                except Exception as _mail_err:
+                    print(f"[email] verification send failed: {_mail_err}")
             else:
-                # Throttle password guessing per username AND per source IP.
-                _ok_u, _retry_u   = _throttle_allowed(throttle_store, f"login:{username}", _now)
+                # Throttle password guessing per identifier AND per source IP.
+                _ok_u, _retry_u   = _throttle_allowed(throttle_store, f"login:{ident}", _now)
                 _ok_ip, _retry_ip = _throttle_allowed(throttle_store, f"loginip:{_ip}", _now)
                 if not (_ok_u and _ok_ip):
                     await send_error(f"Too many attempts. Try again in {max(_retry_u, _retry_ip) // 60 + 1} min.", 429)
                     return
-                rec = users_store.get(username)
-                if not rec or not _verify_password(password, rec["salt"], rec["pw"]):
-                    _throttle_record_fail(throttle_store, f"login:{username}", _now)
+                # Resolve the account: direct key hit (email-keyed accounts and
+                # legacy username-keyed accounts), then the email reverse index
+                # (legacy accounts that attached this address). The isinstance
+                # guard keeps index entries (`uid:*`/`email:*` → strings) from
+                # ever being treated as a user record.
+                _acct_key = ident
+                rec = users_store.get(ident)
+                if not isinstance(rec, dict):
+                    _key = users_store.get(f"email:{ident}")
+                    _acct_key = _key if isinstance(_key, str) else None
+                    rec = users_store.get(_key) if isinstance(_key, str) else None
+                if not isinstance(rec, dict) or not _verify_password(password, rec["salt"], rec["pw"]):
+                    _throttle_record_fail(throttle_store, f"login:{ident}", _now)
                     _throttle_record_fail(throttle_store, f"loginip:{_ip}", _now)
-                    await send_error("Invalid username or password", 401)
+                    await send_error("Invalid email or password", 401)
                     return
-                _throttle_clear(throttle_store, f"login:{username}")
+                _throttle_clear(throttle_store, f"login:{ident}")
                 _throttle_clear(throttle_store, f"loginip:{_ip}")
                 new_uid = rec["uid"]
-                users_store[f"uid:{new_uid}"] = username   # backfill reverse index
+                users_store[f"uid:{new_uid}"] = _acct_key   # backfill reverse index
             token = _sign_token(new_uid, os.environ["AUTH_SECRET"])
-            body = json.dumps({"token": token, "username": username}).encode()
+            body = json.dumps({"token": token, "username": ident}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})
