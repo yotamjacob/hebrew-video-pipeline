@@ -108,6 +108,10 @@
         <label class="sched-label" data-i18n="auth.email">Email</label>
         <input type="email" id="authEmail" class="sched-input" style="width:100%" autocomplete="email" />
       </div>
+      <label class="remember-row" id="authMarketingRow" style="display:none">
+        <input type="checkbox" id="authMarketing">
+        <span data-i18n="auth.marketing">Send me tips, product updates and offers by email</span>
+      </label>
       <label class="remember-row" id="rememberRow">
         <input type="checkbox" id="rememberMe" checked>
         <span data-i18n="auth.remember">Remember me</span>
@@ -118,6 +122,7 @@
       </div>
       <div id="authError" class="sched-error" style="display:none;margin-top:12px"></div>
       <div id="authInfo" class="sched-status ok" style="display:none;margin-top:12px"></div>
+      <p id="authTermsLine" class="auth-terms" style="display:none;margin-top:14px" data-i18n="auth.terms">By creating an account you agree to our <a href="/legal.html" target="_blank" rel="noopener">Privacy Policy &amp; Terms</a>.</p>
       <button class="run-btn" id="authSubmitBtn" style="margin-top:18px" onclick="authSubmit()" data-i18n="auth.signin">Sign in</button>
       <button class="action-btn" style="margin-top:10px" id="authModeBtn" onclick="toggleAuthMode()" data-i18n="auth.toRegister">New here? Create an account</button>
       <button class="link-btn" id="authForgotLink" style="margin-top:10px;display:none" onclick="showForgot()" data-i18n="auth.forgot">Forgot your password?</button>

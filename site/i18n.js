@@ -36,6 +36,8 @@
     'auth.showPw':     { en: 'Show password', he: 'הצג סיסמה' },
     'auth.hidePw':     { en: 'Hide password', he: 'הסתר סיסמה' },
     'auth.remember':   { en: 'Remember me', he: 'זכור אותי' },
+    'auth.marketing':  { en: 'Send me tips, product updates and offers by email (optional)', he: 'שלחו לי טיפים, עדכוני מוצר ומבצעים במייל (לא חובה)' },
+    'auth.terms':      { en: 'By creating an account you agree to our <a href="/legal.html" target="_blank" rel="noopener">Privacy Policy &amp; Terms</a>.', he: 'ביצירת חשבון אתם מסכימים ל<a href="/legal.html" target="_blank" rel="noopener">מדיניות הפרטיות ותנאי השימוש</a>.' },
     'logout.title':    { en: 'Log out?', he: 'להתנתק?' },
     'logout.body':     { en: 'You will need to sign in again next time.', he: 'תצטרכו להתחבר שוב בפעם הבאה.' },
     'logout.confirm':  { en: 'Log out', he: 'התנתקות' },

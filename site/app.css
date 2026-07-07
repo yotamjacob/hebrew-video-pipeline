@@ -400,6 +400,8 @@
       font-size: 0.85rem; color: var(--muted); cursor: pointer; user-select: none;
     }
     .remember-row input { width: 16px; height: 16px; accent-color: var(--purple-600); cursor: pointer; }
+    .auth-terms { font-size: 0.78rem; color: var(--muted); text-align: center; line-height: 1.5; }
+    .auth-terms a { color: var(--olive); text-decoration: underline; }
 
     /* ── Email verification nudge ── */
     .verify-banner {

@@ -142,8 +142,14 @@ def api():
                     return
                 salt, ph = _hash_password(password)
                 new_uid = _secrets.token_hex(16)
+                # Marketing consent: explicit opt-in only (unchecked by default in
+                # the UI). Transactional mail (verify/reset) is sent regardless;
+                # promotional mail may only go to accounts with this set true.
+                _mkt = bool(data.get("marketing_consent"))
                 users_store[username] = {"uid": new_uid, "salt": salt, "pw": ph, "created": _time.time(),
                                          "email": email, "email_verified": False,
+                                         "marketing_consent": _mkt,
+                                         "marketing_consent_ts": _time.time() if _mkt else None,
                                          "video_limit": DEFAULT_VIDEO_LIMIT, "videos_used": 0}
                 users_store[f"uid:{new_uid}"] = username
                 users_store[f"email:{email}"] = username   # reverse index for password reset
@@ -349,7 +355,8 @@ def api():
                                "videos_used": used,
                                "video_limit": None if is_admin else limit,
                                "email": (urec or {}).get("email", ""),
-                               "email_verified": bool((urec or {}).get("email_verified", False))}).encode()
+                               "email_verified": bool((urec or {}).get("email_verified", False)),
+                               "marketing_consent": bool((urec or {}).get("marketing_consent", False))}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})
