@@ -3582,6 +3582,16 @@
     head.setAttribute('aria-expanded', String(open));
   }
 
+  // Scroll an element to the top of the viewport, offset by the sticky top bar
+  // so the element's own top edge is visible (plain scrollIntoView hides it
+  // behind the pinned .app-topbar).
+  function _scrollToBelowTopbar(el) {
+    const bar = document.querySelector('.app-topbar');
+    const offset = ((bar && getComputedStyle(bar).position === 'sticky') ? bar.getBoundingClientRect().height : 0) + 12;
+    const y = el.getBoundingClientRect().top + window.scrollY - offset;
+    window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+  }
+
   // Called by the small "i" icons in app card headers.
   function openGuideSection(key, originCardId) {
     const curTab = document.getElementById('tabHistory').classList.contains('active') ? 'history'
@@ -3600,7 +3610,7 @@
     sec.classList.add('open');
     sec.querySelector('.guide-sec-head').setAttribute('aria-expanded', 'true');
     requestAnimationFrame(() => {
-      sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      _scrollToBelowTopbar(sec);
       sec.classList.add('gsec-flash');
       setTimeout(() => sec.classList.remove('gsec-flash'), 1600);
     });
@@ -3612,7 +3622,7 @@
     switchTab(r && r.tab ? r.tab : 'pipeline');
     if (r && r.cardId) {
       const el = document.getElementById(r.cardId);
-      if (el) requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      if (el) requestAnimationFrame(() => _scrollToBelowTopbar(el));
     }
     try { history.replaceState(null, '', location.pathname); } catch (_) {}
   }
