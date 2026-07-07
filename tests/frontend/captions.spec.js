@@ -12,6 +12,19 @@ test('editing a caption input updates its value', async ({ page }) => {
   await expect(input).toHaveValue('טקסט ערוך');
 });
 
+test('undo restores a deleted caption', async ({ page }) => {
+  await runFullUpload(page);
+  const rows = page.locator('#captionsList .caption-row');
+  const before = await rows.count();
+  await expect(page.locator('#capUndoBtn')).toBeDisabled();
+  await rows.first().locator('.cap-btn-del').click();
+  await expect(rows).toHaveCount(before - 1);
+  await expect(page.locator('#capUndoBtn')).toBeEnabled();
+  await page.click('#capUndoBtn');
+  await expect(rows).toHaveCount(before);
+  await expect(page.locator('#capUndoBtn')).toBeDisabled();
+});
+
 test('caption editor shows hook card', async ({ page }) => {
   await runFullUpload(page);
   // The hook card becomes visible alongside the caption editor

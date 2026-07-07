@@ -38,7 +38,7 @@ for hooks/captions/stock B-roll and the `api()` router — boots in seconds).
 
 1. `extract_audio()` — ffmpeg extracts 48 kHz mono WAV
 2. `enhance_*()` — ElevenLabs API / Adobe Podcast manual / skip
-3. `transcribe()` — faster-whisper (`ivrit-ai/whisper-large-v3-turbo-ct2`), word-level timestamps. On Modal, `process_video` then runs `proofread_words` (Sonnet 5) over the word list to fix Hebrew ASR typos — word count/order preserved so timestamps stay valid; best-effort (any failure keeps the raw transcript; local CLI has no proofread pass)
+3. `transcribe()` — faster-whisper (`ivrit-ai/whisper-large-v3-ct2`, the full non-turbo model — more accurate than turbo on clean audio), word-level timestamps, biased by `WHISPER_INITIAL_PROMPT` (well-formed Hebrew). On Modal, `process_video` then runs `proofread_words` (Sonnet 5) over the word list to fix Hebrew ASR mishearings using full-sentence context (homophone swaps, wrong conjugations, same-sounding non-words like `קולטה`→`כל תא`) — array length/order preserved so each element still maps 1:1 to its audio span and timestamps stay valid (a merged-word element may hold a multi-word phrase sharing that token's timestamp); best-effort (any failure keeps the raw transcript; local CLI has no proofread pass)
 4. `compute_keep_segments()` — silence detection from word gaps; adds padding around speech
 5. `generate_ass()` — builds ASS subtitle file; remaps timestamps to post-cut video
 6. `final_render()` — single ffmpeg pass: trim → concat → burn captions → H.264 CRF 18
@@ -51,7 +51,7 @@ DEFAULT_PADDING     = 0.20     # breathing room around words
 DEFAULT_FONT        = "Rubik"  # Hebrew-friendly
 DEFAULT_FONT_SIZE   = 48
 DEFAULT_CRF         = 18       # H.264 quality (lower = better; 17-19 lossless-ish)
-DEFAULT_WHISPER_MODEL = "ivrit-ai/whisper-large-v3-turbo-ct2"
+DEFAULT_WHISPER_MODEL = "ivrit-ai/whisper-large-v3-ct2"
 ```
 
 ## Build / Run Commands
@@ -116,7 +116,7 @@ npx vercel deploy --prod
 
 **Rate limiting scope** — `_check_rate_limit` uses an in-memory dict per Modal container instance (10 req/60 s per IP). Multiple concurrent container instances each have their own limit — effective limit is `10 × N_instances` per minute. Sufficient for abuse prevention; not a per-user quota.
 
-**Job history & retention** — every successful `burn_captions_fn` records `{name, ts, size, duration}` in the `hebpipe-jobs` modal.Dict (key = `…_out.mp4` output key) and runs `prune_volume()`: burned outputs deleted after `JOB_RETENTION_DAYS` (30), scratch files (`_src.mp4`, `_cut.mp4`, chunks) after `SCRATCH_RETENTION_HOURS` (48). Nothing else deletes volume files — the old delete-on-download and delete-after-schedule behaviors are gone. History tab uses `GET /jobs`, `DELETE /jobs/{key}` and the existing `/thumbnail/` + `/download/` routes. `/thumbnail` caches its JPEG as `<key>.jpg` on the volume (first hit ~5 s ffmpeg, then instant); `prune_volume` keeps the `.jpg` while its video is protected and deletes them together.
+**Job history & retention** — every successful `burn_captions_fn` records `{name, ts, size, duration}` in the `hebpipe-jobs` modal.Dict (key = `…_out.mp4` output key) and runs `prune_volume()`. **`process_video` also records the job for a terminal cut-only result** (`not captions_list and not transcribe_for_broll` — the site sends the user straight to download/schedule and no burn follows), keyed by its `…_cut.mp4` key, so silence-only videos are retained, appear in History, and are schedulable exactly like burns. Caption/B-roll jobs skip this (their burn records the `_out.mp4`). Retention: outputs recorded in `jobs_store` (burned `_out.mp4` or terminal `_cut.mp4`) deleted after `JOB_RETENTION_DAYS` (30); scratch files (`_src.mp4`, unrecorded intermediate `_cut.mp4`, chunks) after `SCRATCH_RETENTION_HOURS` (48) — a `_cut.mp4` present in `jobs_store` is in `protected` and survives the scratch sweep. Nothing else deletes volume files — the old delete-on-download and delete-after-schedule behaviors are gone. History tab uses `GET /jobs`, `DELETE /jobs/{key}` and the existing `/thumbnail/` + `/download/` routes. `/thumbnail` caches its JPEG as `<key>.jpg` on the volume (first hit ~5 s ffmpeg, then instant); `prune_volume` keeps the `.jpg` while its video is protected and deletes them together.
 
 **Enhance video modes** — `enhance_video` on `/process` is `none | filters | esrgan` (mutually exclusive selector in Options). `filters` = `ENHANCE_VIDEO_VF` ffmpeg chain inside the existing render. `esrgan` = Real-ESRGAN `realesr-general-x4v3` as a separate tracked stage (`upscale`) after the cut: SRVGGNetCompact implemented INLINE with plain torch (basicsr is deliberately avoided — it imports `torchvision.transforms.functional_tensor`, removed in torchvision 0.17+); weights cached on the model volume; frames piped raw through ffmpeg; output up to 4× capped at 2160 short side — a true-4K master (`_upscale_target`) — plus `cas=0.4` contrast-adaptive sharpening on delivery frames; ~0.5 s/frame fp16 on the L4 (`process_video` timeout is 1800s for this). The GPU image installs CUDA torch (cu124) for this pass — do not switch it back to the CPU wheel.
 

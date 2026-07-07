@@ -65,7 +65,9 @@ DEFAULT_MAX_LINES_PER_CUE = 1
 DEFAULT_FONT = "Rubik"          # "Heebo", "Assistant", "Noto Sans Hebrew" also great
 DEFAULT_FONT_SIZE = 48          # relative to PlayResX/Y = video dimensions
 DEFAULT_CRF = 18                # 17-19 is visually lossless for H.264
-DEFAULT_WHISPER_MODEL = "ivrit-ai/whisper-large-v3-turbo-ct2"
+DEFAULT_WHISPER_MODEL = "ivrit-ai/whisper-large-v3-ct2"
+# Biases decoding toward well-formed, correctly spelled standard Hebrew.
+WHISPER_INITIAL_PROMPT = "תמלול בעברית תקנית, במשפטים מלאים ובכתיב מלא ותקין."
 # ------------------------------------------------------------
 
 # Prefer ffmpeg-full (has libass for ASS subtitle burning) if installed via Homebrew.
@@ -170,6 +172,7 @@ def transcribe(wav: Path, model_name: str) -> List[Word]:
         vad_filter=True,          # built-in silero-VAD pass cleans up further
         beam_size=5,
         condition_on_previous_text=True,
+        initial_prompt=WHISPER_INITIAL_PROMPT,
     )
 
     words: List[Word] = []

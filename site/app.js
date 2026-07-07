@@ -124,7 +124,7 @@
     if (mc) mc.style.display = 'none';
     const lo = document.getElementById('logoutTab');
     if (lo) lo.style.display = 'none';
-    ['pipelineView', 'historyView', 'adminView'].forEach(id => {
+    ['pipelineView', 'historyView', 'guideView', 'adminView'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
@@ -190,7 +190,7 @@
     document.getElementById('authView').style.display = 'none';
     document.getElementById('tabsBar').style.display = 'none';
     document.getElementById('logoutTab').style.display = 'none';
-    ['pipelineView', 'historyView', 'adminView'].forEach(id => {
+    ['pipelineView', 'historyView', 'guideView', 'adminView'].forEach(id => {
       const el = document.getElementById(id); if (el) el.style.display = 'none';
     });
     document.getElementById('resetView').style.display = 'block';
@@ -400,6 +400,7 @@
     cut:     document.getElementById('checkCut'),
     upscale: document.getElementById('checkUpscale'),
     burn:    document.getElementById('checkBurn'),
+    finalize: document.getElementById('checkFinalize'),
   };
   const checkTimeEls = {
     upload:  document.getElementById('checkUploadTime'),
@@ -407,6 +408,7 @@
     cut:     document.getElementById('checkCutTime'),
     upscale: document.getElementById('checkUpscaleTime'),
     burn:    document.getElementById('checkBurnTime'),
+    finalize: document.getElementById('checkFinalizeTime'),
   };
   let stepTimers = {};         // step name → { start, intervalId }
   let stepEndSecs = {};        // step name → seconds taken (persists across hide/show)
@@ -505,10 +507,7 @@
         if (captionsData.length > 0) {
           showCaptionEditor();
         } else {
-          const dlResp = await apiFetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
-          resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
-          resultName = cutFilename;
-          showDone();
+          await _finalizeAndDownload(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`, cutFilename);
         }
       } catch (err) {
         if (!_isNetErr(err)) clearSavedJob();
@@ -590,6 +589,34 @@
   }
 
   function getEditedCaptions() { return getCaptionsFromEditor(); }
+
+  // ── Caption editor undo ──────────────────────────────────────────────────
+  // Snapshot the whole caption list before each change so a mis-tap (especially
+  // a delete) can be reverted. Snapshots are plain {start,end,text}[] arrays.
+  let captionUndoStack = [];
+  const CAPTION_UNDO_MAX = 60;
+  function _pushCaptionUndo(snapshot) {
+    captionUndoStack.push(snapshot || getCaptionsFromEditor());
+    if (captionUndoStack.length > CAPTION_UNDO_MAX) captionUndoStack.shift();
+    _updateUndoBtn();
+  }
+  function _resetCaptionUndo() { captionUndoStack = []; _updateUndoBtn(); }
+  function _updateUndoBtn() {
+    const b = document.getElementById('capUndoBtn');
+    if (b) b.disabled = captionUndoStack.length === 0;
+  }
+  function undoCaptions() {
+    if (!captionUndoStack.length) return;
+    const snap = captionUndoStack.pop();
+    const list = document.getElementById('captionsList');
+    list.innerHTML = '';
+    snap.forEach(cap => list.appendChild(_createCaptionRow(cap)));
+    _updateDeleteButtons();
+    captionsData = getCaptionsFromEditor();
+    updatePreviewCaption();
+    validateCaptionTimes();
+    _updateUndoBtn();
+  }
 
   function getCaptionsSignature() {
     return getCaptionsFromEditor().map(c => c.text).join('|');
@@ -937,11 +964,7 @@
         startBrollAnalysis();
       } else {
         // No captions, no B-roll - download directly
-        _setStage('download');
-        const dlResp = await apiFetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
-        resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
-        resultName = cutFilename;
-        showDone();
+        await _finalizeAndDownload(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`, cutFilename);
       }
     } catch (err) {
       if (err.name === 'AbortError') return;
@@ -1042,11 +1065,7 @@
         showCaptionEditor();
         startBrollAnalysis();
       } else {
-        _setStage('download');
-        const dlResp = await apiFetch(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`);
-        resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
-        resultName = cutFilename;
-        showDone();
+        await _finalizeAndDownload(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`, cutFilename);
       }
     } catch (err) {
       unlockPipelineActions();
@@ -1494,7 +1513,21 @@
     if (stepTimers[name]) { clearInterval(stepTimers[name].id); stepTimers[name] = null; }
   }
 
-  const HIDDEN_BY_DEFAULT = new Set(['upscale', 'burn']); // rows hidden until triggered
+  const HIDDEN_BY_DEFAULT = new Set(['upscale', 'burn', 'finalize']); // rows hidden until triggered
+
+  // Cut-only jobs (no captions/B-roll) go straight from "all steps green" to
+  // pulling the full MP4 into a blob - a multi-second silent gap on big files.
+  // Show a "Preparing download" spinner during that fetch so the UI never
+  // looks frozen, then hand off to showDone().
+  async function _finalizeAndDownload(url, name) {
+    _setStage('download');
+    _stepActivate('finalize');
+    const dlResp = await apiFetch(url);
+    resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
+    resultName = name;
+    _stepDone('finalize');
+    showDone();
+  }
 
   function _resetChecklist() {
     Object.keys(checkItems).forEach(name => {
@@ -1591,28 +1624,24 @@
     checklistEl.style.display = 'none';
     statusDone.classList.add('visible');
     if (!burnMode) runBtn.style.display = 'none';
-    const doneTimeEl = document.getElementById('doneTime');
-    if (doneTimeEl && runStartTime) {
-      const totalSec = Math.round((Date.now() - runStartTime) / 1000);
-      doneTimeEl.textContent = t('prog.totalTime', {time: formatTime(totalSec)});
-      doneTimeEl.style.display = 'block';
+    // A cut-only video (no captions/hook/B-roll to burn) is still a finished
+    // deliverable - let it be scheduled straight from the done card. The cut
+    // video key IS the output; scheduling posts its /media/ URL to Metricool.
+    const dsb = document.getElementById('doneScheduleBtn');
+    if (dsb) {
+      if (videoKey && !burnMode) {
+        window._schedCtx = {
+          outputKey: videoKey,
+          filename:  resultName || cutFilename || 'video.mp4',
+          videoKey:  videoKey,
+          hasTranscript: _hasTranscript(),
+        };
+        dsb.style.display = 'block';
+      } else {
+        dsb.style.display = 'none';
+      }
     }
-    _showTimeSaved();
     triggerDownload();
-  }
-
-  // Cutting silences and captioning by hand runs ~6× realtime in an NLE -
-  // surface that as the payoff stat next to the finished video.
-  function _showTimeSaved() {
-    const el = document.getElementById('doneSaved');
-    if (!el || !videoDuration) return;
-    const cutVid = document.getElementById('cutVideo');
-    const cutDur = cutVid && isFinite(cutVid.duration) && cutVid.duration > 0 ? cutVid.duration : null;
-    const trimmed = cutDur && videoDuration - cutDur > 1 ? videoDuration - cutDur : null;
-    const manualMin = Math.max(5, Math.round(videoDuration * 6 / 60 / 5) * 5);
-    el.innerHTML = t('prog.saved', {min: manualMin}) +
-      (trimmed ? t('prog.trimmed', {dur: formatDuration(trimmed)}) : '');
-    el.style.display = 'block';
   }
 
   function showError(msg) {
@@ -1660,10 +1689,6 @@
     clearInterval(uploadTimer);
     Object.keys(stepTimers).forEach(k => { if (stepTimers[k]) { clearInterval(stepTimers[k].id); stepTimers[k] = null; } });
     runStartTime = null;
-    const doneTimeEl = document.getElementById('doneTime');
-    if (doneTimeEl) doneTimeEl.style.display = 'none';
-    const doneSavedEl = document.getElementById('doneSaved');
-    if (doneSavedEl) doneSavedEl.style.display = 'none';
     statusCard.classList.remove('visible');
     checklistEl.style.display = 'none';
     _resetChecklist();
@@ -1868,9 +1893,9 @@
     const playerWrap = document.getElementById('playerWrap');
     if (playerWrap) playerWrap.addEventListener('click', togglePlay);
     if (playBtn) playBtn.addEventListener('click', togglePlay);
-    vid.addEventListener('play',  () => { bigPlay.style.opacity = '0'; playBtn.textContent = '⏸'; });
-    vid.addEventListener('pause', () => { bigPlay.style.opacity = '1'; playBtn.textContent = '▶'; });
-    vid.addEventListener('ended', () => { bigPlay.style.opacity = '1'; playBtn.textContent = '▶'; });
+    vid.addEventListener('play',  () => { bigPlay.style.opacity = '0'; playBtn.classList.add('is-playing'); });
+    vid.addEventListener('pause', () => { bigPlay.style.opacity = '1'; playBtn.classList.remove('is-playing'); });
+    vid.addEventListener('ended', () => { bigPlay.style.opacity = '1'; playBtn.classList.remove('is-playing'); });
 
     vid.addEventListener('timeupdate', () => {
       const t = vid.currentTime, dur = vid.duration || 0;
@@ -2440,6 +2465,13 @@
 
   async function triggerGenerateHook() {
     if (!videoKey || !captionsData.length) return;
+    // Options already on screen → regenerating discards them (and any edits).
+    // Confirm first so a stray tap doesn't wipe a hook the user was refining.
+    const optsEl = document.getElementById('hookOptions');
+    if (optsEl.style.display !== 'none' && optsEl.children.length) {
+      const ok = await showConfirmModal(t('hook.regenTitle'), t('hook.regenBody'), t('hook.regenOk'));
+      if (!ok) return;
+    }
     const captions = getEditedCaptions();
 
     const btn        = document.getElementById('generateHookBtn');
@@ -2516,7 +2548,12 @@
     hooks.forEach((h, i) => {
       const card = document.createElement('div');
       card.id = `hookOption${i}`;
-      card.style.cssText = 'border:1.5px solid var(--purple-200);border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:background 0.15s,border-color 0.15s';
+      card.className = 'hook-option';
+
+      const check = document.createElement('span');
+      check.className = 'hook-option-check';
+      check.textContent = '✓';
+      card.appendChild(check);
 
       // Editable textarea for hook text
       const ta = document.createElement('textarea');
@@ -2542,12 +2579,8 @@
 
       card.onclick = () => {
         if (selectedHookIdx === i) return; // already selected - don't interrupt editing
-        document.querySelectorAll('[id^="hookOption"]').forEach(el => {
-          el.style.background  = '';
-          el.style.borderColor = 'var(--purple-200)';
-        });
-        card.style.background  = 'var(--purple-50)';
-        card.style.borderColor = 'var(--purple-400)';
+        document.querySelectorAll('.hook-option').forEach(el => el.classList.remove('selected'));
+        card.classList.add('selected');
         selectedHookIdx = i;
         drawHookPreview();
       };
@@ -2566,6 +2599,12 @@
     controlsEl.style.display = 'block';
     if (firstShow) _hookSettingListeners();
     drawHookPreview();
+
+    // Hooks now exist → the button re-runs generation. Relabel it and switch its
+    // data-i18n key so it stays "Regenerate…" across language toggles too.
+    const ghb = document.getElementById('generateHookBtn');
+    ghb.setAttribute('data-i18n', 'hook.regenerate');
+    ghb.textContent = t('hook.regenerate');
   }
 
   // ── End Hook Generator ──────────────────────────────────────────────────
@@ -2585,7 +2624,9 @@
     card.style.display   = 'block';
     status.style.display = 'flex';
     list.innerHTML       = '';
-    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    // Bring the B-roll card into view - NOT the page bottom (jarring jump past
+    // the card the user just triggered).
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
     lockPipelineActions({ activeBtn: 'findBrollBtn', activeCard: 'stockBrollCard' });
     findBrollBtn.disabled = true;
@@ -2757,6 +2798,15 @@
       header.appendChild(dismissBtn);
       card.appendChild(header);
 
+      // Rationale (Hebrew) - WHY this moment deserves B-roll. Shown in full, not
+      // truncated, so users understand the reasoning behind each suggestion.
+      if (m.reasoning) {
+        const reasoning = document.createElement('div');
+        reasoning.className = 'moment-reasoning';
+        reasoning.textContent = m.reasoning;
+        card.appendChild(reasoning);
+      }
+
       // Hebrew excerpt - prefer the backend's transcript_excerpt (built from edited captions)
       const excerptText = m.transcript_excerpt || m.verbatim_quote || (() => {
         const edited = getEditedCaptions();
@@ -2784,7 +2834,7 @@
       // Find different clips button
       let clipPage = 2;
       const findBtn = document.createElement('button');
-      findBtn.className = 'find-clips-btn';
+      findBtn.className = 'find-clips-btn btn-refresh-icon';
       findBtn.textContent = t('stock.findDifferent');
       findBtn.addEventListener('click', async () => {
         findBtn.disabled = true;
@@ -2842,6 +2892,20 @@
       srcBadge.className = 'clip-source-badge ' + (clip.source || 'pexels');
       srcBadge.textContent = clip.source === 'pixabay' ? 'Pixabay' : 'Pexels';
       thumbDiv.appendChild(srcBadge);
+
+      // Match score (Haiku vision, 0-10) on the thumbnail, with the reason as a
+      // tooltip so users can see WHY a clip scored the way it did.
+      if (clip.score !== undefined && clip.score !== null) {
+        const level = clip.score >= 8 ? 'high' : clip.score >= 5 ? 'mid' : 'low';
+        const scoreBadge = document.createElement('span');
+        scoreBadge.className = 'clip-score-badge ' + level;
+        scoreBadge.textContent = clip.score + '/10';
+        const tip = [];
+        if (clip.score_reason)    tip.push(clip.score_reason);
+        if (clip.frames_observed) tip.push(clip.frames_observed);
+        if (tip.length) scoreBadge.title = tip.join('\n');
+        thumbDiv.appendChild(scoreBadge);
+      }
 
       const meta = document.createElement('div');
       meta.className = 'clip-meta';
@@ -3156,7 +3220,10 @@
         e.stopPropagation();
         _selectCaption(row, parseFloat(inp.value) || 0);
       });
+      let _preEdit = null;
+      inp.addEventListener('focus', () => { _preEdit = getCaptionsFromEditor(); });
       inp.addEventListener('input', () => {
+        if (_preEdit) { _pushCaptionUndo(_preEdit); _preEdit = null; }  // one undo point per edit session
         captionsData = getCaptionsFromEditor();
         updatePreviewCaption();
         validateCaptionTimes();
@@ -3176,7 +3243,10 @@
     textInp.className = 'caption-input';
     textInp.value     = cap.text;
     textInp.dir       = 'rtl';
+    let _preTextEdit = null;
+    textInp.addEventListener('focus', () => { _preTextEdit = getCaptionsFromEditor(); });
     textInp.addEventListener('input', () => {
+      if (_preTextEdit) { _pushCaptionUndo(_preTextEdit); _preTextEdit = null; }  // one undo point per edit session
       captionsData = getCaptionsFromEditor();
       updatePreviewCaption();
       if (stockBrollAnalyzed && getCaptionsSignature() !== lastAnalyzedSignature) {
@@ -3198,6 +3268,7 @@
     splitBtn.textContent = '✂';
     splitBtn.title      = t('cap.split');
     splitBtn.addEventListener('click', () => {
+      _pushCaptionUndo();
       const pos   = textInp.selectionStart ?? textInp.value.length;
       const left  = textInp.value.slice(0, pos).trim();
       const right = textInp.value.slice(pos).trim();
@@ -3221,6 +3292,7 @@
     addBtn.textContent = '+';
     addBtn.title      = t('cap.addLine');
     addBtn.addEventListener('click', () => {
+      _pushCaptionUndo();
       const e = parseFloat(endInp.value) || 0;
       const nextStart = e;
       const nextRow = row.nextElementSibling;
@@ -3240,6 +3312,7 @@
     delBtn.textContent = '−';
     delBtn.title      = t('cap.removeLine');
     delBtn.addEventListener('click', () => {
+      _pushCaptionUndo();
       row.remove();
       _updateDeleteButtons();
       captionsData = getCaptionsFromEditor();
@@ -3275,11 +3348,21 @@
     list.innerHTML = '';
     captionsData.forEach(cap => list.appendChild(_createCaptionRow(cap)));
     _updateDeleteButtons();
+    _resetCaptionUndo();
     document.getElementById('captionEditorCard').style.display = 'block';
     document.getElementById('hookCard').style.display = 'block';
     // Stock B-roll card hosts the Find B-Roll Moments button
     document.getElementById('stockBrollCard').style.display = 'block';
-    document.getElementById('generateHookBtn').disabled = false;
+    // Fresh video → clear any prior hooks and reset the button back to "Generate".
+    const ghb = document.getElementById('generateHookBtn');
+    ghb.disabled = false;
+    ghb.setAttribute('data-i18n', 'hook.generate');
+    ghb.textContent = t('hook.generate');
+    const hookOpts = document.getElementById('hookOptions');
+    hookOpts.innerHTML = '';
+    hookOpts.style.display = 'none';
+    document.getElementById('hookControls').style.display = 'none';
+    selectedHookIdx = -1;
     fetchHookThumbnail();
     burnMode = true;
     document.getElementById('uploadCard').classList.add('setup-locked');
@@ -3469,8 +3552,8 @@
   }
 
   function switchTab(which) {
-    const views = { pipeline: 'pipelineView', history: 'historyView', admin: 'adminView' };
-    const tabs  = { pipeline: 'tabPipeline',  history: 'tabHistory',  admin: 'tabAdmin' };
+    const views = { pipeline: 'pipelineView', history: 'historyView', guide: 'guideView', admin: 'adminView' };
+    const tabs  = { pipeline: 'tabPipeline',  history: 'tabHistory',  guide: 'tabGuide',  admin: 'tabAdmin' };
     for (const k of Object.keys(views)) {
       document.getElementById(views[k]).style.display = (k === which) ? '' : 'none';
       document.getElementById(tabs[k]).classList.toggle('active', k === which);

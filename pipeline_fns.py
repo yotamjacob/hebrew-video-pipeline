@@ -7,7 +7,7 @@ import modal
 
 from pipeline_core import (
     app, burn_image, light_image, model_volume, MODEL_DIR,
-    WHISPER_MODEL, tmp_vol, TMP_DIR, _fix_rtl_punct,
+    WHISPER_MODEL, WHISPER_INITIAL_PROMPT, tmp_vol, TMP_DIR, _fix_rtl_punct,
     _rtl_ass_text, _censor_caption_text, _SAFE_KEY_RE,
     _BROLL_KEY_RE, _is_allowed_broll_url,
     jobs_store, JOB_RETENTION_DAYS, SCRATCH_RETENTION_HOURS,
@@ -103,28 +103,60 @@ def probe_video(path):
     return w, h, float(d["format"]["duration"]), rotation
 
 def proofread_words(texts, client, model, chunk_size=400, max_tokens=8000):
-    """Fix Hebrew ASR spelling errors word-by-word via one LLM pass.
+    """Fix Hebrew ASR mishearings via one context-aware LLM pass.
 
-    Whisper's Hebrew typos are homophone letter swaps (ט/ת, כ/ק, א/ע/ה) and
-    mis-heard words that only sentence context can catch. Words are sent in
-    fixed-size chunks and the model must return a JSON array of exactly the
-    same length — word count and order never change, so the word-level
-    timestamps stay valid. Any failure (API error, parse error, wrong count)
-    keeps that chunk's original words. Never raises.
+    Whisper's Hebrew errors are homophone letter swaps (ט/ת, כ/ק, א/ע/ה), wrong
+    conjugations, and same-sounding non-words that only sentence context can
+    catch (e.g. 'קולטה' → 'כל תא', 'אשמחה' → 'שמחה'). Words are sent in
+    fixed-size chunks and the model returns a JSON array of exactly the same
+    LENGTH (order never changes), so each element still maps 1:1 to its audio
+    span and the word-level timestamps stay valid. A single element MAY hold a
+    multi-word phrase when the recognizer merged words — the whole phrase then
+    shares that token's timestamp (fine for caption lines). Any failure (API
+    error, parse error, wrong count) keeps that chunk's original words. Never
+    raises.
     """
     import json
     out = list(texts)
     for start in range(0, len(out), chunk_size):
         chunk = out[start:start + chunk_size]
         prompt = (
-            "The JSON array below is a Hebrew transcript from speech "
-            "recognition, one spoken word per element, in order. Fix ONLY "
-            "clear transcription errors: wrong homophone letters (ט/ת, כ/ק, "
-            "א/ע/ה, ש/ס), missing or extra letters, or a word that is "
-            "obviously a mis-hearing given the sentence context. Keep slang "
-            "and colloquial spelling as spoken. Do NOT rephrase, merge, "
-            "split, reorder, add or remove words. Keep punctuation attached "
-            "to a word unless the punctuation itself is the error.\n"
+            "The JSON array below is a continuous Hebrew transcript from "
+            "speech recognition - one spoken token per element, in order. Some "
+            "tokens are mis-heard. Your job is to fix ONLY genuine recognition "
+            "errors while staying faithful to what was actually said.\n"
+            "IRON RULE - PHONETIC FAITHFULNESS: a replacement must sound "
+            "essentially the SAME as the original token (same syllables/"
+            "consonants), just spelled or split correctly. Never change a token "
+            "to a different-sounding word or phrase, even if it would read more "
+            "fluently. Fidelity to the sound beats fluency, always.\n"
+            "How to choose the fix: among the options that SOUND like the "
+            "token, pick the one that makes the most sense in the surrounding "
+            "context - NOT the one with the fewest letter changes. A bigger "
+            "edit that fits the sentence beats a tiny edit that doesn't.\n"
+            "Rules:\n"
+            "- Fix homophone letter swaps (ט/ת, כ/ק, א/ע/ה, ש/ס), a missing or "
+            "extra letter, or a wrong conjugation (e.g. 'אשמחה' -> 'שמחה').\n"
+            "- If the recognizer merged words into one token, expand it into "
+            "the same-sounding phrase that fits context, keeping the space(s) "
+            "INSIDE that one element. Choose by meaning, not edit size: e.g. in "
+            "a sentence about the body, 'קולטה' -> 'כל תא' (fits), NOT 'קולטת' "
+            "(sounds close, a smaller edit, but makes no sense there).\n"
+            "- EVERY element you return must be real Hebrew: a valid word, or a "
+            "legitimate proper name, foreign/loan word, or interjection. NEVER "
+            "leave a garbled non-word in place - if a token is not real Hebrew "
+            "(e.g. 'קולטה', 'אשמחה'), you MUST replace it with the best "
+            "same-sounding real word(s) that fit the context, even if you are "
+            "not fully certain.\n"
+            "- If a token is ALREADY valid Hebrew and fits the context, LEAVE "
+            "IT UNCHANGED - 'keep the original' applies only to already-valid "
+            "tokens, never as an excuse to keep a non-word. Do not rewrite for "
+            "style. Keep slang/colloquial speech as spoken.\n"
+            "- FORBIDDEN example (different sound, invented): 'שמחה' -> "
+            "'אשתה איתך'. Never do this.\n"
+            "- Do NOT reorder elements and do NOT change the array length - it "
+            "must stay exactly the same (each element = one span of audio; any "
+            "merge stays inside its own element).\n"
             f"Return ONLY a JSON array of strings with exactly {len(chunk)} "
             "elements - no explanations.\n\n"
             f"{json.dumps(chunk, ensure_ascii=False)}"
@@ -329,6 +361,10 @@ def render(video, audio, segs, ass_file, out, crf=18, rotation=0, extra_vf=""):
 @app.function(
     gpu="L4",
     timeout=1800,
+    # Hard ceiling on simultaneous L4 containers. Modal otherwise autoscales
+    # GPU containers without bound — this caps peak GPU spend during a burst
+    # (excess /process calls queue rather than spin up unbounded GPUs).
+    max_containers=12,
     volumes={MODEL_DIR: model_volume, TMP_DIR: tmp_vol},
     memory=4096,
     secrets=[modal.Secret.from_name("anthropic-secret")],
@@ -586,6 +622,7 @@ def process_video(
                 str(wav), language="he", word_timestamps=True,
                 vad_filter=True, vad_parameters=vad_params,
                 beam_size=5, condition_on_previous_text=True,
+                initial_prompt=WHISPER_INITIAL_PROMPT,
             )
             whisper_segs = _segments(segs)
         except Exception:
@@ -595,6 +632,7 @@ def process_video(
                 str(wav), language="he", word_timestamps=True,
                 vad_filter=True, vad_parameters=vad_params,
                 beam_size=5, condition_on_previous_text=True,
+                initial_prompt=WHISPER_INITIAL_PROMPT,
             )
             whisper_segs = _segments(segs)
         model_volume.commit()
@@ -708,8 +746,22 @@ def process_video(
 
         import uuid
         video_key = key_prefix + uuid.uuid4().hex + "_cut.mp4"
-        shutil.copy(out_file, Path(TMP_DIR) / video_key)
+        cut_path = Path(TMP_DIR) / video_key
+        shutil.copy(out_file, cut_path)
         tmp_vol.commit()
+        # A cut-only result (no captions to burn, no B-roll pending) is the final
+        # deliverable - the site sends the user straight to download/schedule and
+        # no burn will follow. Record it in History so it's retained for
+        # JOB_RETENTION_DAYS (protected from the 48h scratch prune) and can be
+        # re-downloaded or scheduled later, exactly like a burned output. Caption
+        # / B-roll jobs skip this: their burn step records the _out.mp4 instead.
+        if not captions_list and not transcribe_for_broll:
+            try:
+                _record_job(video_key, filename, cut_path)
+                tmp_vol.commit()
+                prune_volume()
+            except Exception:
+                pass
         if upload_key is not None:
             try:
                 progress_store.pop(upload_key)

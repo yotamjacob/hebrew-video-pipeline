@@ -83,7 +83,15 @@ app = modal.App("hebrew-video-pipeline", image=image)
 
 model_volume = modal.Volume.from_name("heb-whisper-model", create_if_missing=True)
 MODEL_DIR = "/model-cache"
-WHISPER_MODEL = "ivrit-ai/whisper-large-v3-turbo-ct2"
+# Full (non-turbo) ivrit-ai Hebrew Whisper: measurably more accurate than the
+# turbo variant on clean audio (turbo is distilled for speed and mis-hears more,
+# incl. long-form). Same CT2/faster-whisper format → drop-in. ~2x slower + a
+# one-time ~1.5 GB re-download to the model volume; well within the timeouts.
+WHISPER_MODEL = "ivrit-ai/whisper-large-v3-ct2"
+# Biases decoding toward well-formed, correctly spelled standard Hebrew. Short
+# on purpose (Whisper caps the prompt) and domain-neutral so it never injects
+# vocabulary that isn't in the audio.
+WHISPER_INITIAL_PROMPT = "תמלול בעברית תקנית, במשפטים מלאים ובכתיב מלא ותקין."
 
 tmp_vol = modal.Volume.from_name("hebrew-pipeline-tmp", create_if_missing=True)
 TMP_DIR = "/pipeline-tmp"

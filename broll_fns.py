@@ -452,7 +452,7 @@ def _get_video_context(video_path: str, transcript: str, client) -> dict:
 # Stock B-roll analysis — finds moments in transcript + searches Pexels/Pixabay
 # ---------------------------------------------------------------------------
 def _process_moment(m: dict, pexels_key: str, pixabay_key: str, client,
-                    video_context: dict, max_candidates: int = 40) -> None:
+                    video_context: dict, max_candidates: int = 20) -> None:
     """Search stock libraries + score clips for one B-roll moment. Mutates m in place.
     Designed to run in a ThreadPoolExecutor — creates its own requests.Session so
     threads don't share state, and score_clips can safely call asyncio.run()."""
@@ -1056,13 +1056,15 @@ def analyze_stock_broll(captions_json: str, video_key: str = "") -> list:
 
     spacing_drops = n_before_spacing - len(moments)
 
-    # Cost guard — cap Haiku fan-out to stay under $0.50 budget
-    # Multi-frame mode: 40 candidates × batches of 3 × ~$0.003/batch ≈ $0.04/moment
-    # Single-frame mode: 40 candidates × ~$0.002/call ≈ $0.08/moment (batched loosely)
-    _HAIKU_COST_PER_MOMENT = 0.04 if video_context else 0.08
+    # Cost guard — cap Haiku fan-out to stay under budget.
+    # B-roll is the priciest per-video feature and is non-essential, so the
+    # per-job budget and candidate fan-out are kept deliberately tight.
+    # Multi-frame mode: 20 candidates × batches of 3 × ~$0.003/batch ≈ $0.02/moment
+    # Single-frame mode: 20 candidates × ~$0.002/call ≈ $0.04/moment (batched loosely)
+    _HAIKU_COST_PER_MOMENT = 0.02 if video_context else 0.04
     # Sonnet: moment selection (~$0.04) + video context pass if used (~$0.04)
     _SONNET_COST_ESTIMATE  = 0.08 if video_context else 0.04
-    _COST_BUDGET           = 1.00
+    _COST_BUDGET           = 0.25
     total_identified = len(moments)
     projected_cost   = _SONNET_COST_ESTIMATE + total_identified * _HAIKU_COST_PER_MOMENT
     cost_limit_hit   = False
@@ -1080,22 +1082,28 @@ def analyze_stock_broll(captions_json: str, video_key: str = "") -> list:
     est = _SONNET_COST_ESTIMATE + len(moments) * _HAIKU_COST_PER_MOMENT
     print(f"[stock] {len(moments)} moments ({h} high / {med} medium / {low} low), est cost ${est:.3f}")
 
-    _MAX_CANDIDATES = 40
+    _MAX_CANDIDATES = 20
 
     import concurrent.futures as _cf
+    # No moments identified → nothing to fetch. Skip the pool entirely:
+    # ThreadPoolExecutor(max_workers=0) raises "max_workers must be greater
+    # than 0", which surfaced to the user as a B-roll search error.
     _workers = min(5, len(moments))
-    print(f"[stock] processing {len(moments)} moments in parallel (workers={_workers})")
-    with _cf.ThreadPoolExecutor(max_workers=_workers) as _pool:
-        futs = [
-            _pool.submit(_process_moment, m, pexels_key, pixabay_key,
-                         client, video_context, _MAX_CANDIDATES)
-            for m in moments
-        ]
-        for fut in _cf.as_completed(futs):
-            try:
-                fut.result()
-            except Exception as _exc:
-                print(f"[stock] moment processing error: {_exc}")
+    if _workers > 0:
+        print(f"[stock] processing {len(moments)} moments in parallel (workers={_workers})")
+        with _cf.ThreadPoolExecutor(max_workers=_workers) as _pool:
+            futs = [
+                _pool.submit(_process_moment, m, pexels_key, pixabay_key,
+                             client, video_context, _MAX_CANDIDATES)
+                for m in moments
+            ]
+            for fut in _cf.as_completed(futs):
+                try:
+                    fut.result()
+                except Exception as _exc:
+                    print(f"[stock] moment processing error: {_exc}")
+    else:
+        print("[stock] no moments identified — nothing to fetch")
 
     return {
         "moments":                 moments,
