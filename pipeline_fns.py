@@ -46,6 +46,93 @@ def daily_usage_report() -> dict:
     return {"count": count, "users": users, "over_threshold": over}
 
 # ---------------------------------------------------------------------------
+# Off-site metadata backup — the critical Dicts (accounts, History manifest,
+# quota ledger, Metricool tokens) are the only non-reconstructable state and
+# have NO native Modal backup. A daily JSON snapshot is pushed to an
+# S3-compatible bucket (Cloudflare R2 / Backblaze B2) so a cleared/corrupted
+# Dict — or total loss of the Modal account — is recoverable. Videos are NOT
+# backed up (30-day retention by design; users keep their own copies).
+# Best-effort: no creds → logs and skips, so a deploy without the secret never
+# fails. NOTE: the snapshot contains PBKDF2 password hashes + OAuth tokens —
+# the bucket MUST be private.
+# ---------------------------------------------------------------------------
+_BACKUP_STORES = ("jobs", "users", "quota", "metricool")
+
+def _backup_stores_map():
+    from pipeline_core import users_store, quota_store, jobs_store
+    from metricool_fns import oauth_store
+    return {"jobs": jobs_store, "users": users_store,
+            "quota": quota_store, "metricool": oauth_store}
+
+def _s3_client():
+    import os, boto3
+    return boto3.client(
+        "s3",
+        endpoint_url=os.environ["S3_ENDPOINT_URL"],
+        aws_access_key_id=os.environ["S3_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["S3_SECRET_ACCESS_KEY"],
+        region_name=os.environ.get("S3_REGION", "auto"),
+    )
+
+@app.function(image=light_image, schedule=modal.Period(days=1),
+              secrets=[modal.Secret.from_name("hebpipe-backup")])
+def backup_dicts() -> dict:
+    import os, json, datetime
+    if not all(os.environ.get(k) for k in
+               ("S3_ENDPOINT_URL", "S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY")):
+        print("[backup] hebpipe-backup S3 creds not set — skipping")
+        return {"ok": False, "reason": "no_creds"}
+    snapshot = {"_meta": {"ts": datetime.datetime.utcnow().isoformat() + "Z"}}
+    counts = {}
+    for name, store in _backup_stores_map().items():
+        try:
+            data = {k: store.get(k) for k in list(store.keys())}
+            snapshot[name], counts[name] = data, len(data)
+        except Exception as e:
+            snapshot[name], counts[name] = {"_error": repr(e)}, -1
+    payload = json.dumps(snapshot, ensure_ascii=False, default=str).encode("utf-8")
+    bucket = os.environ["S3_BUCKET"]
+    stamp = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    key = f"backups/hebpipe-{stamp}.json"
+    s3 = _s3_client()
+    s3.put_object(Bucket=bucket, Key=key, Body=payload, ContentType="application/json")
+    try:  # rotation — keep the 30 most recent snapshots
+        objs = s3.list_objects_v2(Bucket=bucket, Prefix="backups/hebpipe-").get("Contents", [])
+        for o in sorted(objs, key=lambda x: x["Key"])[:-30]:
+            s3.delete_object(Bucket=bucket, Key=o["Key"])
+    except Exception as e:
+        print(f"[backup] rotation skipped: {e!r}")
+    print(f"[backup] wrote {key} ({len(payload)} bytes) counts={counts}")
+    return {"ok": True, "key": key, "bytes": len(payload), "counts": counts}
+
+@app.function(image=light_image, secrets=[modal.Secret.from_name("hebpipe-backup")])
+def restore_dicts(key: str, which: str = "", apply: bool = False) -> dict:
+    """Restore Dicts from a snapshot. MERGES snapshot entries into the live Dict
+    (never deletes keys added since the snapshot). Dry-run by default.
+    Run: modal run app_modal.py::restore_dicts --key backups/hebpipe-....json \\
+             --which users --apply
+    """
+    import json
+    stores = _backup_stores_map()
+    snap = json.loads(_s3_client().get_object(
+        Bucket=__import__("os").environ["S3_BUCKET"], Key=key)["Body"].read())
+    targets = [w.strip() for w in which.split(",") if w.strip()] or list(_BACKUP_STORES)
+    report = {}
+    for name in targets:
+        data = snap.get(name)
+        if not isinstance(data, dict) or "_error" in data:
+            report[name] = "skipped (missing/errored in snapshot)"
+            continue
+        if apply:
+            for k, v in data.items():
+                stores[name][k] = v
+            report[name] = f"restored {len(data)} keys"
+        else:
+            report[name] = f"would restore {len(data)} keys (dry-run — pass --apply)"
+    print(f"[restore] {key} apply={apply}: {report}")
+    return report
+
+# ---------------------------------------------------------------------------
 # Shared pure helpers
 # ---------------------------------------------------------------------------
 import json

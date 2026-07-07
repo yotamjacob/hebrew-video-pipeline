@@ -33,7 +33,7 @@ from pipeline_core import (
 # Public base URLs used to build email links. SITE_URL can be overridden via
 # env once a custom domain is set; the API base is stable.
 API_BASE_URL = "https://yotamjacob--hebrew-video-pipeline-api.modal.run"
-from pipeline_fns import process_video, burn_captions_fn, burn_hook_fn
+from pipeline_fns import process_video, burn_captions_fn, burn_hook_fn, backup_dicts, restore_dicts
 from broll_fns import generate_broll_video, analyze_broll, analyze_stock_broll, search_stock_clips
 from content_fns import generate_hook_options, generate_caption_options
 from metricool_fns import (

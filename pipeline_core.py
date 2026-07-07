@@ -72,7 +72,7 @@ burn_image = (
 light_image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg")
-    .pip_install("requests", "anthropic>=0.40.0", "fastapi", "python-multipart")
+    .pip_install("requests", "anthropic>=0.40.0", "fastapi", "python-multipart", "boto3")
     .add_local_python_source(
         "pipeline_core", "pipeline_fns", "stock_helpers",
         "broll_fns", "content_fns", "metricool_fns",
