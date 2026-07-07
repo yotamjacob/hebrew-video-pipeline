@@ -95,6 +95,7 @@
     <div style="padding-top:14px">
       <label class="sched-label" id="authUsernameLabel" data-i18n="auth.username">Username</label>
       <input type="text" id="authUsername" class="sched-input" style="width:100%" autocomplete="username" />
+      <div class="field-err" id="authUsernameErr"></div>
       <div id="authPasswordRow">
         <label class="sched-label" data-i18n="auth.password">Password</label>
         <div class="pw-wrap">
@@ -103,6 +104,7 @@
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
         </div>
+        <div class="field-err" id="authPasswordErr"></div>
       </div>
       <div id="authEmailRow" style="display:none">
         <label class="sched-label" data-i18n="auth.email">Email</label>
@@ -119,6 +121,7 @@
       <div id="authInviteRow" style="display:none">
         <label class="sched-label" data-i18n="auth.invite">Invite code</label>
         <input type="text" id="authInvite" class="sched-input" style="width:100%" autocomplete="off" />
+        <div class="field-err" id="authInviteErr"></div>
       </div>
       <div id="authError" class="sched-error" style="display:none;margin-top:12px"></div>
       <div id="authInfo" class="sched-status ok" style="display:none;margin-top:12px"></div>

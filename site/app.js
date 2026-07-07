@@ -301,7 +301,50 @@
       reg ? t('auth.toSignin') : forgot ? t('auth.toSignin') : t('auth.toRegister');
     document.getElementById('authError').style.display = 'none';
     document.getElementById('authInfo').style.display = 'none';
+    ['authUsernameErr', 'authPasswordErr', 'authInviteErr'].forEach(id => _fieldErr(id, ''));
   }
+
+  // ── Inline per-field validation (helps low-tech users fix inputs) ──
+  const _USERNAME_RE = /^[a-zA-Z0-9_\-]{3,32}$/;
+  const _HEBREW_RE   = /[\u0590-\u05FF]/;
+  function _fieldErr(id, msg) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = msg || '';
+    el.style.display = msg ? 'block' : 'none';
+  }
+  // onSubmit=true also flags empty required fields; live validation (false) only
+  // warns about non-empty invalid input so users aren't nagged mid-typing.
+  function validateUsername(onSubmit) {
+    const v = document.getElementById('authUsername').value.trim();
+    let msg = '';
+    if (!v) { if (onSubmit) msg = t('valid.userRequired'); }
+    else if (authMode !== 'forgot') {   // forgot accepts username OR email - don't enforce the username shape
+      if (_HEBREW_RE.test(v)) msg = t('valid.userHebrew');
+      else if (!_USERNAME_RE.test(v)) msg = t('valid.userChars');
+    }
+    _fieldErr('authUsernameErr', msg);
+    return !msg;
+  }
+  function validatePassword(onSubmit) {
+    if (authMode === 'forgot') { _fieldErr('authPasswordErr', ''); return true; }
+    const v = document.getElementById('authPassword').value;
+    let msg = '';
+    if (!v) { if (onSubmit) msg = t('valid.pwRequired'); }
+    else if (authMode === 'register' && v.length < 8) msg = t('valid.pwShort');
+    _fieldErr('authPasswordErr', msg);
+    return !msg;
+  }
+  function validateInvite(onSubmit) {
+    if (authMode !== 'register') { _fieldErr('authInviteErr', ''); return true; }
+    const v = document.getElementById('authInvite').value.trim();
+    const msg = (!v && onSubmit) ? t('valid.inviteRequired') : '';
+    _fieldErr('authInviteErr', msg);
+    return !msg;
+  }
+  document.getElementById('authUsername').addEventListener('input', () => validateUsername(false));
+  document.getElementById('authPassword').addEventListener('input', () => validatePassword(false));
+  document.getElementById('authInvite').addEventListener('input', () => validateInvite(false));
 
   function toggleAuthMode() {
     authMode = authMode === 'register' ? 'login' : (authMode === 'forgot' ? 'login' : 'register');
@@ -335,6 +378,13 @@
       _btnBusy(btn, false);
       return;
     }
+
+    // Inline field validation (login + register) - run all so every bad field
+    // shows its own message, then stop if any is invalid.
+    const uOk = validateUsername(true);
+    const pOk = validatePassword(true);
+    const iOk = validateInvite(true);
+    if (!(uOk && pOk && iOk)) { _btnBusy(btn, false); return; }
 
     const payload = {
       username: document.getElementById('authUsername').value.trim(),

@@ -400,6 +400,7 @@
       font-size: 0.85rem; color: var(--muted); cursor: pointer; user-select: none;
     }
     .remember-row input { width: 16px; height: 16px; accent-color: var(--purple-600); cursor: pointer; }
+    .field-err { display: none; color: var(--red); font-size: 0.8rem; line-height: 1.45; margin-top: 5px; }
     .auth-terms { font-size: 0.78rem; color: var(--muted); text-align: center; line-height: 1.5; }
     .auth-terms a { color: var(--olive); text-decoration: underline; }
 
