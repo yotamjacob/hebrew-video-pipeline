@@ -90,13 +90,43 @@ test('upload chunking: large file triggers multiple upload_chunk requests', asyn
   });
 
   await mockAllApis(page);
-  // 16 MB file → 4 chunks of 5 MB (CHUNK_SIZE = 5 MB)
+  // 16 MB file → 8 chunks of 2 MB (CHUNK_SIZE = 2 MB)
   await selectFile(page, { sizeMB: 16 });
   await page.waitForSelector('#runBtn:not([disabled])');
   await page.click('#runBtn');
   await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 10_000 });
 
   expect(uploadRequests.length).toBeGreaterThanOrEqual(3);
+});
+
+test('chunk uploads use a fixed URL with key/index in headers (one CORS preflight)', async ({ page }) => {
+  const chunkReqs = [];
+  page.on('request', req => {
+    if (req.url().includes('/upload_chunk')) {
+      chunkReqs.push({ url: req.url(), method: req.method(),
+                       key: req.headers()['x-upload-key'], index: req.headers()['x-upload-index'] });
+    }
+  });
+
+  await mockAllApis(page);
+  await selectFile(page, { sizeMB: 8 });   // 4 chunks
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 10_000 });
+
+  const posts = chunkReqs.filter(r => r.method === 'POST');
+  expect(posts.length).toBeGreaterThanOrEqual(3);
+  // Every POST hits the SAME url with no query string, so the browser reuses a
+  // single cached preflight instead of re-flying per chunk.
+  const urls = new Set(posts.map(r => r.url));
+  expect(urls.size).toBe(1);
+  expect([...urls][0]).not.toContain('?');
+  // key/index travel in headers, and all chunks share one key with distinct indices.
+  const keys = new Set(posts.map(r => r.key));
+  expect(keys.size).toBe(1);
+  expect([...keys][0]).toBeTruthy();
+  const indices = posts.map(r => r.index).sort();
+  expect(new Set(indices).size).toBe(posts.length);   // each index sent once
 });
 
 test('polling: process_poll receives the correct call_id', async ({ page }) => {
@@ -198,7 +228,9 @@ test('upload chunk survives repeated network failures (mobile backgrounding)', a
   // Chunk 0 dies with a network error 5 times, then connectivity returns.
   // The old code gave up after 4 attempts per chunk.
   let failures = 0;
-  await page.route(/\/upload_chunk\/\?.*index=0/, (route) => {
+  // key/index now ride in headers (fixed URL for one cached CORS preflight).
+  await page.route(/\/upload_chunk\//, (route, req) => {
+    if (req.headers()['x-upload-index'] !== '0') return route.fallback();
     if (failures < 5) { failures++; return route.abort('failed'); }
     return route.fallback();
   });
@@ -292,7 +324,8 @@ test('backgrounding-killed chunk retries do not burn the give-up budget', async 
   // Chunk 0 fails 10 times; each failure is made to coincide with a background
   // pulse. Old code gave up at 6 network failures - now these don't count.
   let failures = 0;
-  await page.route(/\/upload_chunk\/\?.*index=0/, async (route) => {
+  await page.route(/\/upload_chunk\//, async (route, req) => {
+    if (req.headers()['x-upload-index'] !== '0') return route.fallback();
     if (failures < 10) {
       failures++;
       await page.evaluate(() => window.__pulseHidden());
@@ -317,8 +350,8 @@ test('resume: a retry skips chunks the server already received', async ({ page }
   // must skip 0 and 1 (already on server) and only send 2.
   const posts = {};
   let allowIndex2 = false;
-  await page.route(/\/upload_chunk\/\?/, (route, req) => {
-    const idx = new URL(req.url()).searchParams.get('index');
+  await page.route(/\/upload_chunk\//, (route, req) => {
+    const idx = req.headers()['x-upload-index'];
     posts[idx] = (posts[idx] || 0) + 1;
     if (idx === '2' && !allowIndex2) return route.abort('failed');
     return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });

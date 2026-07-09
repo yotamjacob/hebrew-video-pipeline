@@ -120,17 +120,27 @@ test('progress advances during playback and freezes after pause', async ({ page 
 
   const width = () => page.evaluate(() => parseFloat(document.getElementById('playerProgFill').style.width) || 0);
 
-  await page.click('#playerWrap');           // play
-  await page.waitForFunction(() => document.getElementById('cutVideo').currentTime > 0.6, { timeout: 8_000 });
-  const during = await width();
-  expect(during).toBeGreaterThan(0);
+  // Play and confirm the rAF loop advances the bar. Sample twice within the
+  // first second (well before the 2 s clip ends) so a slow CI run can't let
+  // playback finish before we measure.
+  await page.click('#playerWrap');
+  await page.waitForFunction(() => { const v = document.getElementById('cutVideo'); return !v.paused && v.currentTime > 0.4; }, { timeout: 8_000 });
+  const w1 = await width();
+  await page.waitForFunction((prev) => {
+    const v = document.getElementById('cutVideo');
+    return v.ended || (parseFloat(document.getElementById('playerProgFill').style.width) || 0) > prev;
+  }, w1, { timeout: 4_000 });
+  const w2 = await width();
+  expect(w2).toBeGreaterThan(w1);   // advancing during playback
 
-  await page.click('#playerWrap');           // pause
-  const atPause = await width();
-  // Give any stray rAF frames time to (not) fire.
+  // Pause and wait for it to actually take effect, then confirm the bar is
+  // frozen (paused → currentTime frozen → the loop stops writing new widths).
+  await page.evaluate(() => { const v = document.getElementById('cutVideo'); if (!v.paused) v.pause(); });
+  await page.waitForFunction(() => document.getElementById('cutVideo').paused, { timeout: 4_000 });
+  const p1 = await width();
   await page.waitForTimeout(500);
-  const afterPause = await width();
-  expect(Math.abs(afterPause - atPause)).toBeLessThan(0.5);   // frozen → loop stopped
+  const p2 = await width();
+  expect(p2).toBeCloseTo(p1, 5);    // frozen → rAF loop stopped
 });
 
 test('play/pause toggles the control state cleanly', async ({ page }) => {

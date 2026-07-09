@@ -1205,12 +1205,13 @@
   // chunks don't slow a healthy connection (connection reuse absorbs the extra
   // request overhead); on a flaky one they're faster (less re-send waste).
   const CHUNK_SIZE = 2 * 1024 * 1024;
-  // Modest parallelism: 16 in-flight chunks (each with a CORS preflight since
-  // auth) exceeded the API container's concurrent-input cap, and Modal's
-  // ingress reroutes the overflow with a 303 that browsers can't follow for
-  // POSTs. 4 stays under the cap, saturates most uplinks, and caps in-flight
-  // (losable-on-background) bytes at 4×2 MB = 8 MB.
-  const UPLOAD_CONCURRENCY = 4;
+  // Parallelism: chunk POSTs now share ONE cached CORS preflight (fixed URL +
+  // Access-Control-Max-Age), so the old preflight-doubling that pushed 16
+  // in-flight past the container's input cap is gone. 6 fills the bandwidth-
+  // delay product on healthy uplinks, stays well under the API's max_inputs=50
+  // (chunks + polls), and caps in-flight (losable-on-background) bytes at
+  // 6×2 MB = 12 MB. Kept modest so a background-kill loses little.
+  const UPLOAD_CONCURRENCY = 6;
   const UPLOAD_RESUME_TTL = 24 * 60 * 60 * 1000;   // server prunes scratch chunks after 48h; stay well under
   // POST one chunk via XHR (not fetch): fetch reports no upload progress and
   // has no timeout, so on a slow mobile uplink the bar sits at 0% until a whole
@@ -1240,7 +1241,12 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden) _hiddenEpoch++; });
 
   const CHUNK_STALL_MS = 20_000;
-  function _postChunkBytes(url, body, onLoaded) {
+  // POST one chunk to a FIXED url with key/index in headers (not the query
+  // string). A chunk POST always triggers a CORS preflight (Authorization +
+  // octet-stream are non-safelisted); keeping the URL constant lets the browser
+  // reuse ONE cached preflight (Access-Control-Max-Age) for the whole upload
+  // instead of re-flying before every 2 MB chunk (a per-chunk RTT tax).
+  function _postChunkBytes(key, index, body, onLoaded) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       let watchdog;
@@ -1250,8 +1256,10 @@
         watchdog = setTimeout(() => { try { xhr.abort(); } catch (_) {}
           reject(Object.assign(new Error('upload stalled'), { isNetwork: true })); }, stallMs);
       };
-      xhr.open('POST', url);
+      xhr.open('POST', `${API_BASE}/upload_chunk/`);
       xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.setRequestHeader('X-Upload-Key', key);
+      xhr.setRequestHeader('X-Upload-Index', String(index));
       if (authToken) xhr.setRequestHeader('Authorization', 'Bearer ' + authToken);
       xhr.upload.onprogress = e => { arm(); if (e.lengthComputable) onLoaded(e.loaded); };
       xhr.onload = () => {
@@ -1444,8 +1452,7 @@
         const epoch0 = _hiddenEpoch;
         try {
           await _postChunkBytes(
-            `${API_BASE}/upload_chunk/?key=${key}&index=${i}`,
-            body,
+            key, i, body,
             loaded => { loadedByChunk[i] = Math.min(loaded, chunkLen); report(); }
           );
           loadedByChunk[i] = chunkLen; report();

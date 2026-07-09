@@ -87,9 +87,13 @@ def api():
         method = scope["method"]
         path   = scope["path"]
 
-        # OPTIONS preflight
+        # OPTIONS preflight — cache it for a day so the browser doesn't re-fly
+        # before every request. Chunk uploads POST to a FIXED url with key/index
+        # in headers (not the query string) specifically so one cached preflight
+        # covers the whole upload instead of one per 2 MB chunk.
         if method == "OPTIONS":
-            await send({"type": "http.response.start", "status": 204, "headers": CORS})
+            await send({"type": "http.response.start", "status": 204,
+                        "headers": CORS + [(b"access-control-max-age", b"86400")]})
             await send({"type": "http.response.body",  "body": b""})
             return
 
@@ -606,9 +610,13 @@ def api():
 
         # Upload chunk — store one piece of a chunked video upload in Volume
         if path in ("/upload_chunk", "/upload_chunk/") and method == "POST":
+            # key/index come from headers (fixed URL → one cached CORS preflight
+            # for the whole upload). Fall back to the query string so an
+            # old-frontend / new-backend deploy window still works.
             qs  = parse_qs(scope.get("query_string", b"").decode())
-            key     = qs.get("key",   [""])[0]
-            idx_raw = qs.get("index", ["0"])[0]
+            _uh = {bytes(k).lower(): bytes(v).decode() for k, v in scope.get("headers", [])}
+            key     = _uh.get(b"x-upload-key")   or qs.get("key",   [""])[0]
+            idx_raw = _uh.get(b"x-upload-index") or qs.get("index", ["0"])[0]
             if not key or not _SAFE_KEY_RE.match(key):
                 await send_error("Invalid or missing key", 400)
                 return
