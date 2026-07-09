@@ -1,21 +1,30 @@
 /**
- * Player orientation tests
+ * Preview orientation tests
  *
- * Verifies that the caption player container (#playerWrap) is sized as
- * portrait when the video is portrait (9:16) and landscape when 16:9.
+ * The previews must follow the ACTUAL orientation of the uploaded video:
+ *   - portrait input (9:16)  → previews are taller than wide
+ *   - landscape input (16:9) → previews are wider than tall
+ *   - the player box aspect-ratio equals videoWidth / videoHeight (no crop)
  *
- * Strategy: mock the /download/** route to serve a real MP4 fixture file,
- * then wait for the video element to receive its dimensions and check that
- * the wrapper has height > width (portrait) or width > height (landscape).
+ * Two previews are covered:
+ *   1. the caption editor player (#playerWrap / #cutVideo)
+ *   2. the hook design preview canvas (#hookPreviewCanvas), which cover-fits
+ *      the source thumbnail and so must resize to the thumbnail's orientation.
+ *
+ * Strategy: mock /download/** with a real MP4 fixture (drives the player) and
+ * /thumbnail/** with a real JPEG fixture (drives the hook canvas), then wait
+ * for the elements to receive their dimensions and assert orientation.
  */
 const { test, expect } = require('@playwright/test');
 const fs   = require('fs');
 const path = require('path');
 const { mockAllApis, selectFile, bootApp } = require('./helpers');
 
-const PORTRAIT_MP4  = path.join(__dirname, 'fixtures/portrait_1080x1920.mp4');
-const LANDSCAPE_MP4 = path.join(__dirname, 'fixtures/landscape_1920x1080.mp4');
+const PORTRAIT_MP4     = path.join(__dirname, 'fixtures/portrait_1080x1920.mp4');
+const LANDSCAPE_MP4    = path.join(__dirname, 'fixtures/landscape_1920x1080.mp4');
 const ROTATED_META_MP4 = path.join(__dirname, 'fixtures/rotated_meta_90.mp4');
+const LANDSCAPE_JPG    = path.join(__dirname, 'fixtures/thumb_landscape.jpg');
+const PORTRAIT_JPG     = path.join(__dirname, 'fixtures/thumb_portrait.jpg');
 
 const API_BASE = 'https://yotamjacob--hebrew-video-pipeline-api.modal.run';
 
@@ -35,10 +44,26 @@ async function mockDownloadWithFile(page, filePath) {
   );
 }
 
-/** Run the upload flow and wait for the caption player to appear. */
-async function runAndWaitForPlayer(page, videoFixture) {
-  await mockAllApis(page);                        // sets all mocks including generic download
+/** Replace the generic thumbnail mock with one that serves a real JPEG file. */
+async function mockThumbnailWithFile(page, filePath) {
+  const buf = fs.readFileSync(filePath);
+  await page.route(`${API_BASE}/thumbnail/**`, route =>
+    route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'max-age=300' },
+      body: buf,
+    })
+  );
+}
+
+/**
+ * Run the upload flow and wait for the caption player to appear.
+ * Optionally override the thumbnail so the hook preview can be exercised too.
+ */
+async function runAndWaitForPlayer(page, videoFixture, thumbFixture) {
+  await mockAllApis(page);                        // sets all mocks including generic download/thumbnail
   await mockDownloadWithFile(page, videoFixture); // overrides download with real file
+  if (thumbFixture) await mockThumbnailWithFile(page, thumbFixture);
   await selectFile(page);
   await page.waitForSelector('#runBtn:not([disabled])');
   await page.click('#runBtn');
@@ -75,25 +100,7 @@ test.beforeEach(async ({ page }) => {
   await bootApp(page);
 });
 
-// ── Diagnostic: log actual values from Chromium ────────────────────────────
-
-test('portrait video: log actual videoWidth/Height and rendered size', async ({ page }) => {
-  await runAndWaitForPlayer(page, PORTRAIT_MP4);
-  await waitForPlayerSized(page);
-  const dims = await readVideoDimensions(page);
-  console.log('[portrait dims]', JSON.stringify(dims));
-  expect(dims).not.toBeNull();
-});
-
-test('landscape video: log actual videoWidth/Height and rendered size', async ({ page }) => {
-  await runAndWaitForPlayer(page, LANDSCAPE_MP4);
-  await waitForPlayerSized(page);
-  const dims = await readVideoDimensions(page);
-  console.log('[landscape dims]', JSON.stringify(dims));
-  expect(dims).not.toBeNull();
-});
-
-// ── Orientation assertions ──────────────────────────────────────────────────
+// ── Caption player: orientation follows the video ──────────────────────────
 
 test('portrait video: playerWrap is taller than wide', async ({ page }) => {
   await runAndWaitForPlayer(page, PORTRAIT_MP4);
@@ -103,28 +110,79 @@ test('portrait video: playerWrap is taller than wide', async ({ page }) => {
   expect(dims.wrapH).toBeGreaterThan(dims.wrapW);
 });
 
-// Player is forced to portrait (9:16) regardless of video dimensions.
-test('landscape video: playerWrap is still portrait (forced 9:16)', async ({ page }) => {
+test('landscape video: playerWrap is wider than tall', async ({ page }) => {
   await runAndWaitForPlayer(page, LANDSCAPE_MP4);
   await waitForPlayerSized(page);
   const dims = await readVideoDimensions(page);
   console.log('[landscape wrap]', JSON.stringify(dims));
-  expect(dims.wrapH).toBeGreaterThan(dims.wrapW);
+  expect(dims.wrapW).toBeGreaterThan(dims.wrapH);
 });
 
-test('rotated-metadata video: log what Chrome reports', async ({ page }) => {
-  await runAndWaitForPlayer(page, ROTATED_META_MP4);
+test('landscape video: playerWrap aspect-ratio matches videoWidth/videoHeight', async ({ page }) => {
+  await runAndWaitForPlayer(page, LANDSCAPE_MP4);
   await waitForPlayerSized(page);
   const dims = await readVideoDimensions(page);
-  console.log('[rotated-meta dims]', JSON.stringify(dims));
-  expect(dims).not.toBeNull();
+  // The box must mirror the source ratio (no forced 9/16, no crop).
+  expect(dims.wrapAR).toBe(`${dims.videoWidth} / ${dims.videoHeight}`);
+  const boxAR   = dims.wrapW / dims.wrapH;
+  const videoAR = dims.videoWidth / dims.videoHeight;
+  expect(Math.abs(boxAR - videoAR)).toBeLessThan(0.05);
 });
 
-// Player is forced to portrait (9:16) regardless of video dimensions.
-test('rotated-metadata video: playerWrap is still portrait (forced 9:16)', async ({ page }) => {
+test('portrait video: playerWrap aspect-ratio matches videoWidth/videoHeight', async ({ page }) => {
+  await runAndWaitForPlayer(page, PORTRAIT_MP4);
+  await waitForPlayerSized(page);
+  const dims = await readVideoDimensions(page);
+  expect(dims.wrapAR).toBe(`${dims.videoWidth} / ${dims.videoHeight}`);
+});
+
+// The player must reflect whatever orientation the browser actually renders
+// for a rotated-metadata clip (data-driven: follow videoWidth vs videoHeight,
+// never a hard-coded portrait frame).
+test('rotated-metadata video: playerWrap orientation follows the rendered video', async ({ page }) => {
   await runAndWaitForPlayer(page, ROTATED_META_MP4);
   await waitForPlayerSized(page);
   const dims = await readVideoDimensions(page);
   console.log('[rotated-meta wrap]', JSON.stringify(dims));
-  expect(dims.wrapH).toBeGreaterThan(dims.wrapW);
+  expect(dims.wrapAR).toBe(`${dims.videoWidth} / ${dims.videoHeight}`);
+  if (dims.videoWidth > dims.videoHeight) {
+    expect(dims.wrapW).toBeGreaterThan(dims.wrapH);
+  } else {
+    expect(dims.wrapH).toBeGreaterThan(dims.wrapW);
+  }
+});
+
+// ── Hook design preview canvas: orientation follows the source thumbnail ────
+
+/** Wait for the hook preview canvas to be resized off its default 270×480. */
+async function readHookCanvas(page) {
+  return page.evaluate(() => {
+    const c = document.getElementById('hookPreviewCanvas');
+    return c ? { w: c.width, h: c.height } : null;
+  });
+}
+
+test('landscape video: hook preview canvas becomes landscape', async ({ page }) => {
+  await runAndWaitForPlayer(page, LANDSCAPE_MP4, LANDSCAPE_JPG);
+  // drawHookPreview resizes the canvas once the thumbnail image decodes.
+  await page.waitForFunction(() => {
+    const c = document.getElementById('hookPreviewCanvas');
+    return c && c.height < c.width;
+  }, { timeout: 8_000 });
+  const dims = await readHookCanvas(page);
+  console.log('[hook canvas landscape]', JSON.stringify(dims));
+  expect(dims.w).toBeGreaterThan(dims.h);
+  // 16:9 source thumbnail → 16:9 canvas
+  expect(Math.abs(dims.w / dims.h - 16 / 9)).toBeLessThan(0.1);
+});
+
+test('portrait video: hook preview canvas stays portrait', async ({ page }) => {
+  await runAndWaitForPlayer(page, PORTRAIT_MP4, PORTRAIT_JPG);
+  await page.waitForFunction(() => {
+    const c = document.getElementById('hookPreviewCanvas');
+    return c && c.height > c.width;
+  }, { timeout: 8_000 });
+  const dims = await readHookCanvas(page);
+  console.log('[hook canvas portrait]', JSON.stringify(dims));
+  expect(dims.h).toBeGreaterThan(dims.w);
 });

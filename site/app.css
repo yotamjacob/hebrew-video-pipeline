@@ -757,12 +757,15 @@
       direction: rtl;
       text-align: right;
       font-family: 'Assistant', 'Frank Ruhl Libre', sans-serif;
+      font-style: italic;
       margin: 4px 0 8px;
       line-height: 1.55;
-      padding: 7px 10px;
+      padding: 7px 12px;
       background: var(--white);
       border-radius: 8px;
       border: 1px solid var(--purple-100);
+      /* Quote accent on the reading-start (right, RTL) edge */
+      border-right: 3px solid var(--terracotta);
     }
     .moment-reasoning {
       font-size: 0.74rem;

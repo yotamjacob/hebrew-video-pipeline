@@ -537,6 +537,18 @@
   let hookThumbnail          = null;
   let _playerSetupDone       = false;
   let _playerDispW           = 0;   // detected display width (accounts for browser rotation)
+  let videoOrientation       = 'portrait'; // 'portrait' | 'landscape' | 'square' - drives B-roll orientation
+
+  // Classify a video's orientation from its pixel dimensions. Near-square
+  // clips are treated as 'square'; a comfortable dead-band avoids flip-flop on
+  // slightly-off ratios.
+  function _orientationFor(w, h) {
+    if (!w || !h) return 'portrait';
+    const r = w / h;
+    if (r > 1.15) return 'landscape';
+    if (r < 0.87) return 'portrait';
+    return 'square';
+  }
 
   // ── Background-job persistence (survives tab close/reload on mobile) ──
   const JOB_KEY = 'hebpipe_job';
@@ -740,6 +752,10 @@
 
   function lockPipelineActions({ activeBtn = null, activeCard = null } = {}) {
     if (++_actionLockDepth > 1) return;
+    // A long operation is starting (process, burn, hooks, B-roll, schedule) -
+    // pause every preview video (caption player, B-roll clip previews) so
+    // nothing keeps playing behind the spinner/greyed-out card.
+    document.querySelectorAll('video').forEach(v => { try { v.pause(); } catch (_) {} });
     // Switching language mid-flow re-renders state-driven labels and can corrupt
     // an in-flight process/burn/download — lock the toggle for the duration.
     const _lt = document.getElementById('langToggle');
@@ -831,6 +847,9 @@
     // 4K if the long edge is ~3840 (landscape) or ~2160 tall portrait 4K -
     // i.e. the larger dimension reaches ~3000px. QHD (2560) is not flagged.
     const is4K = Math.max(meta.width || 0, meta.height || 0) >= 3000;
+    // Early orientation hint (refined from the processed video once it loads in
+    // the caption player) so B-roll can match the input's orientation.
+    videoOrientation = _orientationFor(meta.width, meta.height);
 
     if (videoDuration !== null) {
       fileDetail.textContent = formatSize(file.size) + ' · ' + formatDuration(videoDuration);
@@ -2048,6 +2067,8 @@
       const cap = captionsData && captionsData.find(c => t >= c.start && t <= c.end + 0.05);
       if (cap) capEl.textContent = rewrapCaption(cap.text, displayW, captionFontSize);
     }
+    // Keep the hook preview's caption overlay in sync with these changes.
+    drawHookPreview();
   }
 
   function _safePlay(vid) {
@@ -2075,10 +2096,30 @@
     vid.addEventListener('loadedmetadata', () => {
       const wrap = document.getElementById('playerWrap');
       if (!wrap) { updatePreviewCaption(); return; }
-      const maxW = Math.min(260, window.innerWidth * 0.72);
-      wrap.style.width = maxW + 'px';
-      wrap.style.aspectRatio = '9 / 16';
-      _playerDispW = vid.videoWidth || 1080;
+      // Match the player box to the ACTUAL video orientation so landscape
+      // (16:9), square and portrait (9:16) inputs all preview true-to-source
+      // instead of being force-cropped into a portrait frame.
+      const vw = vid.videoWidth  || 1080;
+      const vh = vid.videoHeight || 1920;
+      wrap.style.aspectRatio = vw + ' / ' + vh;
+      // Fit within a sensible box: portrait constrained by width (tall phone
+      // frame), landscape/square constrained by a height budget so a wide clip
+      // doesn't render as a tiny strip.
+      if (vh >= vw) {
+        wrap.style.width = Math.min(260, window.innerWidth * 0.72) + 'px';
+      } else {
+        const maxW = Math.min(440, window.innerWidth * 0.88);
+        wrap.style.width = Math.min(maxW, 300 * (vw / vh)) + 'px';
+      }
+      _playerDispW = vw;
+      videoOrientation = _orientationFor(vw, vh);
+      // Seek to the first caption so a subtitle is visible immediately. The
+      // frame at t=0 almost always sits in the lead-in silence (no caption),
+      // which made the overlay look broken until the user scrubbed/played.
+      if (captionsData && captionsData.length && isFinite(vid.duration)) {
+        try { vid.currentTime = Math.min(vid.duration, captionsData[0].start + 0.05); } catch (_) {}
+      }
+      renderPlayerFrame();
       updatePreviewCaption();
     }, { once: true });
 
@@ -2099,7 +2140,11 @@
     vid.addEventListener('pause', () => { bigPlay.style.opacity = '1'; playBtn.classList.remove('is-playing'); });
     vid.addEventListener('ended', () => { bigPlay.style.opacity = '1'; playBtn.classList.remove('is-playing'); });
 
-    vid.addEventListener('timeupdate', () => {
+    // Renders the caption overlay + progress + active row for the current
+    // frame. Bound to BOTH 'timeupdate' (playback) and 'seeked' (scrub while
+    // paused) so a subtitle shows whenever the playhead moves, not only during
+    // playback.
+    function renderPlayerFrame() {
       const t = vid.currentTime, dur = vid.duration || 0;
       // Progress bar + thumb
       if (dur > 0 && !scrubbing) {
@@ -2129,7 +2174,9 @@
         const re = parseFloat(row.querySelector('.caption-end')?.value)   || 0;
         row.classList.toggle('caption-row-active', t >= rs && t <= re + 0.05);
       });
-    });
+    }
+    vid.addEventListener('timeupdate', renderPlayerFrame);
+    vid.addEventListener('seeked',     renderPlayerFrame);
 
     // Scrub: click or drag progress bar to seek
     const thumb = document.getElementById('playerProgThumb');
@@ -2461,6 +2508,40 @@
     } catch (_) {}
   }
 
+  // Draw a representative caption onto the hook preview canvas at the caption's
+  // current position/font/size (mirrors the burned look: white text, dark
+  // stroke + shadow). Lets the user see hook vs caption placement at a glance.
+  function _drawHookPreviewCaption(ctx, W, H) {
+    if (!captionsData || !captionsData.length) return;
+    const sample = captionsData.find(c => (c.text || '').trim()) || captionsData[0];
+    const text = ((sample && sample.text) || '').trim();
+    if (!text) return;
+    const vidW  = (hookThumbnail && hookThumbnail.naturalWidth) || 1080;
+    const capFs = Math.max(9, captionFontSize * (W / vidW));
+    const lines = rewrapCaption(text, vidW, captionFontSize).split('\n');
+    const lineH = capFs * 1.35;
+    // captionMarginPct = the caption block's bottom edge distance from the
+    // video bottom, as a fraction of height (same as the player + burn).
+    const blockBottom = H - captionMarginPct * H;
+    ctx.save();
+    ctx.direction    = 'rtl';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font         = `700 ${capFs}px '${captionFont}', 'Heebo', sans-serif`;
+    ctx.lineJoin     = 'round';
+    ctx.strokeStyle  = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth    = Math.max(1, capFs * 0.16);
+    ctx.shadowColor  = 'rgba(0,0,0,0.75)';
+    ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
+    ctx.fillStyle    = '#FFFFFF';
+    lines.forEach((line, i) => {
+      const y = blockBottom - (lines.length - 1 - i) * lineH;
+      ctx.strokeText(line, W / 2, y);
+      ctx.fillText(line, W / 2, y);
+    });
+    ctx.restore();
+  }
+
   function drawHookPreview() {
     const canvas = document.getElementById('hookPreviewCanvas');
     if (!canvas) return;
@@ -2482,6 +2563,11 @@
       ctx.fillStyle = '#1a1a2e';
       ctx.fillRect(0, 0, W, H);
     }
+
+    // Overlay the caption at its configured position (#4) so hook and captions
+    // are visible together and can be placed without overlapping. Drawn BEFORE
+    // the hook (and before the no-hook early-return) so it always shows.
+    _drawHookPreviewCaption(ctx, W, H);
 
     // Retrieve current settings
     const text = selectedHookIdx >= 0
@@ -2850,7 +2936,7 @@
       const resp = await apiFetch(`${API_BASE}/stock-broll/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ captions_json: JSON.stringify(captions), video_key: videoKey || '' }),
+        body: JSON.stringify({ captions_json: JSON.stringify(captions), video_key: videoKey || '', orientation: videoOrientation }),
       });
       if (!resp.ok) {
         const body = await resp.json().catch(() => ({}));
@@ -3014,15 +3100,19 @@
         card.appendChild(reasoning);
       }
 
-      // Hebrew excerpt - prefer the backend's transcript_excerpt (built from edited captions)
-      const excerptText = m.transcript_excerpt || m.verbatim_quote || (() => {
-        const edited = getEditedCaptions();
-        return edited.filter(c => c.end >= m.start - 0.5 && c.start <= m.end + 0.5).map(c => c.text).join(' ');
-      })();
+      // Relevant transcript quote for this moment. Prefer the ACTUAL caption
+      // text overlapping the moment window (verbatim from the transcript, so it
+      // always matches what is said when the B-roll appears); fall back to the
+      // backend's excerpt only if no caption overlaps the window.
+      const overlapQuote = getEditedCaptions()
+        .filter(c => c.end >= m.start - 0.5 && c.start <= m.end + 0.5)
+        .map(c => c.text).join(' ').trim();
+      const excerptText = overlapQuote || m.transcript_excerpt || m.verbatim_quote || '';
       if (excerptText) {
-        const excerpt = document.createElement('div');
+        const excerpt = document.createElement('blockquote');
         excerpt.className = 'moment-excerpt';
-        excerpt.textContent = excerptText;
+        excerpt.dir = 'rtl';
+        excerpt.textContent = '"' + excerptText + '"';
         card.appendChild(excerpt);
       }
 
@@ -3208,7 +3298,7 @@
       const resp = await apiFetch(`${API_BASE}/stock-broll-clips/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ search_query: searchQuery, page: page || 2, moment_context: ctxPayload }),
+        body: JSON.stringify({ search_query: searchQuery, page: page || 2, moment_context: ctxPayload, orientation: videoOrientation }),
       });
       if (!resp.ok) {
         const body = await resp.json().catch(() => ({}));

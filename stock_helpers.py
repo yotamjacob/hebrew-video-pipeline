@@ -18,16 +18,35 @@ from pipeline_core import (
 _frame_cache: dict = {}  # (source, n_frames, strategy) → list[(t, bytes)], per-container
 
 
-def fetch_pexels(query: str, page: int, pexels_key: str, session=None) -> list:
+def _orient_ok(w, h, orientation: str = "portrait") -> bool:
+    """True if a clip sized w×h matches the requested orientation.
+    orientation ∈ {"portrait", "landscape", "square"} (unknown → portrait)."""
+    try:
+        w = float(w or 0); h = float(h or 0)
+    except (TypeError, ValueError):
+        return False
+    if w <= 0 or h <= 0:
+        return False
+    if orientation == "landscape":
+        return w > h
+    if orientation == "square":
+        return abs(w - h) <= 0.15 * max(w, h)
+    return h > w  # portrait (default)
+
+
+def fetch_pexels(query: str, page: int, pexels_key: str, session=None,
+                 orientation: str = "portrait") -> list:
     if not pexels_key:
         return []
     import requests as _req
     _get = (session or _req).get
+    # Pexels supports orientation filtering server-side; keep to its known values.
+    _pex_orient = orientation if orientation in ("portrait", "landscape", "square") else "portrait"
     try:
         r = _get(
             "https://api.pexels.com/videos/search",
             params={"query": query, "per_page": 15, "page": page,
-                    "size": "medium", "orientation": "portrait"},
+                    "size": "medium", "orientation": _pex_orient},
             headers={"Authorization": pexels_key},
             timeout=15,
         )
@@ -37,9 +56,9 @@ def fetch_pexels(query: str, page: int, pexels_key: str, session=None) -> list:
         clips = []
         for v in r.json().get("videos", []):
             files = v.get("video_files", [])
-            portrait_files = [f for f in files if f.get("height", 0) > f.get("width", 0)]
+            oriented_files = [f for f in files if _orient_ok(f.get("width", 0), f.get("height", 0), orientation)]
             sd_files = [f for f in files if f.get("quality") == "sd"]
-            preview = (portrait_files[0] if portrait_files else None) or \
+            preview = (oriented_files[0] if oriented_files else None) or \
                       (sd_files[0] if sd_files else None) or \
                       (files[0] if files else None)
             if not preview:
@@ -64,7 +83,8 @@ def fetch_pexels(query: str, page: int, pexels_key: str, session=None) -> list:
         return []
 
 
-def fetch_pixabay(query: str, page: int, pixabay_key: str, session=None) -> list:
+def fetch_pixabay(query: str, page: int, pixabay_key: str, session=None,
+                  orientation: str = "portrait") -> list:
     if not pixabay_key:
         return []
     import requests as _req
@@ -81,10 +101,11 @@ def fetch_pixabay(query: str, page: int, pixabay_key: str, session=None) -> list
         clips = []
         for v in r.json().get("hits", []):
             videos = v.get("videos", {})
+            # Pixabay has no orientation query param; filter each rendition by size.
             preview = None
             for size in ("small", "medium", "large", "tiny"):
                 candidate = videos.get(size, {})
-                if candidate.get("url") and candidate.get("height", 0) > candidate.get("width", 1):
+                if candidate.get("url") and _orient_ok(candidate.get("width", 0), candidate.get("height", 0), orientation):
                     preview = candidate
                     break
             if not preview:

@@ -1352,6 +1352,7 @@ def api():
                 call = analyze_stock_broll.spawn(
                     data.get("captions_json", "[]"),
                     _vk,
+                    data.get("orientation", "portrait"),
                 )
                 _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
@@ -1394,6 +1395,7 @@ def api():
                     data.get("search_query", ""),
                     int(data.get("page", 2)),
                     data.get("moment_context", ""),
+                    data.get("orientation", "portrait"),
                 )
                 _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()

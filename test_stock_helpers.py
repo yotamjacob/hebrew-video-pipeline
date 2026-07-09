@@ -24,7 +24,8 @@ def _load_helpers():
 
     tree = _ast.parse(src)
     target_names = {"add_clip_window", "_sanitize_transcript", "fetch_pexels",
-                    "fetch_pixabay", "score_clips", "extract_disqualify_clause"}
+                    "fetch_pixabay", "score_clips", "extract_disqualify_clause",
+                    "_orient_ok"}
     extracted = []
 
     for node in _ast.walk(tree):
@@ -248,6 +249,119 @@ class TestExtractDisqualifyClause(unittest.TestCase):
         prompt = "scene description. DISQUALIFY:   lots of spaces   "
         result = extract_disqualify_clause(prompt)
         self.assertEqual(result, "lots of spaces")
+
+
+# ---------------------------------------------------------------------------
+# Orientation matching (#6 — B-roll orientation follows the input video)
+# ---------------------------------------------------------------------------
+
+_orient_ok    = _ns["_orient_ok"]
+fetch_pexels  = _ns["fetch_pexels"]
+fetch_pixabay = _ns["fetch_pixabay"]
+
+
+class _FakeResp:
+    def __init__(self, payload, status=200):
+        self._payload = payload
+        self.status_code = status
+        self.text = ""
+    def json(self):
+        return self._payload
+
+
+class _FakeSession:
+    """Records the params of the last .get() and returns a canned payload."""
+    def __init__(self, payload):
+        self._payload = payload
+        self.last_params = None
+    def get(self, url, params=None, headers=None, timeout=None):
+        self.last_params = params or {}
+        return _FakeResp(self._payload)
+
+
+class TestOrientOk(unittest.TestCase):
+    def test_portrait(self):
+        self.assertTrue(_orient_ok(1080, 1920, "portrait"))
+        self.assertFalse(_orient_ok(1920, 1080, "portrait"))
+
+    def test_landscape(self):
+        self.assertTrue(_orient_ok(1920, 1080, "landscape"))
+        self.assertFalse(_orient_ok(1080, 1920, "landscape"))
+
+    def test_square(self):
+        self.assertTrue(_orient_ok(1000, 1000, "square"))
+        self.assertTrue(_orient_ok(1000, 1080, "square"))   # within 15% dead-band
+        self.assertFalse(_orient_ok(1920, 1080, "square"))
+
+    def test_unknown_orientation_defaults_portrait(self):
+        self.assertTrue(_orient_ok(1080, 1920, "diagonal"))
+        self.assertFalse(_orient_ok(1920, 1080, "diagonal"))
+
+    def test_zero_and_invalid_dims(self):
+        self.assertFalse(_orient_ok(0, 1080, "portrait"))
+        self.assertFalse(_orient_ok(None, None, "landscape"))
+        self.assertFalse(_orient_ok("x", "y", "portrait"))
+
+
+class TestFetchOrientation(unittest.TestCase):
+    def _pexels_payload(self):
+        return {"videos": [{
+            "id": 1,
+            "video_files": [
+                {"link": "LAND", "width": 1920, "height": 1080, "quality": "hd"},
+                {"link": "PORT", "width": 1080, "height": 1920, "quality": "hd"},
+            ],
+            "image": "", "url": "", "alt": "", "duration": 5,
+            "user": {"name": "A", "url": "u"},
+        }]}
+
+    def test_pexels_sends_orientation_param(self):
+        sess = _FakeSession(self._pexels_payload())
+        fetch_pexels("q", 1, "key", sess, "landscape")
+        self.assertEqual(sess.last_params.get("orientation"), "landscape")
+
+    def test_pexels_unknown_orientation_param_clamped(self):
+        sess = _FakeSession(self._pexels_payload())
+        fetch_pexels("q", 1, "key", sess, "bogus")
+        self.assertEqual(sess.last_params.get("orientation"), "portrait")
+
+    def test_pexels_picks_landscape_file(self):
+        sess = _FakeSession(self._pexels_payload())
+        clips = fetch_pexels("q", 1, "key", sess, "landscape")
+        self.assertEqual(clips[0]["preview_url"], "LAND")
+
+    def test_pexels_picks_portrait_file(self):
+        sess = _FakeSession(self._pexels_payload())
+        clips = fetch_pexels("q", 1, "key", sess, "portrait")
+        self.assertEqual(clips[0]["preview_url"], "PORT")
+
+    def _pixabay_payload(self):
+        return {"hits": [{
+            "id": 1,
+            "videos": {
+                "small":  {"url": "LAND", "width": 1920, "height": 1080},
+                "medium": {"url": "PORT", "width": 1080, "height": 1920},
+            },
+            "user": "u", "user_id": "1", "tags": "a,b",
+            "picture_id": "", "pageURL": "", "duration": 5,
+        }]}
+
+    def test_pixabay_picks_landscape_rendition(self):
+        sess = _FakeSession(self._pixabay_payload())
+        clips = fetch_pixabay("q", 1, "key", sess, "landscape")
+        self.assertEqual(clips[0]["preview_url"], "LAND")
+
+    def test_pixabay_picks_portrait_rendition(self):
+        sess = _FakeSession(self._pixabay_payload())
+        clips = fetch_pixabay("q", 1, "key", sess, "portrait")
+        self.assertEqual(clips[0]["preview_url"], "PORT")
+
+    def test_default_orientation_is_portrait(self):
+        # Backward-compat: omitting orientation keeps the old portrait behaviour.
+        sess = _FakeSession(self._pexels_payload())
+        clips = fetch_pexels("q", 1, "key", sess)
+        self.assertEqual(clips[0]["preview_url"], "PORT")
+        self.assertEqual(sess.last_params.get("orientation"), "portrait")
 
 
 if __name__ == "__main__":

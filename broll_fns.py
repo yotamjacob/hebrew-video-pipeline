@@ -452,7 +452,8 @@ def _get_video_context(video_path: str, transcript: str, client) -> dict:
 # Stock B-roll analysis — finds moments in transcript + searches Pexels/Pixabay
 # ---------------------------------------------------------------------------
 def _process_moment(m: dict, pexels_key: str, pixabay_key: str, client,
-                    video_context: dict, max_candidates: int = 20) -> None:
+                    video_context: dict, max_candidates: int = 20,
+                    orientation: str = "portrait") -> None:
     """Search stock libraries + score clips for one B-roll moment. Mutates m in place.
     Designed to run in a ThreadPoolExecutor — creates its own requests.Session so
     threads don't share state, and score_clips can safely call asyncio.run()."""
@@ -467,8 +468,8 @@ def _process_moment(m: dict, pexels_key: str, pixabay_key: str, client,
         variant_stats = []
 
         for variant in variants:
-            pex = fetch_pexels(variant, 1, pexels_key, http_session)
-            pix = fetch_pixabay(variant, 1, pixabay_key, http_session)
+            pex = fetch_pexels(variant, 1, pexels_key, http_session, orientation)
+            pix = fetch_pixabay(variant, 1, pixabay_key, http_session, orientation)
             new_clips = []
             for i in range(max(len(pex), len(pix))):
                 if i < len(pex):
@@ -488,8 +489,8 @@ def _process_moment(m: dict, pexels_key: str, pixabay_key: str, client,
             if short != first:
                 print(f"[stock] 0 candidates across all variants for moment@{m['start']:.0f}s, "
                       f"retrying with {short!r}")
-                pex2 = fetch_pexels(short, 1, pexels_key, http_session)
-                pix2 = fetch_pixabay(short, 1, pixabay_key, http_session)
+                pex2 = fetch_pexels(short, 1, pexels_key, http_session, orientation)
+                pix2 = fetch_pixabay(short, 1, pixabay_key, http_session, orientation)
                 for i in range(max(len(pex2), len(pix2))):
                     if i < len(pex2): clips.append(pex2[i])
                     if i < len(pix2): clips.append(pix2[i])
@@ -500,7 +501,7 @@ def _process_moment(m: dict, pexels_key: str, pixabay_key: str, client,
               f"({len(variants)} variant(s)) — {vlog}")
 
         if not clips:
-            print(f"[stock] no portrait candidates for moment@{m['start']:.0f}s — weak_match")
+            print(f"[stock] no {orientation} candidates for moment@{m['start']:.0f}s — weak_match")
             m["clips"] = []; m["weak_match"] = True; m["_variant_stats"] = variant_stats
         else:
             strict_eval  = m.get("strict_eval_prompt") or m.get("search_query", "")
@@ -536,8 +537,10 @@ def _process_moment(m: dict, pexels_key: str, pixabay_key: str, client,
         modal.Secret.from_name("pixabay-secret"),
     ],
 )
-def analyze_stock_broll(captions_json: str, video_key: str = "") -> list:
+def analyze_stock_broll(captions_json: str, video_key: str = "",
+                        orientation: str = "portrait") -> list:
     import json, os
+    orientation = orientation if orientation in ("portrait", "landscape", "square") else "portrait"
 
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     pexels_key    = os.environ.get("PEXELS_API_KEY", "")
@@ -1094,7 +1097,7 @@ def analyze_stock_broll(captions_json: str, video_key: str = "") -> list:
         with _cf.ThreadPoolExecutor(max_workers=_workers) as _pool:
             futs = [
                 _pool.submit(_process_moment, m, pexels_key, pixabay_key,
-                             client, video_context, _MAX_CANDIDATES)
+                             client, video_context, _MAX_CANDIDATES, orientation)
                 for m in moments
             ]
             for fut in _cf.as_completed(futs):
@@ -1129,16 +1132,18 @@ def analyze_stock_broll(captions_json: str, video_key: str = "") -> list:
         modal.Secret.from_name("pixabay-secret"),
     ],
 )
-def search_stock_clips(search_query: str, page: int = 2, moment_context: str = "") -> list:
+def search_stock_clips(search_query: str, page: int = 2, moment_context: str = "",
+                       orientation: str = "portrait") -> list:
     """Fetch a fresh page of clips for 'Find different clips', with Haiku scoring when context is provided."""
     import os, json, requests as _req
+    orientation   = orientation if orientation in ("portrait", "landscape", "square") else "portrait"
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     pexels_key    = os.environ.get("PEXELS_API_KEY", "")
     pixabay_key   = os.environ.get("PIXABAY_API_KEY", "")
 
     http_session = _req.Session()
-    pex = fetch_pexels(search_query, page, pexels_key, http_session)
-    pix = fetch_pixabay(search_query, page, pixabay_key, http_session)
+    pex = fetch_pexels(search_query, page, pexels_key, http_session, orientation)
+    pix = fetch_pixabay(search_query, page, pixabay_key, http_session, orientation)
     clips = []
     for i in range(max(len(pex), len(pix))):
         if i < len(pex): clips.append(pex[i])
