@@ -2089,7 +2089,11 @@
     const timeLbl  = document.getElementById('playerTimeLbl');
     if (!vid) return;
 
-    // Set source - video streams from the already-processed cut file on Modal
+    // Set source - video streams from the already-processed cut file on Modal.
+    // preload=auto lets the browser buffer ahead so scrubbing / jumping between
+    // segments is instant within the buffer instead of stalling on a range
+    // fetch (these are short edited clips).
+    vid.preload = 'auto';
     vid.src = _withToken(`${API_BASE}/download/${videoKey}`);
     document.getElementById('captionPlayer').style.display = 'block';
 
@@ -2133,20 +2137,44 @@
       if (vid.paused || vid.ended) _safePlay(vid); else vid.pause();
     }
 
-    const playerWrap = document.getElementById('playerWrap');
-    if (playerWrap) playerWrap.addEventListener('click', togglePlay);
-    if (playBtn) playBtn.addEventListener('click', togglePlay);
-    vid.addEventListener('play',  () => { bigPlay.style.opacity = '0'; playBtn.classList.add('is-playing'); });
-    vid.addEventListener('pause', () => { bigPlay.style.opacity = '1'; playBtn.classList.remove('is-playing'); });
-    vid.addEventListener('ended', () => { bigPlay.style.opacity = '1'; playBtn.classList.remove('is-playing'); });
+    // ── Playback rendering ──
+    // Progress + captions are driven by a requestAnimationFrame loop WHILE
+    // PLAYING (frame-accurate and smooth, unlike the browser's ~4 Hz
+    // 'timeupdate'), and by 'seeked' when scrubbing paused. The caption text,
+    // its styling, and the active-row highlight are only rewritten when the
+    // active SEGMENT changes - so the per-frame cost is a single progress-bar
+    // width write and nothing janks, even on long transcripts.
+    const thumb = document.getElementById('playerProgThumb');
+    let scrubbing = false;
+    let _rafId    = 0;
+    let _lastCap  = undefined;   // last-rendered caption (undefined = never rendered yet)
 
-    // Renders the caption overlay + progress + active row for the current
-    // frame. Bound to BOTH 'timeupdate' (playback) and 'seeked' (scrub while
-    // paused) so a subtitle shows whenever the playhead moves, not only during
-    // playback.
+    function _applyCaptionStyles() {
+      capEl.style.fontFamily = `'${captionFont}', sans-serif`;
+      capEl.style.bottom     = (captionMarginPct * 100) + '%';
+      const scale = vid.videoWidth ? vid.clientWidth / vid.videoWidth
+                                   : vid.clientHeight / (vid.videoHeight || 1920);
+      capEl.style.fontSize = Math.max(7, captionFontSize * scale) + 'px';
+      if (vid.videoWidth) {
+        const marginH = Math.max(25, Math.floor(vid.videoWidth / 14));
+        capEl.style.maxWidth = ((vid.videoWidth - 2 * marginH) / vid.videoWidth * 100).toFixed(2) + '%';
+      }
+    }
+
+    // Highlight the caption row for the current playhead. Only called on a
+    // segment change, so re-reading timestamps from the DOM (kept live for
+    // edits) here is cheap.
+    function _highlightRow() {
+      const t = vid.currentTime;
+      document.querySelectorAll('.caption-row').forEach(row => {
+        const rs = parseFloat(row.querySelector('.caption-start')?.value) || 0;
+        const re = parseFloat(row.querySelector('.caption-end')?.value)   || 0;
+        row.classList.toggle('caption-row-active', t >= rs && t <= re + 0.05);
+      });
+    }
+
     function renderPlayerFrame() {
       const t = vid.currentTime, dur = vid.duration || 0;
-      // Progress bar + thumb
       if (dur > 0 && !scrubbing) {
         const pct = (t / dur * 100) + '%';
         progFill.style.width = pct;
@@ -2154,32 +2182,35 @@
       }
       timeLbl.textContent = fmtT(t) + ' / ' + fmtT(dur);
 
-      // Caption overlay - same font/position as the preview and the burned video
-      const cap = captionsData.find(c => t >= c.start && t <= c.end + 0.05);
-      capEl.textContent = cap ? rewrapCaption(cap.text, vid.videoWidth || 1080, captionFontSize) : '';
-      if (cap) {
-        capEl.style.fontFamily = `'${captionFont}', sans-serif`;
-        capEl.style.bottom     = (captionMarginPct * 100) + '%';
-        const scale = vid.videoWidth ? vid.clientWidth / vid.videoWidth : vid.clientHeight / (vid.videoHeight || 1920);
-        capEl.style.fontSize   = Math.max(7, captionFontSize * scale) + 'px';
-        if (vid.videoWidth) {
-          const marginH = Math.max(25, Math.floor(vid.videoWidth / 14));
-          capEl.style.maxWidth = ((vid.videoWidth - 2 * marginH) / vid.videoWidth * 100).toFixed(2) + '%';
-        }
+      // Touch the caption DOM only when the active segment actually changes.
+      const cap = captionsData.find(c => t >= c.start && t <= c.end + 0.05) || null;
+      if (cap !== _lastCap) {
+        _lastCap = cap;
+        capEl.textContent = cap ? rewrapCaption(cap.text, vid.videoWidth || 1080, captionFontSize) : '';
+        if (cap) _applyCaptionStyles();
+        _highlightRow();
       }
-
-      // Highlight active row - reads timestamps from DOM so it stays correct after edits
-      document.querySelectorAll('.caption-row').forEach(row => {
-        const rs = parseFloat(row.querySelector('.caption-start')?.value) || 0;
-        const re = parseFloat(row.querySelector('.caption-end')?.value)   || 0;
-        row.classList.toggle('caption-row-active', t >= rs && t <= re + 0.05);
-      });
     }
-    vid.addEventListener('timeupdate', renderPlayerFrame);
-    vid.addEventListener('seeked',     renderPlayerFrame);
+
+    function _playerLoop() {
+      renderPlayerFrame();
+      _rafId = (!vid.paused && !vid.ended) ? requestAnimationFrame(_playerLoop) : 0;
+    }
+    function _startLoop() { if (!_rafId) _rafId = requestAnimationFrame(_playerLoop); }
+    function _stopLoop()  { if (_rafId) { cancelAnimationFrame(_rafId); _rafId = 0; } renderPlayerFrame(); }
+
+    const playerWrap = document.getElementById('playerWrap');
+    if (playerWrap) playerWrap.addEventListener('click', togglePlay);
+    if (playBtn) playBtn.addEventListener('click', togglePlay);
+    vid.addEventListener('play',  () => { bigPlay.style.opacity = '0'; playBtn.classList.add('is-playing'); _startLoop(); });
+    vid.addEventListener('pause', () => { bigPlay.style.opacity = '1'; playBtn.classList.remove('is-playing'); _stopLoop(); });
+    vid.addEventListener('ended', () => { bigPlay.style.opacity = '1'; playBtn.classList.remove('is-playing'); _stopLoop(); });
+    // Paused scrubs + programmatic seeks (e.g. seek-to-first-caption on load).
+    vid.addEventListener('seeked', renderPlayerFrame);
+    // Safety net if the rAF loop isn't running (e.g. a background tab resumes).
+    vid.addEventListener('timeupdate', () => { if (vid.paused) renderPlayerFrame(); });
 
     // Scrub: click or drag progress bar to seek
-    const thumb = document.getElementById('playerProgThumb');
     function seekToX(clientX) {
       if (!isFinite(vid.duration)) return;
       const r = progWrap.getBoundingClientRect();
@@ -2188,7 +2219,6 @@
       progFill.style.width = (pct * 100) + '%';
       if (thumb) thumb.style.left = (pct * 100) + '%';
     }
-    let scrubbing = false;
     progWrap.addEventListener('mousedown', e => {
       scrubbing = true;
       seekToX(e.clientX);
