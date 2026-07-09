@@ -1721,6 +1721,7 @@
 
   function showError(msg) {
     if (/limit_reached/.test(msg)) msg = t('quota.exhausted');
+    if (/no_audio/.test(msg)) msg = t('err.noAudio');
     isUploading = false;
     setSetupLocked(false);
     clearInterval(uploadTimer);

@@ -294,6 +294,7 @@
     'err.stage.processing': { en: 'while waiting for processing', he: 'בזמן העיבוד' },
     'err.stage.download':   { en: 'while downloading the result', he: 'בזמן הורדת התוצאה' },
     'err.fileUnreadable': { en: 'Could not read the video file from your device - it may have moved or be cloud-synced (e.g. Google Photos). Please select the file again.', he: 'לא ניתן לקרוא את קובץ הווידאו מהמכשיר - ייתכן שהוא הוזז או מסונכרן בענן (למשל Google Photos). בחרו את הקובץ מחדש.' },
+    'err.noAudio': { en: 'This video has no audio track. The editor works from the speech in the video (transcription, silence trimming, captions), so it needs a video with sound. Please upload a video that includes audio.', he: 'לסרטון הזה אין פס קול. העורך עובד לפי הדיבור שבסרטון (תמלול, חיתוך שתיקות וכתוביות), ולכן צריך סרטון עם קול. העלו סרטון שכולל אודיו.' },
     'upload.keepOpen':   { en: 'Keep this window open while uploading. Once processing starts, you can switch away - it finishes on our servers.', he: 'השאירו את החלון פתוח בזמן ההעלאה. ברגע שהעיבוד מתחיל אפשר לעבור לאפליקציה אחרת - הוא ממשיך בשרתים שלנו.' },
     'upload.retrying':   { en: 'connection issue - retrying...', he: 'בעיית חיבור - מנסים שוב...' },
     'prog.errLog':       { en: 'Error log', he: 'יומן שגיאות' },

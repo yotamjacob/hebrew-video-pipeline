@@ -189,6 +189,14 @@ def probe_video(path):
         w, h = h, w
     return w, h, float(d["format"]["duration"]), rotation
 
+def has_audio_stream(path):
+    r = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a",
+         "-show_entries", "stream=index", "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True,
+    )
+    return bool(r.stdout.strip())
+
 def proofread_words(texts, client, model, chunk_size=400, max_tokens=8000):
     """Fix Hebrew ASR mishearings via one context-aware LLM pass.
 
@@ -746,6 +754,12 @@ def process_video(
             src.write_bytes(video_bytes)
 
         width, height, duration, rotation = probe_video(src)
+        # The whole pipeline is speech-driven (transcribe -> cut silence ->
+        # captions), so a video with no audio track can't be processed. Fail
+        # fast with a stable marker the frontend maps to a friendly message,
+        # instead of letting extract_audio die with an opaque ffmpeg error.
+        if not has_audio_stream(src):
+            raise RuntimeError("no_audio: uploaded video has no audio track")
         raw_wav = tmp / "raw.wav"
         clean_wav = tmp / "clean.wav"
         ass_file = tmp / "captions.ass"
