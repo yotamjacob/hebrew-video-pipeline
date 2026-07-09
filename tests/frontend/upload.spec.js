@@ -109,12 +109,13 @@ test('chunk uploads use a fixed URL with key/index in headers (one CORS prefligh
   });
 
   await mockAllApis(page);
-  await selectFile(page, { sizeMB: 8 });   // 4 chunks
+  await selectFile(page, { sizeMB: 8 });   // 8 chunks @ 1 MB
   await page.waitForSelector('#runBtn:not([disabled])');
   await page.click('#runBtn');
   await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 10_000 });
 
-  const posts = chunkReqs.filter(r => r.method === 'POST');
+  // Exclude the one-shot uplink probe (index 9999, its own throwaway key).
+  const posts = chunkReqs.filter(r => r.method === 'POST' && r.index !== '9999');
   expect(posts.length).toBeGreaterThanOrEqual(3);
   // Every POST hits the SAME url with no query string, so the browser reuses a
   // single cached preflight instead of re-flying per chunk.
@@ -127,6 +128,36 @@ test('chunk uploads use a fixed URL with key/index in headers (one CORS prefligh
   expect([...keys][0]).toBeTruthy();
   const indices = posts.map(r => r.index).sort();
   expect(new Set(indices).size).toBe(posts.length);   // each index sent once
+});
+
+test('upfront upload estimate appears after selecting a file', async ({ page }) => {
+  const { TINY_MP4_15S } = require('./fixtures');
+  await mockAllApis(page);   // /upload_chunk/ 200 → probe resolves fast
+  await page.setInputFiles('#fileInput', { name: 'real.mp4', mimeType: 'video/mp4', buffer: TINY_MP4_15S });
+
+  // The uplink probe fills the estimate line in once it resolves.
+  const est = page.locator('#uploadEstimateText');
+  await expect(est).toBeVisible({ timeout: 8_000 });
+  await expect(est).toHaveText(/min|דקות/);
+});
+
+test('live upload ETA is shown during the upload', async ({ page }) => {
+  await mockAllApis(page);
+  // Make ETA compute from the first progress tick, and slow chunks a touch so
+  // there are intermediate progress steps to compute from.
+  await page.route(/\/upload_chunk\//, async route => {
+    await new Promise(r => setTimeout(r, 200));
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+  });
+  await selectFile(page, { sizeMB: 12 });   // 12 chunks @ 1 MB
+  await page.evaluate(() => { window.__UPLOAD_ETA_MIN_MS = 0; });
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
+
+  // The ETA element was populated during the upload (text persists after).
+  const eta = await page.evaluate(() => document.getElementById('uploadEta').textContent);
+  expect(eta).toMatch(/left|נותרו/);
 });
 
 test('upload telemetry is recorded and surfaced after upload', async ({ page }) => {

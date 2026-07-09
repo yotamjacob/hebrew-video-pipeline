@@ -291,7 +291,10 @@
 
     <div class="time-estimate" id="timeEstimate" style="display:none">
       <span class="time-estimate-icon"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2.5h6"/><circle cx="12" cy="14" r="7.5"/><path d="M12 14V9.5M18 6.5l1.3-1.3"/></svg></span>
-      <span id="timeEstimateText"></span>
+      <span style="display:flex;flex-direction:column;gap:2px;text-align:start">
+        <span id="uploadEstimateText" style="display:none"></span>
+        <span id="timeEstimateText"></span>
+      </span>
     </div>
     <button class="reprocess-btn" id="reprocessBtn" style="display:none" data-i18n="reprocess.btn">↻&nbsp; Re-process with new settings</button>
     </div>
@@ -568,6 +571,7 @@
           <div class="upload-bar-row" id="uploadBarRow" style="display:none">
             <div class="upload-bar-track"><div class="upload-bar-fill" id="uploadBarFill"></div></div>
             <span class="upload-bar-pct" id="uploadBarPct">0%</span>
+            <span class="upload-bar-pct" id="uploadEta" style="opacity:0.7"></span>
           </div>
           <div class="upload-note" id="uploadNote" style="display:none" data-i18n="upload.keepOpen">📱 Keep this window open while uploading. Once processing starts, you can switch away - it finishes on our servers.</div>
           <div class="upload-note" id="uploadStats" style="display:none;opacity:0.75;font-variant-numeric:tabular-nums"></div>

@@ -538,6 +538,7 @@
   let _playerSetupDone       = false;
   let _playerDispW           = 0;   // detected display width (accounts for browser rotation)
   let videoOrientation       = 'portrait'; // 'portrait' | 'landscape' | 'square' - drives B-roll orientation
+  let _uplinkMbps            = null;        // measured upload speed (best-effort probe at file selection)
 
   // Classify a video's orientation from its pixel dimensions. Near-square
   // clips are treated as 'square'; a comfortable dead-band avoids flip-flop on
@@ -899,6 +900,12 @@
 
     updateTimeEstimate();
 
+    // Probe the uplink once per session so the upload estimate reflects THIS
+    // connection (fills in the estimate line when it resolves).
+    if (_uplinkMbps == null) {
+      _probeUplinkMbps().then(m => { if (m) { _uplinkMbps = m; updateTimeEstimate(); } });
+    }
+
     checkNetwork();
 
     // Fire-and-forget GPU warmup so the container is ready by the time the user clicks Run
@@ -984,7 +991,51 @@
     const box = document.getElementById('timeEstimate');
     if (!videoDuration || !selectedFile) { box.style.display = 'none'; return; }
     document.getElementById('timeEstimateText').textContent = estimatedTime(videoDuration);
+    // Upload estimate - needs a measured uplink (probed at selection). ~85%
+    // efficiency accounts for TLS/HTTP/TCP overhead.
+    const upEl = document.getElementById('uploadEstimateText');
+    if (upEl) {
+      if (_uplinkMbps && selectedFile) {
+        const secs = (selectedFile.size * 8 / 1e6) / (_uplinkMbps * 0.85);
+        const mins = Math.max(1, Math.round(secs / 60));
+        const slow = secs > 300;   // > 5 min
+        upEl.textContent = t(slow ? 'est.uploadSlow' : 'est.upload', { min: mins });
+        upEl.style.color      = slow ? 'var(--terracotta)' : '';
+        upEl.style.fontWeight = slow ? '600' : '';
+        upEl.style.display    = '';
+      } else {
+        upEl.style.display = 'none';
+      }
+    }
     box.style.display = 'flex';
+  }
+
+  // Best-effort uplink probe: POST a small payload and time it so we can
+  // estimate upload duration BEFORE the user commits. Resolves to Mbps or null
+  // (never throws). Writes a tiny scratch file that the server prunes.
+  function _probeUplinkMbps() {
+    return new Promise(resolve => {
+      try {
+        const SIZE = 512 * 1024;
+        const body = new Uint8Array(SIZE);
+        const key  = ('probe' + crypto.randomUUID().replace(/-/g, '')).slice(0, 60);
+        const t0   = performance.now();
+        const xhr  = new XMLHttpRequest();
+        xhr.open('POST', `${API_BASE}/upload_chunk/`);
+        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+        xhr.setRequestHeader('X-Upload-Key', key);
+        xhr.setRequestHeader('X-Upload-Index', '9999');
+        if (authToken) xhr.setRequestHeader('Authorization', 'Bearer ' + authToken);
+        xhr.timeout = 20000;
+        xhr.onload  = () => {
+          const secs = (performance.now() - t0) / 1000;
+          resolve((xhr.status >= 200 && xhr.status < 300 && secs > 0) ? (SIZE * 8 / 1e6) / secs : null);
+        };
+        xhr.onerror   = () => resolve(null);
+        xhr.ontimeout = () => resolve(null);
+        xhr.send(body);
+      } catch (_) { resolve(null); }
+    });
   }
 
   function _enhanceVideoMode() {
@@ -1040,9 +1091,20 @@
     try {
       // Phase 1: upload video in chunks
       _setStage('upload');
+      const _upT0 = performance.now();
       const uploadKey = await chunkedUpload(selectedFile, stableBlob, (pct) => {
         document.getElementById('uploadBarFill').style.width = (pct * 100).toFixed(0) + '%';
         document.getElementById('uploadBarPct').textContent  = (pct * 100).toFixed(0) + '%';
+        // Live ETA from measured throughput so the wait isn't a black box.
+        const etaEl = document.getElementById('uploadEta');
+        const etaMinMs = (window.__UPLOAD_ETA_MIN_MS != null) ? window.__UPLOAD_ETA_MIN_MS : 1500; // test seam
+        if (etaEl && pct > 0.02 && pct < 0.999) {
+          const elapsedMs = performance.now() - _upT0;
+          if (elapsedMs > etaMinMs) {
+            const remaining = (elapsedMs / 1000) * (1 - pct) / pct;
+            etaEl.textContent = t('upload.remaining', { t: formatTime(Math.round(remaining)) });
+          }
+        }
       });
       _stepDone('upload');
       document.getElementById('uploadBarRow').style.display = 'none';
@@ -1822,6 +1884,7 @@
     document.getElementById('uploadBarRow').style.display = 'flex';
     document.getElementById('uploadBarFill').style.width = '0%';
     document.getElementById('uploadBarPct').textContent = '0%';
+    { const e = document.getElementById('uploadEta'); if (e) e.textContent = ''; }
     { const n = document.getElementById('uploadNote'); if (n) n.style.display = 'block'; }
     { const s = document.getElementById('uploadStats'); if (s) { s.style.display = 'none'; s.textContent = ''; } }
 
