@@ -318,8 +318,8 @@
     'run.downloading':   { en: '⏳ Downloading…', he: '⏳ מוריד…' },
     'prog.enhanceVideo': { en: 'Enhance video', he: 'שיפור וידאו' },
     'est.simple':        { en: 'Processing: ~{lo}-{hi} min (after upload)', he: 'עיבוד: ~{lo}-{hi} דקות (אחרי ההעלאה)' },
-    'est.upload':        { en: 'Upload: ~{min} min on this connection', he: 'העלאה: ~{min} דקות בחיבור הנוכחי' },
-    'est.uploadSlow':    { en: 'Slow connection - upload will take ~{min} min. A faster network helps a lot.', he: 'חיבור איטי - ההעלאה תיקח ~{min} דקות. רשת מהירה יותר תעזור מאוד.' },
+    'est.upload':        { en: 'Upload: ~{lo}-{hi} min on this connection', he: 'העלאה: ~{lo}-{hi} דקות בחיבור הנוכחי' },
+    'est.uploadSlow':    { en: 'Slow connection - upload ~{lo}-{hi} min. A faster network helps a lot.', he: 'חיבור איטי - ההעלאה ~{lo}-{hi} דקות. רשת מהירה יותר תעזור מאוד.' },
     'upload.remaining':  { en: '~{t} left', he: 'נותרו ~{t}' },
 
     // ── Confirm modals (dynamic) ──

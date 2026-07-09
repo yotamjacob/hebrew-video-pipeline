@@ -997,9 +997,12 @@
     if (upEl) {
       if (_uplinkMbps && selectedFile) {
         const secs = (selectedFile.size * 8 / 1e6) / (_uplinkMbps * 0.85);
-        const mins = Math.max(1, Math.round(secs / 60));
-        const slow = secs > 300;   // > 5 min
-        upEl.textContent = t(slow ? 'est.uploadSlow' : 'est.upload', { min: mins });
+        // Show a range, not a false-precision single number - a probe can't
+        // predict a fluctuating connection exactly.
+        const lo = Math.max(1, Math.floor(secs * 0.8 / 60));
+        const hi = Math.max(lo + 1, Math.ceil(secs * 1.25 / 60));
+        const slow = secs > 480;   // only warn when genuinely long (> ~8 min)
+        upEl.textContent = t(slow ? 'est.uploadSlow' : 'est.upload', { lo, hi });
         upEl.style.color      = slow ? 'var(--terracotta)' : '';
         upEl.style.fontWeight = slow ? '600' : '';
         upEl.style.display    = '';
@@ -1010,30 +1013,37 @@
     box.style.display = 'flex';
   }
 
-  // Best-effort uplink probe: POST a small payload and time it so we can
-  // estimate upload duration BEFORE the user commits. Resolves to Mbps or null
-  // (never throws). Writes a tiny scratch file that the server prunes.
+  // Best-effort uplink probe: measure AGGREGATE throughput across several
+  // concurrent streams so the estimate matches the real upload (which runs
+  // UPLOAD_CONCURRENCY streams). A single-stream probe badly under-measures on
+  // APs that shape per-connection, doubling the estimate. Resolves to Mbps or
+  // null (never throws). Writes tiny scratch files the server prunes.
   function _probeUplinkMbps() {
+    const STREAMS = 4, SIZE = 384 * 1024;   // ~1.5 MB total, mirrors multi-stream upload
     return new Promise(resolve => {
       try {
-        const SIZE = 512 * 1024;
         const body = new Uint8Array(SIZE);
-        const key  = ('probe' + crypto.randomUUID().replace(/-/g, '')).slice(0, 60);
-        const t0   = performance.now();
-        const xhr  = new XMLHttpRequest();
-        xhr.open('POST', `${API_BASE}/upload_chunk/`);
-        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-        xhr.setRequestHeader('X-Upload-Key', key);
-        xhr.setRequestHeader('X-Upload-Index', '9999');
-        if (authToken) xhr.setRequestHeader('Authorization', 'Bearer ' + authToken);
-        xhr.timeout = 20000;
-        xhr.onload  = () => {
+        const t0 = performance.now();
+        let done = 0, ok = 0;
+        const finish = () => {
+          if (++done < STREAMS) return;
           const secs = (performance.now() - t0) / 1000;
-          resolve((xhr.status >= 200 && xhr.status < 300 && secs > 0) ? (SIZE * 8 / 1e6) / secs : null);
+          resolve((ok === STREAMS && secs > 0) ? (STREAMS * SIZE * 8 / 1e6) / secs : null);
         };
-        xhr.onerror   = () => resolve(null);
-        xhr.ontimeout = () => resolve(null);
-        xhr.send(body);
+        for (let s = 0; s < STREAMS; s++) {
+          const key = ('probe' + crypto.randomUUID().replace(/-/g, '')).slice(0, 60);
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', `${API_BASE}/upload_chunk/`);
+          xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+          xhr.setRequestHeader('X-Upload-Key', key);
+          xhr.setRequestHeader('X-Upload-Index', '9999');
+          if (authToken) xhr.setRequestHeader('Authorization', 'Bearer ' + authToken);
+          xhr.timeout = 20000;
+          xhr.onload    = () => { if (xhr.status >= 200 && xhr.status < 300) ok++; finish(); };
+          xhr.onerror   = finish;
+          xhr.ontimeout = finish;
+          xhr.send(body);
+        }
       } catch (_) { resolve(null); }
     });
   }
