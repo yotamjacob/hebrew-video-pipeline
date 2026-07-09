@@ -436,6 +436,11 @@
     'admin.unlimited':  { en: 'unlimited', he: 'בלי הגבלה' },
     'admin.save':       { en: 'Save', he: 'שמירה' },
     'admin.saveFailed': { en: 'Failed', he: 'נכשל' },
+    'admin.resetPw':    { en: 'Reset password', he: 'איפוס סיסמה' },
+    'admin.newPwPlaceholder': { en: 'New password', he: 'סיסמה חדשה' },
+    'admin.setPw':      { en: 'Set', he: 'קביעה' },
+    'admin.cancel':     { en: 'Cancel', he: 'ביטול' },
+    'admin.pwTooShort': { en: 'Min 8 chars', he: 'לפחות 8 תווים' },
 
     'hero.hello': { en: 'Hello, {name}', he: 'שלום, {name}' },
     'quota.confirmTitle': { en: 'Use 1 trial video?', he: 'להשתמש בסרטון ניסיון אחד?' },

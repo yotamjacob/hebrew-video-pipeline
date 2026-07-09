@@ -3945,7 +3945,58 @@
       };
       row.append(inp, btn);
     }
+    // Reset-password control (available for every account, admins included).
+    const pwBtn = document.createElement('button');
+    pwBtn.className = 'admin-reset-btn';
+    pwBtn.textContent = t('admin.resetPw');
+    pwBtn.onclick = () => _startPwReset(row, u, pwBtn);
+    row.append(pwBtn);
     return row;
+  }
+
+  // Inline "set a new password" flow: swaps the reset button for a password
+  // field + confirm/cancel, POSTs to /admin/reset-password.
+  function _startPwReset(row, u, pwBtn) {
+    pwBtn.style.display = 'none';
+    const inp = document.createElement('input');
+    inp.type = 'password';
+    inp.autocomplete = 'new-password';
+    inp.placeholder = t('admin.newPwPlaceholder');
+    inp.className = 'admin-pw-input';
+    const ok = document.createElement('button');
+    ok.className = 'admin-save-btn admin-pw-ok';
+    ok.textContent = t('admin.setPw');
+    const cancel = document.createElement('button');
+    cancel.className = 'admin-cancel-btn';
+    cancel.textContent = t('admin.cancel');
+    const cleanup = () => { inp.remove(); ok.remove(); cancel.remove(); pwBtn.style.display = ''; };
+    cancel.onclick = cleanup;
+    ok.onclick = async () => {
+      const pw = inp.value || '';
+      if (pw.length < 8) {
+        ok.textContent = t('admin.pwTooShort');
+        setTimeout(() => { ok.textContent = t('admin.setPw'); }, 1500);
+        inp.focus();
+        return;
+      }
+      ok.disabled = true;
+      try {
+        const resp = await apiFetch(`${API_BASE}/admin/reset-password`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: u.username, new_password: pw }),
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        cleanup();
+        pwBtn.textContent = '✓';
+        setTimeout(() => { pwBtn.textContent = t('admin.resetPw'); }, 1500);
+      } catch {
+        ok.disabled = false;
+        ok.textContent = t('admin.saveFailed');
+        setTimeout(() => { ok.textContent = t('admin.setPw'); }, 1500);
+      }
+    };
+    row.append(inp, ok, cancel);
+    inp.focus();
   }
 
   // ── History tab ──

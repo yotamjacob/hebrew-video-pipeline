@@ -768,6 +768,41 @@ def api():
             await send({"type": "http.response.body", "body": body})
             return
 
+        # ── Admin: reset a user's password ──
+        if path in ("/admin/reset-password", "/admin/reset-password/") and method == "POST":
+            import os as _os
+            uname, urec = _user_by_uid()
+            caller_admin, _, _ = _quota_state(urec, _os.environ.get("ADMIN_USERS"), uname)
+            if not caller_admin:
+                await send_error("Forbidden", 403)
+                return
+            try:
+                data = json.loads((await _read_body(receive)).decode("utf-8"))
+                target_raw = (data.get("username") or "").strip()
+                new_password = data.get("new_password") or ""
+            except Exception:
+                await send_error("Invalid request body", 400)
+                return
+            # Resolve the record key: exact hit (legacy username accounts), then
+            # lowercased (email-keyed accounts store a lowercased-email key).
+            target = target_raw if users_store.contains(target_raw) else target_raw.lower()
+            rec = users_store.get(target)
+            if not isinstance(rec, dict):
+                await send_error("Unknown user", 404)
+                return
+            if len(new_password) < 8:
+                await send_error("Password must be at least 8 characters", 400)
+                return
+            salt, ph = _hash_password(new_password)
+            rec["salt"] = salt
+            rec["pw"] = ph
+            users_store[target] = rec   # Dict has no partial update — write the whole record
+            body = json.dumps({"ok": True, "username": target}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
         # Poll process result — 200+binary when done, 202+JSON while running
         if path.startswith("/process_poll/") and method == "GET":
             call_id  = path[len("/process_poll/"):].rstrip("/")

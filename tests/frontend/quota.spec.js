@@ -150,6 +150,37 @@ test('admin sees no pill and gets the admin tab with user limit controls', async
   expect(limitPosts).toEqual([{ username: 'tester', limit: 50 }]);
 });
 
+test('admin can reset a user password from the admin tab', async ({ page }) => {
+  await bootApp(page, { me: { username: 'boss', role: 'admin', videos_used: 0, video_limit: null } });
+  await page.route(`${API_BASE}/admin/users`, r =>
+    r.fulfill({ status: 200, contentType: 'application/json',
+                body: JSON.stringify({ users: [
+                  { username: 'alinag', role: 'user', videos_used: 0, video_limit: 30, created: 1 },
+                ] }) }));
+  const resetPosts = [];
+  await page.route(`${API_BASE}/admin/reset-password`, async (route, request) => {
+    resetPosts.push(request.postDataJSON());
+    return route.fulfill({ status: 200, contentType: 'application/json',
+                           body: '{"ok":true,"username":"alinag"}' });
+  });
+
+  await page.locator('#tabAdmin').click();
+  const row = page.locator('.admin-row').first();
+
+  // Too-short passwords never hit the network.
+  await row.locator('.admin-reset-btn').click();
+  await row.locator('.admin-pw-input').fill('short');
+  await row.locator('.admin-pw-ok').click();
+  await expect(row.locator('.admin-pw-ok')).toHaveText('לפחות 8 תווים');
+  expect(resetPosts).toEqual([]);
+
+  // A valid password posts and confirms.
+  await row.locator('.admin-pw-input').fill('bahuoss33');
+  await row.locator('.admin-pw-ok').click();
+  await expect(row.locator('.admin-reset-btn')).toHaveText('✓');
+  expect(resetPosts).toEqual([{ username: 'alinag', new_password: 'bahuoss33' }]);
+});
+
 test('regular users never see the admin tab', async ({ page }) => {
   await bootApp(page, { me: { username: 'tester', role: 'user', videos_used: 0, video_limit: 5 } });
   await expect(page.locator('#quotaPill')).toBeVisible();

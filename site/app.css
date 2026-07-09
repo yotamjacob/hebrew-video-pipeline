@@ -1613,6 +1613,21 @@
   background: var(--olive); color: #F7F0E6; font-size: 0.8rem; font-weight: 600; font-family: inherit;
 }
 .admin-save-btn:disabled { opacity: 0.6; }
+.admin-reset-btn {
+  padding: 7px 12px; border-radius: 9px; cursor: pointer;
+  border: 1.5px solid var(--purple-100); background: transparent; color: var(--terracotta);
+  font-size: 0.8rem; font-weight: 600; font-family: inherit; white-space: nowrap;
+}
+.admin-pw-input {
+  width: 130px; padding: 7px 8px; border: 1.5px solid var(--purple-100); border-radius: 9px;
+  font-family: inherit; font-size: 0.85rem; outline: none; direction: ltr;
+}
+.admin-pw-input:focus { border-color: var(--purple-400); }
+.admin-cancel-btn {
+  padding: 7px 12px; border-radius: 9px; cursor: pointer;
+  border: 1.5px solid var(--purple-100); background: transparent; color: var(--muted);
+  font-size: 0.8rem; font-weight: 600; font-family: inherit;
+}
 
     /* ── Boho decorative background (blobs + wandering contour) ── */
     .boho-bg {
