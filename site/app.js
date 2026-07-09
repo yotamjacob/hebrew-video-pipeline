@@ -23,6 +23,18 @@
   window.addEventListener('unhandledrejection', ev =>
     console.error(`Unhandled rejection: ${(ev.reason && ev.reason.message) || ev.reason}`));
 
+  // ── Inline SVG line-icons ──
+  // Thin-stroke, currentColor, sized at 1em so each icon inherits its
+  // container's font-size and color (design system: no emoji in chrome).
+  const ICON = {
+    x:        '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>',
+    check:    '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>',
+    play:     '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>',
+    stop:     '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
+    scissors: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><line x1="8.1" y1="7.6" x2="20" y2="18"/><line x1="8.1" y1="16.4" x2="20" y2="6"/></svg>',
+    star:     '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3.4l2.47 5.01 5.53.8-4 3.9.94 5.5L12 16.9l-4.95 2.6.94-5.5-4-3.9 5.53-.8z"/></svg>',
+  };
+
   // Gates all user-facing email flows (verify nudge + password reset). Off
   // until a sending domain is verified in Resend — with the test sender,
   // emails only reach the account owner, so these flows would send mail that
@@ -1123,7 +1135,7 @@
       // mobile (no devtools). Persists through processing.
       { const s = window.__lastUploadStats, el = document.getElementById('uploadStats');
         if (s && el) {
-          el.textContent = `⬆ ${s.mb} MB in ${Math.round(s.secs)}s · ${s.mbps} Mbps`
+          el.textContent = `${s.mb} MB in ${Math.round(s.secs)}s · ${s.mbps} Mbps`
             + (s.stalls || s.resentMB ? ` · ${s.stalls} stalls, ${s.resentMB} MB re-sent` : '');
           el.style.display = 'block';
         } }
@@ -2859,8 +2871,8 @@
           ${t('tpl.apply')}
         </button>
         <button data-tidx="${i}" class="hook-tpl-del"
-          style="padding:4px 8px;border-radius:7px;border:1.5px solid #FECACA;background:#FEF2F2;color:var(--red);font-size:0.78rem;font-weight:700;cursor:pointer;flex-shrink:0">
-          ✕
+          style="padding:4px 8px;border-radius:7px;border:1.5px solid #FECACA;background:#FEF2F2;color:var(--red);font-size:0.9rem;font-weight:700;cursor:pointer;flex-shrink:0;display:flex;align-items:center">
+          ${ICON.x}
         </button>
       </div>`).join('');
     el.querySelectorAll('.hook-tpl-apply').forEach(btn => {
@@ -2990,7 +3002,7 @@
 
       const check = document.createElement('span');
       check.className = 'hook-option-check';
-      check.textContent = '✓';
+      check.innerHTML = ICON.check;
       card.appendChild(check);
 
       // Editable textarea for hook text
@@ -3212,7 +3224,7 @@
       // Dismiss button - for coverage: removes card entirely; for emphasis: skip with restore
       const dismissBtn = document.createElement('button');
       dismissBtn.className = 'moment-dismiss-btn';
-      dismissBtn.textContent = '✕';
+      dismissBtn.innerHTML = ICON.x;
       dismissBtn.title = isCoverage ? t('stock.skipRhythm') : t('stock.skip');
       dismissBtn.addEventListener('click', () => {
         delete stockBrollSelections[momentIdx];
@@ -3331,7 +3343,7 @@
       playOverlay.className = 'clip-thumb-play';
       const playIcon = document.createElement('div');
       playIcon.className = 'clip-thumb-play-icon';
-      playIcon.textContent = '▶';
+      playIcon.innerHTML = ICON.play;
       playOverlay.appendChild(playIcon);
       thumbDiv.appendChild(playOverlay);
 
@@ -3607,7 +3619,7 @@
 
       const dismiss = document.createElement('button');
       dismiss.className = 'broll-dismiss';
-      dismiss.textContent = '✕';
+      dismiss.innerHTML = ICON.x;
       dismiss.addEventListener('click', () => {
         if (checkbox.checked) {
           selectedBrolls = selectedBrolls.filter(b => !(b.start === s.start && b.end === s.end));
@@ -3654,7 +3666,7 @@
       const tr = document.createElement('div');
       tr.className = 'caption-time-row';
       const lbl = document.createElement('label');
-      lbl.textContent = labelText;
+      lbl.innerHTML = labelText;
       const inp = document.createElement('input');
       inp.type      = 'number';
       inp.className = 'caption-time-input ' + cls;
@@ -3679,8 +3691,8 @@
       tr.appendChild(inp);
       return { tr, inp };
     }
-    const { tr: startRow, inp: startInp } = makeTimeRow('▶', 'caption-start', cap.start);
-    const { tr: endRow,   inp: endInp   } = makeTimeRow('■', 'caption-end',   cap.end);
+    const { tr: startRow, inp: startInp } = makeTimeRow(ICON.play, 'caption-start', cap.start);
+    const { tr: endRow,   inp: endInp   } = makeTimeRow(ICON.stop, 'caption-end',   cap.end);
     timeWrap.appendChild(startRow);
     timeWrap.appendChild(endRow);
 
@@ -3712,7 +3724,7 @@
     // Split button ✂
     const splitBtn = document.createElement('button');
     splitBtn.className  = 'cap-btn cap-btn-split';
-    splitBtn.textContent = '✂';
+    splitBtn.innerHTML = ICON.scissors;
     splitBtn.title      = t('cap.split');
     splitBtn.addEventListener('click', () => {
       _pushCaptionUndo();
@@ -4156,7 +4168,14 @@
     row.className = 'admin-row';
     const name = document.createElement('div');
     name.className = 'admin-name';
-    name.textContent = u.username + (u.role === 'admin' ? ' ★' : '');
+    name.textContent = u.username;
+    if (u.role === 'admin') {
+      const star = document.createElement('span');
+      star.className = 'admin-star';
+      star.title = 'admin';
+      star.innerHTML = ICON.star;
+      name.appendChild(star);
+    }
     const used = document.createElement('div');
     used.className = 'admin-used';
     used.textContent = u.role === 'admin' ? t('admin.unlimited') : t('admin.used', {used: u.videos_used});
@@ -4177,7 +4196,7 @@
             body: JSON.stringify({ username: u.username, limit: parseInt(inp.value, 10) }),
           });
           if (!resp.ok) throw new Error('HTTP ' + resp.status);
-          btn.textContent = '✓';
+          btn.innerHTML = ICON.check;
         } catch {
           btn.textContent = t('admin.saveFailed');
         }
@@ -4227,7 +4246,7 @@
         });
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         cleanup();
-        pwBtn.textContent = '✓';
+        pwBtn.innerHTML = ICON.check;
         setTimeout(() => { pwBtn.textContent = t('admin.resetPw'); }, 1500);
       } catch {
         ok.disabled = false;

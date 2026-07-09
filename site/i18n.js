@@ -29,7 +29,7 @@
     'auth.register':   { en: 'Create account', he: 'יצירת חשבון' },
     'auth.toRegister': { en: 'New here? Create an account', he: 'חדשים כאן? צרו חשבון' },
     'auth.toSignin':   { en: 'Already have an account? Sign in', he: 'כבר יש לכם חשבון? התחברו' },
-    'auth.working':    { en: '⏳ Working…', he: '⏳ רגע…' },
+    'auth.working':    { en: 'Working…', he: 'רגע…' },
     'auth.failed':     { en: 'Something went wrong. Try again.', he: 'משהו השתבש. נסו שוב.' },
     'auth.email':      { en: 'Email', he: 'אימייל' },
     'auth.showPw':     { en: 'Show password', he: 'הצג סיסמה' },
@@ -114,7 +114,7 @@
     'capedit.badTimes':  { en: 'Fix overlapping caption times before burning.', he: 'תקנו חפיפות בזמני הכתוביות לפני הצריבה.' },
 
     // ── B-roll cards ──
-    'broll.title':        { en: '🎥 B-roll Suggestions', he: '🎥 הצעות בי-רול' },
+    'broll.title':        { en: 'B-roll Suggestions', he: 'הצעות בי-רול' },
     'broll.analyzing':    { en: 'Analyzing video for B-roll opportunities…', he: 'מנתח את הסרטון לאיתור הזדמנויות בי-רול…' },
     'stock.title':        { en: 'Stock B-Roll Suggestions', he: 'הצעות בי-רול ממאגרים' },
     'stock.find':         { en: 'Find B-Roll Moments', he: 'איתור רגעים לבי-רול' },
@@ -150,7 +150,7 @@
 
     // ── Run / burn / result ──
     'run.pipeline':     { en: 'Run Pipeline', he: 'הפעלת העיבוד' },
-    'run.burn':         { en: '🔥&nbsp; Burn &amp; Download', he: '🔥&nbsp; צריבה והורדה' },
+    'run.burn':         { en: 'Burn &amp; Download', he: 'צריבה והורדה' },
     'burn.success':     { en: 'Done! Your video is ready.', he: 'סיימנו! הסרטון שלכם מוכן.' },
     'burn.downloadAgain': { en: 'Download again', he: 'הורדה חוזרת' },
 
@@ -161,7 +161,7 @@
     'sched.discardOk':   { en: 'Discard', he: 'סגירה ומחיקה' },
     'sched.open':        { en: 'Schedule this video', he: 'תזמון הסרטון' },
     'mc.connect':        { en: 'Connect Metricool', he: 'חיבור Metricool' },
-    'mc.connected':      { en: '✓ Metricool', he: '✓ Metricool' },
+    'mc.connected':      { en: 'Metricool', he: 'Metricool' },
     'sched.intro':       { en: 'Schedule this video straight to Metricool. Unless <b>Auto-publish</b> is on, you approve the final publish inside Metricool.', he: 'תזמנו את הסרטון ישירות ל-Metricool. אלא אם <b>פרסום אוטומטי</b> מופעל, הפרסום הסופי מאושר על ידכם בתוך Metricool.' },
     'sched.platforms':   { en: 'Platforms', he: 'פלטפורמות' },
     'sched.publishTime': { en: 'Publish time', he: 'מועד פרסום' },
@@ -172,7 +172,7 @@
     'sched.caption':     { en: 'Caption', he: 'כיתוב' },
     'sched.captionPh':   { en: 'Write a caption, or generate a suggestion from the video…', he: 'כתבו כיתוב, או צרו הצעה מתוך הסרטון…' },
     'sched.suggest':     { en: 'Suggest caption from video', he: 'הצעת כיתוב מהסרטון' },
-    'sched.suggesting':  { en: '⏳ Generating caption…', he: '⏳ יוצר כיתוב…' },
+    'sched.suggesting':  { en: 'Generating caption…', he: 'יוצר כיתוב…' },
     'sched.ytDetails':   { en: 'YouTube details', he: 'פרטי YouTube' },
     'sched.required':    { en: 'required', he: 'חובה' },
     'sched.ytTitlePh':   { en: 'Video title (required for YouTube)', he: 'כותרת הסרטון (חובה ל-YouTube)' },
@@ -184,11 +184,11 @@
     'sched.connect':     { en: 'Connect Metricool', he: 'חיבור Metricool' },
     'sched.checkAgain':  { en: "I've connected - check again", he: 'התחברתי - בדקו שוב' },
     'sched.schedule':    { en: 'Schedule on Metricool', he: 'תזמון ב-Metricool' },
-    'sched.scheduling':  { en: '⏳ Scheduling…', he: '⏳ מתזמן…' },
-    'sched.scheduled':   { en: '✅ Scheduled', he: '✅ תוזמן' },
+    'sched.scheduling':  { en: 'Scheduling…', he: 'מתזמן…' },
+    'sched.scheduled':   { en: 'Scheduled', he: 'תוזמן' },
     'sched.sending':     { en: 'Sending to Metricool…', he: 'שולח ל-Metricool…' },
-    'sched.okLine':      { en: '✅ Scheduled on Metricool for {date} {time} (Israel time).', he: '✅ תוזמן ב-Metricool ל-{date} {time} (שעון ישראל).' },
-    'sched.openLink':    { en: 'Open in Metricool ↗', he: 'פתיחה ב-Metricool ↗' },
+    'sched.okLine':      { en: 'Scheduled on Metricool for {date} {time} (Israel time).', he: 'תוזמן ב-Metricool ל-{date} {time} (שעון ישראל).' },
+    'sched.openLink':    { en: 'Open in Metricool', he: 'פתיחה ב-Metricool' },
     'sched.approveNote': { en: ' Approve the final publish in Metricool.', he: ' אשרו את הפרסום הסופי ב-Metricool.' },
     'sched.autoNote':    { en: ' It will publish automatically at that time.', he: ' הוא יפורסם אוטומטית במועד שנקבע.' },
     'sched.notConnected': { en: "Metricool isn't connected. Tap Connect Metricool first.", he: 'Metricool לא מחובר. הקישו קודם על חיבור Metricool.' },
@@ -214,7 +214,7 @@
     'prog.download':    { en: 'Download video', he: 'הורדת הסרטון' },
     'prog.error':       { en: 'Something went wrong.', he: 'משהו השתבש.' },
     'prog.retry':       { en: 'Try again', he: 'ניסיון חוזר' },
-    'startOver':        { en: '↩&nbsp; Start over', he: '↩&nbsp; התחלה מחדש' },
+    'startOver':        { en: 'Start over', he: 'התחלה מחדש' },
 
     // ── History ──
     'hist.title':      { en: 'Previous Videos', he: 'סרטונים קודמים' },
@@ -309,13 +309,13 @@
     'net.slowBody':  { en: 'Your connection looks slow ({eff}). The upload may take a while - stay on this page.', he: 'החיבור שלכם נראה איטי ({eff}). ההעלאה עשויה לקחת זמן - הישארו בעמוד.' },
 
     // ── Run / burn buttons (dynamic) ──
-    'run.pipelinePlain': { en: '▶  Run Pipeline', he: '▶  הפעלת העיבוד' },
-    'run.burnPlain':     { en: '▶  Burn & Download', he: '▶  צריבה והורדה' },
-    'run.burnBrolls':    { en: '▶  Burn & Download  (+{n} B-roll{s})', he: '▶  צריבה והורדה  (+{n} בי-רול)' },
-    'run.reburnPlain':   { en: '↻  Re-burn & Download', he: '↻  צריבה מחדש והורדה' },
-    'run.reburnBrolls':  { en: '↻  Re-burn & Download  (+{n} B-roll{s})', he: '↻  צריבה מחדש והורדה  (+{n} בי-רול)' },
-    'run.burning':       { en: '⏳ Burning…', he: '⏳ צורב…' },
-    'run.downloading':   { en: '⏳ Downloading…', he: '⏳ מוריד…' },
+    'run.pipelinePlain': { en: 'Run Pipeline', he: 'הפעלת העיבוד' },
+    'run.burnPlain':     { en: 'Burn & Download', he: 'צריבה והורדה' },
+    'run.burnBrolls':    { en: 'Burn & Download  (+{n} B-roll{s})', he: 'צריבה והורדה  (+{n} בי-רול)' },
+    'run.reburnPlain':   { en: 'Re-burn & Download', he: 'צריבה מחדש והורדה' },
+    'run.reburnBrolls':  { en: 'Re-burn & Download  (+{n} B-roll{s})', he: 'צריבה מחדש והורדה  (+{n} בי-רול)' },
+    'run.burning':       { en: 'Burning…', he: 'צורב…' },
+    'run.downloading':   { en: 'Downloading…', he: 'מוריד…' },
     'prog.enhanceVideo': { en: 'Enhance video', he: 'שיפור וידאו' },
     'est.simple':        { en: 'Processing: ~{lo}-{hi} min (after upload)', he: 'עיבוד: ~{lo}-{hi} דקות (אחרי ההעלאה)' },
     'est.upload':        { en: 'Upload: ~{lo}-{hi} min on this connection', he: 'העלאה: ~{lo}-{hi} דקות בחיבור הנוכחי' },
@@ -334,7 +334,7 @@
     'veo.timeout':    { en: 'Analysis timed out or Gemini is overloaded - try again.', he: 'הניתוח נכשל או ש-Gemini עמוס - נסו שוב.' },
     'veo.failed':     { en: 'Analysis failed: {msg}', he: 'הניתוח נכשל: {msg}' },
     'veo.retry':      { en: 'Retry', he: 'ניסיון חוזר' },
-    'veo.newVideo':   { en: '↻ new video', he: '↻ וידאו חדש' },
+    'veo.newVideo':   { en: 'new video', he: 'וידאו חדש' },
     'veo.include':    { en: 'Include this B-roll in the final video', he: 'לכלול את הבי-רול הזה בסרטון הסופי' },
     'veo.unavailable': { en: 'Video generation unavailable.', he: 'יצירת וידאו אינה זמינה.' },
     'veo.soon':       { en: 'Coming soon', he: 'בקרוב' },
@@ -357,7 +357,7 @@
     'tpl.apply':      { en: 'Apply', he: 'החלה' },
 
     // ── Stock B-roll (dynamic) ──
-    'stock.searching':   { en: '⏳ Searching…', he: '⏳ מחפש…' },
+    'stock.searching':   { en: 'Searching…', he: 'מחפש…' },
     'stock.costLimit':   { en: 'Processed top {p} of {t} moments to stay within budget.', he: 'עובדו {p} הרגעים המובילים מתוך {t} כדי להישאר בתקציב.' },
     'stock.noMoments':   { en: 'No strong moments identified in this video.', he: 'לא זוהו רגעים חזקים בסרטון הזה.' },
     'stock.edgeDrops':   { en: '{n} near video edges', he: '{n} קרובים מדי לקצוות הסרטון' },
@@ -381,10 +381,10 @@
     'stock.clipAlt':     { en: 'Stock clip', he: 'קליפ מאגר' },
     'stock.by':          { en: 'by {author}', he: 'מאת {author}' },
     'stock.useForVideo': { en: 'Use for video', he: 'שימוש בסרטון' },
-    'stock.view':        { en: 'View ↗', he: 'צפייה ↗' },
-    'stock.tooShort':    { en: '⚠ clip too short ({s}s)', he: '⚠ הקליפ קצר מדי ({s} שניות)' },
-    'stock.useRange':    { en: 'Use {in}s → {out}s', he: 'שימוש {in} עד {out} שניות' },
-    'stock.videoErr':    { en: '⚠ {msg}', he: '⚠ {msg}' },
+    'stock.view':        { en: 'View', he: 'צפייה' },
+    'stock.tooShort':    { en: 'clip too short ({s}s)', he: 'הקליפ קצר מדי ({s} שניות)' },
+    'stock.useRange':    { en: 'Use {in}s to {out}s', he: 'שימוש {in} עד {out} שניות' },
+    'stock.videoErr':    { en: '{msg}', he: '{msg}' },
 
     // ── History (dynamic) ──
     'hist.loadError':   { en: 'Could not load history - try again in a moment.', he: 'טעינת ההיסטוריה נכשלה - נסו שוב עוד רגע.' },

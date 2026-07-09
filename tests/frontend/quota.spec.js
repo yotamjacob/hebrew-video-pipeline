@@ -141,12 +141,13 @@ test('admin sees no pill and gets the admin tab with user limit controls', async
 
   const rows = page.locator('.admin-row');
   await expect(rows).toHaveCount(2);
-  await expect(rows.nth(0)).toContainText('boss ★');
+  await expect(rows.nth(0)).toContainText('boss');
+  await expect(rows.nth(0).locator('.admin-star svg')).toBeVisible();   // admin marker is an SVG star, not an emoji
   // Bump tester's limit to 50 (they paid)
   const input = rows.nth(1).locator('.admin-limit-input');
   await input.fill('50');
   await rows.nth(1).locator('.admin-save-btn').click();
-  await expect(rows.nth(1).locator('.admin-save-btn')).toHaveText('✓');
+  await expect(rows.nth(1).locator('.admin-save-btn svg')).toBeVisible();   // success = SVG check
   expect(limitPosts).toEqual([{ username: 'tester', limit: 50 }]);
 });
 
@@ -177,7 +178,7 @@ test('admin can reset a user password from the admin tab', async ({ page }) => {
   // A valid password posts and confirms.
   await row.locator('.admin-pw-input').fill('bahuoss33');
   await row.locator('.admin-pw-ok').click();
-  await expect(row.locator('.admin-reset-btn')).toHaveText('✓');
+  await expect(row.locator('.admin-reset-btn svg')).toBeVisible();   // success = SVG check
   expect(resetPosts).toEqual([{ username: 'alinag', new_password: 'bahuoss33' }]);
 });
 

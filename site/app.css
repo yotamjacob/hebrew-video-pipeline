@@ -215,6 +215,7 @@
       transition: color 0.15s;
     }
     .file-info-clear:hover { color: var(--red); }
+    .file-info-clear svg { width: 1.05rem; height: 1.05rem; display: block; }
 
     /* ── Warning / block banners ── */
     .notice {
@@ -229,6 +230,7 @@
     }
     .notice.visible { display: flex; }
     .notice-icon { flex-shrink: 0; font-size: 1rem; margin-top: 1px; }
+    .notice-icon svg { width: 18px; height: 18px; display: block; }
     .notice-text { flex: 1; }
     .notice-title { font-weight: 700; margin-bottom: 2px; }
 
@@ -468,6 +470,7 @@
       border-radius: 50%; animation: spin 0.9s linear infinite;
     }
     .ci-done { display: none; font-size: 1rem; font-weight: 700; color: var(--green); line-height: 1; }
+    .ci-pending svg, .ci-done svg { width: 1rem; height: 1rem; display: block; }
 
     .check-item.active  .ci-pending { display: none; }
     .check-item.active  .ci-spinner { display: block; }
@@ -514,7 +517,8 @@
     /* Done */
     .status-done { display: none; flex-direction: column; align-items: center; gap: 16px; padding: 28px 20px; }
     .status-done.visible { display: flex; }
-    .done-icon { font-size: 2.8rem; animation: check-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
+    .done-icon { color: var(--green); animation: check-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
+    .done-icon svg { width: 2.8rem; height: 2.8rem; display: block; }
     .done-label { font-size: 1rem; font-weight: 600; color: var(--green); }
     .done-saved {
       text-align: center; line-height: 1.6;
@@ -539,7 +543,8 @@
     /* Error */
     .status-error { display: none; flex-direction: column; align-items: center; gap: 10px; padding: 24px 20px; }
     .status-error.visible { display: flex; }
-    .error-icon { font-size: 2rem; }
+    .error-icon { color: var(--red); }
+    .error-icon svg { width: 2rem; height: 2rem; display: block; }
     .error-msg { font-size: 0.85rem; color: var(--red); text-align: center; max-width: 360px; }
     .error-detail {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.68rem;
@@ -652,6 +657,7 @@
       cursor: pointer; line-height: 1; padding: 4px 8px; border-radius: 8px; font-family: inherit;
     }
     .sched-close:hover { background: var(--purple-50); color: var(--text); }
+    .sched-close svg { width: 1.05rem; height: 1.05rem; display: block; }
     .sched-video-name { font-size: 0.8rem; color: var(--purple-600); font-weight: 700; margin: 2px 0 14px; word-break: break-word; }
     .modal-dialog-body  { font-size: 0.88rem; color: var(--muted); margin-bottom: 24px; line-height: 1.5; }
     .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
@@ -681,7 +687,8 @@
       margin-bottom: 16px;
       text-align: center;
     }
-    .burn-success-icon  { font-size: 2rem; }
+    .burn-success-icon  { color: var(--green); }
+    .burn-success-icon svg { width: 2rem; height: 2rem; display: block; }
     .burn-success-label { font-size: 1rem; font-weight: 700; color: #55604A; }
 
     /* ── Disabled option row (Veo) ── */
@@ -979,6 +986,7 @@
       flex-shrink: 0;
     }
     .moment-dismiss-btn:hover { color: var(--red); }
+    .moment-dismiss-btn svg { display: block; }
     .no-clips-msg {
       font-size: 0.78rem;
       color: var(--muted);
@@ -1084,7 +1092,10 @@
       display: flex; align-items: center; gap: 3px;
       font-size: 0.68rem; color: var(--purple-400);
     }
-    .caption-time-row label { white-space: nowrap; }
+    .caption-time-row label { white-space: nowrap; display: inline-flex; align-items: center; }
+    .caption-time-row label svg { display: block; }
+    /* Admin role marker (was ★) */
+    .admin-star { color: var(--olive); margin-inline-start: 5px; display: inline-flex; vertical-align: -0.08em; }
     .caption-time-input {
       width: 68px; border: 1.5px solid var(--purple-100); border-radius: 5px;
       padding: 2px 5px; font-size: 0.7rem; font-variant-numeric: tabular-nums;
@@ -1264,6 +1275,7 @@
       font-size: 1.1rem; color: var(--purple-400); font-style: normal;
       transition: transform 0.2s; flex-shrink: 0;
     }
+    .collapse-chevron svg { width: 1.05em; height: 1.05em; display: block; }
     .card-header.collapsed .collapse-chevron { transform: rotate(-90deg); }
 
     /* ── Footer ── */
