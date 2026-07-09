@@ -1131,14 +1131,8 @@
       _stepDone('upload');
       document.getElementById('uploadBarRow').style.display = 'none';
       { const n = document.getElementById('uploadNote'); if (n) n.style.display = 'none'; }
-      // Surface achieved throughput + churn so a slow upload is measurable on
-      // mobile (no devtools). Persists through processing.
-      { const s = window.__lastUploadStats, el = document.getElementById('uploadStats');
-        if (s && el) {
-          el.textContent = `${s.mb} MB in ${Math.round(s.secs)}s · ${s.mbps} Mbps`
-            + (s.stalls || s.resentMB ? ` · ${s.stalls} stalls, ${s.resentMB} MB re-sent` : '');
-          el.style.display = 'block';
-        } }
+      // (upload throughput is still recorded to window.__lastUploadStats +
+      // console for diagnostics, but no longer shown in the UI)
 
       currentUploadKey = uploadKey;
 
@@ -1908,7 +1902,6 @@
     document.getElementById('uploadBarPct').textContent = '0%';
     { const e = document.getElementById('uploadEta'); if (e) e.textContent = ''; }
     { const n = document.getElementById('uploadNote'); if (n) n.style.display = 'block'; }
-    { const s = document.getElementById('uploadStats'); if (s) { s.style.display = 'none'; s.textContent = ''; } }
 
     runBtn.disabled = true;
     runBtn.style.display = 'none';

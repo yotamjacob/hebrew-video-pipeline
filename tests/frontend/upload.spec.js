@@ -160,7 +160,7 @@ test('live upload ETA is shown during the upload', async ({ page }) => {
   expect(eta).toMatch(/left|נותרו/);
 });
 
-test('upload telemetry is recorded and surfaced after upload', async ({ page }) => {
+test('upload telemetry is recorded for diagnostics (not shown in the UI)', async ({ page }) => {
   await mockAllApis(page);
   await selectFile(page, { sizeMB: 4 });
   await page.waitForSelector('#runBtn:not([disabled])');
@@ -175,10 +175,8 @@ test('upload telemetry is recorded and surfaced after upload', async ({ page }) 
   expect(typeof stats.resentMB).toBe('number');
   expect(stats.chunks).toBeGreaterThanOrEqual(3);   // 4 MB @ 1 MB chunks
 
-  // Surfaced in the UI (visible on mobile with no devtools).
-  const el = page.locator('#uploadStats');
-  await expect(el).toBeVisible();
-  await expect(el).toContainText('Mbps');
+  // The debug stats line is NOT surfaced in the UI.
+  expect(await page.locator('#uploadStats').count()).toBe(0);
 });
 
 test('polling: process_poll receives the correct call_id', async ({ page }) => {
