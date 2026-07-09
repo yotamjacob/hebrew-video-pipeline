@@ -20,6 +20,7 @@ const { mockAllApis, selectFile, bootApp, API_BASE } = require('./helpers');
 const LANDSCAPE_MP4 = path.join(__dirname, 'fixtures/landscape_1920x1080.mp4');
 const PORTRAIT_MP4  = path.join(__dirname, 'fixtures/portrait_1080x1920.mp4');
 const TEAL_JPG      = path.join(__dirname, 'fixtures/thumb_landscape.jpg');
+const PORTRAIT_JPG  = path.join(__dirname, 'fixtures/thumb_portrait.jpg');
 
 async function mockDownloadWithFile(page, filePath) {
   const buf = fs.readFileSync(filePath);
@@ -159,6 +160,30 @@ test('hook preview canvas renders the caption (white pixels over the teal thumbn
   }, { timeout: 8_000 });
 
   expect(true).toBe(true);
+});
+
+test('hook preview caption is sized by the real video, not the 400px thumbnail', async ({ page }) => {
+  // Portrait video (1080x1920) with a portrait thumbnail whose pixel size
+  // differs from the video. The caption size must track the video (like the
+  // editor: captionFontSize * canvasHeight / videoHeight), NOT the thumbnail
+  // width (the old bug oversized it).
+  await runToEditor(page, PORTRAIT_MP4, PORTRAIT_JPG);
+  await page.click('#generateHookBtn');
+  await page.waitForSelector('#hookControls', { state: 'visible', timeout: 8_000 });
+  await page.waitForFunction(() => window.__hookCapFs > 0, { timeout: 8_000 });
+
+  const d = await page.evaluate(() => ({
+    capFs:   window.__hookCapFs,
+    canvasW: document.getElementById('hookPreviewCanvas').width,
+    canvasH: document.getElementById('hookPreviewCanvas').height,
+    videoH:  document.getElementById('cutVideo').videoHeight,
+    fs:      parseInt(document.getElementById('captionFontSizeSlider').value, 10),
+  }));
+  const expected = d.fs * d.canvasH / d.videoH;             // editor proportion
+  expect(Math.abs(d.capFs - expected)).toBeLessThan(1);     // matches the editor
+  // Sanity: it must NOT be the old thumbnail-width-scaled size, which would be
+  // far larger (thumbnail is only 400px / here 720px wide vs a 1080px video).
+  expect(d.capFs).toBeLessThan(d.fs * d.canvasW / 400);
 });
 
 // Mean vertical position (0=top .. 1=bottom) of white caption pixels on the

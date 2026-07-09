@@ -2678,9 +2678,16 @@
     const sample = captionsData.find(c => (c.text || '').trim()) || captionsData[0];
     const text = ((sample && sample.text) || '').trim();
     if (!text) return;
-    const vidW  = (hookThumbnail && hookThumbnail.naturalWidth) || 1080;
-    const capFs = Math.max(9, captionFontSize * (W / vidW));
-    const lines = rewrapCaption(text, vidW, captionFontSize).split('\n');
+    // Scale by the REAL video dimensions, not the thumbnail's: the /thumbnail
+    // is downscaled to 400px wide, so scaling by it oversized the caption.
+    // Matches the caption editor, which renders at captionFontSize / videoHeight
+    // of the frame height.
+    const _vid   = document.getElementById('cutVideo');
+    const realVW = (_vid && _vid.videoWidth)  || _playerDispW || (hookThumbnail && hookThumbnail.naturalWidth)  || 1080;
+    const realVH = (_vid && _vid.videoHeight) || (hookThumbnail && hookThumbnail.naturalHeight) || 1920;
+    const capFs = Math.max(7, captionFontSize * (H / realVH));
+    window.__hookCapFs = capFs;   // exposed for tests (size must track the editor, not the thumbnail)
+    const lines = rewrapCaption(text, realVW, captionFontSize).split('\n');
     const lineH = capFs * 1.35;
     // captionMarginPct = the caption block's bottom edge distance from the
     // video bottom, as a fraction of height (same as the player + burn).
