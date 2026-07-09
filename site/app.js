@@ -504,6 +504,12 @@
 
   let selectedFile = null;
   let videoDuration = null;
+  // Stable in-memory/disk copy of the picked file's bytes, snapshotted at
+  // selection time so a long upload can't be broken by the OS moving the file
+  // (Google Photos cloud-sync). `_snapshotId` is the IndexedDB key when the
+  // file was too big to hold in memory. See snapshotFile().
+  let stableBlob = null;
+  let _snapshotId = null;
   let resultBlob      = null;
   let resultName      = 'edited_video.mp4';
   let uploadTimer     = null;  // drives the upload step's elapsed clock
@@ -843,6 +849,24 @@
     blocked = false;
     runBtn.disabled = false;
 
+    // Snapshot the bytes now, while the OS file reference is still valid. If
+    // this throws it's almost always a cloud-only file (Google Photos) that was
+    // never downloaded to the device - block here with clear guidance instead
+    // of letting it fail mid-upload after wasting the user's time and a credit.
+    try {
+      fileDetail.textContent = t('file.reading', { size: formatSize(file.size) });
+      stableBlob = await snapshotFile(file);
+      fileDetail.textContent = (videoDuration !== null)
+        ? formatSize(file.size) + ' · ' + formatDuration(videoDuration)
+        : formatSize(file.size);
+    } catch (readErr) {
+      console.error(`Snapshot failed - ${(readErr && readErr.message) || readErr}`);
+      showBlockNotice(t('file.cloudTitle'), t('file.cloud'));
+      blocked = true;
+      runBtn.disabled = true;
+      return;
+    }
+
     // Warnings (one, most-specific first). 4K takes precedence: it explains
     // WHY the upload is slow (huge bitrate) without asking the user to lower
     // quality - just sets the expectation.
@@ -865,6 +889,7 @@
   clearFile.addEventListener('click', () => {
     if (!confirm(t('file.removeConfirm'))) return;
     selectedFile = null; videoDuration = null;
+    _disposeSnapshot();
     document.getElementById('timeEstimate').style.display = 'none';
     fileInput.value = '';
     fileInfo.classList.remove('visible');
@@ -996,7 +1021,7 @@
     try {
       // Phase 1: upload video in chunks
       _setStage('upload');
-      const uploadKey = await chunkedUpload(selectedFile, (pct) => {
+      const uploadKey = await chunkedUpload(selectedFile, stableBlob, (pct) => {
         document.getElementById('uploadBarFill').style.width = (pct * 100).toFixed(0) + '%';
         document.getElementById('uploadBarPct').textContent  = (pct * 100).toFixed(0) + '%';
       });
@@ -1248,7 +1273,104 @@
   }
   function _clearResume(file) { try { localStorage.removeItem(_fileSig(file)); } catch (_) {} }
 
-  async function chunkedUpload(file, onProgress) {
+  // ── File byte snapshot (Google Photos / cloud-sync resilience) ──
+  // A file picked on Android can be cloud-only (Google Photos): its bytes live
+  // in the cloud, not on the device. Reading it lazily per chunk DURING a long
+  // upload fails partway through when background sync moves/re-syncs it
+  // (ERR_UPLOAD_FILE_CHANGED). snapshotFile() copies the bytes ONCE at
+  // selection time - while the reference is still valid - into a stable Blob the
+  // upload slices from instead. That copy can't go stale. It also forces the
+  // read to happen now, so a truly cloud-only (unreadable) file is caught
+  // immediately, before any upload or credit is spent.
+  const SNAPSHOT_MEM_LIMIT = 150 * 1024 * 1024; // hold in memory below this; larger -> IndexedDB (disk, off-heap)
+
+  function _idbOpen() {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('hebpipe-uploads', 1);
+      r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains('blobs')) r.result.createObjectStore('blobs'); };
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error || new Error('idb open failed'));
+    });
+  }
+  async function _idbPut(id, blob) {
+    const db = await _idbOpen();
+    try {
+      await new Promise((res, rej) => {
+        const tx = db.transaction('blobs', 'readwrite');
+        tx.objectStore('blobs').put(blob, id);
+        tx.oncomplete = res;
+        tx.onerror = () => rej(tx.error || new Error('idb write failed'));
+        tx.onabort = () => rej(tx.error || new Error('idb write aborted'));
+      });
+    } finally { db.close(); }
+  }
+  async function _idbGet(id) {
+    const db = await _idbOpen();
+    try {
+      return await new Promise((res, rej) => {
+        const tx = db.transaction('blobs', 'readonly');
+        const rq = tx.objectStore('blobs').get(id);
+        rq.onsuccess = () => res(rq.result);
+        rq.onerror = () => rej(rq.error || new Error('idb read failed'));
+      });
+    } finally { db.close(); }
+  }
+  async function _idbDel(id) {
+    try {
+      const db = await _idbOpen();
+      try {
+        await new Promise(res => {
+          const tx = db.transaction('blobs', 'readwrite');
+          tx.objectStore('blobs').delete(id);
+          tx.oncomplete = res; tx.onerror = res; tx.onabort = res;
+        });
+      } finally { db.close(); }
+    } catch (_) {}
+  }
+  // Wipe any snapshot left behind by a prior session (e.g. after "start over"
+  // reloads the page). A reload can't resume an in-memory File anyway - the
+  // user re-picks and re-snapshots - so nothing on disk is worth keeping.
+  async function _idbClearAll() {
+    try {
+      const db = await _idbOpen();
+      try {
+        await new Promise(res => {
+          const tx = db.transaction('blobs', 'readwrite');
+          tx.objectStore('blobs').clear();
+          tx.oncomplete = res; tx.onerror = res; tx.onabort = res;
+        });
+      } finally { db.close(); }
+    } catch (_) {}
+  }
+  _idbClearAll();
+
+  // Returns a stable Blob of the file's bytes, or throws if the file can't be
+  // read (almost always a cloud-only Google Photos file not on the device).
+  async function snapshotFile(file) {
+    _disposeSnapshot();
+    if (file.size <= SNAPSHOT_MEM_LIMIT) {
+      const buf = await file.arrayBuffer();                  // throws if unreadable
+      return new Blob([buf], { type: file.type || 'video/mp4' });
+    }
+    // Too big to hold in RAM: stash on disk via IndexedDB, read back a stable,
+    // disk-backed copy. The put reads every byte, so it also detects a bad file.
+    const id = 'up_' + ((crypto.randomUUID && crypto.randomUUID()) || String(file.size) + '_' + file.lastModified);
+    await _idbPut(id, file);                                 // throws if unreadable
+    const stable = await _idbGet(id);
+    if (!stable) throw new Error('snapshot readback empty');
+    _snapshotId = id;
+    return stable;
+  }
+  function _disposeSnapshot() {
+    stableBlob = null;
+    if (_snapshotId) { _idbDel(_snapshotId); _snapshotId = null; }
+  }
+
+  async function chunkedUpload(file, source, onProgress) {
+    // `source` is the stable byte snapshot (see snapshotFile); slice bytes from
+    // it, never from the raw File, so a cloud-synced original can't go stale
+    // mid-upload. Falls back to the File itself if no snapshot was taken.
+    source = source || file;
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     // Reuse a prior in-progress upload for this exact file if one exists.
     const saved = _loadResume(file);
@@ -1266,7 +1388,7 @@
       const chunkLen = end - start;
       // Already on the server from a prior attempt - count it done, skip it.
       if (completed.has(i)) { loadedByChunk[i] = chunkLen; report(); return; }
-      const slice = file.slice(start, end);
+      const slice = source.slice(start, end);
       const MAX_SERVER_ATTEMPTS = 4;    // 408/429/5xx responses
       // A chunk gives up only after MAX_STUCK consecutive failures that happen
       // WHILE THE PAGE IS VISIBLE - a genuinely dead connection. Failures that
@@ -1359,6 +1481,7 @@
     }
 
     _clearResume(file);   // fully uploaded - no stale resume state to leave behind
+    _disposeSnapshot();   // bytes are on the server now - free the local copy
     return key;
   }
 
@@ -1722,6 +1845,9 @@
   function showError(msg) {
     if (/limit_reached/.test(msg)) msg = t('quota.exhausted');
     if (/no_audio/.test(msg)) msg = t('err.noAudio');
+    // A failed job refunds its credit server-side; re-pull usage so the pill
+    // reflects the refund (harmless no-op when nothing was charged).
+    refreshQuota();
     isUploading = false;
     setSetupLocked(false);
     clearInterval(uploadTimer);

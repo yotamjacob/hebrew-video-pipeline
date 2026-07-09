@@ -295,6 +295,8 @@
     'err.stage.download':   { en: 'while downloading the result', he: 'בזמן הורדת התוצאה' },
     'err.fileUnreadable': { en: 'Could not read the video file from your device - it may have moved or be cloud-synced (e.g. Google Photos). Please select the file again.', he: 'לא ניתן לקרוא את קובץ הווידאו מהמכשיר - ייתכן שהוא הוזז או מסונכרן בענן (למשל Google Photos). בחרו את הקובץ מחדש.' },
     'err.noAudio': { en: 'This video has no audio track. The editor works from the speech in the video (transcription, silence trimming, captions), so it needs a video with sound. Please upload a video that includes audio.', he: 'לסרטון הזה אין פס קול. העורך עובד לפי הדיבור שבסרטון (תמלול, חיתוך שתיקות וכתוביות), ולכן צריך סרטון עם קול. העלו סרטון שכולל אודיו.' },
+    'file.cloudTitle': { en: "Can't read this file", he: 'לא ניתן לקרוא את הקובץ' },
+    'file.cloud': { en: "This video looks like it's stored in the cloud (e.g. Google Photos) and isn't downloaded to this device, so it can't be uploaded. Open it in your gallery, download it to the device (usually the menu → Download / Save), then select it again.", he: 'נראה שהסרטון שמור בענן (למשל Google Photos) ואינו מורד למכשיר, ולכן לא ניתן להעלות אותו. פתחו אותו בגלריה, הורידו אותו למכשיר (בדרך כלל דרך התפריט ← הורדה / שמירה), ואז בחרו אותו שוב.' },
     'upload.keepOpen':   { en: 'Keep this window open while uploading. Once processing starts, you can switch away - it finishes on our servers.', he: 'השאירו את החלון פתוח בזמן ההעלאה. ברגע שהעיבוד מתחיל אפשר לעבור לאפליקציה אחרת - הוא ממשיך בשרתים שלנו.' },
     'upload.retrying':   { en: 'connection issue - retrying...', he: 'בעיית חיבור - מנסים שוב...' },
     'prog.errLog':       { en: 'Error log', he: 'יומן שגיאות' },

@@ -801,6 +801,26 @@ def api():
                             "headers": CORS + [(b"content-type", b"application/json")]})
                 await send({"type": "http.response.body", "body": body})
             except Exception as e:
+                # A poll reaching here means the job terminally FAILED (_poll_fn_call
+                # only raises on real failures; "still running" returns cleanly).
+                # Refund the credit spent at spawn so a failed job never costs the
+                # user a video. Deleting the unique quota key is the authoritative
+                # refund (_count_quota_used scans these); videos_used is the display
+                # floor. Idempotent: a repeat poll finds the key gone and no-ops, so
+                # concurrent polls can't double-refund. Best-effort throughout.
+                try:
+                    del quota_store[f"{uid}:{call_id}"]
+                    refunded = True
+                except Exception:
+                    refunded = False
+                if refunded:
+                    try:
+                        _uname_r, _urec_r = _user_by_uid()
+                        if _urec_r:
+                            _urec_r["videos_used"] = max(0, int(_urec_r.get("videos_used", 1)) - 1)
+                            users_store[_uname_r] = _urec_r
+                    except Exception:
+                        pass
                 await send_error(str(e))
             return
 

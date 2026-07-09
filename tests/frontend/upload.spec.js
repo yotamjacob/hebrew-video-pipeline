@@ -238,22 +238,23 @@ test('401 during upload fails fast to the login view, no endless retry', async (
   await expect(page.locator('#authView')).toBeVisible({ timeout: 10_000 });
 });
 
-test('unreadable picked file fails fast with a re-select message', async ({ page }) => {
-  // Android: a gallery-picked file can become unreadable (cloud-synced or
-  // changed on disk) - every read then fails. Simulate by making Blob reads
-  // reject the way Chrome does for a stale content:// file.
+test('unreadable picked file is caught at selection with a download-first message', async ({ page }) => {
+  // Android: a gallery-picked file can be cloud-only (Google Photos) - its bytes
+  // aren't on the device, so reads fail. We snapshot the bytes at selection, so
+  // an unreadable file is caught immediately (before any upload or credit is
+  // spent) and blocks with a "download to the device first" message, rather
+  // than failing partway through a long upload. Mock the read BEFORE selecting.
   await mockAllApis(page);
-  await selectFile(page);
   await page.evaluate(() => {
     Blob.prototype.arrayBuffer = () =>
       Promise.reject(new DOMException('The requested file could not be read', 'NotReadableError'));
   });
-  await page.waitForSelector('#runBtn:not([disabled])');
-  await page.click('#runBtn');
-  // Terminal error, no retry spin - must appear within seconds
-  await expect(page.locator('#statusError')).toBeVisible({ timeout: 10_000 });
-  const msg = await page.locator('#errorMsg').textContent();
-  expect(msg).toMatch(/select the file again|בחרו את הקובץ מחדש/);
+  await selectFile(page);
+  // Blocked at selection - notice shown, run never becomes available.
+  await expect(page.locator('#noticeBlock')).toBeVisible({ timeout: 10_000 });
+  const body = await page.locator('#noticeBlockBody').textContent();
+  expect(body).toMatch(/download it to the device|הורידו אותו למכשיר/);
+  await expect(page.locator('#runBtn')).toBeDisabled();
 });
 
 test('a stalled (silent) chunk connection aborts and surfaces an error, not an endless spin', async ({ page }) => {
