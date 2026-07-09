@@ -129,6 +129,27 @@ test('chunk uploads use a fixed URL with key/index in headers (one CORS prefligh
   expect(new Set(indices).size).toBe(posts.length);   // each index sent once
 });
 
+test('upload telemetry is recorded and surfaced after upload', async ({ page }) => {
+  await mockAllApis(page);
+  await selectFile(page, { sizeMB: 4 });
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 10_000 });
+
+  const stats = await page.evaluate(() => window.__lastUploadStats);
+  expect(stats).toBeTruthy();
+  expect(stats.mb).toBeGreaterThan(0);
+  expect(stats.mbps).toBeGreaterThan(0);
+  expect(typeof stats.stalls).toBe('number');
+  expect(typeof stats.resentMB).toBe('number');
+  expect(stats.chunks).toBeGreaterThanOrEqual(3);   // 4 MB @ 1 MB chunks
+
+  // Surfaced in the UI (visible on mobile with no devtools).
+  const el = page.locator('#uploadStats');
+  await expect(el).toBeVisible();
+  await expect(el).toContainText('Mbps');
+});
+
 test('polling: process_poll receives the correct call_id', async ({ page }) => {
   const pollRequests = [];
   page.on('request', req => {

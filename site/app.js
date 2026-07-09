@@ -1047,6 +1047,14 @@
       _stepDone('upload');
       document.getElementById('uploadBarRow').style.display = 'none';
       { const n = document.getElementById('uploadNote'); if (n) n.style.display = 'none'; }
+      // Surface achieved throughput + churn so a slow upload is measurable on
+      // mobile (no devtools). Persists through processing.
+      { const s = window.__lastUploadStats, el = document.getElementById('uploadStats');
+        if (s && el) {
+          el.textContent = `⬆ ${s.mb} MB in ${Math.round(s.secs)}s · ${s.mbps} Mbps`
+            + (s.stalls || s.resentMB ? ` · ${s.stalls} stalls, ${s.resentMB} MB re-sent` : '');
+          el.style.display = 'block';
+        } }
 
       currentUploadKey = uploadKey;
 
@@ -1204,13 +1212,18 @@
   // backgrounding barely dents progress. Throughput is uplink-bound, so smaller
   // chunks don't slow a healthy connection (connection reuse absorbs the extra
   // request overhead); on a flaky one they're faster (less re-send waste).
-  const CHUNK_SIZE = 2 * 1024 * 1024;
-  // Parallelism: chunk POSTs now share ONE cached CORS preflight (fixed URL +
+  // 1 MB chunks (was 2 MB): on a congested slow uplink, 6 concurrent 2 MB
+  // chunks each crawled ~20 s and flirted with the stall watchdog; if one
+  // aborted, a full 2 MB re-sent. Smaller chunks finish ~2× faster (clearer
+  // liveness, less wasted on an abort) and stick faster on a weak link.
+  // Overhead is negligible now that all chunks share ONE cached CORS preflight.
+  const CHUNK_SIZE = 1 * 1024 * 1024;
+  // Parallelism: chunk POSTs share ONE cached CORS preflight (fixed URL +
   // Access-Control-Max-Age), so the old preflight-doubling that pushed 16
   // in-flight past the container's input cap is gone. 6 fills the bandwidth-
   // delay product on healthy uplinks, stays well under the API's max_inputs=50
   // (chunks + polls), and caps in-flight (losable-on-background) bytes at
-  // 6×2 MB = 12 MB. Kept modest so a background-kill loses little.
+  // 6×1 MB = 6 MB. Kept modest so a background-kill loses little.
   const UPLOAD_CONCURRENCY = 6;
   const UPLOAD_RESUME_TTL = 24 * 60 * 60 * 1000;   // server prunes scratch chunks after 48h; stay well under
   // POST one chunk via XHR (not fetch): fetch reports no upload progress and
@@ -1240,7 +1253,12 @@
   let _hiddenEpoch = 0;
   document.addEventListener('visibilitychange', () => { if (document.hidden) _hiddenEpoch++; });
 
-  const CHUNK_STALL_MS = 20_000;
+  // 35 s (was 20 s): on congested café Wi-Fi a live-but-slow chunk can go >20 s
+  // between byte-progress events; aborting it then re-sending wasted bandwidth
+  // and dropped effective throughput. Only abort when a connection is truly
+  // dead — a slow-but-moving upload is never killed. A genuinely dead socket is
+  // still bounded by MAX_STUCK × this + MAX_TOTAL.
+  const CHUNK_STALL_MS = 35_000;
   // POST one chunk to a FIXED url with key/index in headers (not the query
   // string). A chunk POST always triggers a CORS preflight (Authorization +
   // octet-stream are non-safelisted); keeping the URL constant lets the browser
@@ -1409,6 +1427,12 @@
     const loadedByChunk = new Array(totalChunks).fill(0);
     const report = () => onProgress(loadedByChunk.reduce((a, b) => a + b, 0) / file.size);
 
+    // Telemetry: measure achieved throughput + churn so a slow upload can be
+    // diagnosed (link-bound vs. our overhead) instead of guessed at. Surfaced
+    // in the UI (#uploadStats) and on window.__lastUploadStats.
+    const _t0 = performance.now();
+    let _stalls = 0, _netRetries = 0, _serverRetries = 0, _resentBytes = 0;
+
     async function uploadChunk(i) {
       const start = i * CHUNK_SIZE;
       const end   = Math.min(start + CHUNK_SIZE, file.size);
@@ -1463,11 +1487,14 @@
             if (!e.message) e.message = t('err.chunk', { i: i, status: e.httpStatus || 0 });
             throw e;
           }
+          _resentBytes += loadedByChunk[i];   // bytes already pushed for this attempt are now wasted
           if (e.isServer) {
+            _serverRetries++;
             if (++serverAttempts >= MAX_SERVER_ATTEMPTS)
               throw Object.assign(new Error(t('err.chunkRetries', { i: i, n: MAX_SERVER_ATTEMPTS, status: e.httpStatus || 0 })), { isTerminal: true });
             console.warn(`Chunk ${i}: server ${e.httpStatus}, retry ${serverAttempts}/${MAX_SERVER_ATTEMPTS}`);
           } else {
+            if (/stall/i.test(e.message || '')) _stalls++; else _netRetries++;
             // Network error or stall. If the page was backgrounded during this
             // attempt, the OS killed the request - don't count it, just retry.
             const backgrounded = document.hidden || _hiddenEpoch !== epoch0;
@@ -1508,6 +1535,18 @@
 
     _clearResume(file);   // fully uploaded - no stale resume state to leave behind
     _disposeSnapshot();   // bytes are on the server now - free the local copy
+
+    const secs = (performance.now() - _t0) / 1000;
+    const mbps = secs > 0 ? (file.size * 8 / 1e6) / secs : 0;
+    window.__lastUploadStats = {
+      bytes: file.size, mb: +(file.size / 1048576).toFixed(1), secs: +secs.toFixed(1),
+      mbps: +mbps.toFixed(2), chunks: totalChunks, concurrency: UPLOAD_CONCURRENCY,
+      stalls: _stalls, netRetries: _netRetries, serverRetries: _serverRetries,
+      resentMB: +(_resentBytes / 1048576).toFixed(1),
+    };
+    console.info(`Upload done: ${window.__lastUploadStats.mb} MB in ${secs.toFixed(0)} s = `
+      + `${mbps.toFixed(2)} Mbps effective; stalls=${_stalls} netRetries=${_netRetries} `
+      + `serverRetries=${_serverRetries} resent=${window.__lastUploadStats.resentMB} MB`);
     return key;
   }
 
@@ -1784,6 +1823,7 @@
     document.getElementById('uploadBarFill').style.width = '0%';
     document.getElementById('uploadBarPct').textContent = '0%';
     { const n = document.getElementById('uploadNote'); if (n) n.style.display = 'block'; }
+    { const s = document.getElementById('uploadStats'); if (s) { s.style.display = 'none'; s.textContent = ''; } }
 
     runBtn.disabled = true;
     runBtn.style.display = 'none';
