@@ -548,6 +548,7 @@
   let hookGenAborted         = false;
   let hookThumbnail          = null;
   let _playerSetupDone       = false;
+  let _previewObjURL         = null; // object URL for the blob-backed preview player (revoked on reset)
   let _playerDispW           = 0;   // detected display width (accounts for browser rotation)
   let videoOrientation       = 'portrait'; // 'portrait' | 'landscape' | 'square' - drives B-roll orientation
   let _uplinkMbps            = null;        // measured upload speed (best-effort probe at file selection)
@@ -2082,6 +2083,7 @@
     captionFontSize  = 48;
     const _vid = document.getElementById('cutVideo');
     if (_vid) { _vid.pause(); _vid.removeAttribute('src'); _vid.load(); }
+    if (_previewObjURL) { try { URL.revokeObjectURL(_previewObjURL); } catch (_) {} _previewObjURL = null; }
     _playerSetupDone = false;
     _playerDispW = 0;
     const _cp = document.getElementById('captionPlayer');
@@ -2214,13 +2216,38 @@
     const timeLbl  = document.getElementById('playerTimeLbl');
     if (!vid) return;
 
-    // Set source - video streams from the already-processed cut file on Modal.
-    // preload=auto lets the browser buffer ahead so scrubbing / jumping between
-    // segments is instant within the buffer instead of stalling on a range
-    // fetch (these are short edited clips).
+    // Fetch the cut file ONCE into a blob and play from an object URL, rather
+    // than streaming live from /download/ via HTTP range requests. Each range
+    // request to that route reloads the Modal volume before serving bytes, so a
+    // playing/seeking <video> kept re-buffering and stuttering. These are short
+    // edited clips, so a single download plays instantly and scrubs with zero
+    // per-seek latency. Falls back to live streaming if the blob fetch fails.
     vid.preload = 'auto';
-    vid.src = _withToken(`${API_BASE}/download/${videoKey}`);
     document.getElementById('captionPlayer').style.display = 'block';
+    const loadingEl = document.getElementById('playerLoading');
+    if (loadingEl) loadingEl.style.display = 'flex';
+    if (bigPlay) bigPlay.style.opacity = '0';   // hide play affordance until the clip is ready
+    // Hide the spinner once the first frame is decodable (fires for both the
+    // blob src and the streaming fallback). bigPlay is re-shown by the 'pause'
+    // handler's normal opacity toggle on first render.
+    vid.addEventListener('loadeddata', () => {
+      if (loadingEl) loadingEl.style.display = 'none';
+      if (bigPlay && vid.paused) bigPlay.style.opacity = '1';
+    }, { once: true });
+    (async () => {
+      try {
+        const resp = await apiFetch(_withToken(`${API_BASE}/download/${videoKey}`));
+        if (!resp.ok) throw new Error('download ' + resp.status);
+        const blob = new Blob([await resp.arrayBuffer()], { type: 'video/mp4' });
+        if (!_playerSetupDone) return;   // player was reset while fetching
+        if (_previewObjURL) { try { URL.revokeObjectURL(_previewObjURL); } catch (_) {} }
+        _previewObjURL = URL.createObjectURL(blob);
+        vid.src = _previewObjURL;
+      } catch (e) {
+        console.error('preview blob fetch failed, streaming instead', e);
+        if (_playerSetupDone) vid.src = _withToken(`${API_BASE}/download/${videoKey}`);
+      }
+    })();
 
     vid.addEventListener('loadedmetadata', () => {
       const wrap = document.getElementById('playerWrap');

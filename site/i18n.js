@@ -110,6 +110,7 @@
     'capedit.posBottom': { en: 'Caption near bottom', he: 'כתובית קרוב לתחתית' },
     'capedit.srt':     { en: 'Download SRT', he: 'הורדת קובץ SRT' },
     'capedit.playpause': { en: 'Play / Pause', he: 'ניגון / השהיה' },
+    'capedit.previewLoading': { en: 'Preview loading...', he: 'טוען תצוגה מקדימה...' },
     'capedit.sizeTitle': { en: 'Caption text size in burned video', he: 'גודל הכתוביות בסרטון הסופי' },
     'capedit.badTimes':  { en: 'Fix overlapping caption times before burning.', he: 'תקנו חפיפות בזמני הכתוביות לפני הצריבה.' },
 
