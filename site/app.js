@@ -2123,6 +2123,10 @@
     if (banner) {
       _pulse(banner, 'celebrate-glow');
       _pulse(banner.querySelector('.burn-success-icon'), 'celebrate-check');
+      // Bring the finished-video banner (with the Download button) into view -
+      // after a burn the page is scrolled down on the checklist, so surface the
+      // payoff + download instead of leaving the user staring at the progress.
+      setTimeout(() => _scrollToBelowTopbar(banner), 60);
     }
     const statEl = document.getElementById('burnSuccessStat');
     if (!statEl) return;

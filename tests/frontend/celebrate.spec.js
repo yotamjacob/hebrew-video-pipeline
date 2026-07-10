@@ -20,6 +20,9 @@ test('export complete reveals + animates the success banner', async ({ page }) =
   const ok = page.locator('#confirmOk');
   if (await ok.isVisible().catch(() => false)) await ok.click();
   await expect(page.locator('#burnSuccessBanner')).toBeVisible({ timeout: 15000 });
+  // The finished-video banner (with Download) is scrolled into view.
+  await page.waitForTimeout(700);
+  await expect(page.locator('#burnDownloadBtn')).toBeInViewport();
 });
 
 test('celebration still appears under prefers-reduced-motion', async ({ page }) => {
