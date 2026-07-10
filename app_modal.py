@@ -652,6 +652,7 @@ def api():
             if enhance_video not in ("none", "filters", "esrgan"):
                 enhance_video = "none"
             transcribe_for_broll = qs.get("transcribe_for_broll", ["false"])[0].lower() == "true"
+            is_audio             = qs.get("is_audio", ["false"])[0].lower() == "true"
             min_silence          = float(qs.get("min_silence", ["0.5"])[0])
             padding              = float(qs.get("padding",     ["0.2"])[0])
 
@@ -684,6 +685,7 @@ def api():
                         transcribe_for_broll=transcribe_for_broll,
                         key_prefix=uprefix,
                         enhance_video=enhance_video,
+                        is_audio=is_audio,
                     )
                 else:
                     # Legacy path — full body in request (may hit Modal 303 on slow connections)
@@ -699,6 +701,7 @@ def api():
                         transcribe_for_broll=transcribe_for_broll,
                         key_prefix=uprefix,
                         enhance_video=enhance_video,
+                        is_audio=is_audio,
                     )
                 _record_call(call)
                 if not is_admin and uname:
@@ -949,10 +952,10 @@ def api():
             try:
                 jobs = []
                 for key in list(jobs_store.keys()):
-                    # Burned outputs (_out.mp4) AND terminal cut-only results
-                    # (_cut.mp4) are both recorded in jobs_store and belong in
-                    # History — listing only _out.mp4 hid silence-cut videos.
-                    if not key.endswith(("_out.mp4", "_cut.mp4")) or not _owned_key(key, uid):
+                    # Burned outputs (_out.mp4), terminal cut-only videos
+                    # (_cut.mp4) AND audio-only outputs (_cut.m4a) are all
+                    # recorded in jobs_store and belong in History.
+                    if not key.endswith(("_out.mp4", "_cut.mp4", "_cut.m4a")) or not _owned_key(key, uid):
                         continue
                     meta = jobs_store.get(key) or {}
                     jobs.append({"key": key, "name": meta.get("name", "video"),
@@ -971,7 +974,7 @@ def api():
         if path.startswith("/jobs/") and method == "DELETE":
             from pathlib import Path as _Path
             key = path[len("/jobs/"):].rstrip("/")
-            if not key or not _SAFE_DOWNLOAD_KEY_RE.match(key) or not key.endswith(("_out.mp4", "_cut.mp4")):
+            if not key or not _SAFE_DOWNLOAD_KEY_RE.match(key) or not key.endswith(("_out.mp4", "_cut.mp4", "_cut.m4a")):
                 await send_error("Invalid key", 400)
                 return
             if not _owned_key(key, uid):
@@ -1057,8 +1060,9 @@ def api():
                     status = 206
 
                 content_length = end - start + 1
+                _ctype = b"audio/mp4" if key.endswith(".m4a") else b"video/mp4"
                 resp_headers = CORS + [
-                    (b"content-type",        b"video/mp4"),
+                    (b"content-type",        _ctype),
                     (b"accept-ranges",       b"bytes"),
                     (b"content-length",      str(content_length).encode()),
                     (b"content-disposition", f'attachment; filename="{filename}"'.encode()),
@@ -1173,6 +1177,11 @@ def api():
                 return
             if not _owned_key(key, uid):
                 await send_error("Forbidden", 403)
+                return
+            # Audio outputs have no video frame to grab — the frontend shows an
+            # audio glyph instead and should not call this, but be defensive.
+            if key.endswith(".m4a"):
+                await send_error("No thumbnail for audio", 404)
                 return
             try:
                 import subprocess as _sp, asyncio as _asyncio

@@ -690,6 +690,43 @@
     .burn-success-icon  { color: var(--green); }
     .burn-success-icon svg { width: 2rem; height: 2rem; display: block; }
     .burn-success-label { font-size: 1rem; font-weight: 700; color: #55604A; }
+    .burn-success-stat  { font-size: 0.85rem; font-weight: 600; color: var(--terracotta); letter-spacing: 0.2px; }
+
+    /* ── Celebration micro-interactions (restrained, on-brand) ── */
+    /* One-shot warm glow pulse on a success surface. */
+    @keyframes celebrate-glow-kf {
+      0%   { box-shadow: 0 0 0 0 rgba(196,112,63,0); }
+      30%  { box-shadow: 0 0 0 5px rgba(196,112,63,0.16), 0 10px 28px rgba(196,112,63,0.22); }
+      100% { box-shadow: 0 0 0 0 rgba(196,112,63,0); }
+    }
+    .celebrate-glow { animation: celebrate-glow-kf 1.15s ease-out; }
+    /* Check icon: spring the mark, draw the tick. */
+    @keyframes celebrate-pop-kf {
+      0% { transform: scale(0.6); } 55% { transform: scale(1.18); }
+      75% { transform: scale(0.94); } 100% { transform: scale(1); }
+    }
+    @keyframes celebrate-draw-kf { to { stroke-dashoffset: 0; } }
+    .celebrate-check { animation: celebrate-pop-kf 0.6s cubic-bezier(0.34,1.56,0.64,1) both; }
+    .celebrate-check svg path:last-of-type {
+      stroke-dasharray: 24; stroke-dashoffset: 24;
+      animation: celebrate-draw-kf 0.45s 0.12s ease-out forwards;
+    }
+    /* Reusable toast (edit-ready / schedule). */
+    .celebrate-toast {
+      position: fixed; z-index: 10001; top: 74px; left: 50%;
+      transform: translateX(-50%) translateY(-10px) scale(0.96);
+      display: flex; align-items: center; gap: 9px;
+      padding: 11px 18px; border-radius: 999px; max-width: 90vw;
+      background: var(--white); border: 1.5px solid var(--sage-100);
+      box-shadow: 0 10px 30px rgba(120,90,60,0.18);
+      color: var(--text); font-weight: 700; font-size: 0.92rem;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.28s ease, transform 0.42s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    .celebrate-toast.show { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+    .celebrate-toast-check { color: var(--green); display: inline-flex; }
+    .celebrate-toast-check svg { width: 1.3rem; height: 1.3rem; }
+    .celebrate-toast-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
     /* ── Disabled option row (Veo) ── */
     .option-row.disabled-feature {
@@ -1176,7 +1213,12 @@
     .player-wrap {
       position: relative; background: #000; border-radius: 10px; overflow: hidden;
       flex-shrink: 0; cursor: pointer; align-self: flex-start;
-      width: min(440px, 88vw);
+      /* Portrait default so the box has a real height BEFORE the video's
+         metadata loads - otherwise the absolutely-positioned children (incl.
+         the "Preview loading" spinner) collapse to a zero-height, invisible
+         box. JS overrides width + aspect-ratio per the true orientation on
+         'loadedmetadata'. */
+      width: min(260px, 72vw); aspect-ratio: 9 / 16;
     }
     #cutVideo {
       position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
@@ -1495,6 +1537,10 @@
   width: 64px; height: 64px; object-fit: cover; border-radius: 10px;
   background: var(--purple-50); flex-shrink: 0;
 }
+.history-thumb-audio {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--olive); background: var(--purple-100);
+}
 .history-info { flex: 1; min-width: 0; }
 .history-name {
   font-size: 0.9rem; font-weight: 600; color: var(--text);
@@ -1625,29 +1671,40 @@
 .logout-btn:hover { background: #F5E7DC; border-color: #E3C2A8; }
 
 .admin-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 0; border-bottom: 1px solid var(--purple-100);
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px 0; border-bottom: 1px solid var(--purple-100);
 }
 .admin-row:last-child { border-bottom: none; }
-.admin-name { flex: 1; min-width: 0; font-size: 0.9rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
-.admin-used { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+/* Header: email grows and truncates; usage count sits at the trailing edge. */
+.admin-header { display: flex; align-items: baseline; gap: 12px; }
+.admin-name {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 0.92rem; font-weight: 600; direction: ltr; text-align: start;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.admin-used { flex: 0 0 auto; font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+/* Controls: uniform-height pills that wrap together, never a lone stranded item. */
+.admin-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.admin-controls > * { height: 38px; box-sizing: border-box; }
 .admin-limit-input {
-  width: 74px; padding: 7px 8px; border: 1.5px solid var(--purple-100); border-radius: 9px;
+  width: 68px; padding: 0 8px; border: 1.5px solid var(--purple-100); border-radius: 9px;
   font-family: inherit; font-size: 0.85rem; outline: none; direction: ltr; text-align: center;
 }
 .admin-limit-input:focus { border-color: var(--purple-400); }
 .admin-save-btn {
-  padding: 7px 14px; border-radius: 9px; border: none; cursor: pointer;
-  background: var(--olive); color: #F7F0E6; font-size: 0.8rem; font-weight: 600; font-family: inherit;
+  padding: 0 16px; border-radius: 9px; border: none; cursor: pointer;
+  background: var(--olive); color: #F7F0E6; font-size: 0.82rem; font-weight: 600; font-family: inherit;
+  display: inline-flex; align-items: center; justify-content: center;
 }
 .admin-save-btn:disabled { opacity: 0.6; }
 .admin-reset-btn {
-  padding: 7px 12px; border-radius: 9px; cursor: pointer;
+  padding: 0 14px; border-radius: 9px; cursor: pointer;
   border: 1.5px solid var(--purple-100); background: transparent; color: var(--terracotta);
-  font-size: 0.8rem; font-weight: 600; font-family: inherit; white-space: nowrap;
+  font-size: 0.82rem; font-weight: 600; font-family: inherit; white-space: nowrap;
+  display: inline-flex; align-items: center; justify-content: center;
 }
 .admin-pw-input {
-  width: 130px; padding: 7px 8px; border: 1.5px solid var(--purple-100); border-radius: 9px;
+  flex: 1 1 140px; min-width: 120px; padding: 0 10px; border: 1.5px solid var(--purple-100); border-radius: 9px;
   font-family: inherit; font-size: 0.85rem; outline: none; direction: ltr;
 }
 .admin-pw-input:focus { border-color: var(--purple-400); }

@@ -136,6 +136,7 @@ def restore_dicts(key: str, which: str = "", apply: bool = False) -> dict:
 # Shared pure helpers
 # ---------------------------------------------------------------------------
 import json
+import re
 import subprocess
 from dataclasses import dataclass, field
 from typing import List
@@ -145,6 +146,8 @@ class Word:
     start: float
     end: float
     text: str
+    prob: float = 1.0       # Whisper per-word confidence (0-1); 1.0 = unknown/CLI
+    filler: bool = False    # hesitation ("umm"/"אמ") or noise fragment -> excise
 
 @dataclass
 class KeepSegment:
@@ -155,6 +158,46 @@ class KeepSegment:
     @property
     def duration(self):
         return self.end - self.start
+
+
+# ── Speech-vs-noise gate for the silence cutter ───────────────────────────────
+# The cutter keeps ONLY confident, real speech; ambient noise (birds, traffic,
+# wind) that Whisper hallucinates words over, and vocalized hesitations
+# ("umm", "אה"), are treated as cuttable. These are the tuning knobs — raise to
+# cut more aggressively, lower to keep more.
+_NO_SPEECH_HARD  = 0.85   # drop a Whisper segment this likely to be non-speech outright
+_NO_SPEECH_MAX   = 0.60   # ...or this likely AND low-confidence (the classic hallucination combo)
+_AVG_LOGPROB_MIN = -1.00  # segment avg token logprob below this => low-confidence => drop
+_WORD_PROB_MIN   = 0.15   # excise a token only if THIS unconfident (noise fragment); real
+                          # quiet/fast Hebrew words score well above this, so they're kept
+
+# Hesitation / filler tokens to excise from BOTH the cut audio and the captions.
+# Kept conservative for Hebrew: only forms that are NOT real content words.
+# NOTE: real words deliberately excluded — אם (if), הם (they), עם (with).
+_FILLER_EXACT = {
+    # English vocalized pauses
+    "um", "umm", "uh", "uhh", "uhm", "uhmm", "er", "err", "erm", "ermm",
+    "hmm", "hm", "mm", "mmm", "mhm", "eh",
+    # Hebrew vocalized pauses / interjections (medial-mem hesitation forms,
+    # never the final-mem real word אם):
+    "אמ", "אה", "אהה", "אממ", "אמם", "אהמ", "אהם", "אא", "עמ",
+}
+_NIQQUD_RE = re.compile(r"[֑-ׇ]")           # Hebrew points / cantillation
+_STRIP_EDGE = "‎‏.,!?;:־–—…\"'`׳״ ()[]{}"    # punct/marks to trim before matching
+_ELONG_RE = re.compile(r"(.)\1\1")                    # any character tripled = elongated hesitation
+
+def _is_filler(text):
+    """True if `text` is a vocalized hesitation / filler (not real speech)."""
+    t = _NIQQUD_RE.sub("", text or "").strip().strip(_STRIP_EDGE).lower()
+    if not t:
+        return False
+    if t in _FILLER_EXACT:
+        return True
+    # Elongated single-syllable hesitation: a letter tripled in a short token
+    # ("אההה", "אמממ", "ummm", "errr"). Real words don't triple a letter.
+    if len(t) <= 6 and _ELONG_RE.search(t):
+        return True
+    return False
 
 def run(cmd):
     result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -196,6 +239,32 @@ def has_audio_stream(path):
         capture_output=True, text=True,
     )
     return bool(r.stdout.strip())
+
+def probe_duration(path):
+    """Container duration only — for audio-only inputs that have no video
+    stream (probe_video selects v:0 and would raise)."""
+    r = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "json", str(path)],
+        capture_output=True, text=True, check=True,
+    )
+    return float(json.loads(r.stdout)["format"]["duration"])
+
+def has_video_stream(path):
+    """True if the file has a real (moving) video stream. Album art in an audio
+    file is a video stream with disposition attached_pic=1 — excluded here so
+    an MP3/M4A with cover art is still treated as audio."""
+    r = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v",
+         "-show_entries", "stream=codec_type:stream_disposition=attached_pic",
+         "-of", "json", str(path)],
+        capture_output=True, text=True,
+    )
+    try:
+        streams = json.loads(r.stdout).get("streams", [])
+    except Exception:
+        return True   # if unsure, assume video (safer default: full pipeline)
+    return any(s.get("disposition", {}).get("attached_pic", 0) != 1 for s in streams)
 
 def proofread_words(texts, client, model, chunk_size=400, max_tokens=8000):
     """Fix Hebrew ASR mishearings via one context-aware LLM pass.
@@ -280,42 +349,123 @@ def proofread_words(texts, client, model, chunk_size=400, max_tokens=8000):
 
 
 def compute_keep_segments(whisper_segs, total_dur, min_sil, pad):
-    """Cut only between Whisper segments, never within one.
+    """Keep only spans of real speech; cut silence AND filler/noise words.
 
-    whisper_segs: List[List[Word]] — each inner list is one Whisper segment.
-    Cuts happen only when the gap between two consecutive segments >= min_sil.
-    Words within a segment are always kept together, preventing mid-word cuts
-    caused by Whisper tokenization or VAD boundary artefacts.
+    whisper_segs: List[(List[Word], seg_end)] — Whisper segments, already
+    noise-gated in transcribe(). Here we work on the flat word stream:
+
+      * words flagged `filler` (hesitations, sub-threshold-confidence noise
+        fragments) are EXCISED — a tight cut is forced around each one so the
+        "umm" / "אה" audio is actually removed, not merely hidden from captions;
+      * a gap >= min_sil between consecutive real words is a silence cut;
+      * everything else is merged into a kept segment with `pad` breathing room.
+
+    This is word-granular (unlike the old segment-granular cut) so hallucinated
+    noise and fillers no longer keep a whole segment alive — the #1 reason a
+    noisy clip "barely got cut".
     """
-    if not whisper_segs:
-        return [KeepSegment(0.0, total_dur)]
+    # Whisper (especially CUDA) underestimates segment-end timestamps for Hebrew
+    # trailing vowels (ו, י, ה) by 150-300ms — buffer real speech ends. Trimmed
+    # 0.25 -> 0.18 (2026-07-10): the VAD word-timestamp repair now recovers most
+    # word-ends accurately, so a smaller safety buffer shortens the leftover
+    # pause on every cut (e.g. the ~0.5s residual at undetectable room-tone
+    # pauses) with little added clipping risk.
+    TRAIL = 0.18
+    # Minimal buffer kept around a tight filler excision so we don't clip the
+    # consonant of the neighbouring real word.
+    EDGE = 0.06
+
+    words = [w for seg_words, _e in whisper_segs for w in seg_words]
+    # Partition into kept (real) words, remembering the span of any filler/noise
+    # run sitting immediately before each kept word (so we can excise it tightly).
+    kept, drop_before = [], []
+    pending = None  # [start, end] of the dropped run before the next kept word
+    for w in words:
+        if w.filler:
+            if pending is None:
+                pending = [w.start, w.end]
+            else:
+                pending[1] = max(pending[1], w.end)
+            continue
+        kept.append(w)
+        drop_before.append(pending)
+        pending = None
+
+    if not kept:
+        # No confident speech anywhere — don't nuke the whole video; keep it.
+        return [KeepSegment(0.0, total_dur, words)]
+
     out = []
-    cur = None
-    prev_end = None  # raw (unpadded) end timestamp of last added Whisper segment
-
-    # Whisper (especially CUDA) consistently underestimates segment end
-    # timestamps for Hebrew trailing vowels (ו, י, ה) by 150–300ms.
-    # Add a fixed trailing buffer on top of pad to compensate.
-    TRAIL = 0.25
-
-    for seg_words, seg_end in whisper_segs:
-        seg_start = seg_words[0].start
-
-        if cur is None:
-            cur = KeepSegment(start=max(0.0, seg_start - pad), end=0.0)
+    cur = KeepSegment(start=max(0.0, kept[0].start - pad), end=0.0, words=[kept[0]])
+    prev_end = kept[0].end
+    for i in range(1, len(kept)):
+        w = kept[i]
+        dropped = drop_before[i]
+        if dropped is not None:
+            # A filler/noise word sat between the two real words — cut tightly
+            # around it, excising its audio (and surrounding dead air),
+            # regardless of min_sil.
+            ds, de = dropped
+            cur.end = min(total_dur, max(cur.start, min(prev_end + EDGE, ds)))
+            out.append(cur)
+            nstart = max(cur.end, de, w.start - EDGE)
+            cur = KeepSegment(start=min(nstart, w.start), end=0.0, words=[w])
+        elif (w.start - prev_end) >= min_sil:
+            cur.end = min(total_dur, prev_end + pad + TRAIL)
+            out.append(cur)
+            cur = KeepSegment(start=max(cur.end, w.start - pad), end=0.0, words=[w])
         else:
-            gap = seg_start - prev_end
-            if gap >= min_sil:
-                cur.end = min(total_dur, prev_end + pad + TRAIL)
-                out.append(cur)
-                cur = KeepSegment(start=max(cur.end, seg_start - pad), end=0.0)
-
-        cur.words.extend(seg_words)
-        prev_end = seg_end  # segment-level end, not last word's end
+            cur.words.append(w)
+        prev_end = w.end
 
     cur.end = min(total_dur, prev_end + pad + TRAIL)
     out.append(cur)
     return out
+
+def _clamp_word_to_speech(ws, we, speech):
+    """Trim a word's [ws,we] span to the voice regions it overlaps.
+
+    Whisper's word timestamps routinely inflate to swallow a pause — e.g. a
+    trailing "אם" reported as [16.8, 18.14] when the voice is only at
+    [18.0, 18.14] and 16.8-18.0 is a room-tone pause. VAD knows where the voice
+    actually is; clamping to it re-exposes the gap so the word-gap cutter (and
+    caption timing) see the real pause. `speech` is a sorted list of (s,e)
+    voice intervals. Returns the (possibly trimmed) (start, end); leaves the
+    word untouched if VAD found no voice overlapping it (avoid destroying a
+    quiet word VAD may have missed)."""
+    overlap = [(s, e) for (s, e) in speech if e > ws and s < we]
+    if not overlap:
+        return ws, we
+    ns = max(ws, overlap[0][0])
+    ne = min(we, overlap[-1][1])
+    if ne - ns < 0.02:          # degenerate after clamp — keep original
+        return ws, we
+    return ns, ne
+
+def _repair_word_timestamps_with_vad(whisper_segs, wav_path, min_sil):
+    """Shrink each word's timestamps to the VAD voice regions (see
+    _clamp_word_to_speech). Best-effort: any failure leaves timings untouched.
+    Uses faster-whisper's bundled Silero VAD (voice presence, not loudness) so
+    high-room-tone pauses Whisper hides are still detected."""
+    from faster_whisper.audio import decode_audio
+    from faster_whisper.vad import get_speech_timestamps, VadOptions
+    sr = 16000
+    audio = decode_audio(str(wav_path), sampling_rate=sr)
+    opts = VadOptions(threshold=0.5,
+                      min_silence_duration_ms=max(200, int(min_sil * 1000)),
+                      speech_pad_ms=100)
+    chunks = get_speech_timestamps(audio, opts)
+    speech = [(c["start"] / sr, c["end"] / sr) for c in chunks]
+    if not speech:
+        return 0
+    n = 0
+    for seg_words, _e in whisper_segs:
+        for w in seg_words:
+            ns, ne = _clamp_word_to_speech(w.start, w.end, speech)
+            if abs(ns - w.start) > 0.05 or abs(ne - w.end) > 0.05:
+                n += 1
+            w.start, w.end = ns, ne
+    return n
 
 def seconds_to_ass(t):
     h = int(t // 3600)
@@ -352,6 +502,10 @@ def generate_ass(segs, path, w, h, font_size=48, min_sil=0.3):
 
         prev_end = None
         for ww in seg.words:
+            # Never show hesitations/noise fragments in captions (they're also
+            # excised from the audio when silence-cut is on).
+            if getattr(ww, "filler", False):
+                continue
             # Split on silence gap — necessary when cut_silences=False puts all words
             # in one segment; also catches any sub-min_sil gaps left in segments.
             if prev_end is not None and (ww.start - prev_end) >= min_sil and line_buf:
@@ -450,6 +604,24 @@ def render(video, audio, segs, ass_file, out, crf=18, rotation=0, extra_vf=""):
          "-movflags", "+faststart"] + meta_args + [str(out)])
 
 
+def render_audio(audio_in, segs, out):
+    """Audio-only deliverable: trim to keep-segments (if any) and encode to AAC
+    in an .m4a container. `segs=None`/empty just re-encodes the whole track.
+    Mirrors render() but with no video stream."""
+    if segs:
+        a_parts = [f"[0:a]atrim=start={s.start:.3f}:end={s.end:.3f},asetpts=PTS-STARTPTS[a{i}]"
+                   for i, s in enumerate(segs)]
+        cin = "".join(f"[a{i}]" for i in range(len(segs)))
+        concat = f"{cin}concat=n={len(segs)}:v=0:a=1[aout]"
+        fc = ";".join(a_parts + [concat])
+        run(["ffmpeg", "-y", "-i", str(audio_in),
+             "-filter_complex", fc, "-map", "[aout]",
+             "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out)])
+    else:
+        run(["ffmpeg", "-y", "-i", str(audio_in), "-vn",
+             "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out)])
+
+
 # ---------------------------------------------------------------------------
 # Core processing — GPU worker
 # ---------------------------------------------------------------------------
@@ -476,6 +648,7 @@ def process_video(
     transcribe_for_broll: bool = False,
     key_prefix: str = "",
     enhance_video: str = "none",   # none | filters | esrgan
+    is_audio: bool = False,        # audio-only input: no video, output a clean .m4a
 ) -> dict:
     # Warmup call — just starts the container, no real work
     if filename == "__warmup__":
@@ -693,42 +866,71 @@ def process_video(
             # seg_end is Whisper's segment-level end timestamp, which is more
             # generous than the last word's end — it captures trailing vowels
             # (e.g. the "oooo" of ו) that fall below word-detection threshold.
+            #
+            # Noise gate: ambient sound (birds, traffic, wind) makes Whisper
+            # emit low-confidence, high-"no_speech" segments. Drop those whole
+            # segments so their audio becomes a cut rather than kept "speech".
+            # Per word we keep the confidence and pre-flag hesitations / very
+            # low-confidence tokens as `filler` for the cutter to excise.
             result = []
             for seg in segs:
-                # float() strips numpy scalars — the api router runs on light_image
-                # (no numpy) and can't unpickle np.float64 in the polled result.
-                seg_words = [Word(float(w.start), float(w.end), w.word.strip())
-                             for w in (seg.words or []) if w.word.strip()]
+                nsp = float(getattr(seg, "no_speech_prob", 0.0) or 0.0)
+                alp = float(getattr(seg, "avg_logprob", 0.0) or 0.0)
+                if nsp >= _NO_SPEECH_HARD or (nsp >= _NO_SPEECH_MAX and alp <= _AVG_LOGPROB_MIN):
+                    continue  # non-speech / hallucination — treat as silence
+                seg_words = []
+                for w in (seg.words or []):
+                    txt = w.word.strip()
+                    if not txt:
+                        continue
+                    # float() strips numpy scalars — the api router runs on
+                    # light_image (no numpy) and can't unpickle np.float64.
+                    prob = float(getattr(w, "probability", 1.0) or 1.0)
+                    word = Word(float(w.start), float(w.end), txt, prob)
+                    # Excise only genuine fillers, or a token so unconfident it's
+                    # almost certainly a noise fragment (very low bar so real but
+                    # quiet/fast Hebrew words are NOT clipped).
+                    word.filler = _is_filler(txt) or prob < _WORD_PROB_MIN
+                    seg_words.append(word)
+                # Segment that is entirely filler / noise fragments — drop it.
+                if not any(not w.filler for w in seg_words):
+                    continue
                 if seg_words:
                     result.append((seg_words, float(seg.end)))
             return result
 
-        # Less aggressive VAD: lower threshold + longer speech padding so weak
-        # Hebrew consonants (ע, ח, ה at word ends) aren't mistaken for silence.
+        # VAD gate (Silero, tuned for human voice) is the first noise filter.
+        # speech_pad_ms keeps a buffer around detected speech so weak Hebrew
+        # consonants (ע, ח, ה) at word edges survive.
         vad_params = {
-            "threshold": 0.35,           # default 0.5 — lower catches quieter phonemes
-            "min_silence_duration_ms": 600,  # default 2000 — allow shorter pauses within speech
-            "speech_pad_ms": 600,            # default 400 — more buffer around speech boundaries
+            "threshold": 0.5,                # default — rejects non-voice (wind/traffic/birds score low)
+            "min_silence_duration_ms": 500,
+            "speech_pad_ms": 400,
         }
+        # condition_on_previous_text=False is deliberate: feeding prior text back
+        # is the main driver of runaway hallucination over long noisy/quiet
+        # stretches (the model "keeps talking"). The Sonnet proofread pass
+        # restores cross-sentence coherence, so we lose little accuracy and gain
+        # far cleaner speech/noise separation. no_speech/logprob/compression
+        # thresholds let faster-whisper itself drop non-speech segments.
+        common = dict(
+            language="he", word_timestamps=True,
+            vad_filter=True, vad_parameters=vad_params,
+            beam_size=5, condition_on_previous_text=False,
+            no_speech_threshold=_NO_SPEECH_MAX,
+            log_prob_threshold=_AVG_LOGPROB_MIN,
+            compression_ratio_threshold=2.4,
+            initial_prompt=WHISPER_INITIAL_PROMPT,
+        )
         try:
             m = WhisperModel(WHISPER_MODEL, device="cuda", compute_type="float16",
                              download_root=MODEL_DIR)
-            segs, _ = m.transcribe(
-                str(wav), language="he", word_timestamps=True,
-                vad_filter=True, vad_parameters=vad_params,
-                beam_size=5, condition_on_previous_text=True,
-                initial_prompt=WHISPER_INITIAL_PROMPT,
-            )
+            segs, _ = m.transcribe(str(wav), **common)
             whisper_segs = _segments(segs)
         except Exception:
             m = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8",
                              download_root=MODEL_DIR)
-            segs, _ = m.transcribe(
-                str(wav), language="he", word_timestamps=True,
-                vad_filter=True, vad_parameters=vad_params,
-                beam_size=5, condition_on_previous_text=True,
-                initial_prompt=WHISPER_INITIAL_PROMPT,
-            )
+            segs, _ = m.transcribe(str(wav), **common)
             whisper_segs = _segments(segs)
         model_volume.commit()
         return whisper_segs
@@ -753,17 +955,24 @@ def process_video(
         else:
             src.write_bytes(video_bytes)
 
-        width, height, duration, rotation = probe_video(src)
+        # Trust the frontend's audio flag, but also treat a file with no real
+        # video stream as audio so probe_video (which selects v:0) never raises.
+        is_audio = is_audio or not has_video_stream(src)
+        if is_audio:
+            width = height = rotation = 0
+            duration = probe_duration(src)
+        else:
+            width, height, duration, rotation = probe_video(src)
         # The whole pipeline is speech-driven (transcribe -> cut silence ->
-        # captions), so a video with no audio track can't be processed. Fail
+        # captions), so an input with no audio track can't be processed. Fail
         # fast with a stable marker the frontend maps to a friendly message,
         # instead of letting extract_audio die with an opaque ffmpeg error.
         if not has_audio_stream(src):
-            raise RuntimeError("no_audio: uploaded video has no audio track")
+            raise RuntimeError("no_audio: upload has no audio track")
         raw_wav = tmp / "raw.wav"
         clean_wav = tmp / "clean.wav"
         ass_file = tmp / "captions.ass"
-        out_file = tmp / ("out_" + filename)
+        out_file = tmp / ("audio_out.m4a" if is_audio else ("out_" + filename))
 
         if enhance_audio:
             _mark(stage="enhance")
@@ -773,7 +982,8 @@ def process_video(
         else:
             shutil.copy(raw_wav, clean_wav)
 
-        need_transcription = cut_silences or burn_captions or transcribe_for_broll
+        # Audio inputs always transcribe (captions/SRT are the whole point).
+        need_transcription = cut_silences or burn_captions or transcribe_for_broll or is_audio
         # 'cut' covers transcription, keep-segment math and the trim/concat render
         _mark(stage="cut" if need_transcription else None,
               done="enhance" if enhance_audio else None)
@@ -800,6 +1010,17 @@ def process_video(
             except Exception as _pe:
                 print(f"[proofread] skipped: {_pe!r}")
 
+        # Repair Whisper word timestamps against VAD voice regions so pauses it
+        # hid (inflated word spans over room-tone) become real, cuttable gaps.
+        # Best-effort - any failure keeps the raw timings.
+        if whisper_segs:
+            try:
+                _t0 = _time.time()
+                _nfix = _repair_word_timestamps_with_vad(whisper_segs, clean_wav, min_silence)
+                print(f"[vad-repair] adjusted {_nfix} word timestamps in {_time.time() - _t0:.1f}s")
+            except Exception as _ve:
+                print(f"[vad-repair] skipped: {_ve!r}")
+
         flat_words   = [w for seg_words, _end in whisper_segs for w in seg_words]
 
         segs = (
@@ -809,12 +1030,23 @@ def process_video(
         )
 
         captions_list = []
-        if (burn_captions or transcribe_for_broll) and flat_words:
-            events = generate_ass(segs, ass_file, width, height, min_sil=min_silence)
+        if (burn_captions or transcribe_for_broll or is_audio) and flat_words:
+            # Audio has no video dims; feed generate_ass synthetic portrait dims
+            # so caption wrapping is sane. The .ass file is unused for audio (no
+            # burn) - we only want the timed events for the editor / SRT.
+            _cw, _ch = (1080, 1920) if is_audio else (width, height)
+            events = generate_ass(segs, ass_file, _cw, _ch, min_sil=min_silence)
             captions_list = [{"start": s, "end": e, "text": _censor_caption_text(t)} for s, e, t in events]
 
         enh_vf = ENHANCE_VIDEO_VF if enhance_video == "filters" else ""
-        if cut_silences and whisper_segs:
+        if is_audio:
+            # Clean sound file: cut from the enhanced mono track when enhancing,
+            # else from the original audio (untouched levels/channels). Trim to
+            # keep-segments only when silence-cut is on and we have speech.
+            audio_src = clean_wav if enhance_audio else src
+            cut_segs = segs if (cut_silences and whisper_segs) else None
+            render_audio(audio_src, cut_segs, out_file)
+        elif cut_silences and whisper_segs:
             render(src, clean_wav, segs, None, out_file, rotation=rotation, extra_vf=enh_vf)
         elif rotation or enh_vf:
             # Re-encode: bake rotation into pixels and/or apply the enhancement chain.
@@ -846,7 +1078,7 @@ def process_video(
             _mark(done="upscale")
 
         import uuid
-        video_key = key_prefix + uuid.uuid4().hex + "_cut.mp4"
+        video_key = key_prefix + uuid.uuid4().hex + ("_cut.m4a" if is_audio else "_cut.mp4")
         cut_path = Path(TMP_DIR) / video_key
         shutil.copy(out_file, cut_path)
         tmp_vol.commit()
@@ -856,7 +1088,9 @@ def process_video(
         # JOB_RETENTION_DAYS (protected from the 48h scratch prune) and can be
         # re-downloaded or scheduled later, exactly like a burned output. Caption
         # / B-roll jobs skip this: their burn step records the _out.mp4 instead.
-        if not captions_list and not transcribe_for_broll:
+        # Audio is always terminal (no burn follows) even though it produces
+        # captions, so record it here too.
+        if is_audio or (not captions_list and not transcribe_for_broll):
             try:
                 _record_job(video_key, filename, cut_path)
                 tmp_vol.commit()
@@ -1255,7 +1489,7 @@ def prune_volume():
         # store while output videos still sit on the volume is that anomaly — skip
         # the sweep and alert rather than risk catastrophic data loss.
         vol_files = list(Path(TMP_DIR).iterdir())
-        has_outputs = any(f.name.endswith(("_out.mp4", "_cut.mp4")) for f in vol_files)
+        has_outputs = any(f.name.endswith(("_out.mp4", "_cut.mp4", "_cut.m4a")) for f in vol_files)
         if not protected and has_outputs:
             print("[prune] ABORT scratch sweep: jobs_store empty but output "
                   "videos present on volume — suspected Dict loss, not deleting.")

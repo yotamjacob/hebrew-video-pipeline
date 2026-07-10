@@ -55,6 +55,23 @@
     authToken = ''; mediaToken = '';
     localStorage.removeItem('hebpipe_token');
     sessionStorage.removeItem('hebpipe_token');
+    // NOTE: intentionally does NOT drop the remembered email/password - a
+    // logout is meant to land on a pre-filled login form. They are cleared
+    // only on a login where "remember me" was unchecked (see _forgetCreds).
+  }
+
+  // Remembered credentials for login-form prefill. base64 is obfuscation, not
+  // encryption - see the tradeoff note at the login call site. unicode-safe so
+  // non-Latin passwords survive the round-trip.
+  function _b64enc(s) { return btoa(unescape(encodeURIComponent(s))); }
+  function _b64dec(s) { try { return decodeURIComponent(escape(atob(s))); } catch { return ''; } }
+  function _rememberCreds(email, pw) {
+    localStorage.setItem('hebpipe_email', email);
+    localStorage.setItem('hebpipe_pw', _b64enc(pw));
+  }
+  function _forgetCreds() {
+    localStorage.removeItem('hebpipe_email');
+    localStorage.removeItem('hebpipe_pw');
   }
 
   // Short-lived, GET-only token used in media URLs (img/video src, downloads)
@@ -128,11 +145,17 @@
   function showAuthView() {
     _hideBootLoader();
     document.getElementById('authView').style.display = 'block';
-    // Prefill the last-used email (saved on sign-in while "remember me" is
-    // checked) so returning users only retype their password.
+    // Prefill the last-used email + password (saved on sign-in while "remember
+    // me" was checked) so a returning user - e.g. right after logging out -
+    // lands on a ready-to-submit form.
     const emailInput = document.getElementById('authEmail');
     if (emailInput && !emailInput.value) {
       emailInput.value = localStorage.getItem('hebpipe_email') || '';
+    }
+    const pwInput = document.getElementById('authPassword');
+    if (pwInput && !pwInput.value) {
+      const savedPw = localStorage.getItem('hebpipe_pw');
+      if (savedPw) pwInput.value = _b64dec(savedPw);
     }
     document.getElementById('resetView').style.display = 'none';
     document.getElementById('tabsBar').style.display = 'none';
@@ -360,6 +383,12 @@
   document.getElementById('authEmail').addEventListener('input', () => validateEmail(false));
   document.getElementById('authPassword').addEventListener('input', () => validatePassword(false));
   document.getElementById('authInvite').addEventListener('input', () => validateInvite(false));
+  // Submit via the real <form> so the browser's password manager sees a login
+  // and offers to save / autofill credentials on the next visit.
+  document.getElementById('authForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    authSubmit();
+  });
 
   function toggleAuthMode() {
     authMode = authMode === 'register' ? 'login' : (authMode === 'forgot' ? 'login' : 'register');
@@ -429,10 +458,14 @@
       if (!resp.ok) throw new Error(data.error || t('auth.errStatus', {status: resp.status}));
       const remember = document.getElementById('rememberMe')?.checked ?? true;
       _storeToken(data.token, remember);
-      // Remember the sign-in email for next time's prefill - but never on a
-      // shared/incognito-style session where "remember me" was unchecked.
-      if (remember) localStorage.setItem('hebpipe_email', payload.email);
-      else          localStorage.removeItem('hebpipe_email');
+      // Remember the sign-in email + password for next time's prefill (so a
+      // logout lands on a pre-filled form) - but never on a shared/incognito
+      // session where "remember me" was unchecked. NOTE: the stored password
+      // is only base64-obfuscated, not encrypted - it is recoverable by
+      // anything with access to this origin's localStorage (an XSS bug or the
+      // device itself). This is a deliberate convenience-over-secrecy tradeoff.
+      if (remember && authMode === 'login') _rememberCreds(payload.email, payload.password);
+      else                                  _forgetCreds();
       showApp();
       fetch(API_BASE + '/warmup/', { headers: { 'Authorization': 'Bearer ' + authToken } }).catch(() => {});
     } catch (e) {
@@ -509,6 +542,7 @@
     { silence: 0.5, padding: 0.20, label: 'aggr.3' },
     { silence: 0.3, padding: 0.12, label: 'aggr.4' },
     { silence: 0.2, padding: 0.06, label: 'aggr.5' },
+    { silence: 0.1, padding: 0.04, label: 'aggr.6' },
   ];
   const noticeBlock  = document.getElementById('noticeBlock');
   const noticeWarn   = document.getElementById('noticeWarn');
@@ -516,6 +550,13 @@
 
   let selectedFile = null;
   let videoDuration = null;
+  // Audio-only upload: gates the pipeline to captions + silence-cut, output is
+  // a clean .m4a (no video processing, no burn). Set in handleFile.
+  let isAudioInput = false;
+  const _AUDIO_EXT_RE = /\.(ogg|mp3|wav|m4a|aac|flac|opus|oga|weba)$/i;
+  function _isAudioFile(file) {
+    return (file.type && file.type.startsWith('audio/')) || _AUDIO_EXT_RE.test(file.name || '');
+  }
   // Stable in-memory/disk copy of the picked file's bytes, snapshotted at
   // selection time so a long upload can't be broken by the OS moving the file
   // (Google Photos cloud-sync). `_snapshotId` is the IndexedDB key when the
@@ -610,8 +651,12 @@
         clearSavedJob();
         captionsData = result.captions || [];
         videoKey     = result.video_key;
-        cutFilename  = (job.filename || 'video').replace(/\.[^/.]+$/, '') + '_cut.mp4';
-        if (captionsData.length > 0) {
+        // Derive audio-mode from the output key so a reload-resumed job (where
+        // the picked File is gone) still renders the right editor.
+        isAudioInput = (videoKey || '').endsWith('.m4a');
+        applyAudioMode(isAudioInput);
+        cutFilename  = (job.filename || 'video').replace(/\.[^/.]+$/, '') + (isAudioInput ? '_clean.m4a' : '_cut.mp4');
+        if (isAudioInput || captionsData.length > 0) {
           showCaptionEditor();
         } else {
           await _finalizeAndDownload(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`, cutFilename);
@@ -671,6 +716,7 @@
             console.warn('Device download failed (video is still scheduled-ready):', dlErr.message);
         }
         document.getElementById('burnSuccessBanner').style.display = 'flex';
+        celebrateExport();
       } catch (err) {
         if (!_isNetErr(err)) clearSavedJob();
         if (err.name !== 'AbortError')
@@ -748,6 +794,28 @@
     const base = selectedFile ? selectedFile.name.replace(/\.[^.]+$/, '') : 'captions';
     a.href = url; a.download = base + '.srt'; a.click();
     URL.revokeObjectURL(url);
+  }
+
+  // Download the processed clean-audio (.m4a) file. Fetches through apiFetch so
+  // the bearer token is applied, then saves with a friendly filename.
+  async function downloadAudio() {
+    if (!videoKey) return;
+    const btn = document.getElementById('downloadAudioBtn');
+    _btnBusy(btn, true);
+    try {
+      const resp = await apiFetch(`${API_BASE}/download/${videoKey}`);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const blob = new Blob([await resp.arrayBuffer()], { type: 'audio/mp4' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = cutFilename || 'audio.m4a'; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('audio download failed', e);
+      alert(t('err.downloadFailed'));
+    } finally {
+      _btnBusy(btn, false);
+    }
   }
 
   // ── Global action lock ──
@@ -833,12 +901,16 @@
 
   async function handleFile(file) {
     if (!file) return;
-    if (!file.type.startsWith('video/') && !file.name.match(/\.(mp4|mov|mkv|avi|webm)$/i)) {
+    const _isVideo = file.type.startsWith('video/') || /\.(mp4|mov|mkv|avi|webm)$/i.test(file.name);
+    const _isAudio = _isAudioFile(file);
+    if (!_isVideo && !_isAudio) {
       showBlockNotice(t('file.badTypeTitle'), t('file.badType'));
       return;
     }
 
     selectedFile = file;
+    isAudioInput = _isAudio && !_isVideo;
+    applyAudioMode(isAudioInput);
     fileName.textContent = file.name;
     fileInfo.classList.add('visible');
     document.getElementById('startOverBtn').style.display = '';
@@ -854,16 +926,17 @@
       return;
     }
 
-    // Read duration + resolution from the video element
+    // Read duration (+ resolution for video). Audio has no dimensions, so probe
+    // with an <audio> element and skip the 4K/orientation logic entirely.
     fileDetail.textContent = t('file.reading', {size: formatSize(file.size)});
-    const meta = await getVideoMeta(file);
+    const meta = isAudioInput ? await getAudioMeta(file) : await getVideoMeta(file);
     videoDuration = meta.duration;
     // 4K if the long edge is ~3840 (landscape) or ~2160 tall portrait 4K -
     // i.e. the larger dimension reaches ~3000px. QHD (2560) is not flagged.
-    const is4K = Math.max(meta.width || 0, meta.height || 0) >= 3000;
+    const is4K = !isAudioInput && Math.max(meta.width || 0, meta.height || 0) >= 3000;
     // Early orientation hint (refined from the processed video once it loads in
     // the caption player) so B-roll can match the input's orientation.
-    videoOrientation = _orientationFor(meta.width, meta.height);
+    if (!isAudioInput) videoOrientation = _orientationFor(meta.width, meta.height);
 
     if (videoDuration !== null) {
       fileDetail.textContent = formatSize(file.size) + ' · ' + formatDuration(videoDuration);
@@ -928,6 +1001,7 @@
   clearFile.addEventListener('click', () => {
     if (!confirm(t('file.removeConfirm'))) return;
     selectedFile = null; videoDuration = null;
+    isAudioInput = false; applyAudioMode(false);
     _disposeSnapshot();
     document.getElementById('timeEstimate').style.display = 'none';
     fileInput.value = '';
@@ -957,8 +1031,36 @@
     });
   }
 
+  // Duration-only probe for audio uploads (no width/height).
+  function getAudioMeta(file) {
+    return new Promise(resolve => {
+      const audio = document.createElement('audio');
+      const url   = URL.createObjectURL(file);
+      const done = meta => {
+        audio.removeAttribute('src'); audio.load();
+        URL.revokeObjectURL(url);
+        resolve(meta);
+      };
+      audio.preload = 'metadata';
+      audio.onloadedmetadata = () => done({ duration: audio.duration, width: 0, height: 0 });
+      audio.onerror = () => done({ duration: null, width: 0, height: 0 });
+      audio.src = url;
+    });
+  }
+
+  // Toggle the options UI between video and audio modes. In audio mode only
+  // silence-cut + enhance-audio apply; captions are always produced (for SRT).
+  function applyAudioMode(on) {
+    const hide = ['burnCaptionsRow', 'enhanceVideoRow', 'enhanceVideoPanel', 'suggestBrollsRow'];
+    hide.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = on ? 'none' : ''; });
+    document.body.classList.toggle('audio-mode', on);
+  }
+
   function checkToolsEnabled() {
     if (!selectedFile || burnMode) return;
+    // Audio always transcribes (captions/SRT are the point), so Run is always
+    // available regardless of which audio-safe toggles are on.
+    if (isAudioInput) { runBtn.disabled = false; return; }
     const ids = ['cutSilences', 'burnCaptions', 'enhanceAudio'];
     if (VEO_ENABLED) ids.push('suggestBrolls');
     runBtn.disabled = !ids.some(id => document.getElementById(id)?.checked)
@@ -1100,13 +1202,16 @@
     const aggr = AGGR_MAP[aggrSlider.value - 1];
     const brollOn      = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
     const needTranscript = brollOn && !document.getElementById('burnCaptions').checked;
+    // Audio: no video processing / no burn - captions are always produced for
+    // the SRT, output is a clean .m4a. Only cut-silences + enhance-audio apply.
     const params = new URLSearchParams({
       filename:             selectedFile.name,
       cut_silences:         document.getElementById('cutSilences').checked  ? 'true' : 'false',
-      burn_captions:        document.getElementById('burnCaptions').checked ? 'true' : 'false',
+      burn_captions:        (!isAudioInput && document.getElementById('burnCaptions').checked) ? 'true' : 'false',
       enhance_audio:        document.getElementById('enhanceAudio').checked ? 'true' : 'false',
-      enhance_video:        _enhanceVideoMode(),
-      transcribe_for_broll: needTranscript ? 'true' : 'false',
+      enhance_video:        isAudioInput ? 'none' : _enhanceVideoMode(),
+      transcribe_for_broll: (!isAudioInput && needTranscript) ? 'true' : 'false',
+      is_audio:             isAudioInput ? 'true' : 'false',
       min_silence:          aggr.silence,
       padding:              aggr.padding,
     });
@@ -1161,16 +1266,27 @@
 
       captionsData = result.captions;
       videoKey     = result.video_key;
-      cutFilename  = (selectedFile.name || 'video').replace(/\.[^/.]+$/, '') + '_cut.mp4';
+      // Trust the output key: the backend auto-detects audio even if the
+      // frontend guessed wrong, so mode follows the real result.
+      isAudioInput = (videoKey || '').endsWith('.m4a');
+      applyAudioMode(isAudioInput);
+      const _stem  = (selectedFile.name || 'video').replace(/\.[^/.]+$/, '');
+      cutFilename  = _stem + (isAudioInput ? '_clean.m4a' : '_cut.mp4');
 
-      const brollActive = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
-      if (captionsData.length > 0 || brollActive) {
-        // Keep checklist visible (steps 1-3 done) while user edits captions
+      if (isAudioInput) {
+        // Audio: always land on the reduced editor (audio player + captions +
+        // SRT + download-audio). No burn, no B-roll.
         showCaptionEditor();
-        startBrollAnalysis();
       } else {
-        // No captions, no B-roll - download directly
-        await _finalizeAndDownload(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`, cutFilename);
+        const brollActive = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
+        if (captionsData.length > 0 || brollActive) {
+          // Keep checklist visible (steps 1-3 done) while user edits captions
+          showCaptionEditor();
+          startBrollAnalysis();
+        } else {
+          // No captions, no B-roll - download directly
+          await _finalizeAndDownload(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`, cutFilename);
+        }
       }
     } catch (err) {
       if (err.name === 'AbortError') return;
@@ -1961,6 +2077,63 @@
       else if (item.classList.contains('active')) _stepDone(name);  // frontend-measured wall time
       else if (!item.classList.contains('done')) _stepSkip(name);   // step never ran
     });
+  }
+
+  // ── Celebration micro-interactions ─────────────────────────────────────────
+  // Restrained, on-brand payoff at key checkpoints: a springy check + a warm
+  // one-shot glow + a count-up stat. The global prefers-reduced-motion CSS rule
+  // makes the CSS animations instant; the count-up guards itself in JS.
+  function _prefersReducedMotion() {
+    return window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+  function _countUp(el, to, { decimals = 0, suffix = '', ms = 900 } = {}) {
+    if (!el) return;
+    const fin = (decimals ? Number(to).toFixed(decimals) : String(Math.round(to))) + suffix;
+    if (_prefersReducedMotion()) { el.textContent = fin; return; }
+    const t0 = performance.now();
+    (function tick(now) {
+      const p = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - p, 3), v = to * e;
+      el.textContent = (decimals ? v.toFixed(decimals) : String(Math.round(v))) + suffix;
+      if (p < 1) requestAnimationFrame(tick); else el.textContent = fin;
+    })(t0);
+  }
+  function _pulse(el, cls) {
+    if (!el) return;
+    el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls);
+    setTimeout(() => el.classList.remove(cls), 1300);
+  }
+  // Edit-ready / schedule: a floating toast with a springy check + short text.
+  let _toastTimer = null;
+  function celebrateToast(text) {
+    const el = document.getElementById('celebrateToast');
+    if (!el) return;
+    // Reparent to <body> so position:fixed is viewport-relative and z-index
+    // wins outright — inside the in-flow container it was trapped in a lower
+    // stacking context and rendered behind the sticky topbar.
+    if (el.parentElement !== document.body) document.body.appendChild(el);
+    document.getElementById('celebrateToastText').textContent = text;
+    _pulse(el.querySelector('.celebrate-toast-check'), 'celebrate-check');
+    el.classList.add('show');
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+  }
+  // Export complete: animate the success banner in place + count up the payoff.
+  function celebrateExport() {
+    const banner = document.getElementById('burnSuccessBanner');
+    if (banner) {
+      _pulse(banner, 'celebrate-glow');
+      _pulse(banner.querySelector('.burn-success-icon'), 'celebrate-check');
+    }
+    const statEl = document.getElementById('burnSuccessStat');
+    if (!statEl) return;
+    const cutVid = document.getElementById('cutVideo');
+    const cutDur = cutVid && isFinite(cutVid.duration) ? cutVid.duration : null;
+    if (videoDuration && cutDur && videoDuration > cutDur + 0.3) {
+      statEl.style.display = '';
+      _countUp(statEl, videoDuration - cutDur, { decimals: 1, suffix: ' ' + t('celebrate.secTrimmed') });
+    } else {
+      statEl.style.display = 'none';   // no meaningful trim figure — keep it clean
+    }
   }
 
   function showDone() {
@@ -3667,10 +3840,12 @@
     document.querySelectorAll('#captionsList .caption-row-selected')
       .forEach(r => r.classList.remove('caption-row-selected'));
     row.classList.add('caption-row-selected');
-    const vid = document.getElementById('cutVideo');
-    if (vid && vid.src && isFinite(vid.duration)) {
-      vid.currentTime = seekSecs;
-      vid.pause();
+    // Audio mode: seek the audio player instead of the (absent) video player.
+    const media = isAudioInput ? document.getElementById('cutAudio')
+                               : document.getElementById('cutVideo');
+    if (media && media.src && isFinite(media.duration)) {
+      try { media.currentTime = seekSecs; } catch (_) {}
+      media.pause();
       // removed scrollIntoView - don't auto-scroll to preview when selecting a caption
     }
   }
@@ -3836,6 +4011,39 @@
     _updateDeleteButtons();
     _resetCaptionUndo();
     document.getElementById('captionEditorCard').style.display = 'block';
+
+    if (isAudioInput) {
+      // Audio mode: reduced editor - a native audio player, the editable
+      // caption list, and Download SRT / Download audio. No video preview,
+      // sliders, hooks, B-roll or burn.
+      document.getElementById('hookCard').style.display = 'none';
+      document.getElementById('stockBrollCard').style.display = 'none';
+      document.getElementById('captionPlayer').style.display = 'none';
+      // Font choice only affects burned captions - irrelevant for audio.
+      const _fc = document.querySelector('#captionEditorCard .caption-controls');
+      if (_fc) _fc.style.display = 'none';
+      document.getElementById('audioPlayer').style.display = 'block';
+      const au = document.getElementById('cutAudio');
+      if (au && videoKey) au.src = _withToken(`${API_BASE}/download/${videoKey}`);
+      document.getElementById('downloadAudioBtn').style.display = 'block';
+      const hintEl = document.querySelector('#captionEditorCard .cap-hint-row p');
+      if (hintEl) { hintEl.setAttribute('data-i18n', 'capedit.hintAudio'); hintEl.textContent = t('capedit.hintAudio'); }
+      burnMode = true;
+      runBtn.style.display = 'none';
+      document.getElementById('reprocessBtn').style.display = 'none';
+      document.getElementById('uploadCard').classList.add('setup-locked');
+      document.getElementById('optionsCard').classList.add('setup-locked');
+      setTimeout(() => _scrollToBelowTopbar(document.getElementById('captionEditorCard')), 60);
+      if (captionsData.length) celebrateToast(t('celebrate.captionsReady', { n: captionsData.length }));
+      return;
+    }
+
+    // Video mode: undo any audio-mode UI (in case an audio file preceded this).
+    document.getElementById('audioPlayer').style.display = 'none';
+    document.getElementById('downloadAudioBtn').style.display = 'none';
+    const _fcv = document.querySelector('#captionEditorCard .caption-controls');
+    if (_fcv) _fcv.style.display = '';
+    const _au = document.getElementById('cutAudio'); if (_au) { _au.pause(); _au.removeAttribute('src'); _au.load(); }
     document.getElementById('hookCard').style.display = 'block';
     // Stock B-roll card hosts the Find B-Roll Moments button
     document.getElementById('stockBrollCard').style.display = 'block';
@@ -3861,7 +4069,11 @@
     updateBurnBtn();
     setupCaptionPlayer();
     setTimeout(() => { initPositionTrack(); updatePreviewCaption(); validateCaptionTimes(); }, 50);
-    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    // Land on the caption editor (its header just below the sticky topbar), not
+    // at the bottom of the page - the user should see the editor they just
+    // unlocked, not the finished progress card / burn button below it.
+    setTimeout(() => _scrollToBelowTopbar(document.getElementById('captionEditorCard')), 60);
+    if (captionsData.length) celebrateToast(t('celebrate.captionsReady', { n: captionsData.length }));
   }
 
   async function doBurn() {
@@ -3999,6 +4211,7 @@
       // Download again) is truthful and usable.
       hasBurnedOnce = true;   // subsequent burns are re-burns
       document.getElementById('burnSuccessBanner').style.display = 'flex';
+      celebrateExport();
       // Re-enable editors for another round of changes on the same video
       editorIds.forEach(id => document.getElementById(id).classList.remove('burning'));
       [
@@ -4203,10 +4416,19 @@
       star.innerHTML = ICON.star;
       name.appendChild(star);
     }
+    name.title = u.username;
+    // Header line: email (grows, ellipsis-safe) + usage count pinned opposite.
+    const header = document.createElement('div');
+    header.className = 'admin-header';
     const used = document.createElement('div');
     used.className = 'admin-used';
     used.textContent = u.role === 'admin' ? t('admin.unlimited') : t('admin.used', {used: u.videos_used});
-    row.append(name, used);
+    header.append(name, used);
+    // Controls sit on their own line so a long email never gets clipped or
+    // broken vertically - the name always reads horizontally on the line above.
+    const controls = document.createElement('div');
+    controls.className = 'admin-controls';
+    row.append(header, controls);
     if (u.role !== 'admin') {
       const inp = document.createElement('input');
       inp.type = 'number'; inp.min = -1; inp.max = 100000;
@@ -4229,14 +4451,14 @@
         }
         setTimeout(() => { btn.textContent = t('admin.save'); btn.disabled = false; }, 1500);
       };
-      row.append(inp, btn);
+      controls.append(inp, btn);
     }
     // Reset-password control (available for every account, admins included).
     const pwBtn = document.createElement('button');
     pwBtn.className = 'admin-reset-btn';
     pwBtn.textContent = t('admin.resetPw');
     pwBtn.onclick = () => _startPwReset(row, u, pwBtn);
-    row.append(pwBtn);
+    controls.append(pwBtn);
     return row;
   }
 
@@ -4281,7 +4503,7 @@
         setTimeout(() => { ok.textContent = t('admin.setPw'); }, 1500);
       }
     };
-    row.append(inp, ok, cancel);
+    pwBtn.after(inp, ok, cancel);
     inp.focus();
   }
 
@@ -4322,13 +4544,22 @@
   function _historyCard(job) {
     const card = document.createElement('div');
     card.className = 'history-card';
+    const isAudio = job.key.endsWith('.m4a');
 
-    const thumb = document.createElement('img');
-    thumb.className = 'history-thumb';
-    thumb.loading = 'lazy';
-    thumb.alt = '';
-    thumb.src = _withToken(`${API_BASE}/thumbnail/${job.key}/`);
-    thumb.onerror = () => { thumb.style.visibility = 'hidden'; };
+    let thumb;
+    if (isAudio) {
+      // No video frame to grab - show an audio glyph placeholder.
+      thumb = document.createElement('div');
+      thumb.className = 'history-thumb history-thumb-audio';
+      thumb.innerHTML = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>';
+    } else {
+      thumb = document.createElement('img');
+      thumb.className = 'history-thumb';
+      thumb.loading = 'lazy';
+      thumb.alt = '';
+      thumb.src = _withToken(`${API_BASE}/thumbnail/${job.key}/`);
+      thumb.onerror = () => { thumb.style.visibility = 'hidden'; };
+    }
 
     const info = document.createElement('div');
     info.className = 'history-info';
@@ -4350,7 +4581,8 @@
     dl.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14"/></svg>';
     dl.title = t('hist.download');
     dl.onclick = () => {
-      const fname = (job.name || 'video').replace(/\.mp4$/i, '') + '_edited.mp4';
+      const stem = (job.name || 'video').replace(/\.[^/.]+$/, '');
+      const fname = isAudio ? stem + '_clean.m4a' : stem + '_edited.mp4';
       window.location.href = _withToken(`${API_BASE}/download/${job.key}/?filename=${encodeURIComponent(fname)}`);
     };
     const sch = document.createElement('button');
@@ -4374,7 +4606,9 @@
       } catch (_) {}
       loadHistory();
     };
-    actions.append(sch, dl, del);
+    // Scheduling posts a video to social platforms - not applicable to audio.
+    if (isAudio) actions.append(dl, del);
+    else         actions.append(sch, dl, del);
 
     card.append(thumb, info, actions);
     return card;
@@ -4606,6 +4840,7 @@
       statusEl.innerHTML = t('sched.okLine', {date: date, time: time}) +
         (plannerUrl ? ` <a href="${plannerUrl}" target="_blank" rel="noopener">${t('sched.openLink')}</a>` : publishNote);
       btn.textContent = t('sched.scheduled');
+      celebrateToast(t('celebrate.scheduled'));
       window._schedSubmitted = true;   // scheduled - don't warn on close
       setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);
     } catch (e) {

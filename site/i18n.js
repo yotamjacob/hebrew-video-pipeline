@@ -104,6 +104,11 @@
     'capedit.title':   { en: 'Edit Captions', he: 'עריכת כתוביות' },
     'capedit.font':    { en: 'Font', he: 'גופן' },
     'capedit.hint':    { en: 'Edit captions below, then burn.', he: 'ערכו את הכתוביות למטה, ואז צרבו.' },
+    'capedit.hintAudio': { en: 'Edit the captions below, then download the SRT or the clean audio.', he: 'ערכו את הכתוביות למטה, ואז הורידו קובץ SRT או את קובץ השמע הנקי.' },
+    'celebrate.captionsReady': { en: '{n} captions ready', he: '{n} כתוביות מוכנות' },
+    'celebrate.secTrimmed':    { en: 'seconds of silence trimmed', he: 'שניות שקט נחתכו' },
+    'celebrate.scheduled':     { en: 'Scheduled!', he: 'תוזמן בהצלחה' },
+    'capedit.downloadAudio': { en: 'Download audio', he: 'הורדת קובץ שמע' },
     'capedit.undo':    { en: 'Undo', he: 'ביטול' },
     'capedit.posTitle':  { en: 'Caption vertical position', he: 'מיקום אנכי של הכתובית' },
     'capedit.posTop':    { en: 'Caption near top', he: 'כתובית קרוב לראש' },
@@ -260,6 +265,7 @@
     'aggr.3': { en: 'Balanced - cuts pauses over 0.5 s', he: 'מאוזן - חותך הפסקות מעל 0.5 שניות' },
     'aggr.4': { en: 'Aggressive - cuts pauses over 0.3 s', he: 'אגרסיבי - חותך הפסקות מעל 0.3 שניות' },
     'aggr.5': { en: 'Very aggressive - cuts pauses over 0.2 s', he: 'אגרסיבי מאוד - חותך הפסקות מעל 0.2 שניות' },
+    'aggr.6': { en: 'Maximum - cuts pauses over 0.1 s', he: 'מקסימלי - חותך הפסקות מעל 0.1 שניות' },
 
     // ── Auth / session (dynamic) ──
     'auth.sessionExpired': { en: 'Session expired - please sign in again.', he: 'החיבור פג - נא להתחבר שוב.' },
@@ -267,7 +273,7 @@
 
     // ── File validation (dynamic) ──
     'file.badTypeTitle':  { en: 'Unsupported file type', he: 'סוג קובץ לא נתמך' },
-    'file.badType':       { en: 'Please upload a video file (MP4, MOV, MKV).', he: 'נא להעלות קובץ וידאו (MP4, MOV, MKV).' },
+    'file.badType':       { en: 'Please upload a video (MP4, MOV, MKV) or audio file (MP3, M4A, WAV, OGG).', he: 'נא להעלות קובץ וידאו (MP4, MOV, MKV) או שמע (MP3, M4A, WAV, OGG).' },
     'file.tooLargeMeta':  { en: '{size} · too large', he: '{size} · גדול מדי' },
     'file.tooLargeTitle': { en: 'File too large', he: 'הקובץ גדול מדי' },
     'file.tooLarge':      { en: 'Max size is 500 MB. This file is {size}. Please trim or compress it first.', he: 'הגודל המרבי הוא 500 MB. הקובץ הזה שוקל {size}. קצרו או דחסו אותו קודם.' },
@@ -282,6 +288,7 @@
     'err.cached':        { en: 'cached', he: 'שמור' },
     'err.reconnect':     { en: 'Could not reconnect - job may have expired. Please start again.', he: 'החיבור מחדש נכשל - ייתכן שהעבודה פגה. התחילו מחדש.' },
     'err.spawn':         { en: 'Spawn failed ({status})', he: 'הפעלת העיבוד נכשלה ({status})' },
+    'err.downloadFailed': { en: 'Download failed', he: 'ההורדה נכשלה' },
     'err.chunk':         { en: 'Upload failed at chunk {i} ({status})', he: 'ההעלאה נכשלה במקטע {i} ({status})' },
     'err.chunkRetries':  { en: 'Upload failed at chunk {i} after {n} attempts ({status})', he: 'ההעלאה נכשלה במקטע {i} אחרי {n} ניסיונות ({status})' },
     'err.server':        { en: 'Server error ({status}): {text}', he: 'שגיאת שרת ({status}): {text}' },
