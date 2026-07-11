@@ -1078,7 +1078,10 @@ def api():
                 with open(file_path, "rb") as f:
                     f.seek(start)
                     remaining = content_length
-                    CHUNK = 256 * 1024  # 256 KB — small enough to start playback fast
+                    # Range replies (206, preview seeking) stay small so playback
+                    # starts fast; a full attachment download (200) uses a bigger
+                    # chunk to cut per-chunk await overhead and lift throughput.
+                    CHUNK = (1024 * 1024) if status == 200 else (256 * 1024)
                     while remaining > 0:
                         chunk = f.read(min(CHUNK, remaining))
                         if not chunk:

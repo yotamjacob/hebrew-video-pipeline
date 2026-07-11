@@ -565,6 +565,7 @@
   let stableBlob = null;
   let _snapshotId = null;
   let resultBlob      = null;
+  let resultDownloadUrl = null; // direct /download URL for the finished file (browser-native save)
   let resultName      = 'edited_video.mp4';
   let uploadTimer     = null;  // drives the upload step's elapsed clock
   let blocked         = false;
@@ -703,19 +704,11 @@
         const _osb = document.getElementById('openScheduleBtn');
         if (_osb) _osb.style.display = 'block';
         runBtn.disabled = true;
-        // Device download is optional and non-blocking
-        try {
-          const dlResp = await apiFetch(
-            `${API_BASE}/download/${burnResult.output_key}/?filename=${encodeURIComponent(job.outputFilename)}`
-          );
-          if (!dlResp.ok) throw new Error(`Download failed (${dlResp.status})`);
-          resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
-          resultName = job.outputFilename;
-          triggerDownload();
-        } catch (dlErr) {
-          if (dlErr.name !== 'AbortError')
-            console.warn('Device download failed (video is still scheduled-ready):', dlErr.message);
-        }
+        // Hand the finished video to the browser to stream to disk (native
+        // progress, no RAM buffering); non-blocking and independent of scheduling.
+        resultDownloadUrl = `${API_BASE}/download/${burnResult.output_key}/?filename=${encodeURIComponent(job.outputFilename)}`;
+        resultName = job.outputFilename;
+        triggerDownload();
         document.getElementById('burnSuccessBanner').style.display = 'flex';
         celebrateExport();
       } catch (err) {
@@ -799,24 +792,11 @@
 
   // Download the processed clean-audio (.m4a) file. Fetches through apiFetch so
   // the bearer token is applied, then saves with a friendly filename.
-  async function downloadAudio() {
+  function downloadAudio() {
     if (!videoKey) return;
-    const btn = document.getElementById('downloadAudioBtn');
-    _btnBusy(btn, true);
-    try {
-      const resp = await apiFetch(`${API_BASE}/download/${videoKey}`);
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      const blob = new Blob([await resp.arrayBuffer()], { type: 'audio/mp4' });
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href = url; a.download = cutFilename || 'audio.m4a'; a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      console.error('audio download failed', e);
-      alert(t('err.downloadFailed'));
-    } finally {
-      _btnBusy(btn, false);
-    }
+    // Stream straight to disk (browser-native) rather than buffering into a Blob.
+    const name = cutFilename || 'audio.m4a';
+    _browserDownload(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(name)}`, name);
   }
 
   // ── Global action lock ──
@@ -1188,7 +1168,7 @@
   window.addEventListener('beforeunload', (e) => {
     const editing = document.getElementById('captionEditorCard').style.display !== 'none';
     const hasBrollWork = selectedBrolls.length > 0 || Object.keys(stockBrollSelections).length > 0;
-    if (isUploading || pollController || editing || resultBlob || hasBrollWork) {
+    if (isUploading || pollController || editing || resultBlob || resultDownloadUrl || hasBrollWork) {
       e.preventDefault();
       e.returnValue = '';
     }
@@ -1203,6 +1183,7 @@
     if (!(await _confirmQuotaUse())) return;
 
     resultBlob = null;
+    resultDownloadUrl = null;
     showUploadProgress();
 
     const aggr = AGGR_MAP[aggrSlider.value - 1];
@@ -1326,6 +1307,7 @@
     captionsData = [];
     videoKey = null;
     resultBlob = null;
+    resultDownloadUrl = null;
     ['captionEditorCard', 'hookCard', 'brollCard', 'stockBrollCard'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
@@ -1926,7 +1908,26 @@
     fontSizeSlider.value = saved;
   })();
 
+  // Kick off a browser-native download of a server URL. The /download route
+  // sends `Content-Disposition: attachment; filename=…`, so the browser saves
+  // it to disk (streaming, with its own progress shelf) even cross-origin -
+  // vastly faster and lighter than fetching the whole file into a Blob first.
+  // The media token rides in the query (`_withToken`) so the GET is authorized;
+  // computed at click time so it's always a fresh, unexpired token.
+  function _browserDownload(url, name) {
+    const a = document.createElement('a');
+    a.href = _withToken(url);
+    if (name) a.download = name;   // same-origin hint; cross-origin uses the header
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
   function triggerDownload() {
+    // Preferred: stream straight from the server to disk (no RAM buffering).
+    if (resultDownloadUrl) { _browserDownload(resultDownloadUrl, resultName); return; }
+    // Legacy fallback: a pre-fetched Blob (kept for any path still using one).
     if (!resultBlob) return;
     const url = URL.createObjectURL(resultBlob);
     const a = document.createElement('a');
@@ -1979,17 +1980,14 @@
 
   const HIDDEN_BY_DEFAULT = new Set(['upscale', 'burn', 'finalize']); // rows hidden until triggered
 
-  // Cut-only jobs (no captions/B-roll) go straight from "all steps green" to
-  // pulling the full MP4 into a blob - a multi-second silent gap on big files.
-  // Show a "Preparing download" spinner during that fetch so the UI never
-  // looks frozen, then hand off to showDone().
+  // Cut-only jobs (no captions/B-roll) go straight to the download. The file is
+  // handed to the browser to stream to disk (see _browserDownload) instead of
+  // being pulled into a Blob first - so there's no multi-second silent gap on
+  // big files; showDone() fires the download immediately.
   async function _finalizeAndDownload(url, name) {
     _setStage('download');
-    _stepActivate('finalize');
-    const dlResp = await apiFetch(url);
-    resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
+    resultDownloadUrl = url;
     resultName = name;
-    _stepDone('finalize');
     showDone();
   }
 
@@ -4208,29 +4206,13 @@
       runBtn.disabled = true;
       window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 
-      // Download to the device (optional - does NOT gate scheduling)
-      runBtn.textContent = t('run.downloading');
-      try {
-        const dlAbort  = new AbortController();
-        const dlKillId = setTimeout(() => dlAbort.abort(), 10 * 60 * 1000);
-        try {
-          const dlResp = await apiFetch(
-            `${API_BASE}/download/${burnResult.output_key}/?filename=${encodeURIComponent(outFilename)}`,
-            { signal: dlAbort.signal }
-          );
-          if (!dlResp.ok) throw new Error(`Download failed (${dlResp.status})`);
-          resultBlob = new Blob([await dlResp.arrayBuffer()], { type: 'video/mp4' });
-          resultName = outFilename;
-          triggerDownload();
-        } finally {
-          clearTimeout(dlKillId);
-        }
-      } catch (dlErr) {
-        if (dlErr.name !== 'AbortError')
-          console.warn('Device download failed (video is still scheduled-ready):', dlErr.message);
-      }
-      // Burn + initial download finished - now the success banner (with
-      // Download again) is truthful and usable.
+      // Hand the finished video to the browser to stream to disk (native
+      // progress shelf, no RAM buffering). Non-blocking and does NOT gate
+      // scheduling - the schedule path uses the server-side /media/ URL.
+      resultDownloadUrl = `${API_BASE}/download/${burnResult.output_key}/?filename=${encodeURIComponent(outFilename)}`;
+      resultName = outFilename;
+      triggerDownload();
+      // Success banner (with "Download again") is truthful and usable.
       hasBurnedOnce = true;   // subsequent burns are re-burns
       document.getElementById('burnSuccessBanner').style.display = 'flex';
       celebrateExport();

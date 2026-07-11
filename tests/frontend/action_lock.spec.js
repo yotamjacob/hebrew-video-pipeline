@@ -53,33 +53,20 @@ test('hook generation greys out every other section but keeps its own card live'
   await expect(page.locator('#captionEditorCard')).not.toHaveClass(/action-locked/);
 });
 
-test('schedule button is usable while the device download is in flight', async ({ page }) => {
+test('burn completion reveals schedule + success banner immediately (download is browser-native)', async ({ page }) => {
   await runFullUpload(page);
-  // Keep the post-burn device download in flight
-  await page.unroute(`${API_BASE}/download/**`);
-  await page.route(`${API_BASE}/download/**`, async route => {
-    await new Promise(r => setTimeout(r, 3000));
-    return route.fulfill({
-      status: 200,
-      headers: { 'Content-Type': 'video/mp4' },
-      body: Buffer.alloc(512, 0),
-    });
-  });
-
   await page.click('#runBtn');
   await page.click('#confirmOk');
 
-  // Burn done, download still running: the Schedule button appears AND is usable…
+  // Burn done: the device download is handed straight to the browser (an
+  // attachment anchor that streams to disk), so it no longer gates the UI.
+  // The Schedule button AND the success banner both appear right away…
   await expect(page.locator('#openScheduleBtn')).toBeVisible({ timeout: 10_000 });
   await expect(page.locator('#openScheduleBtn')).toBeEnabled();
-  // …but the success banner (with Download again) waits for the download
-  await expect(page.locator('#burnSuccessBanner')).toBeHidden();
-  // …while burn stays held and the other sections stay greyed until it settles
-  await expect(page.locator('#runBtn')).toBeDisabled();
-  await expect(page.locator('#optionsCard')).toHaveClass(/action-locked/);
-  await expect(page.locator('#runBtn')).toBeEnabled({ timeout: 15_000 });
+  await expect(page.locator('#burnSuccessBanner')).toBeVisible({ timeout: 10_000 });
+  // …and the pipeline unlocks (no waiting on a blob fetch to settle).
+  await expect(page.locator('#runBtn')).toBeEnabled({ timeout: 10_000 });
   await expect(page.locator('#optionsCard')).not.toHaveClass(/action-locked/);
-  await expect(page.locator('#burnSuccessBanner')).toBeVisible();
 });
 
 test('lock releases after a failed operation', async ({ page }) => {
