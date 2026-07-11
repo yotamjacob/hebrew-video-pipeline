@@ -1107,6 +1107,162 @@ def process_video(
 
 
 # ---------------------------------------------------------------------------
+# Shared caption + hook ASS builder
+# ---------------------------------------------------------------------------
+# The SINGLE source of truth for how captions and the hook are rendered. Both
+# burn_captions_fn (final video) and the /preview_frame endpoint (WYSIWYG editor
+# preview) call this, so the preview is drawn by the EXACT same libass path as
+# the burn — pixel-identical (no browser-vs-libass font-metric/outline drift).
+def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captions, hook):
+    font_size = max(12, min(200, int(font_size)))
+
+    def seconds_to_ass(t):
+        h = int(t // 3600); m = int((t % 3600) // 60); s = t % 60
+        return f"{h}:{m:02d}:{s:05.2f}"
+
+    def hex_to_ass(hex_color: str, alpha_byte: int = 0) -> str:
+        h = hex_color.lstrip("#")
+        if len(h) == 3:
+            h = "".join(c * 2 for c in h)
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return f"&H{alpha_byte:02X}{b:02X}{g:02X}{r:02X}&"
+
+    def _rewrap_cap(text: str) -> str:
+        words = text.replace(r"\N", " ").split()
+        if not words:
+            return text
+        avail = width - 2 * margin_h
+        char_w = font_size * 0.60
+        lines, cur, cur_w = [], [], 0.0
+        for word in words:
+            ww = len(word) * char_w
+            gap = char_w if cur else 0.0
+            if cur and cur_w + gap + ww > avail:
+                lines.append(" ".join(cur)); cur, cur_w = [word], ww
+            else:
+                cur.append(word); cur_w += gap + ww
+        if cur:
+            lines.append(" ".join(cur))
+        return r"\N".join(lines) if lines else text
+
+    def _fix_cap_lines(t):
+        return r'\N'.join(_fix_rtl_punct(l) for l in t.split(r'\N'))
+
+    captions = [{"start": c["start"], "end": c["end"],
+                 "text": _fix_cap_lines(_rewrap_cap(_censor_caption_text(c["text"])))}
+                for c in captions]
+
+    hook = hook or {}
+    hook_style_line  = ""
+    hook_event_lines = ""
+    if hook.get("text"):
+        def _bgr(hx: str) -> str:
+            h = hx.lstrip("#")
+            if len(h) == 3:
+                h = "".join(c * 2 for c in h)
+            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+            return f"{b:02X}{g:02X}{r:02X}"
+
+        h_font     = hook.get("font", "Heebo")
+        h_size_pct = max(50, min(200, int(hook.get("font_size_pct", 100))))
+        h_fsize    = max(24, int(min(width, height) * 0.075 * h_size_pct / 100))
+        fcol_hex   = hook.get("font_color", "#FFFFFF")
+        bgcol_hex  = hook.get("bg_color", "#000000")
+        h_bg_alpha = int((1.0 - max(0.0, min(1.0, float(hook.get("bg_opacity", 0.6))))) * 255)
+        h_vpos     = max(0, min(100, int(hook.get("vertical_position", 10)))) / 100.0
+        h_start    = float(hook.get("start_seconds", 1.0))
+        h_dur      = float(hook.get("duration_seconds", 4.0))
+        b_size     = max(0, min(20, int(hook.get("border_size", 0))))
+
+        edge  = h_fsize
+        maxW  = width - 2 * edge
+        padH  = round(h_fsize * 0.55)
+        padV  = round(h_fsize * 0.35)
+        lineH = round(h_fsize * 1.10)
+
+        def _hclean(w: str) -> str:
+            return w.strip("،,.-–—;:")
+
+        sent = hook.get("lines")
+        if isinstance(sent, list) and any(isinstance(x, str) and x.strip() for x in sent):
+            hook_lines = [str(x) for x in sent if str(x).strip()]
+        else:
+            char_w = h_fsize * 0.60
+            raw_words = [_hclean(w) for w in hook["text"].split() if _hclean(w)]
+            hook_lines, cur, cur_w = [], [], 0.0
+            for word in raw_words:
+                ww = len(word) * char_w
+                gap = char_w if cur else 0.0
+                if cur and cur_w + gap + ww > maxW:
+                    hook_lines.append(" ".join(cur)); cur, cur_w = [word], ww
+                else:
+                    cur.append(word); cur_w += gap + ww
+            if cur:
+                hook_lines.append(" ".join(cur))
+        if not hook_lines:
+            hook_lines = [hook["text"]]
+        hook_lines = [_fix_rtl_punct(l) for l in hook_lines]
+
+        n_lines = len(hook_lines)
+        block_h = n_lines * lineH
+        box_w   = maxW + 2 * padH
+        box_h   = block_h + 2 * padV
+        raw_cy  = edge + (height - 2 * edge) * h_vpos
+        cy      = max(box_h / 2 + 4, min(height - box_h / 2 - 4, raw_cy))
+        bx      = width / 2 - box_w / 2
+        by      = cy - box_h / 2
+
+        if b_size > 0:
+            text_bord = max(0.5, h_fsize * b_size * 0.10)
+            text_tags = f"\\bord{text_bord:.1f}\\3c&H{_bgr(hook.get('border_color', '#000000'))}&\\shad0"
+        else:
+            text_bord = round(h_fsize * 0.035, 2)
+            text_tags = f"\\bord{text_bord}\\3c&H{_bgr(fcol_hex)}&\\shad0"
+
+        h_primary = hex_to_ass(fcol_hex, 0)
+        hook_style_line = (
+            f"Style: Hook,{h_font},{h_fsize},{h_primary},&H000000FF,&H00000000,&H00000000,"
+            f"0,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1\n"
+        )
+        bw_i, bh_i = int(round(box_w)), int(round(box_h))
+        box_draw = f"m 0 0 l {bw_i} 0 l {bw_i} {bh_i} l 0 {bh_i}"
+        box_ev = (
+            f"Dialogue: 0,{seconds_to_ass(h_start)},{seconds_to_ass(h_start + h_dur)},Hook,,0,0,0,,"
+            f"{{\\an7\\pos({bx:.1f},{by:.1f})\\c&H{_bgr(bgcol_hex)}&\\1a&H{h_bg_alpha:02X}&\\bord0\\shad0\\p1}}{box_draw}\n"
+        )
+        text_blk = "\\N".join(l.replace("{", "\\{").replace("}", "\\}") for l in hook_lines)
+        text_ev = (
+            f"Dialogue: 1,{seconds_to_ass(h_start)},{seconds_to_ass(h_start + h_dur)},Hook,,0,0,0,,"
+            f"{{\\an5\\q2\\pos({width / 2:.1f},{cy:.1f})\\c&H{_bgr(fcol_hex)}&{text_tags}}}{text_blk}\n"
+        )
+        hook_event_lines = box_ev + text_ev
+
+    header = (
+        "[Script Info]\nScriptType: v4.00+\n"
+        f"PlayResX: {width}\nPlayResY: {height}\n"
+        "WrapStyle: 0\nScaledBorderAndShadow: yes\nYCbCr Matrix: TV.709\n\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+        "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
+        "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+        "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        f"Style: Default,{font},{font_size},"
+        "&H00FFFFFF,&H000000FF,&H00000000,&H80000000,"
+        f"-1,0,0,0,100,100,0,0,1,2,0,2,"
+        f"{margin_h},{margin_h},{margin_v},1\n"
+        + hook_style_line +
+        "\n[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    )
+    lines = [
+        f"Dialogue: 0,{seconds_to_ass(c['start'])},{seconds_to_ass(c['end'])},"
+        f"Default,,0,0,0,,{_rtl_ass_text(c['text'])}\n"
+        for c in captions
+    ]
+    return header + "".join(lines) + hook_event_lines
+
+
+# ---------------------------------------------------------------------------
 # Caption-burn worker — CPU only, no GPU needed
 # ---------------------------------------------------------------------------
 @app.function(image=burn_image, timeout=600, volumes={TMP_DIR: tmp_vol})
@@ -1149,17 +1305,6 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             w, h = h, w
         return w, h, rot
 
-    def seconds_to_ass(t):
-        h = int(t // 3600); m = int((t % 3600) // 60); s = t % 60
-        return f"{h}:{m:02d}:{s:05.2f}"
-
-    def hex_to_ass(hex_color: str, alpha_byte: int = 0) -> str:
-        h = hex_color.lstrip("#")
-        if len(h) == 3:
-            h = "".join(c * 2 for c in h)
-        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-        return f"&H{alpha_byte:02X}{b:02X}{g:02X}{r:02X}&"
-
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         video_in  = tmp / "input.mp4"
@@ -1183,170 +1328,10 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
         margin_h  = max(25, width  // 14)
         margin_v  = int(margin_v_pct * height)
 
-        # Re-wrap caption text to match the CSS preview's word-wrap behaviour.
-        # The preview uses max-width = (videoWidth - 2*marginH)/videoWidth% with
-        # the browser's actual font metrics; we approximate char width at 0.60×fontSize
-        # for Hebrew (Heebo/Rubik glyphs average ~60% of em-square). Using 0.50 caused
-        # Python to under-wrap, leaving lines too long for libass → libass added unexpected
-        # extra wraps, making captions appear taller and "too high" than intended.
-        def _rewrap_cap(text: str) -> str:
-            words = text.replace(r"\N", " ").split()
-            if not words:
-                return text
-            avail = width - 2 * margin_h
-            char_w = font_size * 0.60
-            lines: list[str] = []
-            cur: list[str] = []
-            cur_w = 0.0
-            for word in words:
-                ww = len(word) * char_w
-                gap = char_w if cur else 0.0
-                if cur and cur_w + gap + ww > avail:
-                    lines.append(" ".join(cur))
-                    cur, cur_w = [word], ww
-                else:
-                    cur.append(word)
-                    cur_w += gap + ww
-            if cur:
-                lines.append(" ".join(cur))
-            return r"\N".join(lines) if lines else text
-
-        def _fix_cap_lines(t):
-            return r'\N'.join(_fix_rtl_punct(l) for l in t.split(r'\N'))
-        captions = [{"start": c["start"], "end": c["end"], "text": _fix_cap_lines(_rewrap_cap(_censor_caption_text(c["text"])))} for c in captions]
-
-        # Build hook style + events if a hook was selected.
-        #
-        # WYSIWYG (2026-07-11): the box is an explicit VECTOR rectangle and the
-        # text is the EXACT lines the frontend preview wrapped (sent in
-        # hook["lines"]). This replaced the old approach where libass auto-wrapped
-        # (\q1) — libass fits more Hebrew per line than the canvas preview's
-        # measureText, so the burned wrap diverged from what the user saw. Now
-        # the wrap is decided once (preview) and reproduced verbatim, and the box
-        # geometry mirrors the preview's box math pixel-for-pixel:
-        #   fs = min(w,h)·0.075·pct ; edge = fs ; maxW = w-2·edge
-        #   padH = 0.55·fs ; padV = 0.35·fs ; lineH = 1.10·fs
-        #   boxW = maxW+2·padH (fixed, ≈ full width) ; boxH = nLines·lineH+2·padV
-        hook_style_line  = ""
-        hook_event_lines = ""
-        if hook.get("text"):
-            def _bgr(hx: str) -> str:
-                h = hx.lstrip("#")
-                if len(h) == 3:
-                    h = "".join(c * 2 for c in h)
-                r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-                return f"{b:02X}{g:02X}{r:02X}"
-
-            h_font     = hook.get("font", "Heebo")
-            h_size_pct = max(50, min(200, int(hook.get("font_size_pct", 100))))
-            h_fsize    = max(24, int(min(width, height) * 0.075 * h_size_pct / 100))
-            fcol_hex   = hook.get("font_color", "#FFFFFF")
-            bgcol_hex  = hook.get("bg_color", "#000000")
-            h_bg_alpha = int((1.0 - max(0.0, min(1.0, float(hook.get("bg_opacity", 0.6))))) * 255)
-            h_vpos     = max(0, min(100, int(hook.get("vertical_position", 10)))) / 100.0
-            h_start    = float(hook.get("start_seconds", 1.0))
-            h_dur      = float(hook.get("duration_seconds", 4.0))
-            b_size     = max(0, min(20, int(hook.get("border_size", 0))))
-
-            edge  = h_fsize
-            maxW  = width - 2 * edge
-            padH  = round(h_fsize * 0.55)
-            padV  = round(h_fsize * 0.35)
-            lineH = round(h_fsize * 1.10)
-
-            def _hclean(w: str) -> str:
-                return w.strip("،,.-–—;:")
-
-            sent = hook.get("lines")
-            if isinstance(sent, list) and any(isinstance(x, str) and x.strip() for x in sent):
-                hook_lines = [str(x) for x in sent if str(x).strip()]
-            else:
-                # Fallback (old client, no lines sent): greedy wrap estimate.
-                char_w = h_fsize * 0.60
-                raw_words = [_hclean(w) for w in hook["text"].split() if _hclean(w)]
-                hook_lines, cur, cur_w = [], [], 0.0
-                for word in raw_words:
-                    ww = len(word) * char_w
-                    gap = char_w if cur else 0.0
-                    if cur and cur_w + gap + ww > maxW:
-                        hook_lines.append(" ".join(cur)); cur, cur_w = [word], ww
-                    else:
-                        cur.append(word); cur_w += gap + ww
-                if cur:
-                    hook_lines.append(" ".join(cur))
-            if not hook_lines:
-                hook_lines = [hook["text"]]
-            # Fix weak-punctuation bidi per line so libass matches the browser.
-            hook_lines = [_fix_rtl_punct(l) for l in hook_lines]
-
-            n_lines = len(hook_lines)
-            block_h = n_lines * lineH
-            box_w   = maxW + 2 * padH
-            box_h   = block_h + 2 * padV
-            raw_cy  = edge + (height - 2 * edge) * h_vpos
-            cy      = max(box_h / 2 + 4, min(height - box_h / 2 - 4, raw_cy))
-            bx      = width / 2 - box_w / 2
-            by      = cy - box_h / 2
-
-            if b_size > 0:
-                # Colored border around the text (matches the preview stroke:
-                # canvas lineWidth = border·2 canvas-px ≈ fs·border·0.10 at burn res).
-                text_bord = max(0.5, h_fsize * b_size * 0.10)
-                text_tags = f"\\bord{text_bord:.1f}\\3c&H{_bgr(hook.get('border_color', '#000000'))}&\\shad0"
-            else:
-                # Faux-bold: a thin fill-colored outline gives the same weight as
-                # the canvas preview's bold. libass does NOT embolden the variable
-                # fonts (\b is a no-op on them), so we thicken strokes ourselves —
-                # deterministic across libass builds.
-                text_bord = round(h_fsize * 0.035, 2)
-                text_tags = f"\\bord{text_bord}\\3c&H{_bgr(fcol_hex)}&\\shad0"
-
-            h_primary = hex_to_ass(fcol_hex, 0)
-            # Bold=0 base (force the ~400 default instance) so the faux-bold
-            # outline alone sets the weight, identically on every libass build.
-            hook_style_line = (
-                f"Style: Hook,{h_font},{h_fsize},{h_primary},&H000000FF,&H00000000,&H00000000,"
-                f"0,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1\n"
-            )
-            # Box: a filled vector rectangle on layer 0, anchored top-left at (bx,by).
-            bw_i, bh_i = int(round(box_w)), int(round(box_h))
-            box_draw = f"m 0 0 l {bw_i} 0 l {bw_i} {bh_i} l 0 {bh_i}"
-            box_ev = (
-                f"Dialogue: 0,{seconds_to_ass(h_start)},{seconds_to_ass(h_start + h_dur)},Hook,,0,0,0,,"
-                f"{{\\an7\\pos({bx:.1f},{by:.1f})\\c&H{_bgr(bgcol_hex)}&\\1a&H{h_bg_alpha:02X}&\\bord0\\shad0\\p1}}{box_draw}\n"
-            )
-            # Text: the exact pre-wrapped lines, centered in the box (layer 1,
-            # \an5 at box center, \q2 = no auto-wrap so libass honors our \N).
-            text_blk = "\\N".join(l.replace("{", "\\{").replace("}", "\\}") for l in hook_lines)
-            text_ev = (
-                f"Dialogue: 1,{seconds_to_ass(h_start)},{seconds_to_ass(h_start + h_dur)},Hook,,0,0,0,,"
-                f"{{\\an5\\q2\\pos({width / 2:.1f},{cy:.1f})\\c&H{_bgr(fcol_hex)}&{text_tags}}}{text_blk}\n"
-            )
-            hook_event_lines = box_ev + text_ev
-
-        header = (
-            "[Script Info]\nScriptType: v4.00+\n"
-            f"PlayResX: {width}\nPlayResY: {height}\n"
-            "WrapStyle: 0\nScaledBorderAndShadow: yes\nYCbCr Matrix: TV.709\n\n"
-            "[V4+ Styles]\n"
-            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
-            "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
-            "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
-            "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-            f"Style: Default,{font},{font_size},"
-            "&H00FFFFFF,&H000000FF,&H00000000,&H80000000,"
-            f"-1,0,0,0,100,100,0,0,1,2,0,2,"
-            f"{margin_h},{margin_h},{margin_v},1\n"
-            + hook_style_line +
-            "\n[Events]\n"
-            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
-        )
-        lines = [
-            f"Dialogue: 0,{seconds_to_ass(c['start'])},{seconds_to_ass(c['end'])},"
-            f"Default,,0,0,0,,{_rtl_ass_text(c['text'])}\n"
-            for c in captions
-        ]
-        ass_path.write_text(header + "".join(lines) + hook_event_lines, encoding="utf-8")
+        # Captions + hook ASS are built by the shared builder so the editor
+        # preview (/preview_frame) is rendered by the identical libass path.
+        ass_str = build_caption_ass(width, height, font, font_size, margin_h, margin_v, captions, hook)
+        ass_path.write_text(ass_str, encoding="utf-8")
 
         # Copy / download selected B-roll clips into temp dir
         import requests as _req_burn

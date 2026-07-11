@@ -1316,6 +1316,7 @@
     videoKey = null;
     resultBlob = null;
     resultDownloadUrl = null;
+    _resetExactPreview();
     ['captionEditorCard', 'hookCard', 'brollCard', 'stockBrollCard'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
@@ -2375,6 +2376,10 @@
     }
     // Keep the hook preview's caption overlay in sync with these changes.
     drawHookPreview();
+    // Font/size/position changed → the exact still is stale: show the instant
+    // approximate now, re-render the exact frame once edits settle.
+    _hideExactCap();
+    scheduleExactCap();
   }
 
   // Every family offered by #fontSelect (must match the server-installed set in
@@ -2402,6 +2407,108 @@
   // fallback shows) and again once the real face is guaranteed loaded.
   function _ensureCaptionFont(family) {
     _loadFontFaces(family).then(() => updatePreviewCaption());
+  }
+
+  // ── Exact (libass) WYSIWYG preview ──────────────────────────────────────
+  // The Canvas/CSS preview is a fast APPROXIMATION; a browser and libass will
+  // never rasterise identically (font metrics, outline model, variable-font
+  // bold). For true parity we render the current frame through the SAME
+  // build_caption_ass + ffmpeg/libass path as the burn (/preview_frame) and
+  // overlay that still. It shows while the video is PAUSED / after edits settle;
+  // during motion or dragging we fall back to the instant approximate preview.
+  let _exactCapURL = null, _exactHookURL = null;
+  let _exactCapTimer = null, _exactHookTimer = null;
+  let _exactCapSeq = 0, _exactHookSeq = 0;
+
+  function _hookPreviewPayload() {
+    if (selectedHookIdx < 0) return null;
+    const el = document.getElementById(`hookText${selectedHookIdx}`);
+    const txt = el ? el.value.trim() : '';
+    if (!txt) return null;
+    drawHookPreview();   // refresh _hookLines against current text/font/size
+    return {
+      text: txt, lines: _hookLines,
+      font:              document.getElementById('hookFont')?.value || 'Heebo',
+      font_color:        document.getElementById('hookFontColor')?.value || '#FFFFFF',
+      bg_color:          document.getElementById('hookBgColor')?.value || '#000000',
+      bg_opacity:        parseInt(document.getElementById('hookBgOpacity')?.value || '60') / 100,
+      font_size_pct:     parseInt(document.getElementById('hookFontSize')?.value || '100'),
+      border_color:      document.getElementById('hookBorderColor')?.value || '#000000',
+      border_size:       parseInt(document.getElementById('hookBorderSize')?.value || '0'),
+      start_seconds:     parseFloat(document.getElementById('hookStartSec')?.value || '0'),
+      duration_seconds:  parseFloat(document.getElementById('hookDurationSec')?.value || '3'),
+      vertical_position: parseInt(document.getElementById('hookPosition')?.value || '10'),
+    };
+  }
+
+  async function _fetchExactFrame(t, hookPayload) {
+    if (!videoKey || isAudioInput) return null;
+    const body = {
+      video_key: videoKey, t,
+      font: captionFont, font_size: captionFontSize, margin_v: captionMarginPct,
+      captions: (captionsData || []).map(c => ({ start: c.start, end: c.end, text: c.text })),
+      hook: hookPayload || null,
+    };
+    const resp = await apiFetch(`${API_BASE}/preview_frame`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error('preview_frame ' + resp.status);
+    return URL.createObjectURL(await resp.blob());
+  }
+
+  // Hide the exact still → reveal the instant approximate preview (during motion/edits).
+  function _hideExactCap() { const i = document.getElementById('exactCap'); if (i) i.style.display = 'none'; }
+
+  // Fetch + show the exact caption frame for the current (paused) time.
+  function scheduleExactCap() {
+    const vid = document.getElementById('cutVideo');
+    const img = document.getElementById('exactCap');
+    if (!img || !vid || isAudioInput || !videoKey) return;
+    clearTimeout(_exactCapTimer);
+    _exactCapTimer = setTimeout(async () => {
+      if (!vid.paused) return;               // only meaningful while paused
+      const seq = ++_exactCapSeq;
+      try {
+        const url = await _fetchExactFrame(vid.currentTime, _hookPreviewPayload());
+        if (seq !== _exactCapSeq || !url) { if (url) URL.revokeObjectURL(url); return; }
+        if (!vid.paused) { URL.revokeObjectURL(url); return; }   // started playing meanwhile
+        if (_exactCapURL) URL.revokeObjectURL(_exactCapURL);
+        _exactCapURL = url; img.src = url; img.style.display = 'block';
+      } catch (e) { /* keep the approximate preview */ }
+    }, 400);
+  }
+
+  function _hideExactHook() { const i = document.getElementById('exactHook'); if (i) i.style.display = 'none'; }
+
+  function scheduleExactHook() {
+    const img = document.getElementById('exactHook');
+    if (!img || selectedHookIdx < 0 || isAudioInput || !videoKey) return;
+    clearTimeout(_exactHookTimer);
+    _exactHookTimer = setTimeout(async () => {
+      const hp = _hookPreviewPayload();
+      if (!hp) return;
+      const t = (parseFloat(hp.start_seconds) || 0) + Math.min(0.15, (parseFloat(hp.duration_seconds) || 3) / 2);
+      const seq = ++_exactHookSeq;
+      try {
+        const url = await _fetchExactFrame(t, hp);
+        if (seq !== _exactHookSeq || !url) { if (url) URL.revokeObjectURL(url); return; }
+        if (_exactHookURL) URL.revokeObjectURL(_exactHookURL);
+        _exactHookURL = url; img.src = url; img.style.display = 'block';
+      } catch (e) { /* keep the approximate canvas */ }
+    }, 400);
+  }
+
+  // Drop any pending/loaded exact frames (new video, re-run, mode switch).
+  function _resetExactPreview() {
+    _exactCapSeq++; _exactHookSeq++;
+    clearTimeout(_exactCapTimer); clearTimeout(_exactHookTimer);
+    if (_exactCapURL)  { URL.revokeObjectURL(_exactCapURL);  _exactCapURL = null; }
+    if (_exactHookURL) { URL.revokeObjectURL(_exactHookURL); _exactHookURL = null; }
+    ['exactCap', 'exactHook'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.style.display = 'none'; el.removeAttribute('src'); }
+    });
   }
 
   function _safePlay(vid) {
@@ -2560,11 +2667,11 @@
     const playerWrap = document.getElementById('playerWrap');
     if (playerWrap) playerWrap.addEventListener('click', togglePlay);
     if (playBtn) playBtn.addEventListener('click', togglePlay);
-    vid.addEventListener('play',  () => { bigPlay.style.opacity = '0'; playBtn.classList.add('is-playing'); _startLoop(); });
-    vid.addEventListener('pause', () => { bigPlay.style.opacity = '1'; playBtn.classList.remove('is-playing'); _stopLoop(); });
+    vid.addEventListener('play',  () => { bigPlay.style.opacity = '0'; playBtn.classList.add('is-playing'); _startLoop(); _hideExactCap(); });
+    vid.addEventListener('pause', () => { bigPlay.style.opacity = '1'; playBtn.classList.remove('is-playing'); _stopLoop(); scheduleExactCap(); });
     vid.addEventListener('ended', () => { bigPlay.style.opacity = '1'; playBtn.classList.remove('is-playing'); _stopLoop(); });
     // Paused scrubs + programmatic seeks (e.g. seek-to-first-caption on load).
-    vid.addEventListener('seeked', renderPlayerFrame);
+    vid.addEventListener('seeked', () => { renderPlayerFrame(); _hideExactCap(); if (vid.paused) scheduleExactCap(); });
     // Safety net if the rAF loop isn't running (e.g. a background tab resumes).
     vid.addEventListener('timeupdate', () => { if (vid.paused) renderPlayerFrame(); });
 
@@ -3045,11 +3152,12 @@
   }
 
   function _hookSettingListeners() {
+    const onEdit = () => { drawHookPreview(); _hideExactHook(); scheduleExactHook(); };
     ['hookFont','hookFontColor','hookBgColor','hookBgOpacity','hookPosition','hookFontSize','hookBorderColor','hookBorderSize'].forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
-      el.addEventListener('input',  drawHookPreview);
-      el.addEventListener('change', drawHookPreview); // color pickers fire 'change' on Safari after picker closes
+      el.addEventListener('input',  onEdit);
+      el.addEventListener('change', onEdit); // color pickers fire 'change' on Safari after picker closes
     });
   }
 
@@ -3305,6 +3413,7 @@
         ta.style.height = 'auto';
         ta.style.height = ta.scrollHeight + 'px';
         drawHookPreview();
+        _hideExactHook(); scheduleExactHook();
       });
 
       card.appendChild(ta);
@@ -3325,6 +3434,7 @@
         card.classList.add('selected');
         selectedHookIdx = i;
         drawHookPreview();
+        _hideExactHook(); scheduleExactHook();
       };
 
       optionsEl.appendChild(card);
@@ -4086,6 +4196,7 @@
   }
 
   function showCaptionEditor() {
+    _resetExactPreview();   // clear any stale exact frame from a prior video
     // Ensure card body is expanded (may have been collapsed in a previous burn)
     const captionHeader = document.querySelector('#captionEditorCard .card-header');
     if (captionHeader) captionHeader.classList.remove('collapsed');

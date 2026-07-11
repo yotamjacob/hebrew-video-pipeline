@@ -84,8 +84,24 @@ burn_image = (
 # Cold-starts in seconds vs minutes for the full ML image.
 light_image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install("ffmpeg")
+    .apt_install("ffmpeg", "fontconfig", "wget")
     .pip_install("requests", "anthropic>=0.40.0", "fastapi", "python-multipart", "boto3")
+    # Hebrew caption/hook fonts so /preview_frame renders the WYSIWYG editor
+    # preview through libass with the SAME faces the burn uses (keep in sync
+    # with burn_image + the full image + site/index.html's #fontSelect).
+    .run_commands(
+        "mkdir -p /usr/local/share/fonts/hebrew",
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/heebo/Heebo%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/Heebo.ttf',
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/assistant/Assistant%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/Assistant.ttf',
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/frankruhllibre/FrankRuhlLibre%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/FrankRuhlLibre.ttf',
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/secularone/SecularOne-Regular.ttf" -O /usr/local/share/fonts/hebrew/SecularOne.ttf',
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/rubik/Rubik%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/Rubik.ttf',
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/suezone/SuezOne-Regular.ttf" -O /usr/local/share/fonts/hebrew/SuezOne.ttf',
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/karantina/Karantina-Regular.ttf" -O /usr/local/share/fonts/hebrew/Karantina.ttf',
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/playpensanshebrew/PlaypenSansHebrew%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/PlaypenSansHebrew.ttf',
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/miriamlibre/MiriamLibre%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/MiriamLibre.ttf',
+        "fc-cache -f /usr/local/share/fonts/hebrew",
+    )
     .add_local_python_source(
         "pipeline_core", "pipeline_fns", "stock_helpers",
         "broll_fns", "content_fns", "metricool_fns",

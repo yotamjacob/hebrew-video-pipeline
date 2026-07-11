@@ -176,18 +176,20 @@ class TestASSPlayResEqualsVideoHeight:
     """
 
     def test_playres_uses_height_variable(self):
-        snippet = _extract_snippet(MODAL_SRC, "burn_captions_fn")
+        # ASS assembly lives in the shared build_caption_ass (used by both the
+        # burn and the /preview_frame WYSIWYG endpoint).
+        snippet = _extract_snippet(MODAL_SRC, "build_caption_ass")
         # The ASS header must bind PlayResY to {height}, not a literal
         assert "PlayResY: {height}" in snippet, (
             "PlayResY must be set to the video height variable, not a literal"
         )
 
     def test_playres_uses_width_variable(self):
-        snippet = _extract_snippet(MODAL_SRC, "burn_captions_fn")
+        snippet = _extract_snippet(MODAL_SRC, "build_caption_ass")
         assert "PlayResX: {width}" in snippet
 
     def test_fontsize_uses_font_size_variable(self):
-        snippet = _extract_snippet(MODAL_SRC, "burn_captions_fn")
+        snippet = _extract_snippet(MODAL_SRC, "build_caption_ass")
         # Style line must use {font_size}, not a literal
         assert "{font_size}" in snippet, (
             "ASS Fontsize must come from the font_size parameter, not a literal"
@@ -211,7 +213,7 @@ class TestASSPlayResEqualsVideoHeight:
         )
 
     def test_wrapstyle_is_0_not_2(self):
-        snippet = _extract_snippet(MODAL_SRC, "burn_captions_fn")
+        snippet = _extract_snippet(MODAL_SRC, "build_caption_ass")
         # WrapStyle 0 = smart word wrap — must NOT be 2 (no wrap)
         # which would cause the burn to never wrap while CSS preview does,
         # creating a line-break mismatch for long captions.
@@ -380,9 +382,9 @@ class TestCaptionRewrap:
     # ── coefficient consistency with source ───────────────────────────────────
 
     def test_source_uses_055_coefficient(self):
-        snippet = _extract_snippet(MODAL_SRC, "burn_captions_fn")
+        snippet = _extract_snippet(MODAL_SRC, "build_caption_ass")
         assert "0.60" in snippet, (
-            "_rewrap_cap in burn_captions_fn must use 0.60 char-width coefficient "
+            "_rewrap_cap in build_caption_ass must use 0.60 char-width coefficient "
             "to match the hook word-wrap and the CSS preview approximation"
         )
 

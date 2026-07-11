@@ -33,7 +33,7 @@ from pipeline_core import (
 # Public base URLs used to build email links. SITE_URL can be overridden via
 # env once a custom domain is set; the API base is stable.
 API_BASE_URL = "https://yotamjacob--hebrew-video-pipeline-api.modal.run"
-from pipeline_fns import process_video, burn_captions_fn, burn_hook_fn, backup_dicts, restore_dicts
+from pipeline_fns import process_video, burn_captions_fn, burn_hook_fn, backup_dicts, restore_dicts, build_caption_ass
 from broll_fns import generate_broll_video, analyze_broll, analyze_stock_broll, search_stock_clips
 from content_fns import generate_hook_options, generate_caption_options
 from metricool_fns import (
@@ -997,6 +997,81 @@ def api():
                             "headers": CORS + [(b"content-type", b"application/json")]})
                 await send({"type": "http.response.body", "body": body})
             except Exception as e:
+                await send_error(str(e))
+            return
+
+        # Render ONE WYSIWYG editor-preview frame through libass — the SAME
+        # build_caption_ass + ffmpeg/libass path as the final burn, so the editor
+        # preview is pixel-identical to the exported video (no browser-vs-libass
+        # font-metric / outline / weight drift). Debounced client-side.
+        if path in ("/preview_frame", "/preview_frame/") and method == "POST":
+            from pathlib import Path as _Path
+            import subprocess as _sp, tempfile as _tf, asyncio as _aio
+            try:
+                data = json.loads((await _read_body(receive)).decode("utf-8"))
+                vk = data.get("video_key", "")
+                if not (isinstance(vk, str) and _SAFE_DOWNLOAD_KEY_RE.match(vk)):
+                    await send_error("Invalid key", 400); return
+                if not _owned_key(vk, uid):
+                    await send_error("Forbidden", 403); return
+                src = _Path(TMP_DIR) / vk
+                for _a in range(6):
+                    tmp_vol.reload()
+                    if src.exists():
+                        break
+                    await _aio.sleep(0.5)
+                if not src.exists():
+                    await send_error("File not found", 404); return
+
+                t            = max(0.0, float(data.get("t", 0.0)))
+                font         = str(data.get("font", "Heebo"))
+                font_size    = int(data.get("font_size", 48))
+                margin_v_pct = float(data.get("margin_v", 0.08))
+                hook         = data.get("hook") or {}
+                caps_in      = data.get("captions") or []
+
+                def _render():
+                    import json as _json
+                    with _tf.TemporaryDirectory() as td:
+                        td = _Path(td)
+                        fr, ap, out = td / "f.png", td / "p.ass", td / "o.png"
+                        # Extract the display-oriented frame (ffmpeg auto-applies
+                        # any rotation), then size the ASS to the PNG's real dims —
+                        # sidesteps rotation-metadata handling entirely.
+                        _sp.run(["ffmpeg", "-y", "-ss", str(t), "-i", str(src),
+                                 "-frames:v", "1", str(fr)],
+                                stdout=_sp.DEVNULL, stderr=_sp.PIPE, timeout=60, check=True)
+                        pr = _sp.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                                      "-show_entries", "stream=width,height", "-of", "json", str(fr)],
+                                     capture_output=True, text=True, check=True)
+                        st = _json.loads(pr.stdout)["streams"][0]
+                        W, Hh = int(st["width"]), int(st["height"])
+                        margin_h = max(25, W // 14)
+                        margin_v = int(margin_v_pct * Hh)
+                        # Only the caption active at t (retimed onto the still frame).
+                        active = [c for c in caps_in
+                                  if float(c.get("start", 0)) <= t <= float(c.get("end", 0)) + 0.05]
+                        caps = [{"start": 0.0, "end": 9.0, "text": active[0].get("text", "")}] if active else []
+                        hk = {}
+                        if hook.get("text"):
+                            hs = float(hook.get("start_seconds", 1.0))
+                            hd = float(hook.get("duration_seconds", 4.0))
+                            if hs <= t <= hs + hd:
+                                hk = dict(hook); hk["start_seconds"] = 0.0; hk["duration_seconds"] = 9.0
+                        ass = build_caption_ass(W, Hh, font, font_size, margin_h, margin_v, caps, hk)
+                        ap.write_text(ass, encoding="utf-8")
+                        _sp.run(["ffmpeg", "-y", "-i", str(fr), "-vf", f"ass={ap}",
+                                 "-frames:v", "1", str(out)],
+                                stdout=_sp.DEVNULL, stderr=_sp.PIPE, timeout=60, check=True)
+                        return out.read_bytes()
+
+                png = await _aio.to_thread(_render)
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": CORS + [(b"content-type", b"image/png"),
+                                               (b"cache-control", b"no-store")]})
+                await send({"type": "http.response.body", "body": png})
+            except Exception as e:
+                print(f"[preview_frame] ERROR: {e!r}")
                 await send_error(str(e))
             return
 

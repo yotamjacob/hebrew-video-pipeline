@@ -108,6 +108,13 @@ async function mockAllApis(page, {
       body: Buffer.alloc(512, 0),
     }));
 
+  // Exact-frame preview (libass render) - return a tiny 1x1 PNG.
+  const PNG_1x1 = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC',
+    'base64');
+  await page.route(new RegExp(`${API_BASE}/preview_frame/?$`), r =>
+    r.fulfill({ status: 200, headers: { 'Content-Type': 'image/png' }, body: PNG_1x1 }));
+
   // Hook generate spawn
   await page.route(`${API_BASE}/generate-hook/`, r =>
     hookStatus === 200
