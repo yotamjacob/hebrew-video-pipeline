@@ -590,6 +590,10 @@
   let selectedHookIdx        = -1;
   let hookGenAborted         = false;
   let hookThumbnail          = null;
+  // The hook lines exactly as the preview canvas wrapped them (via measureText).
+  // Sent to the backend so libass renders the SAME line breaks instead of
+  // re-wrapping (which diverged - libass fits more Hebrew per line).
+  let _hookLines             = [];
   let _playerSetupDone       = false;
   let _previewObjURL         = null; // object URL for the blob-backed preview player (revoked on reset)
   let _playerDispW           = 0;   // detected display width (accounts for browser rotation)
@@ -2996,6 +3000,8 @@
       else cur = test;
     }
     if (cur) lines.push(cur);
+    // Remember the exact wrap so the burn can reproduce it (WYSIWYG).
+    _hookLines = lines.slice();
 
     const blockH  = lines.length * lineH;
     // Center of block, clamped so the box stays inside the canvas
@@ -4166,8 +4172,10 @@
         const hookTextEl = document.getElementById(`hookText${selectedHookIdx}`);
         const hookText   = hookTextEl ? hookTextEl.value.trim() : '';
         if (hookText) {
+          drawHookPreview();  // refresh _hookLines against the current text/font/size
           hookPayload = {
             text:              hookText,
+            lines:             _hookLines,   // exact preview wrap → burn matches WYSIWYG
             font:              document.getElementById('hookFont')?.value || 'Heebo',
             font_color:        document.getElementById('hookFontColor')?.value || '#FFFFFF',
             bg_color:          document.getElementById('hookBgColor')?.value || '#000000',

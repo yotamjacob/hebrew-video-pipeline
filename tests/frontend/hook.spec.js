@@ -85,3 +85,30 @@ test('poll endpoint receives the hook call_id', async ({ page }) => {
   expect(pollUrls.length).toBeGreaterThan(0);
   expect(pollUrls[0]).toContain('mock-hook-call-id');
 });
+
+test('burn sends the exact hook lines the preview wrapped (WYSIWYG)', async ({ page }) => {
+  // The burn must reproduce the preview's wrapping verbatim (not re-wrap in
+  // libass), so the frontend sends the canvas-computed lines in hook.lines.
+  const { API_BASE } = require('./helpers');
+  let burnBody = null;
+  await runFullUpload(page);
+  await page.route(/\/burn\/?(\?|$)/, async (route, request) => {
+    try { burnBody = JSON.parse(request.postData() || '{}'); } catch {}
+    await route.fallback();   // hand off to the mock from runFullUpload
+  });
+
+  await page.click('#generateHookBtn');
+  await page.waitForSelector('#hookOptions', { state: 'visible', timeout: 8_000 });
+  await page.click('#hookOption0');
+
+  await page.click('#runBtn');
+  const ok = page.locator('#confirmOk');
+  if (await ok.isVisible().catch(() => false)) await ok.click();
+
+  await expect.poll(() => (burnBody && burnBody.hook ? 'y' : 'n'), { timeout: 10_000 }).toBe('y');
+  expect(Array.isArray(burnBody.hook.lines)).toBe(true);
+  expect(burnBody.hook.lines.length).toBeGreaterThan(0);
+  // The lines partition the hook text - same words, same order (just wrapped).
+  const words = s => s.split(/\s+/).filter(Boolean).join(' ');
+  expect(words(burnBody.hook.lines.join(' '))).toBe(words(burnBody.hook.text));
+});
