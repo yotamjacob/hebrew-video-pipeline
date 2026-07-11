@@ -1175,19 +1175,24 @@
       transition: bottom 0.05s;
     }
     .preview-sliders-col {
-      display: flex; flex-direction: column; gap: 8px; align-items: center; flex-shrink: 0;
+      display: flex; flex-direction: column; gap: 8px; align-items: center;
+      flex-shrink: 0; min-width: 54px;
+    }
+    .pos-title {
+      font-size: 0.62rem; font-weight: 700; letter-spacing: 0.05em;
+      text-transform: uppercase; color: var(--purple-400); line-height: 1;
+      user-select: none;
     }
     .pos-col {
-      display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1;
+      display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1;
     }
     .pos-lbl {
-      font-size: 0.6rem; color: var(--purple-400); line-height: 1; user-select: none;
-      display: flex;
+      color: var(--purple-400); line-height: 1; user-select: none; display: flex;
     }
-    .pos-lbl svg { width: 15px; height: 15px; display: block; }
+    .pos-lbl svg { width: 20px; height: 20px; display: block; }
     .pos-track {
       width: 18px; border-radius: 9px; background: var(--purple-100);
-      position: relative; cursor: pointer; flex: 1; width: 100%;
+      position: relative; cursor: pointer; flex: 1;
     }
     .pos-thumb {
       width: 18px; height: 18px; border-radius: 50%;
@@ -1197,17 +1202,14 @@
       transition: box-shadow 0.1s;
     }
     .pos-thumb:active { cursor: grabbing; box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
-    .font-size-track {
-      display: flex; flex-direction: column; align-items: center; gap: 4px;
-      background: var(--purple-100); border-radius: 9px; padding: 7px 0;
-      width: 18px;
+    /* Font-size slider - horizontal, sits under the font selector */
+    .size-controls { margin-top: 10px; }
+    .size-controls input[type=range] {
+      flex: 1; accent-color: var(--purple-600); cursor: pointer; min-width: 0;
     }
-    .font-size-track input[type=range] {
-      writing-mode: vertical-lr; direction: rtl;
-      height: 56px; width: 14px;
-      accent-color: var(--purple-600); cursor: pointer;
-    }
-    .fs-lbl { font-size: 0.68rem; color: var(--purple-500); font-weight: 700; line-height: 1; }
+    .fs-lbl { color: var(--purple-500); font-weight: 700; line-height: 1; user-select: none; }
+    .fs-lbl-sm { font-size: 0.72rem; }
+    .fs-lbl-lg { font-size: 1.1rem; }
     /* Caption video player */
     .player-outer { margin-bottom: 16px; }
     .player-wrap {

@@ -4023,9 +4023,9 @@
       document.getElementById('hookCard').style.display = 'none';
       document.getElementById('stockBrollCard').style.display = 'none';
       document.getElementById('captionPlayer').style.display = 'none';
-      // Font choice only affects burned captions - irrelevant for audio.
-      const _fc = document.querySelector('#captionEditorCard .caption-controls');
-      if (_fc) _fc.style.display = 'none';
+      // Font + size only affect burned captions - irrelevant for audio.
+      document.querySelectorAll('#captionEditorCard .caption-controls')
+        .forEach(el => { el.style.display = 'none'; });
       document.getElementById('audioPlayer').style.display = 'block';
       const au = document.getElementById('cutAudio');
       if (au && videoKey) au.src = _withToken(`${API_BASE}/download/${videoKey}`);
@@ -4045,8 +4045,8 @@
     // Video mode: undo any audio-mode UI (in case an audio file preceded this).
     document.getElementById('audioPlayer').style.display = 'none';
     document.getElementById('downloadAudioBtn').style.display = 'none';
-    const _fcv = document.querySelector('#captionEditorCard .caption-controls');
-    if (_fcv) _fcv.style.display = '';
+    document.querySelectorAll('#captionEditorCard .caption-controls')
+      .forEach(el => { el.style.display = ''; });
     const _au = document.getElementById('cutAudio'); if (_au) { _au.pause(); _au.removeAttribute('src'); _au.load(); }
     document.getElementById('hookCard').style.display = 'block';
     // Stock B-roll card hosts the Find B-Roll Moments button

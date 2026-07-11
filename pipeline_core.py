@@ -36,6 +36,13 @@ image = (
         'wget -q "https://github.com/google/fonts/raw/main/ofl/assistant/Assistant%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/Assistant.ttf',
         'wget -q "https://github.com/google/fonts/raw/main/ofl/frankruhllibre/FrankRuhlLibre%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/FrankRuhlLibre.ttf',
         'wget -q "https://github.com/google/fonts/raw/main/ofl/secularone/SecularOne-Regular.ttf" -O /usr/local/share/fonts/hebrew/SecularOne.ttf',
+        # Extra caption-editor faces (must stay in sync with site/index.html's
+        # <select id="fontSelect"> and the Google Fonts <link> — preview == burn).
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/rubik/Rubik%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/Rubik.ttf',
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/suezone/SuezOne-Regular.ttf" -O /usr/local/share/fonts/hebrew/SuezOne.ttf',
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/karantina/Karantina-Regular.ttf" -O /usr/local/share/fonts/hebrew/Karantina.ttf',
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/playpensanshebrew/PlaypenSansHebrew%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/PlaypenSansHebrew.ttf',
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/miriamlibre/MiriamLibre%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/MiriamLibre.ttf',
         "apt-get install -y fonts-noto-hinted",
         "fc-cache -f /usr/local/share/fonts/hebrew",
     )
@@ -58,6 +65,12 @@ burn_image = (
         'wget -q "https://github.com/google/fonts/raw/main/ofl/assistant/Assistant%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/Assistant.ttf',
         'wget -q "https://github.com/google/fonts/raw/main/ofl/frankruhllibre/FrankRuhlLibre%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/FrankRuhlLibre.ttf',
         'wget -q "https://github.com/google/fonts/raw/main/ofl/secularone/SecularOne-Regular.ttf" -O /usr/local/share/fonts/hebrew/SecularOne.ttf',
+        # Extra caption-editor faces (keep in sync with the full image + frontend).
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/rubik/Rubik%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/Rubik.ttf',
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/suezone/SuezOne-Regular.ttf" -O /usr/local/share/fonts/hebrew/SuezOne.ttf',
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/karantina/Karantina-Regular.ttf" -O /usr/local/share/fonts/hebrew/Karantina.ttf',
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/playpensanshebrew/PlaypenSansHebrew%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/PlaypenSansHebrew.ttf',
+        'wget -q "https://github.com/google/fonts/raw/main/ofl/miriamlibre/MiriamLibre%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/MiriamLibre.ttf',
         "fc-cache -f /usr/local/share/fonts/hebrew",
     )
     .add_local_python_source(

@@ -103,6 +103,8 @@
     // ── Caption editor ──
     'capedit.title':   { en: 'Edit Captions', he: 'עריכת כתוביות' },
     'capedit.font':    { en: 'Font', he: 'גופן' },
+    'capedit.size':    { en: 'Size', he: 'גודל' },
+    'capedit.position': { en: 'Position', he: 'מיקום' },
     'capedit.hint':    { en: 'Edit captions below, then burn.', he: 'ערכו את הכתוביות למטה, ואז צרבו.' },
     'capedit.hintAudio': { en: 'Edit the captions below, then download the SRT or the clean audio.', he: 'ערכו את הכתוביות למטה, ואז הורידו קובץ SRT או את קובץ השמע הנקי.' },
     'celebrate.captionsReady': { en: '{n} captions ready', he: '{n} כתוביות מוכנות' },
@@ -484,6 +486,9 @@
     });
     scope.querySelectorAll('[data-i18n-title]').forEach(el => {
       el.title = t(el.getAttribute('data-i18n-title'));
+    });
+    scope.querySelectorAll('[data-i18n-aria-label]').forEach(el => {
+      el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria-label')));
     });
   }
 
