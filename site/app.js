@@ -547,6 +547,7 @@
   const noticeBlock  = document.getElementById('noticeBlock');
   const noticeWarn   = document.getElementById('noticeWarn');
   const noticeNet    = document.getElementById('noticeNet');
+  const noticeAudio  = document.getElementById('noticeAudio');
 
   let selectedFile = null;
   let videoDuration = null;
@@ -916,6 +917,11 @@
     document.getElementById('startOverBtn').style.display = '';
     clearNotices();
     resetStatus();
+
+    // Audio input: tell the user up front that only captions / clean audio are
+    // produced (B-roll, hooks, video enhance are off) so the reduced editor
+    // isn't a surprise. Shown for the whole selection, alongside any warnings.
+    if (isAudioInput && noticeAudio) noticeAudio.classList.add('visible');
 
     // Size check (instant)
     if (file.size > MAX_BYTES) {
@@ -2086,17 +2092,6 @@
   function _prefersReducedMotion() {
     return window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   }
-  function _countUp(el, to, { decimals = 0, suffix = '', ms = 900 } = {}) {
-    if (!el) return;
-    const fin = (decimals ? Number(to).toFixed(decimals) : String(Math.round(to))) + suffix;
-    if (_prefersReducedMotion()) { el.textContent = fin; return; }
-    const t0 = performance.now();
-    (function tick(now) {
-      const p = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - p, 3), v = to * e;
-      el.textContent = (decimals ? v.toFixed(decimals) : String(Math.round(v))) + suffix;
-      if (p < 1) requestAnimationFrame(tick); else el.textContent = fin;
-    })(t0);
-  }
   function _pulse(el, cls) {
     if (!el) return;
     el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls);
@@ -2128,16 +2123,9 @@
       // payoff + download instead of leaving the user staring at the progress.
       setTimeout(() => _scrollToBelowTopbar(banner), 60);
     }
+    // The "seconds trimmed" payoff stat was removed — keep the banner clean.
     const statEl = document.getElementById('burnSuccessStat');
-    if (!statEl) return;
-    const cutVid = document.getElementById('cutVideo');
-    const cutDur = cutVid && isFinite(cutVid.duration) ? cutVid.duration : null;
-    if (videoDuration && cutDur && videoDuration > cutDur + 0.3) {
-      statEl.style.display = '';
-      _countUp(statEl, videoDuration - cutDur, { decimals: 1, suffix: ' ' + t('celebrate.secTrimmed') });
-    } else {
-      statEl.style.display = 'none';   // no meaningful trim figure — keep it clean
-    }
+    if (statEl) statEl.style.display = 'none';
   }
 
   function showDone() {
@@ -2297,6 +2285,7 @@
     noticeBlock.classList.remove('visible');
     noticeWarn.classList.remove('visible');
     noticeNet.classList.remove('visible');
+    if (noticeAudio) noticeAudio.classList.remove('visible');
   }
   function showBlockNotice(title, body) {
     document.getElementById('noticeBlockTitle').textContent = title;
@@ -2373,6 +2362,33 @@
     }
     // Keep the hook preview's caption overlay in sync with these changes.
     drawHookPreview();
+  }
+
+  // Every family offered by #fontSelect (must match the server-installed set in
+  // pipeline_core.py and the Google Fonts <link> in index.html).
+  const CAPTION_FONTS = [
+    'Heebo', 'Assistant', 'Frank Ruhl Libre', 'Secular One', 'Rubik',
+    'Suez One', 'Karantina', 'Playpen Sans Hebrew', 'Miriam Libre',
+  ];
+  // Google Fonts ships the @font-face rules but fetches each binary lazily on
+  // first use, and the browser does NOT repaint already-drawn text when a font
+  // arrives - so switching to a not-yet-used face would stay on the fallback
+  // until some later repaint (the "font didn't change the preview" bug).
+  function _loadFontFaces(family) {
+    if (!family || !document.fonts || !document.fonts.load) return Promise.resolve();
+    // The preview text renders bold (700); load 400 too so both are ready.
+    return Promise.all([
+      document.fonts.load(`700 24px '${family}'`).catch(() => {}),
+      document.fonts.load(`400 24px '${family}'`).catch(() => {}),
+    ]);
+  }
+  // Warm every caption face when the editor opens so the first switch to any of
+  // them is instant, not a flash of fallback.
+  function _preloadCaptionFonts() { CAPTION_FONTS.forEach(_loadFontFaces); }
+  // On a font switch: repaint immediately (size/position stay responsive and the
+  // fallback shows) and again once the real face is guaranteed loaded.
+  function _ensureCaptionFont(family) {
+    _loadFontFaces(family).then(() => updatePreviewCaption());
   }
 
   function _safePlay(vid) {
@@ -2601,7 +2617,8 @@
 
   document.getElementById('fontSelect')?.addEventListener('change', e => {
     captionFont = e.target.value;
-    updatePreviewCaption();
+    updatePreviewCaption();       // instant: size/position + fallback face
+    _ensureCaptionFont(captionFont); // repaint once the chosen face is loaded
   });
 
   // ── Collapsible cards ──
@@ -4038,7 +4055,6 @@
       document.getElementById('uploadCard').classList.add('setup-locked');
       document.getElementById('optionsCard').classList.add('setup-locked');
       setTimeout(() => _scrollToBelowTopbar(document.getElementById('captionEditorCard')), 60);
-      if (captionsData.length) celebrateToast(t('celebrate.captionsReady', { n: captionsData.length }));
       return;
     }
 
@@ -4072,12 +4088,12 @@
     runBtn.style.display = 'block';
     updateBurnBtn();
     setupCaptionPlayer();
+    _preloadCaptionFonts();   // warm every face so font switches never flash fallback
     setTimeout(() => { initPositionTrack(); updatePreviewCaption(); validateCaptionTimes(); }, 50);
     // Land on the caption editor (its header just below the sticky topbar), not
     // at the bottom of the page - the user should see the editor they just
     // unlocked, not the finished progress card / burn button below it.
     setTimeout(() => _scrollToBelowTopbar(document.getElementById('captionEditorCard')), 60);
-    if (captionsData.length) celebrateToast(t('celebrate.captionsReady', { n: captionsData.length }));
   }
 
   async function doBurn() {

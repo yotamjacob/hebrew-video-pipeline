@@ -44,6 +44,13 @@ test('selecting an audio file hides the video-only options', async ({ page }) =>
   await expect(page.locator('#runBtn')).toBeEnabled();
 });
 
+test('audio file shows the limited-functionality info notice', async ({ page }) => {
+  await mockAudioApis(page);
+  await expect(page.locator('#noticeAudio')).toBeHidden();
+  await selectAudio(page);
+  await expect(page.locator('#noticeAudio')).toBeVisible();
+});
+
 test('audio processing lands on the reduced editor (audio player + downloads, no burn)', async ({ page }) => {
   await mockAudioApis(page);
   await selectAudio(page);
