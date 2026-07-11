@@ -1168,7 +1168,11 @@
   window.addEventListener('beforeunload', (e) => {
     const editing = document.getElementById('captionEditorCard').style.display !== 'none';
     const hasBrollWork = selectedBrolls.length > 0 || Object.keys(stockBrollSelections).length > 0;
-    if (isUploading || pollController || editing || resultBlob || resultDownloadUrl || hasBrollWork) {
+    // NOTE: a finished download URL is NOT "unsaved work" - the file lives on
+    // the server (30-day retention) and in History, so leaving loses nothing.
+    // (It also must NOT be a trigger: the download itself must never provoke a
+    // beforeunload prompt.)
+    if (isUploading || pollController || editing || resultBlob || hasBrollWork) {
       e.preventDefault();
       e.returnValue = '';
     }
@@ -1909,19 +1913,26 @@
   })();
 
   // Kick off a browser-native download of a server URL. The /download route
-  // sends `Content-Disposition: attachment; filename=…`, so the browser saves
-  // it to disk (streaming, with its own progress shelf) even cross-origin -
-  // vastly faster and lighter than fetching the whole file into a Blob first.
-  // The media token rides in the query (`_withToken`) so the GET is authorized;
-  // computed at click time so it's always a fresh, unexpired token.
+  // sends `Content-Disposition: attachment; filename=…`, so the browser streams
+  // it to disk (its own progress shelf) - far lighter than buffering a Blob.
+  // The media token rides in the query (`_withToken`), computed at call time so
+  // it's always fresh. We load it in a hidden IFRAME rather than clicking an
+  // <a>: the API is cross-origin (modal.run), so the anchor's `download` attr is
+  // ignored and a plain click/location would be treated as a TOP-LEVEL
+  // navigation - firing the beforeunload "leave page?" prompt before the server's
+  // Content-Disposition can turn it into a download (and cancelling it if the
+  // user dismisses the prompt). An iframe navigation never unloads the page, so
+  // the file downloads with no prompt. The server sets the filename from the
+  // `filename` query param, so `name` isn't needed on the client.
   function _browserDownload(url, name) {
-    const a = document.createElement('a');
-    a.href = _withToken(url);
-    if (name) a.download = name;   // same-origin hint; cross-origin uses the header
-    a.rel = 'noopener';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    let ifr = document.getElementById('_dlFrame');
+    if (!ifr) {
+      ifr = document.createElement('iframe');
+      ifr.id = '_dlFrame';
+      ifr.style.display = 'none';
+      document.body.appendChild(ifr);
+    }
+    ifr.src = _withToken(url);
   }
 
   function triggerDownload() {

@@ -69,6 +69,21 @@ test('burn completion reveals schedule + success banner immediately (download is
   await expect(page.locator('#optionsCard')).not.toHaveClass(/action-locked/);
 });
 
+test('finished burn downloads via a hidden iframe (no top-level navigation / unload prompt)', async ({ page }) => {
+  // Regression: the API is cross-origin, so a plain <a>/location download would
+  // be treated as a top-level navigation and fire the beforeunload "leave page?"
+  // prompt (cancelling the download). It must go through a hidden iframe instead.
+  await runFullUpload(page);
+  await page.click('#runBtn');
+  await page.click('#confirmOk');
+  await expect(page.locator('#burnSuccessBanner')).toBeVisible({ timeout: 10_000 });
+  const src = await page.locator('#_dlFrame').getAttribute('src');
+  expect(src, 'download must use the hidden iframe').toContain('/download/mock-output-key.mp4');
+  expect(src, 'download must carry an auth token').toContain('token=');
+  // The page never navigated away - the app is still here.
+  await expect(page.locator('#burnSuccessBanner')).toBeVisible();
+});
+
 test('lock releases after a failed operation', async ({ page }) => {
   await runFullUpload(page, { burnStatus: 500 });
   await page.click('#runBtn');
