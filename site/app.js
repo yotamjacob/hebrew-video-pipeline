@@ -4108,7 +4108,9 @@
     burnUrl.searchParams.set('filename',   fname);
     burnUrl.searchParams.set('font',       captionFont);
     burnUrl.searchParams.set('margin_v',   captionMarginPct.toFixed(4));
-    burnUrl.searchParams.set('font_size',  Math.round(captionFontSize * 1.10));
+    // Burn at the SAME size the preview shows (the old ×1.10 made burned
+    // captions bigger than the preview). Preview is the source of truth.
+    burnUrl.searchParams.set('font_size',  captionFontSize);
 
     const burnErrorEl   = document.getElementById('burnError');
     const reprocessBtn  = document.getElementById('reprocessBtn');

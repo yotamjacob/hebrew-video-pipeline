@@ -1222,7 +1222,10 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             h_font         = hook.get("font", "Heebo")
             h_size_pct     = max(50, min(200, int(hook.get("font_size_pct", 100))))
             h_fsize_base   = max(24, int(min(width, height) * 0.075 * h_size_pct / 100))
-            h_fsize        = max(24, int(h_fsize_base * 1.30))
+            # Render at the SAME em the canvas preview uses (min·0.075·pct) — the
+            # old ×1.30 bump made the burned hook noticeably bigger than the
+            # preview and re-wrapped it. Preview is the source of truth.
+            h_fsize        = h_fsize_base
             h_primary      = hex_to_ass(hook.get("font_color", "#FFFFFF"), 0)
             h_bg_alpha     = int((1.0 - max(0.0, min(1.0, float(hook.get("bg_opacity", 0.6))))) * 255)
             h_back         = hex_to_ass(hook.get("bg_color", "#000000"), h_bg_alpha)
@@ -1242,7 +1245,11 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             # Use h_fsize_base (unbumped) for available width — matches canvas edgePad so
             # libass wraps at the same points as the canvas preview.
             h_avail_w = width - 2 * h_fsize_base
-            char_w = h_fsize * 0.50
+            # 0.60·em ≈ average bold-Hebrew glyph width (same factor captions
+            # use) so libass wraps at the same points as the canvas preview's
+            # measureText. 0.50 under-estimated width and under-wrapped (fewer
+            # lines than the preview).
+            char_w = h_fsize * 0.60
             raw_words = [_hclean(w) for w in hook["text"].split() if _hclean(w)]
             hook_lines, cur, cur_w = [], [], 0.0
             for word in raw_words:
