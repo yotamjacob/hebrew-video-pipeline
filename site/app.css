@@ -648,6 +648,16 @@
       box-shadow: 0 12px 40px rgba(55, 7, 100, 0.22);
     }
     .modal-dialog-title { font-size: 1.05rem; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+    /* Privacy & Terms modal: a tall, wide dialog hosting legal.html in an iframe */
+    .legal-dialog {
+      max-width: 680px; width: 100%; height: 85vh;
+      display: flex; flex-direction: column; padding: 16px 16px 18px;
+    }
+    .legal-dialog .sched-dialog-head { margin-bottom: 10px; }
+    #legalFrame {
+      flex: 1; width: 100%; border: none; border-radius: 12px;
+      background: var(--white);
+    }
     /* Scheduling modal: taller form, scrolls inside the dialog */
     .sched-dialog { max-width: 440px; max-height: 90vh; overflow-y: auto; }
     .sched-dialog-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }

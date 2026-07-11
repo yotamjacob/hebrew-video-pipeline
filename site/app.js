@@ -3149,6 +3149,57 @@
     if (ov) ov.style.display = 'none';
   }
 
+  // Privacy & Terms + Contact open ON-PAGE modals (never navigate away) so a
+  // user mid-edit doesn't lose progress just to read the policy or the email.
+  function openLegalModal() {
+    const f = document.getElementById('legalFrame');
+    // Lazy-load the real legal.html on first open; it shares hebpipe_lang via
+    // localStorage so it renders in the user's language, and hides its own
+    // "back to pipeline" link when embedded (see legal.html).
+    if (f && !f.getAttribute('src')) f.setAttribute('src', '/legal.html');
+    const ov = document.getElementById('legalOverlay');
+    if (ov) ov.style.display = 'flex';
+  }
+  function closeLegalModal() {
+    const ov = document.getElementById('legalOverlay');
+    if (ov) ov.style.display = 'none';
+  }
+  function openContactModal() {
+    const ov = document.getElementById('contactOverlay');
+    if (ov) ov.style.display = 'flex';
+  }
+  function closeContactModal() {
+    const ov = document.getElementById('contactOverlay');
+    if (ov) ov.style.display = 'none';
+  }
+  function copyContactEmail(btn) {
+    const email = 'yotamjacob@gmail.com';
+    const done = () => {
+      if (!btn) return;
+      const prev = btn.textContent;
+      btn.textContent = t('contact.copied');
+      setTimeout(() => { btn.textContent = prev; }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(email).then(done).catch(() => {});
+    } else {
+      // Fallback for browsers without the async clipboard API.
+      const ta = document.createElement('textarea');
+      ta.value = email; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); done(); } catch (_) {}
+      ta.remove();
+    }
+  }
+  // Esc closes whichever info modal is open.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const legal = document.getElementById('legalOverlay');
+    const contact = document.getElementById('contactOverlay');
+    if (legal && legal.style.display !== 'none') closeLegalModal();
+    if (contact && contact.style.display !== 'none') closeContactModal();
+  });
+
   async function triggerGenerateHook() {
     if (!videoKey || !captionsData.length) return;
     // Options already on screen → regenerating discards them (and any edits).

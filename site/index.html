@@ -133,7 +133,7 @@
       <button type="button" class="link-btn" id="authForgotLink" style="margin-top:10px;display:none" onclick="showForgot()" data-i18n="auth.forgot">Forgot your password?</button>
     </form>
   </div>
-  <p class="footer"><a class="footer-contact" href="mailto:yotamjacob@gmail.com" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" data-i18n="footer.legal">פרטיות ותנאי שימוש</a></p>
+  <p class="footer"><a class="footer-contact" href="mailto:yotamjacob@gmail.com" onclick="openContactModal();return false;" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" onclick="openLegalModal();return false;" data-i18n="footer.legal">פרטיות ותנאי שימוש</a></p>
 </div>
 
 <!-- ── Reset password (opened from the email link, ?reset=token) ── -->
@@ -155,7 +155,7 @@
       <button class="run-btn" id="resetSubmitBtn" style="margin-top:18px" onclick="resetSubmit()" data-i18n="reset.submit">Save new password</button>
     </div>
   </div>
-  <p class="footer"><a class="footer-contact" href="mailto:yotamjacob@gmail.com" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" data-i18n="footer.legal">פרטיות ותנאי שימוש</a></p>
+  <p class="footer"><a class="footer-contact" href="mailto:yotamjacob@gmail.com" onclick="openContactModal();return false;" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" onclick="openLegalModal();return false;" data-i18n="footer.legal">פרטיות ותנאי שימוש</a></p>
 </div>
 
 <div class="container" id="pipelineView" style="display:none">
@@ -694,7 +694,7 @@
 
   <button id="startOverBtn" class="start-over-btn" style="display:none" data-i18n="startOver">Start over</button>
 
-  <p class="footer"><a class="footer-contact" href="mailto:yotamjacob@gmail.com" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" data-i18n="footer.legal">פרטיות ותנאי שימוש</a></p>
+  <p class="footer"><a class="footer-contact" href="mailto:yotamjacob@gmail.com" onclick="openContactModal();return false;" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" onclick="openLegalModal();return false;" data-i18n="footer.legal">פרטיות ותנאי שימוש</a></p>
 </div>
 
 <!-- ── History view ── -->
@@ -711,7 +711,7 @@
     <div id="historyList"></div>
     </div>
   </div>
-  <p class="footer"><a class="footer-contact" href="mailto:yotamjacob@gmail.com" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" data-i18n="footer.legal">פרטיות ותנאי שימוש</a></p>
+  <p class="footer"><a class="footer-contact" href="mailto:yotamjacob@gmail.com" onclick="openContactModal();return false;" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" onclick="openLegalModal();return false;" data-i18n="footer.legal">פרטיות ותנאי שימוש</a></p>
 </div>
 
 <!-- ── Admin view ── -->
@@ -727,7 +727,7 @@
       <div id="adminList"></div>
     </div>
   </div>
-  <p class="footer"><a class="footer-contact" href="mailto:yotamjacob@gmail.com" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" data-i18n="footer.legal">פרטיות ותנאי שימוש</a></p>
+  <p class="footer"><a class="footer-contact" href="mailto:yotamjacob@gmail.com" onclick="openContactModal();return false;" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" onclick="openLegalModal();return false;" data-i18n="footer.legal">פרטיות ותנאי שימוש</a></p>
 </div>
 
 <!-- ── Guide tab ── -->
@@ -796,7 +796,7 @@
       </div>
     </div>
   </div>
-  <p class="footer"><a class="footer-contact" href="mailto:yotamjacob@gmail.com" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" data-i18n="footer.legal">פרטיות ותנאי שימוש</a></p>
+  <p class="footer"><a class="footer-contact" href="mailto:yotamjacob@gmail.com" onclick="openContactModal();return false;" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" onclick="openLegalModal();return false;" data-i18n="footer.legal">פרטיות ותנאי שימוש</a></p>
 </div>
 
 <!-- ── Confirm dialog ── -->
@@ -876,6 +876,31 @@
       <button class="modal-cancel-btn" id="confirmCancel" data-i18n="confirm.cancel">Cancel</button>
       <button class="modal-ok-btn" id="confirmOk" data-i18n="confirm.burnOk">Burn &amp; Download</button>
     </div>
+  </div>
+</div>
+
+<!-- ── Privacy & Terms modal (loads legal.html in an iframe so the user never
+       leaves the page / loses editing progress) ── -->
+<div id="legalOverlay" class="modal-overlay" style="display:none;z-index:960" onclick="if(event.target===this)closeLegalModal()">
+  <div class="modal-dialog legal-dialog">
+    <div class="sched-dialog-head">
+      <p class="modal-dialog-title" data-i18n="footer.legal">Privacy &amp; Terms</p>
+      <button type="button" class="sched-close" onclick="closeLegalModal()" aria-label="Close" data-i18n-title="tpl.close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
+    </div>
+    <iframe id="legalFrame" title="Privacy & Terms" loading="lazy"></iframe>
+  </div>
+</div>
+
+<!-- ── Contact / feedback modal ── -->
+<div id="contactOverlay" class="modal-overlay" style="display:none;z-index:960" onclick="if(event.target===this)closeContactModal()">
+  <div class="modal-dialog" style="max-width:400px;width:100%">
+    <div class="sched-dialog-head">
+      <p class="modal-dialog-title" data-i18n="contact.title">Contact &amp; Feedback</p>
+      <button type="button" class="sched-close" onclick="closeContactModal()" aria-label="Close" data-i18n-title="tpl.close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
+    </div>
+    <p class="modal-dialog-body" style="margin-bottom:16px" data-i18n="contact.body">Questions, an issue, or feedback? We'd love to hear from you - email us:</p>
+    <a class="run-btn" id="contactMailBtn" href="mailto:yotamjacob@gmail.com" style="display:block;text-align:center;text-decoration:none;margin-bottom:10px">yotamjacob@gmail.com</a>
+    <button type="button" class="action-btn" id="contactCopyBtn" style="width:100%" onclick="copyContactEmail(this)" data-i18n="contact.copy">Copy email</button>
   </div>
 </div>
 

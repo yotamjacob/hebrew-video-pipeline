@@ -207,6 +207,18 @@
     try { localStorage.setItem('hebpipe_lang', lang); } catch (e) {}
     render();
   }
+  // When embedded in the app's Privacy & Terms modal (an iframe), the modal's
+  // close button replaces the "back to pipeline" link - hide it so tapping it
+  // doesn't load the whole app inside the iframe.
+  try {
+    if (window.self !== window.top) {
+      var bl = document.getElementById('backLink');
+      if (bl) bl.style.display = 'none';
+    }
+  } catch (e) {
+    var bl2 = document.getElementById('backLink');
+    if (bl2) bl2.style.display = 'none';
+  }
   render();
 </script>
 </body>
