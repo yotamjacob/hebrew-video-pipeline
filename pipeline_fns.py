@@ -8,7 +8,7 @@ import modal
 from pipeline_core import (
     app, burn_image, light_image, model_volume, MODEL_DIR,
     WHISPER_MODEL, WHISPER_INITIAL_PROMPT, tmp_vol, TMP_DIR, _fix_rtl_punct,
-    _rtl_ass_text, _censor_caption_text, _SAFE_KEY_RE,
+    _rtl_ass_text, _censor_caption_text, _RLE, _PDF, _SAFE_KEY_RE,
     _BROLL_KEY_RE, _is_allowed_broll_url,
     jobs_store, JOB_RETENTION_DAYS, SCRATCH_RETENTION_HOURS,
     progress_store, calls_store, CALL_RETENTION_SECONDS, _UID_PREFIX_RE,
@@ -1237,7 +1237,9 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
             f"Dialogue: 0,{seconds_to_ass(h_start)},{seconds_to_ass(h_start + h_dur)},Hook,,0,0,0,,"
             f"{{\\an7\\pos({bx:.1f},{by:.1f})\\c&H{_bgr(bgcol_hex)}&\\1a&H{h_bg_alpha:02X}&\\bord0\\shad0\\p1}}{box_draw}\n"
         )
-        text_blk = "\\N".join(l.replace("{", "\\{").replace("}", "\\}") for l in hook_lines)
+        # Wrap each hook line in an RTL embedding (RLE…PDF) so mixed
+        # Hebrew/English + punctuation renders correctly (same fix as captions).
+        text_blk = "\\N".join(_RLE + l.replace("{", "\\{").replace("}", "\\}") + _PDF for l in hook_lines)
         text_ev = (
             f"Dialogue: 1,{seconds_to_ass(h_start)},{seconds_to_ass(h_start + h_dur)},Hook,,0,0,0,,"
             f"{{\\an5\\q2\\pos({width / 2:.1f},{cy:.1f})\\c&H{_bgr(fcol_hex)}&{text_tags}}}{text_blk}\n"
@@ -1267,6 +1269,54 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
         for c in captions
     ]
     return header + "".join(lines) + hook_event_lines
+
+
+# ---------------------------------------------------------------------------
+# B-roll "peak moment" window picker
+# ---------------------------------------------------------------------------
+def _peak_window(path, want_dur):
+    """Return (start, end) of the highest-MOTION `want_dur`-second window in a
+    stock clip, so the short B-roll shows the peak action instead of a static
+    middle/edge. Motion = mean absolute frame-difference luma (via ffmpeg
+    tblend+signalstats), sampled at 8fps on a tiny 64px decode (fast — clips are
+    short). Best-effort: returns None on any failure so the caller can fall back
+    to the pre-computed middle window."""
+    import subprocess as _sp, re as _re2
+    try:
+        pr = _sp.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                      "-of", "default=nw=1:nk=1", str(path)],
+                     capture_output=True, text=True, timeout=20)
+        total = float((pr.stdout or "0").strip() or 0)
+        if total <= 0:
+            return None
+        if total <= want_dur + 0.1:
+            return (0.0, round(min(total, want_dur), 3))
+        r = _sp.run(["ffmpeg", "-nostats", "-i", str(path), "-vf",
+                     "fps=8,scale=64:-2,tblend=all_mode=difference,signalstats,"
+                     "metadata=print:key=lavfi.signalstats.YAVG:file=-",
+                     "-an", "-f", "null", "-"],
+                    capture_output=True, text=True, timeout=60)
+        times, energy, t = [], [], None
+        for line in r.stdout.splitlines():
+            m = _re2.search(r'pts_time:([0-9.]+)', line)
+            if m:
+                t = float(m.group(1)); continue
+            m = _re2.search(r'YAVG=([0-9.]+)', line)
+            if m and t is not None:
+                times.append(t); energy.append(float(m.group(1))); t = None
+        if len(times) < 4:
+            return None
+        max_start = total - want_dur
+        best_s, best_e, s = 0.0, -1.0, 0.0
+        while s <= max_start + 1e-6:
+            e = sum(en for ti, en in zip(times, energy) if s <= ti < s + want_dur)
+            if e > best_e:
+                best_e, best_s = e, s
+            s += 0.25
+        return (round(best_s, 3), round(best_s + want_dur, 3))
+    except Exception as _pe:
+        print(f"[peak] window detect failed: {_pe!r}")
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -1377,6 +1427,14 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             clip_in_end   = item.get("clip_use_end_seconds")
             if clip_in_end is not None:
                 clip_in_end = float(clip_in_end)
+            # Pick the PEAK-motion window of the clip (want = the B-roll duration),
+            # instead of the pre-computed middle. Best-effort: keep the middle on
+            # failure. Overrides the window while preserving its length.
+            want_dur = (clip_in_end - clip_in_start) if clip_in_end is not None else (end - start)
+            if want_dur and want_dur > 0:
+                peak = _peak_window(dst, round(want_dur, 3))
+                if peak:
+                    clip_in_start, clip_in_end = peak
             broll_files.append((dst, start, end, clip_in_start, clip_in_end))
 
         esc = str(ass_path).replace(":", r"\:")

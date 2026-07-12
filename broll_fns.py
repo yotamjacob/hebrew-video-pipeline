@@ -752,11 +752,11 @@ def analyze_stock_broll(captions_json: str, video_key: str = "",
                 "DURATION RULES — for each moment, set B-roll timing using the transcript timestamps:\n\n"
                 "a) ALIGN TO SPEECH. B-roll starts with the phrase introducing the insight and ends at a natural pause (sentence end, clause boundary, or silence gap). Use the actual start/end timestamps from the transcript lines — no invented round numbers.\n\n"
                 "b) CLAMP TO 2–5 SECONDS. Under 2s reads as a glitch. Over 5s loses the speaker.\n\n"
-                "c) SCALE BY SUBJECT COMPLEXITY:\n"
-                "   - simple (one concrete action/object, or a short emotional line): 2–3 seconds\n"
-                "   - moderate (scene with one main focus, or an emotional passage): 3–4 seconds\n"
-                "   - complex (abstract or multi-element: cityscape, conceptual scene): 4–5 seconds\n\n"
-                "d) RESOLVE CONFLICTS. If speech window is 6s but subject is simple, cap at 3s. If speech is 1.5s but subject is complex, extend to 2s minimum.\n\n"
+                "c) KEEP IT SHORT — 2 to 3 seconds ALWAYS (punchy inserts, never longer):\n"
+                "   - simple (one concrete action/object, or a short emotional line): ~2 seconds\n"
+                "   - moderate (scene with one main focus, or an emotional passage): ~2.5 seconds\n"
+                "   - complex (abstract or multi-element: cityscape, conceptual scene): ~3 seconds (hard max)\n\n"
+                "d) RESOLVE CONFLICTS. broll_duration_seconds must be between 2 and 3 seconds. If the speech window is longer, still cap at 3s; if shorter than 2s, extend to 2s minimum.\n\n"
                 "e) NEVER CUT MID-WORD. broll_end_seconds must fall on a word boundary — use the end timestamp of the last word in the key phrase, or the start of the next phrase (= silence gap).\n\n"
 
                 "Examples:\n\n"
@@ -770,7 +770,7 @@ def analyze_stock_broll(captions_json: str, video_key: str = "",
                 "  confidence: \"medium\"\n\n"
                 "Moment: \"yoga corrections should be gentle, loose contact if at all\" (CONCRETE, 3.2s at 1:14.5–1:17.7)\n"
                 "  moment_type: \"concrete\", intensity_score: 6, intensity_markers: []\n"
-                "  broll_start_seconds: 74.5, broll_end_seconds: 77.7, broll_duration_seconds: 3.2\n"
+                "  broll_start_seconds: 74.5, broll_end_seconds: 77.5, broll_duration_seconds: 3.0\n"
                 "  key_insight: \"yoga corrections should use minimal or no physical contact — verbal guidance only\"\n"
                 "  search_variants: [\"yoga instructor student teaching\", \"yoga teacher demonstrating pose\", \"yoga class verbal instruction\"]\n"
                 "  strict_eval_prompt: \"yoga instructor teaching student with minimal or no physical contact, verbal guidance or hand-hovering only. DISQUALIFY: hands-on adjustments, physical corrections, instructor touching student.\"\n"
@@ -786,15 +786,15 @@ def analyze_stock_broll(captions_json: str, video_key: str = "",
 
                 "Moment: \"המורה שלי תמיד עזרה לי להתיישב בצורה נכונה, לגעת קלות פה ושם\" (HYBRID — yoga instructor gentle correction, 3.1s at 1:22.4–1:25.5)\n"
                 "  moment_type: \"hybrid\", intensity_score: 6, intensity_markers: []\n"
-                "  broll_start_seconds: 82.4, broll_end_seconds: 85.5, broll_duration_seconds: 3.1\n"
+                "  broll_start_seconds: 82.4, broll_end_seconds: 85.2, broll_duration_seconds: 2.8\n"
                 "  key_insight: \"the yoga instructor used light touch to guide alignment, not control\"\n"
                 "  search_variants: [\"yoga instructor gentle touch student\", \"yoga teacher guiding student correction\", \"yoga studio instructor adjustment\", \"yoga class instructor student hands\"]\n"
                 "  strict_eval_prompt: \"yoga instructor providing light hands-on alignment correction to student in teaching context. DISQUALIFY: holding hands romantically or casually, parent-child contact, friends embracing, any gentle physical contact outside a yoga or coaching context.\"\n"
                 "  confidence: \"medium\"\n\n"
 
-                "Moment: \"וכל הזמן הרגשתי כאילו לא מצליחה להבין\" (EMOTIONAL — feeling blocked/failing, 3.5s at 2:15.0–2:18.5)\n"
+                "Moment: \"וכל הזמן הרגשתי כאילו לא מצליחה להבין\" (EMOTIONAL — feeling blocked/failing, 2.8s at 2:15.0–2:17.8)\n"
                 "  moment_type: \"emotional\", intensity_score: 8, intensity_markers: [\"הרגשתי\", \"לא מצליחה\"]\n"
-                "  broll_start_seconds: 135.0, broll_end_seconds: 138.5, broll_duration_seconds: 3.5\n"
+                "  broll_start_seconds: 135.0, broll_end_seconds: 137.8, broll_duration_seconds: 2.8\n"
                 "  key_insight: \"feeling perpetually blocked and unable to understand — a state of persistent confusion\"\n"
                 "  search_variants: [\"pensive person face close-up\", \"frustrated woman looking down\", \"closed door narrow corridor\", \"fog covering path view\"]\n"
                 "  strict_eval_prompt: \"person with frustrated or blocked expression — introspective, searching, unable to find words. DISQUALIFY: happy, relaxed, confident, or productive-looking person.\"\n"
@@ -896,10 +896,10 @@ def analyze_stock_broll(captions_json: str, video_key: str = "",
         # B-roll timing: prefer new broll_* fields, fall back to legacy start/end_seconds
         broll_start = float(m.get("broll_start_seconds", m.get("speech_start_seconds", m.get("start_seconds", start))))
         broll_end   = float(m.get("broll_end_seconds",   m.get("speech_end_seconds",   broll_start + 3.0)))
-        # Clamp duration to 2–5 seconds
+        # Clamp duration to 2–3 seconds (short, punchy inserts).
         dur = broll_end - broll_start
         if dur < 2.0:   broll_end = broll_start + 2.0
-        elif dur > 5.0: broll_end = broll_start + 5.0
+        elif dur > 3.0: broll_end = broll_start + 3.0
         broll_start = round(broll_start, 2)
         broll_end   = round(broll_end, 2)
         broll_dur   = round(broll_end - broll_start, 2)
