@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",
-    "@capacitor/core": "^8.4.1"
+    "@capacitor/core": "^8.4.1",
+    "@capawesome/capacitor-file-picker": "^8.0.3",
+    "@capgo/capacitor-uploader": "^8.3.3"
   }
 }

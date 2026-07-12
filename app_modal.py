@@ -61,7 +61,7 @@ def api():
 
     CORS = [
         (b"access-control-allow-origin",  b"*"),
-        (b"access-control-allow-methods", b"GET, POST, DELETE, OPTIONS"),
+        (b"access-control-allow-methods", b"GET, POST, PUT, DELETE, OPTIONS"),
         (b"access-control-allow-headers", b"*"),
         (b"access-control-expose-headers", b"content-disposition"),
     ]
@@ -634,6 +634,44 @@ def api():
             # (which would serialize all concurrent chunk requests despite max_inputs=20)
             await asyncio.to_thread(chunk_path.write_bytes, chunk_bytes)
             # No commit here — all chunks are committed once in /process before job spawn
+            body = json.dumps({"ok": True}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # Stream upload — a single whole-file upload written straight to the
+        # Volume as chunk 0000, so the native background uploader (@capgo, raw
+        # binary body) can hand off a large file in one request and it survives
+        # the app being minimized. process_video's chunk glob finds this single
+        # chunk and reassembles it exactly like the web multi-chunk path — no
+        # worker change. The body is streamed to disk in ~4 MB flushes so a
+        # hundreds-of-MB upload never buffers in RAM (unlike _read_body).
+        if path in ("/upload_stream", "/upload_stream/") and method in ("POST", "PUT"):
+            qs  = parse_qs(scope.get("query_string", b"").decode())
+            _uh = {bytes(k).lower(): bytes(v).decode() for k, v in scope.get("headers", [])}
+            key = _uh.get(b"x-upload-key") or qs.get("key", [""])[0]
+            if not key or not _SAFE_KEY_RE.match(key):
+                await send_error("Invalid or missing key", 400)
+                return
+            from pathlib import Path as _Path
+            chunk_path = _Path(TMP_DIR) / f"{uprefix}{key}_chunk_0000"
+            fh = await asyncio.to_thread(open, chunk_path, "wb")
+            try:
+                buf = bytearray()
+                FLUSH = 4 * 1024 * 1024
+                while True:
+                    msg = await receive()
+                    buf += msg.get("body", b"")
+                    if len(buf) >= FLUSH:
+                        data = bytes(buf); buf.clear()
+                        await asyncio.to_thread(fh.write, data)
+                    if not msg.get("more_body", False):
+                        if buf:
+                            await asyncio.to_thread(fh.write, bytes(buf))
+                        break
+            finally:
+                await asyncio.to_thread(fh.close)
             body = json.dumps({"ok": True}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
