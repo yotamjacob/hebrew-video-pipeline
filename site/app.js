@@ -3096,7 +3096,9 @@
     ctx.textAlign   = 'center';
     ctx.textBaseline = 'middle';
 
-    const edgePad = fontSize;
+    // Side margin 0.7·fs (was 1.0·fs) so the hook fills more of the width. MUST
+    // match build_caption_ass `edge` so the lines wrapped here fit the burned box.
+    const edgePad = fontSize * 0.7;
     const maxW    = W - 2 * edgePad;          // max text width
     const padH    = Math.round(fontSize * 0.55); // horizontal box padding
     const padV    = Math.round(fontSize * 0.35); // vertical box padding

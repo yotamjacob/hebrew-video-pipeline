@@ -274,7 +274,7 @@ def _rewrap(text: str, video_w: int, video_h: int, font_size: int) -> str:
     """Mirror of the _rewrap_cap closure in burn_captions_fn."""
     margin_h = max(25, video_w // 14)
     avail    = video_w - 2 * margin_h
-    char_w   = font_size * 0.60
+    char_w   = font_size * 0.50
     words    = text.replace(r"\N", " ").split()
     if not words:
         return text
@@ -299,7 +299,7 @@ def _css_approx_lines(text: str, video_w: int, video_h: int, font_size: int,
                       client_h: int) -> int:
     """Estimate the number of CSS lines the preview would show.
 
-    Uses the same 0.60 coefficient so the comparison is apples-to-apples.
+    Uses the same 0.50 coefficient so the comparison is apples-to-apples.
     """
     margin_h   = max(25, video_w // 14)
     avail_pct  = (video_w - 2 * margin_h) / video_w  # e.g. 0.857
@@ -307,7 +307,7 @@ def _css_approx_lines(text: str, video_w: int, video_h: int, font_size: int,
     avail_px   = client_w * avail_pct
     scale      = client_h / video_h
     fs_css     = max(7, round(font_size * scale))
-    char_w_css = fs_css * 0.60
+    char_w_css = fs_css * 0.50
     words      = text.replace(r"\N", " ").split()
     if not words:
         return 0
@@ -329,7 +329,7 @@ def _css_approx_lines(text: str, video_w: int, video_h: int, font_size: int,
 class TestCaptionRewrap:
     # The burned video must show the same number of lines as the CSS preview.
     # Strategy: count literal-backslash-N breaks that _rewrap inserts and
-    # compare to the CSS-based line-count estimate (both use 0.60 coefficient).
+    # compare to the CSS-based line-count estimate (both use 0.50 coefficient).
 
     PORTRAIT_W, PORTRAIT_H = 1080, 1920
     LANDSCAPE_W, LANDSCAPE_H = 1920, 1080
@@ -381,11 +381,12 @@ class TestCaptionRewrap:
 
     # ── coefficient consistency with source ───────────────────────────────────
 
-    def test_source_uses_055_coefficient(self):
+    def test_source_uses_050_coefficient(self):
         snippet = _extract_snippet(MODAL_SRC, "build_caption_ass")
-        assert "0.60" in snippet, (
-            "_rewrap_cap in build_caption_ass must use 0.60 char-width coefficient "
-            "to match the hook word-wrap and the CSS preview approximation"
+        assert "0.50" in snippet, (
+            "_rewrap_cap in build_caption_ass must use the 0.50 char-width "
+            "coefficient (measured Heebo advance ~0.46) so lines fill the "
+            "allowed width without libass re-wrapping"
         )
 
     def test_generate_ass_uses_055_coefficient(self):

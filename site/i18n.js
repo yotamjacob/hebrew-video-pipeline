@@ -165,7 +165,7 @@
     // ── Run / burn / result ──
     'run.pipeline':     { en: 'Run Pipeline', he: 'הפעלת העיבוד' },
     'run.burn':         { en: 'Burn &amp; Download', he: 'צריבה והורדה' },
-    'burn.success':     { en: 'Done! Your video is ready.', he: 'סיימנו! הסרטון שלכם מוכן.' },
+    'burn.success':     { en: 'Your video is downloading. If it did not start, tap Download again.', he: 'הסרטון שלכם יורד. אם ההורדה לא התחילה, הקישו על הורדה חוזרת.' },
     'burn.downloadAgain': { en: 'Download again', he: 'הורדה חוזרת' },
 
     // ── Schedule card ──
@@ -224,8 +224,8 @@
     'prog.upscale':     { en: 'AI upscale', he: 'שדרוג AI' },
     'prog.burn':        { en: 'Burn captions', he: 'צריבת כתוביות' },
     'prog.keepOpen':    { en: 'Keep this page open while processing', he: 'השאירו את העמוד פתוח בזמן העיבוד' },
-    'prog.done':        { en: 'Done! Your video is ready.', he: 'סיימנו! הסרטון שלכם מוכן.' },
-    'prog.download':    { en: 'Download video', he: 'הורדת הסרטון' },
+    'prog.done':        { en: 'Your video is downloading. If it did not start, tap Download again.', he: 'הסרטון שלכם יורד. אם ההורדה לא התחילה, הקישו על הורדה חוזרת.' },
+    'prog.download':    { en: 'Download again', he: 'הורדה חוזרת' },
     'prog.error':       { en: 'Something went wrong.', he: 'משהו השתבש.' },
     'prog.retry':       { en: 'Try again', he: 'ניסיון חוזר' },
     'startOver':        { en: 'Start over', he: 'התחלה מחדש' },

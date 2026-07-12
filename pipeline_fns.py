@@ -1132,7 +1132,11 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
         if not words:
             return text
         avail = width - 2 * margin_h
-        char_w = font_size * 0.60
+        # Measured Heebo advance ~0.46/char (400 weight, incl. spaces). 0.50 packs
+        # lines close to full while staying just above the real width, so libass
+        # (rendering at the same margins) never re-wraps. 0.60 wrapped ~25% early,
+        # leaving the allowed width underfilled.
+        char_w = font_size * 0.50
         lines, cur, cur_w = [], [], 0.0
         for word in words:
             ww = len(word) * char_w
@@ -1174,7 +1178,10 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
         h_dur      = float(hook.get("duration_seconds", 4.0))
         b_size     = max(0, min(20, int(hook.get("border_size", 0))))
 
-        edge  = h_fsize
+        # Side margin: 0.7·fs (was 1.0·fs) so the hook fills more of the width -
+        # the box stays inside the frame since padH (0.55·fs) < edge. MUST match
+        # the frontend drawHookPreview edgePad so the sent lines fit the box.
+        edge  = h_fsize * 0.7
         maxW  = width - 2 * edge
         padH  = round(h_fsize * 0.55)
         padV  = round(h_fsize * 0.35)
@@ -1187,7 +1194,7 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
         if isinstance(sent, list) and any(isinstance(x, str) and x.strip() for x in sent):
             hook_lines = [str(x) for x in sent if str(x).strip()]
         else:
-            char_w = h_fsize * 0.60
+            char_w = h_fsize * 0.50
             raw_words = [_hclean(w) for w in hook["text"].split() if _hclean(w)]
             hook_lines, cur, cur_w = [], [], 0.0
             for word in raw_words:
