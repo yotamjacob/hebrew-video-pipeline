@@ -166,6 +166,11 @@
     'run.burn':         { en: 'Burn &amp; Download', he: 'צריבה והורדה' },
     'burn.success':     { en: 'Your video is downloading. If it did not start, tap Download again.', he: 'הסרטון שלכם יורד. אם ההורדה לא התחילה, הקישו על הורדה חוזרת.' },
     'burn.downloadAgain': { en: 'Download again', he: 'הורדה חוזרת' },
+    'share.btn':    { en: 'Share video', he: 'שיתוף הסרטון' },
+    'share.text':   { en: 'Made with Pipeline', he: 'נערך בפייפליין' },
+    'share.dialog': { en: 'Share video', he: 'שיתוף הסרטון' },
+    'share.preparing': { en: 'Preparing video to share...', he: 'מכין את הסרטון לשיתוף...' },
+    'share.failed': { en: 'Could not share the video. You can download it instead.', he: 'לא ניתן היה לשתף את הסרטון. אפשר להוריד אותו במקום.' },
 
     // ── Schedule card ──
     'sched.title':       { en: 'Schedule Video', he: 'תזמון סרטון' },

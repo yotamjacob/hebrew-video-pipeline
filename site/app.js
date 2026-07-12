@@ -723,6 +723,7 @@
         resultName = job.outputFilename;
         triggerDownload();
         document.getElementById('burnSuccessBanner').style.display = 'flex';
+        _maybeShowShare();
         celebrateExport();
       } catch (err) {
         if (!_isNetErr(err)) clearSavedJob();
@@ -988,6 +989,47 @@
       }).catch((e) => { if (!settled) { settled = true; cleanup(); reject(e); } });
     });
   }
+
+  // Share the finished video via the OS share sheet (WhatsApp/Instagram/etc).
+  // The result lives on the server, so download it to the app cache first, then
+  // hand the local file to @capacitor/share. Native only.
+  let _sharing = false;
+  async function nativeShareVideo(url, name) {
+    const Filesystem = _capPlugin('Filesystem');
+    const Share = _capPlugin('Share');
+    if (!Filesystem || !Share || !url) return;
+    if (_sharing) return;
+    _sharing = true;
+    const btns = [document.getElementById('burnShareBtn'), document.getElementById('shareBtn')].filter(Boolean);
+    const labels = btns.map(b => b.textContent);
+    btns.forEach(b => { b.disabled = true; b.textContent = t('share.preparing'); });
+    try {
+      const safe = (name || 'video.mp4').replace(/[^\w.\-]+/g, '_');
+      await Filesystem.downloadFile({ url: _withToken(url), path: safe, directory: 'CACHE' });
+      const { uri } = await Filesystem.getUri({ directory: 'CACHE', path: safe });
+      await Share.share({ title: name, text: t('share.text'), files: [uri], dialogTitle: t('share.dialog') });
+    } catch (e) {
+      if (!/cancel/i.test((e && e.message) || '')) {
+        console.error('share failed', e);
+        showBlockNotice(t('share.btn'), t('share.failed'));
+      }
+    } finally {
+      _sharing = false;
+      btns.forEach((b, i) => { b.disabled = false; b.textContent = labels[i]; });
+    }
+  }
+  // Reveal + wire the share buttons on native when a result is ready.
+  function _maybeShowShare() {
+    if (!_isNative()) return;
+    ['burnShareBtn', 'shareBtn'].forEach(id => {
+      const b = document.getElementById(id);
+      if (b) b.style.display = '';
+    });
+  }
+  ['burnShareBtn', 'shareBtn'].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.addEventListener('click', () => nativeShareVideo(resultDownloadUrl, resultName));
+  });
 
   // On native, route the upload zone / browse tap to the native picker instead
   // of the hidden <input> (which yields a pathless browser File).
@@ -2288,6 +2330,7 @@
   function showDone() {
     checklistEl.style.display = 'none';
     statusDone.classList.add('visible');
+    _maybeShowShare();
     if (!burnMode) runBtn.style.display = 'none';
     // A cut-only video (no captions/hook/B-roll to burn) is still a finished
     // deliverable - let it be scheduled straight from the done card. The cut
@@ -4332,6 +4375,7 @@
       // Success banner (with "Download again") is truthful and usable.
       hasBurnedOnce = true;   // subsequent burns are re-burns
       document.getElementById('burnSuccessBanner').style.display = 'flex';
+      _maybeShowShare();
       celebrateExport();
       // Re-enable editors for another round of changes on the same video
       editorIds.forEach(id => document.getElementById(id).classList.remove('burning'));
