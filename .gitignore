@@ -37,3 +37,9 @@ test_broll_output/
 exports/
 .diag_captions_cache.json
 .vercel
+
+# Android release signing - NEVER commit these
+*.jks
+*.keystore
+keystore.properties
+android/keystore.properties
