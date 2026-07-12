@@ -265,7 +265,7 @@ def api():
                     _uname = users_store.get(f"email:{_ident}")
             _rec = users_store.get(_uname) if _uname else None
             if _rec and _rec.get("email"):
-                _site = _os.environ.get("SITE_URL", "https://site-theta-six-76.vercel.app")
+                _site = _os.environ.get("SITE_URL", "https://hebrew-pipeline.app")
                 _rt = _sign_scoped_token(_rec["uid"], "reset", _os.environ["AUTH_SECRET"], PASSWORD_RESET_TTL_SECONDS)
                 _send_email(_rec["email"], "Reset your password - פייפליין",
                             _email_html("Reset your password",

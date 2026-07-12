@@ -34,7 +34,7 @@ def daily_usage_report() -> dict:
     over = count > threshold
     print(f"[usage] 24h: {count} videos, {users} users (threshold {threshold})")
     if admin_email:
-        site = os.environ.get("SITE_URL", "https://site-theta-six-76.vercel.app")
+        site = os.environ.get("SITE_URL", "https://hebrew-pipeline.app")
         flag = " - OVER THRESHOLD" if over else ""
         _send_email(admin_email, f"Pipeline usage: {count} videos in 24h{flag}",
                     _email_html("Daily usage digest",

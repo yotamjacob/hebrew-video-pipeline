@@ -98,7 +98,7 @@ qualify as-is.
 
 ## 6. Policy sections (App content — all required)
 
-- **Privacy policy URL:** `https://site-theta-six-76.vercel.app/legal.html`
+- **Privacy policy URL:** `https://hebrew-pipeline.app/legal.html`
 - **Data safety:** declare what the app collects. For this app:
   - **Personal info → Email address** — collected, for account
     management/app functionality; encrypted in transit; not shared; not for ads.
