@@ -40,7 +40,6 @@ package-lock.json
 
 # Test fixtures & media (binary)
 tests/frontend/fixtures/
-podcast-site/img/
 exports/
 *.mp4
 *.webp

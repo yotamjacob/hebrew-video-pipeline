@@ -6,7 +6,7 @@ Dev:     modal serve app_modal.py
 
 This module holds only the ASGI router (api). The pipeline itself lives in:
   pipeline_core.py   app/images/constants + pure helpers
-  pipeline_fns.py    process_video, burn_captions_fn, burn_hook_fn
+  pipeline_fns.py    process_video, burn_captions_fn
   stock_helpers.py   stock-footage pure helpers
   broll_fns.py       Veo + stock B-roll Modal functions
   content_fns.py     hook/caption generation
@@ -33,7 +33,7 @@ from pipeline_core import (
 # Public base URLs used to build email links. SITE_URL can be overridden via
 # env once a custom domain is set; the API base is stable.
 API_BASE_URL = "https://yotamjacob--hebrew-video-pipeline-api.modal.run"
-from pipeline_fns import process_video, burn_captions_fn, burn_hook_fn, backup_dicts, restore_dicts, build_caption_ass
+from pipeline_fns import process_video, burn_captions_fn, backup_dicts, restore_dicts, build_caption_ass
 from broll_fns import analyze_stock_broll, search_stock_clips
 from content_fns import generate_hook_options, generate_caption_options
 from metricool_fns import (
@@ -1532,59 +1532,6 @@ def api():
                 await send_error(str(e))
             return
 
-        # Hook burn
-        if path in ("/burn-hook", "/burn-hook/") and method == "POST":
-            body = await _read_body(receive)
-            data = json.loads(body.decode("utf-8"))
-            try:
-                _vk = data.get("video_key", "")
-                if not _owned_key(_vk, uid):
-                    await send_error("Forbidden", 403)
-                    return
-                call = burn_hook_fn.spawn(
-                    _vk,
-                    data.get("hook_text", ""),
-                    data.get("font", "Heebo"),
-                    data.get("font_color", "#FFFFFF"),
-                    data.get("bg_color", "#000000"),
-                    float(data.get("bg_opacity", 0.6)),
-                    float(data.get("start_seconds", 1.0)),
-                    float(data.get("duration_seconds", 4.0)),
-                    int(data.get("vertical_position", 10)),
-                    data.get("border_color", "#000000"),
-                    int(data.get("border_size", 0)),
-                )
-                _record_call(call)
-                resp = json.dumps({"call_id": call.object_id}).encode()
-                await send({"type": "http.response.start", "status": 202,
-                            "headers": CORS + [(b"content-type", b"application/json")]})
-                await send({"type": "http.response.body", "body": resp})
-            except Exception as e:
-                await send_error(str(e))
-            return
-
-        if path.startswith("/burn-hook-poll/") and method == "GET":
-            call_id = path[len("/burn-hook-poll/"):].rstrip("/")
-            if not _call_owned(call_id):
-                await send_error("Forbidden", 403)
-                return
-            try:
-                import modal as _modal
-                fn_call = _modal.functions.FunctionCall.from_id(call_id)
-                result, still_running = _poll_fn_call(fn_call)
-                if still_running:
-                    body = json.dumps({"status": "running"}).encode()
-                    await send({"type": "http.response.start", "status": 202,
-                                "headers": CORS + [(b"content-type", b"application/json")]})
-                    await send({"type": "http.response.body", "body": body})
-                    return
-                body = json.dumps(result).encode()
-                await send({"type": "http.response.start", "status": 200,
-                            "headers": CORS + [(b"content-type", b"application/json")]})
-                await send({"type": "http.response.body", "body": body})
-            except Exception as e:
-                await send_error(str(e))
-            return
 
         await send({"type": "http.response.start", "status": 404, "headers": CORS})
         await send({"type": "http.response.body", "body": b"Not found"})
