@@ -962,7 +962,10 @@
       const key = crypto.randomUUID().replace(/-/g, '');
       let handle = null, settled = false;
       const cleanup = () => { try { handle && handle.remove(); } catch (_) {} };
-      Uploader.addListener('events', (ev) => {
+      // addListener may return the handle directly OR a Promise<handle>
+      // depending on the plugin/Capacitor version - normalize with
+      // Promise.resolve so ".then is not a function" can't happen.
+      const _listener = Uploader.addListener('events', (ev) => {
         if (!ev || settled) return;
         if (ev.name === 'uploading') {
           const p = ev.payload && typeof ev.payload.percent === 'number' ? ev.payload.percent : 0;
@@ -976,7 +979,8 @@
           settled = true; cleanup();
           reject(new Error((ev.payload && ev.payload.error) || t('err.chunk', { i: 0, status: 0 })));
         }
-      }).then((h) => { handle = h; }).catch(() => {});
+      });
+      Promise.resolve(_listener).then((h) => { handle = h; }).catch(() => {});
       Uploader.startUpload({
         filePath: desc.path,
         serverUrl: `${API_BASE}/upload_stream/`,
