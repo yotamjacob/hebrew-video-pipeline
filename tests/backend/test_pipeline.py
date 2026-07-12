@@ -5,12 +5,9 @@ All functions are extracted from source without importing modal/GPU libs.
 """
 import pytest
 from tests.backend.conftest import (
-    compute_keep_segments,
     seconds_to_ass,
     sanitize_transcript,
     add_clip_window,
-    make_word,
-    KeepSegment,
 )
 
 
@@ -42,107 +39,6 @@ class TestSecondsToAss:
 
     def test_returns_string(self):
         assert isinstance(seconds_to_ass(10), str)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# compute_keep_segments
-# ─────────────────────────────────────────────────────────────────────────────
-
-class TestComputeKeepSegments:
-    """
-    Covers the silence-detection algorithm that decides which stretches of
-    video to keep.  This is the logic most likely to break when threshold /
-    padding defaults change.
-    """
-
-    def _seg(self, start, end):
-        return KeepSegment(start=start, end=end)
-
-    def test_empty_words_keeps_whole_video(self):
-        # No speech detected → keep the entire video as one segment
-        result = compute_keep_segments([], min_silence=0.5, padding=0.2, total_duration=10.0)
-        assert len(result) == 1
-        assert result[0].start == pytest.approx(0.0)
-        assert result[0].end   == pytest.approx(10.0)
-
-    def test_single_word_returns_one_segment(self):
-        words = [make_word("hello", 1.0, 2.0)]
-        segs = compute_keep_segments(words, min_silence=0.5, padding=0.2, total_duration=10.0)
-        assert len(segs) == 1
-        assert segs[0].start == pytest.approx(0.8, abs=0.01)   # 1.0 - 0.2 padding
-        assert segs[0].end   == pytest.approx(2.2, abs=0.01)   # 2.0 + 0.2 padding
-
-    def test_consecutive_words_merged(self):
-        # Gap between words is 0.1s < min_silence=0.5 → one segment
-        words = [
-            make_word("a", 1.0, 2.0),
-            make_word("b", 2.1, 3.0),
-        ]
-        segs = compute_keep_segments(words, min_silence=0.5, padding=0.2, total_duration=10.0)
-        assert len(segs) == 1
-
-    def test_silent_gap_splits_segments(self):
-        # Gap of 1.0s > min_silence=0.5 → two segments
-        words = [
-            make_word("first",  1.0, 2.0),
-            make_word("second", 3.5, 4.5),
-        ]
-        segs = compute_keep_segments(words, min_silence=0.5, padding=0.2, total_duration=10.0)
-        assert len(segs) == 2
-
-    def test_padding_does_not_go_below_zero(self):
-        words = [make_word("start", 0.0, 0.5)]
-        segs = compute_keep_segments(words, min_silence=0.5, padding=0.3, total_duration=10.0)
-        assert segs[0].start >= 0.0
-
-    def test_padding_does_not_exceed_total_duration(self):
-        words = [make_word("end", 9.5, 10.0)]
-        segs = compute_keep_segments(words, min_silence=0.5, padding=0.3, total_duration=10.0)
-        assert segs[-1].end <= 10.0
-
-    def test_three_clusters(self):
-        # Three word clusters separated by long silences
-        words = [
-            make_word("a", 0.0, 0.5),
-            make_word("b", 0.6, 1.0),
-            make_word("c", 5.0, 5.5),
-            make_word("d", 5.6, 6.0),
-            make_word("e", 10.0, 10.5),
-        ]
-        segs = compute_keep_segments(words, min_silence=0.5, padding=0.1, total_duration=15.0)
-        assert len(segs) == 3
-
-    def test_segments_are_sorted(self):
-        words = [
-            make_word("a", 1.0, 2.0),
-            make_word("b", 5.0, 6.0),
-            make_word("c", 10.0, 11.0),
-        ]
-        segs = compute_keep_segments(words, min_silence=0.5, padding=0.1, total_duration=15.0)
-        starts = [s.start for s in segs]
-        assert starts == sorted(starts)
-
-    def test_segments_do_not_overlap(self):
-        words = [make_word(f"w{i}", i * 2.0, i * 2.0 + 0.5) for i in range(5)]
-        segs = compute_keep_segments(words, min_silence=0.5, padding=0.1, total_duration=20.0)
-        for a, b in zip(segs, segs[1:]):
-            assert a.end <= b.start
-
-    def test_tight_min_silence_keeps_all_words_together(self):
-        # min_silence=5.0 → even 1s gap is not silence, everything merged
-        words = [
-            make_word("a", 0.0, 0.5),
-            make_word("b", 1.5, 2.0),   # 1s gap < 5s threshold
-            make_word("c", 3.5, 4.0),
-        ]
-        segs = compute_keep_segments(words, min_silence=5.0, padding=0.0, total_duration=10.0)
-        assert len(segs) == 1
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# _sanitize_transcript
-# ─────────────────────────────────────────────────────────────────────────────
-
 class TestSanitizeTranscript:
     def test_plain_string_unchanged(self):
         assert sanitize_transcript("hello world") == "hello world"

@@ -13,7 +13,6 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 ROOT = Path(__file__).parent.parent.parent
-PIPELINE_SRC = (ROOT / "hebrew_video_pipeline.py").read_text()
 _MODAL_FILES = ["pipeline_core.py", "pipeline_fns.py", "stock_helpers.py",
                 "broll_fns.py", "content_fns.py", "metricool_fns.py", "app_modal.py"]
 MODAL_SRC    = "\n".join((ROOT / f).read_text() for f in _MODAL_FILES)
@@ -47,17 +46,6 @@ def _exec_snippet(source: str, lineno_start: int, lineno_end: int, ns: dict):
     exec(compile(snippet, "<extracted>", "exec"), ns)  # noqa: S102
 
 
-def _extract_class(source: str, name: str, ns=None):
-    if ns is None:
-        ns = _build_ns()
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == name:
-            _exec_snippet(source, _node_start(node), node.end_lineno, ns)
-            return ns[name]
-    return None
-
-
 def _extract_fn(source: str, *names: str, extra_ns=None) -> dict:
     """Return {name: fn} for each top-level function, sharing one namespace."""
     ns = _build_ns()
@@ -65,43 +53,26 @@ def _extract_fn(source: str, *names: str, extra_ns=None) -> dict:
         ns.update(extra_ns)
     tree = ast.parse(source)
     fns = {}
-    for node in ast.walk(tree):
+    # Top-level defs only — nested helpers (e.g. a seconds_to_ass closure inside
+    # another function) would extract with leading indentation and fail to exec.
+    for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name in names:
             _exec_snippet(source, _node_start(node), node.end_lineno, ns)
             fns[node.name] = ns[node.name]
     return fns
 
 
-# ─── Extract pipeline dataclasses and helpers from hebrew_video_pipeline.py ──
-
-_pipeline_ns = _build_ns()
-Word        = _extract_class(PIPELINE_SRC, "Word",        _pipeline_ns)
-KeepSegment = _extract_class(PIPELINE_SRC, "KeepSegment", _pipeline_ns)
-_pipeline_ns["Word"]        = Word
-_pipeline_ns["KeepSegment"] = KeepSegment
-
-_pipeline = _extract_fn(
-    PIPELINE_SRC,
-    "compute_keep_segments",
-    "seconds_to_ass",
-    extra_ns=_pipeline_ns,
-)
-
-compute_keep_segments = _pipeline["compute_keep_segments"]
-seconds_to_ass        = _pipeline["seconds_to_ass"]
-
-
-# ─── Extract app_modal helpers ───────────────────────────────────────────────
+# ─── Extract pure helpers from the Modal source (production code) ─────────────
+# The word-level cutter (compute_keep_segments) + filler detection are covered
+# directly against pipeline_fns.py in test_silence_cutter.py.
 
 _modal_helpers = _extract_fn(
     MODAL_SRC,
+    "seconds_to_ass",
     "_sanitize_transcript",
     "add_clip_window",
 )
 
+seconds_to_ass      = _modal_helpers["seconds_to_ass"]
 sanitize_transcript = _modal_helpers["_sanitize_transcript"]
 add_clip_window     = _modal_helpers["add_clip_window"]
-
-
-def make_word(text: str, start: float, end: float) -> object:
-    return Word(text=text, start=start, end=end)
