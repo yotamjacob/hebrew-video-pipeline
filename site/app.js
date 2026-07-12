@@ -554,6 +554,11 @@
 
   let selectedFile = null;
   let videoDuration = null;
+  // When the file was picked via the NATIVE picker (Capacitor app), this holds
+  // { path, name, size, mimeType }. run() then uploads via the native
+  // background uploader (survives the app being minimized) instead of the JS
+  // chunked upload. null on web / when no native file is picked.
+  let nativeUploadDesc = null;
   // Audio-only upload: gates the pipeline to captions + silence-cut, output is
   // a clean .m4a (no video processing, no burn). Set in handleFile.
   let isAudioInput = false;
@@ -887,6 +892,113 @@
     handleFile(e.dataTransfer.files[0]);
   });
 
+  // ── Native (Capacitor) file pick + background upload ──────────────────────
+  // The web upload (File -> chunkedUpload) freezes when the app is
+  // backgrounded because the OS throttles WebView JS. On the native app we pick
+  // the file with the native FilePicker (to get a real filesystem path) and
+  // hand it to @capgo's native uploader, which runs in a foreground service and
+  // keeps uploading while the app is minimized/locked. Everything after upload
+  // (/process, editor) is identical. All of this is a no-op on the web.
+  function _isNative() {
+    return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  }
+  function _capPlugin(name) {
+    return window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins[name];
+  }
+
+  async function pickNativeFile() {
+    const FilePicker = _capPlugin('FilePicker');
+    if (!FilePicker) { showBlockNotice(t('file.badTypeTitle'), 'File picker unavailable'); return; }
+    let desc;
+    try {
+      const res = await FilePicker.pickFiles({ types: ['video/*', 'audio/*'], readData: false });
+      const f = res && res.files && res.files[0];
+      if (!f) return;                       // user cancelled
+      desc = { path: f.path, name: f.name || 'video.mp4', size: f.size || 0, mimeType: f.mimeType || '' };
+    } catch (e) {
+      if (/cancel/i.test((e && e.message) || '')) return;
+      showBlockNotice(t('file.badTypeTitle'), (e && e.message) || 'Could not open the file');
+      return;
+    }
+    if (!desc.path) { showBlockNotice(t('file.badTypeTitle'), 'No file path from picker'); return; }
+
+    const _isAudio = _isAudioFile(desc);
+    const _isVideo = (desc.mimeType || '').startsWith('video/') || /\.(mp4|mov|mkv|avi|webm)$/i.test(desc.name);
+    if (!_isVideo && !_isAudio) { showBlockNotice(t('file.badTypeTitle'), t('file.badType')); return; }
+
+    // Populate the same selection UI the web path uses (a synthetic file object
+    // carries name/size/type for the checks, params, and History label).
+    selectedFile = { name: desc.name, size: desc.size, type: desc.mimeType };
+    nativeUploadDesc = desc;
+    stableBlob = null;                      // native file on disk is already stable
+    isAudioInput = _isAudio && !_isVideo;
+    applyAudioMode(isAudioInput);
+    fileName.textContent = desc.name;
+    fileInfo.classList.add('visible');
+    document.getElementById('startOverBtn').style.display = '';
+    clearNotices();
+    resetStatus();
+    if (isAudioInput && noticeAudio) noticeAudio.classList.add('visible');
+
+    if (desc.size > MAX_BYTES) {
+      fileDetail.textContent = t('file.tooLargeMeta', { size: formatSize(desc.size) });
+      showBlockNotice(t('file.tooLargeTitle'), t('file.tooLarge', { size: formatSize(desc.size) }));
+      blocked = true; runBtn.disabled = true; return;
+    }
+    fileDetail.textContent = formatSize(desc.size);
+    if (desc.size > WARN_BYTES) showWarnNotice(t('file.largeWarnTitle'), t('file.largeWarn', { size: formatSize(desc.size) }));
+    blocked = false; runBtn.disabled = false;
+    updateTimeEstimate();
+    apiFetch(API_BASE + '/warmup/').catch(() => {});
+  }
+
+  // Upload a native file path via the background uploader. Resolves with the
+  // upload key (same key the /process call expects). Rejects on failure.
+  function nativeUpload(desc, onProgress) {
+    return new Promise((resolve, reject) => {
+      const Uploader = _capPlugin('Uploader');
+      if (!Uploader) { reject(new Error('Uploader plugin unavailable')); return; }
+      const key = crypto.randomUUID().replace(/-/g, '');
+      let handle = null, settled = false;
+      const cleanup = () => { try { handle && handle.remove(); } catch (_) {} };
+      Uploader.addListener('events', (ev) => {
+        if (!ev || settled) return;
+        if (ev.name === 'uploading') {
+          const p = ev.payload && typeof ev.payload.percent === 'number' ? ev.payload.percent : 0;
+          onProgress(Math.max(0, Math.min(1, p / 100)));
+        } else if (ev.name === 'completed') {
+          const sc = ev.payload && ev.payload.statusCode;
+          settled = true; cleanup();
+          if (sc && sc >= 400) reject(new Error(t('err.chunk', { i: 0, status: sc })));
+          else { onProgress(1); resolve(key); }
+        } else if (ev.name === 'failed') {
+          settled = true; cleanup();
+          reject(new Error((ev.payload && ev.payload.error) || t('err.chunk', { i: 0, status: 0 })));
+        }
+      }).then((h) => { handle = h; }).catch(() => {});
+      Uploader.startUpload({
+        filePath: desc.path,
+        serverUrl: `${API_BASE}/upload_stream/`,
+        method: 'PUT',
+        uploadType: 'binary',
+        mimeType: desc.mimeType || 'application/octet-stream',
+        headers: Object.assign({ 'X-Upload-Key': key }, authToken ? { Authorization: 'Bearer ' + authToken } : {}),
+        notificationTitle: t('upload.title') || 'Uploading video',
+        maxRetries: 3,
+      }).catch((e) => { if (!settled) { settled = true; cleanup(); reject(e); } });
+    });
+  }
+
+  // On native, route the upload zone / browse tap to the native picker instead
+  // of the hidden <input> (which yields a pathless browser File).
+  if (_isNative()) {
+    if (fileInput) fileInput.style.display = 'none';
+    uploadZone.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      pickNativeFile();
+    }, true);
+  }
+
   async function handleFile(file) {
     if (!file) return;
     const _isVideo = file.type.startsWith('video/') || /\.(mp4|mov|mkv|avi|webm)$/i.test(file.name);
@@ -993,7 +1105,7 @@
 
   clearFile.addEventListener('click', () => {
     if (!confirm(t('file.removeConfirm'))) return;
-    selectedFile = null; videoDuration = null;
+    selectedFile = null; videoDuration = null; nativeUploadDesc = null;
     isAudioInput = false; applyAudioMode(false);
     _disposeSnapshot();
     document.getElementById('timeEstimate').style.display = 'none';
@@ -1246,7 +1358,7 @@
       // Phase 1: upload video in chunks
       _setStage('upload');
       const _upT0 = performance.now();
-      const uploadKey = await chunkedUpload(selectedFile, stableBlob, (pct) => {
+      const _onUpProgress = (pct) => {
         document.getElementById('uploadBarFill').style.width = (pct * 100).toFixed(0) + '%';
         document.getElementById('uploadBarPct').textContent  = (pct * 100).toFixed(0) + '%';
         // Live ETA from measured throughput so the wait isn't a black box.
@@ -1259,7 +1371,11 @@
             etaEl.textContent = t('upload.remaining', { t: formatTime(Math.round(remaining)) });
           }
         }
-      });
+      };
+      // Native app: background uploader (survives minimize). Web: JS chunked upload.
+      const uploadKey = await (nativeUploadDesc
+        ? nativeUpload(nativeUploadDesc, _onUpProgress)
+        : chunkedUpload(selectedFile, stableBlob, _onUpProgress));
       _stepDone('upload');
       document.getElementById('uploadBarRow').style.display = 'none';
       { const n = document.getElementById('uploadNote'); if (n) n.style.display = 'none'; }
