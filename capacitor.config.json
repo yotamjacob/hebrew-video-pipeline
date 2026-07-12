@@ -1,0 +1,11 @@
+{
+  "appId": "com.heb.pipeline",
+  "appName": "Pipeline",
+  "webDir": "site",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

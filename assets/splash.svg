@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2732" height="2732" viewBox="0 0 2732 2732">
+  <rect width="2732" height="2732" fill="#E8DFD3"/>
+  <!-- centered brand badge (~760px) -->
+  <g transform="translate(966,966) scale(16.6667)">
+    <rect width="48" height="48" rx="11" fill="#C4703F"/>
+    <rect x="9" y="16.5" width="30" height="15" fill="#F7F0E6"/>
+    <rect x="9" y="24" width="30" height="7.5" fill="#F7F0E6" opacity="0.35"/>
+    <rect x="4" y="13.5" width="5.5" height="21" rx="1.8" fill="#F7F0E6"/>
+    <rect x="38.5" y="13.5" width="5.5" height="21" rx="1.8" fill="#F7F0E6"/>
+    <circle cx="6.75" cy="18" r="1.05" fill="#3E3A34" opacity="0.5"/>
+    <circle cx="6.75" cy="30" r="1.05" fill="#3E3A34" opacity="0.5"/>
+    <circle cx="41.25" cy="18" r="1.05" fill="#3E3A34" opacity="0.5"/>
+    <circle cx="41.25" cy="30" r="1.05" fill="#3E3A34" opacity="0.5"/>
+    <polygon points="20,18.5 32,24 20,29.5" fill="#C4703F"/>
+  </g>
+</svg>

@@ -3,6 +3,8 @@ exports/
 test_output_edited.mp4
 test_broll_output/
 node_modules/
+android/
+capacitor.config.json
 tests/
 .venv/
 __pycache__/
