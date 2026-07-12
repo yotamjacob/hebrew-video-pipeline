@@ -3018,8 +3018,13 @@
     // of the frame height.
     const _vid   = document.getElementById('cutVideo');
     const realVW = (_vid && _vid.videoWidth)  || _playerDispW || (hookThumbnail && hookThumbnail.naturalWidth)  || 1080;
-    const realVH = (_vid && _vid.videoHeight) || (hookThumbnail && hookThumbnail.naturalHeight) || 1920;
-    const capFs = Math.max(7, captionFontSize * (H / realVH));
+    // Scale by WIDTH, not height: the canvas width W (=270) always represents the
+    // full video width, and realVW resolves to the TRUE width via _playerDispW
+    // even before the <video>'s own metadata is ready. The height path had no
+    // reliable source and fell back to 1920, which made the caption tiny. Aspects
+    // match, so W/realVW == H/realVH whenever both are known - this just removes
+    // the bad fallback.
+    const capFs = Math.max(7, captionFontSize * (W / realVW));
     window.__hookCapFs = capFs;   // exposed for tests (size must track the editor, not the thumbnail)
     const lines = rewrapCaption(text, realVW, captionFontSize).split('\n');
     const lineH = capFs * 1.35;
