@@ -658,7 +658,13 @@
          set separately below. */
       direction: ltr;
       display: flex; flex-direction: column; align-items: flex-end; gap: 10px;
+      /* The container's transparent box (incl. the collapsed bubble's layout
+         space) must NOT swallow taps meant for content beneath it (e.g. the
+         footer links on mobile). Only the actual button/bubble are interactive;
+         desktop :hover still fires via the button (a pointer-events:auto child). */
+      pointer-events: none;
     }
+    .wa-fab-btn, .wa-fab-bubble { pointer-events: auto; }
     .wa-fab-btn {
       width: 58px; height: 58px; border-radius: 50%;
       background: #25D366; color: #fff;
