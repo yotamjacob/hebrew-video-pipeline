@@ -15,6 +15,7 @@
     'wa.dismiss':      { en: 'Dismiss', he: 'סגירה' },
     'footer.contact':  { en: 'Contact us / leave feedback', he: 'צרו קשר / שלחו משוב' },
     'footer.legal':    { en: 'Privacy & Terms', he: 'פרטיות ותנאי שימוש' },
+    'footer.deleteData': { en: 'Delete my account', he: 'מחיקת חשבון' },
     'contact.title':   { en: 'Contact & Feedback', he: 'צרו קשר / שלחו משוב' },
     'contact.body':    { en: "Questions, an issue, or feedback? We'd love to hear from you - email us:", he: 'שאלות, בעיה או משוב? נשמח לשמוע מכם - שלחו לנו מייל:' },
     'contact.copy':    { en: 'Copy email', he: 'העתקת המייל' },

@@ -20,6 +20,16 @@ test('footer "Contact" opens an on-page modal without navigating', async ({ page
   expect(page.url()).toBe(url);
 });
 
+test('footer "Delete my account" opens the deletion page in the modal (Play requirement)', async ({ page }) => {
+  const url = page.url();
+  await page.locator('a[data-i18n="footer.deleteData"]:visible').first().click();
+  await expect(page.locator('#legalOverlay')).toBeVisible();
+  // Same on-page modal, but showing the account-deletion page + its own title.
+  await expect(page.locator('#legalFrame')).toHaveAttribute('src', '/delete-account.html');
+  await expect(page.locator('#legalModalTitle')).toHaveAttribute('data-i18n', 'footer.deleteData');
+  expect(page.url()).toBe(url);   // did NOT navigate away
+});
+
 test('info modals close via Escape and backdrop click', async ({ page }) => {
   await page.evaluate(() => openLegalModal());
   await expect(page.locator('#legalOverlay')).toBeVisible();

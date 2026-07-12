@@ -107,7 +107,9 @@ qualify as-is.
     when a user explicitly connects it to schedule a post).
   - **Passwords** — collected, stored hashed. Encrypted in transit.
   - No location, no advertising ID, no third-party analytics.
-  - Users can request account/data deletion (state your support email).
+  - Users can request account/data deletion. **Account deletion URL** (put this
+    in Data safety → "Data deletion" → *provide a URL*):
+    `https://hebrew-pipeline.app/delete-account.html`
 - **Content rating:** fill the questionnaire → this app rates **Everyone**.
 - **Target audience:** 18+ (or 13+); it is not directed at children.
 - **Ads:** No.

@@ -3203,12 +3203,20 @@
 
   // Privacy & Terms + Contact open ON-PAGE modals (never navigate away) so a
   // user mid-edit doesn't lose progress just to read the policy or the email.
-  function openLegalModal() {
+  function openLegalModal(src, titleKey) {
     const f = document.getElementById('legalFrame');
-    // Lazy-load the real legal.html on first open; it shares hebpipe_lang via
-    // localStorage so it renders in the user's language, and hides its own
-    // "back to pipeline" link when embedded (see legal.html).
-    if (f && !f.getAttribute('src')) f.setAttribute('src', '/legal.html');
+    // Lazy-load the requested page (legal.html by default, or the account
+    // deletion page). Both share hebpipe_lang via localStorage so they render in
+    // the user's language, and hide their own "back to pipeline" link when
+    // embedded. Reset src when switching pages so the iframe shows the right one.
+    const target = src || '/legal.html';
+    if (f && f.getAttribute('src') !== target) f.setAttribute('src', target);
+    const titleEl = document.getElementById('legalModalTitle');
+    if (titleEl) {
+      const key = titleKey || 'footer.legal';
+      titleEl.setAttribute('data-i18n', key);
+      titleEl.textContent = t(key);
+    }
     const ov = document.getElementById('legalOverlay');
     if (ov) ov.style.display = 'flex';
   }
