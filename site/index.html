@@ -266,6 +266,35 @@
       </div>
     </div>
 
+    <!-- Auto B-roll + hook: children of Burn captions (both need the transcript).
+         Auto-run in the background after captions, populating their sections. -->
+    <div class="option-children" id="captionChildren">
+      <div class="option-child" id="autoBrollRow">
+        <div class="option-child-text">
+          <div class="option-child-label" data-i18n="opt.autobroll.label">Find B-roll moments</div>
+          <div class="option-child-desc" data-i18n="opt.autobroll.desc">Auto-suggest stock footage for key moments</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="autoBroll" />
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
+      <div class="option-child" id="autoHookRow">
+        <div class="option-child-text">
+          <div class="option-child-label" data-i18n="opt.autohook.label">Generate hook options</div>
+          <div class="option-child-desc" data-i18n="opt.autohook.desc">Auto-write a scroll-stopping opening caption</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="autoHook" />
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
+      <div class="option-child-note" id="captionChildrenNote" data-i18n="opt.autochild.needsCaptions">Needs Hebrew captions to work</div>
+      <div class="option-child-note extra" id="autoExtraTimeNote" style="display:none"></div>
+    </div>
+
     <div class="option-row">
       <div class="option-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6"/></svg></div>
       <div class="option-text">
@@ -473,6 +502,10 @@
     </div>
     <div id="hookBody" style="padding-top:16px">
       <p style="font-size:0.82rem;color:var(--muted);margin-bottom:14px" data-i18n="hook.intro">Generate a short opening caption that appears in the first seconds of your video to stop the scroll.</p>
+      <div id="hookRerunBanner" style="display:none;margin-bottom:12px;padding:10px 14px;background:#FFF7ED;border:1.5px solid #FDE68A;border-radius:12px;font-size:0.82rem;color:#92400E;align-items:center;gap:10px">
+        <span style="flex:1" data-i18n="hook.rerunMsg">Captions changed since these hooks were generated - regenerate to match.</span>
+        <button onclick="triggerGenerateHook()" style="padding:5px 12px;border-radius:8px;border:1.5px solid #D97706;background:none;color:#B45309;font-size:0.8rem;font-weight:600;cursor:pointer;white-space:nowrap" data-i18n="stock.rerun">Re-run</button>
+      </div>
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
         <button id="generateHookBtn" class="action-btn btn-ai-icon" onclick="triggerGenerateHook()" disabled data-i18n="hook.generate">Generate Hook Options</button>
         <div id="hookStatus" style="display:none;align-items:center;gap:8px">
@@ -647,6 +680,30 @@
         <div class="check-body"><div class="check-row">
           <span class="check-label" data-i18n="prog.upscale">AI upscale</span>
           <span class="check-time" id="checkUpscaleTime"></span>
+        </div></div>
+      </div>
+
+      <div class="check-item pending" id="checkBroll" style="display:none">
+        <div class="check-icon-col">
+          <span class="ci-pending"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"/></svg></span>
+          <div class="ci-spinner"></div>
+          <span class="ci-done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg></span>
+        </div>
+        <div class="check-body"><div class="check-row">
+          <span class="check-label" data-i18n="prog.broll">Find B-roll moments</span>
+          <span class="check-time" id="checkBrollTime"></span>
+        </div></div>
+      </div>
+
+      <div class="check-item pending" id="checkHook" style="display:none">
+        <div class="check-icon-col">
+          <span class="ci-pending"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"/></svg></span>
+          <div class="ci-spinner"></div>
+          <span class="ci-done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg></span>
+        </div>
+        <div class="check-body"><div class="check-row">
+          <span class="check-label" data-i18n="prog.hook">Generate hook options</span>
+          <span class="check-time" id="checkHookTime"></span>
         </div></div>
       </div>
 

@@ -519,6 +519,8 @@
     enhance: document.getElementById('checkEnhance'),
     cut:     document.getElementById('checkCut'),
     upscale: document.getElementById('checkUpscale'),
+    broll:   document.getElementById('checkBroll'),
+    hook:    document.getElementById('checkHook'),
     burn:    document.getElementById('checkBurn'),
     finalize: document.getElementById('checkFinalize'),
   };
@@ -527,6 +529,8 @@
     enhance: document.getElementById('checkEnhanceTime'),
     cut:     document.getElementById('checkCutTime'),
     upscale: document.getElementById('checkUpscaleTime'),
+    broll:   document.getElementById('checkBrollTime'),
+    hook:    document.getElementById('checkHookTime'),
     burn:    document.getElementById('checkBurnTime'),
     finalize: document.getElementById('checkFinalizeTime'),
   };
@@ -587,6 +591,7 @@
   let pendingAnalyses        = 0;
   let stockBrollAnalyzed     = false;
   let lastAnalyzedSignature  = '';
+  let _hookGenSignature      = '';   // caption signature when hooks were last generated
   let selectedHookIdx        = -1;
   let hookGenAborted         = false;
   let hookThumbnail          = null;
@@ -1041,9 +1046,10 @@
   // Toggle the options UI between video and audio modes. In audio mode only
   // silence-cut + enhance-audio apply; captions are always produced (for SRT).
   function applyAudioMode(on) {
-    const hide = ['burnCaptionsRow', 'enhanceVideoRow', 'enhanceVideoPanel', 'suggestBrollsRow'];
+    const hide = ['burnCaptionsRow', 'captionChildren', 'enhanceVideoRow', 'enhanceVideoPanel', 'suggestBrollsRow'];
     hide.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = on ? 'none' : ''; });
     document.body.classList.toggle('audio-mode', on);
+    if (typeof _syncCaptionChildren === 'function') _syncCaptionChildren();
   }
 
   function checkToolsEnabled() {
@@ -1057,8 +1063,38 @@
                       && _enhanceVideoMode() === 'none';
   }
   ['cutSilences', 'burnCaptions', 'enhanceAudio', 'suggestBrolls'].forEach(id => {
-    document.getElementById(id)?.addEventListener('change', () => { checkToolsEnabled(); updateTimeEstimate(); });
+    document.getElementById(id)?.addEventListener('change', () => { checkToolsEnabled(); updateTimeEstimate(); _syncCaptionChildren(); });
   });
+  ['autoBroll', 'autoHook'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', _syncCaptionChildren);
+  });
+
+  // Auto B-roll / hook toggles are children of "Burn Hebrew captions" (both need
+  // the transcript). Enable them only when captions are on; grey + note otherwise,
+  // and surface the extra-processing-time estimate when either is enabled.
+  function _autoExtraTimeEstimate() {
+    // B-roll dominates (moment selection + vision scoring + fetching); hook is
+    // quick. They run in parallel, so the total ≈ the slower one.
+    return document.getElementById('autoBroll')?.checked
+      ? t('est.autoBrollTime') : t('est.autoHookTime');
+  }
+  function _syncCaptionChildren() {
+    const wrap = document.getElementById('captionChildren');
+    if (!wrap) return;
+    const on = !!document.getElementById('burnCaptions')?.checked && !isAudioInput;
+    wrap.classList.toggle('disabled', !on);
+    const ab = document.getElementById('autoBroll');
+    const ah = document.getElementById('autoHook');
+    [ab, ah].forEach(el => { if (el) el.disabled = !on; });
+    if (!on) { if (ab) ab.checked = false; if (ah) ah.checked = false; }
+    const note = document.getElementById('autoExtraTimeNote');
+    if (note) {
+      const anyOn = on && ((ab && ab.checked) || (ah && ah.checked));
+      note.textContent = anyOn ? t('opt.autochild.extra', { t: _autoExtraTimeEstimate() }) : '';
+      note.style.display = anyOn ? 'flex' : 'none';
+    }
+  }
+  _syncCaptionChildren();
   const aggrVal = document.getElementById('aggrVal');
   aggrSlider.addEventListener('input', () => {
     const a = AGGR_MAP[aggrSlider.value - 1];
@@ -1278,6 +1314,7 @@
           // Keep checklist visible (steps 1-3 done) while user edits captions
           showCaptionEditor();
           startBrollAnalysis();
+          _startAutoGenerations();
         } else {
           // No captions, no B-roll - download directly
           await _finalizeAndDownload(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`, cutFilename);
@@ -1383,6 +1420,7 @@
       if (captionsData.length > 0 || brollActive) {
         showCaptionEditor();
         startBrollAnalysis();
+        _startAutoGenerations();
       } else {
         await _finalizeAndDownload(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`, cutFilename);
       }
@@ -1994,7 +2032,7 @@
     if (stepTimers[name]) { clearInterval(stepTimers[name].id); stepTimers[name] = null; }
   }
 
-  const HIDDEN_BY_DEFAULT = new Set(['upscale', 'burn', 'finalize']); // rows hidden until triggered
+  const HIDDEN_BY_DEFAULT = new Set(['upscale', 'broll', 'hook', 'burn', 'finalize']); // rows hidden until triggered
 
   // Cut-only jobs (no captions/B-roll) go straight to the download. The file is
   // handed to the browser to stream to disk (see _browserDownload) instead of
@@ -2233,12 +2271,14 @@
     document.getElementById('hookError').style.display = 'none';
     document.getElementById('generateHookBtn').disabled = true;
     document.getElementById('hookStatus').style.display = 'none';
+    { const _hrb = document.getElementById('hookRerunBanner'); if (_hrb) _hrb.style.display = 'none'; }
     selectedHookIdx = -1;
     hookGenAborted = false;
     hookThumbnail = null;
     pendingAnalyses       = 0;
     stockBrollAnalyzed    = false;
     lastAnalyzedSignature = '';
+    _hookGenSignature     = '';
     burnMode = false;
     hasBurnedOnce = false;
     currentUploadKey = null;
@@ -2985,6 +3025,30 @@
     startStockBrollAnalysis(getEditedCaptions());
   }
 
+  // One-click extras: after captions are ready, auto-run B-roll + hook generation
+  // in the BACKGROUND (in parallel, no pipeline lock) if their toggles are on, so
+  // the user gets suggestions + hook options without extra clicks while they edit.
+  function _startAutoGenerations() {
+    if (isAudioInput || !captionsData.length) return;
+    const wantBroll = !!document.getElementById('autoBroll')?.checked;
+    const wantHook  = !!document.getElementById('autoHook')?.checked;
+    if (!wantBroll && !wantHook) return;
+    // Keep the processing card + checklist visible so the timers show.
+    statusCard.classList.add('visible');
+    checklistEl.style.display = 'block';
+    if (wantBroll) startStockBrollAnalysis(getEditedCaptions(), { background: true });
+    if (wantHook)  triggerGenerateHook({ background: true });
+  }
+
+  // Nudge to regenerate hooks when captions changed since they were generated
+  // (parallels the stock-B-roll rerun banner).
+  function _maybeShowHookRerun() {
+    const banner = document.getElementById('hookRerunBanner');
+    if (!banner) return;
+    const hooksExist = _hookGenSignature && (document.getElementById('hookOptions')?.children.length || 0) > 0;
+    banner.style.display = (hooksExist && getCaptionsSignature() !== _hookGenSignature) ? 'flex' : 'none';
+  }
+
   // ── Hook Generator ──────────────────────────────────────────────────────
 
   function cancelGenerateHook() {
@@ -3315,12 +3379,13 @@
     if (contact && contact.style.display !== 'none') closeContactModal();
   });
 
-  async function triggerGenerateHook() {
+  async function triggerGenerateHook(opts = {}) {
+    const background = !!opts.background;   // auto-run: no confirm, no pipeline lock
     if (!videoKey || !captionsData.length) return;
     // Options already on screen → regenerating discards them (and any edits).
     // Confirm first so a stray tap doesn't wipe a hook the user was refining.
     const optsEl = document.getElementById('hookOptions');
-    if (optsEl.style.display !== 'none' && optsEl.children.length) {
+    if (!background && optsEl.style.display !== 'none' && optsEl.children.length) {
       const ok = await showConfirmModal(t('hook.regenTitle'), t('hook.regenBody'), t('hook.regenOk'));
       if (!ok) return;
     }
@@ -3333,8 +3398,13 @@
     const errEl      = document.getElementById('hookError');
 
     hookGenAborted        = false;
-    lockPipelineActions({ activeBtn: 'generateHookBtn', activeCard: 'hookCard' });
-    btn.disabled          = true;
+    if (!background) {
+      lockPipelineActions({ activeBtn: 'generateHookBtn', activeCard: 'hookCard' });
+      btn.disabled        = true;
+    } else {
+      _stepActivate('hook');
+    }
+    document.getElementById('hookRerunBanner') && (document.getElementById('hookRerunBanner').style.display = 'none');
     status.style.display  = 'flex';
     optionsEl.style.display   = 'none';
     controlsEl.style.display  = 'none';
@@ -3360,7 +3430,7 @@
           const poll = await apiFetch(`${API_BASE}/generate-hook-poll/${call_id}/`);
           if (poll.status === 200) {
             const result = await poll.json();
-            if (!hookGenAborted) renderHookOptions(result.hooks || []);
+            if (!hookGenAborted) { renderHookOptions(result.hooks || []); _hookGenSignature = getCaptionsSignature(); }
             break;
           }
           if (poll.status === 202) { await new Promise(r => setTimeout(r, 3000)); retries = 0; continue; }
@@ -3378,8 +3448,12 @@
         errEl.style.display = 'block';
       }
     } finally {
-      unlockPipelineActions();
-      btn.disabled         = false;
+      if (!background) {
+        unlockPipelineActions();
+        btn.disabled       = false;
+      } else {
+        _stepDone('hook');
+      }
       status.style.display = 'none';
       hookGenAborted       = false;
     }
@@ -3468,7 +3542,8 @@
 
   // ── End Hook Generator ──────────────────────────────────────────────────
 
-  async function startStockBrollAnalysis(captionsOverride) {
+  async function startStockBrollAnalysis(captionsOverride, opts = {}) {
+    const background = !!opts.background;   // auto-run: no lock, no scroll, no editor freeze
     const captions = captionsOverride || captionsData;
     if (!captions.length) return;
 
@@ -3483,14 +3558,17 @@
     card.style.display   = 'block';
     status.style.display = 'flex';
     list.innerHTML       = '';
-    // Bring the B-roll card into view - NOT the page bottom (jarring jump past
-    // the card the user just triggered).
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-    lockPipelineActions({ activeBtn: 'findBrollBtn', activeCard: 'stockBrollCard' });
-    findBrollBtn.disabled = true;
-    findBrollBtn.textContent = t('stock.searching');
-    document.querySelectorAll('#captionsList .caption-input, #captionsList .caption-time-input, #captionsList .cap-btn').forEach(el => { el.disabled = true; });
+    if (!background) {
+      // Bring the B-roll card into view - NOT the page bottom (jarring jump past
+      // the card the user just triggered).
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      lockPipelineActions({ activeBtn: 'findBrollBtn', activeCard: 'stockBrollCard' });
+      findBrollBtn.disabled = true;
+      findBrollBtn.textContent = t('stock.searching');
+      document.querySelectorAll('#captionsList .caption-input, #captionsList .caption-time-input, #captionsList .cap-btn').forEach(el => { el.disabled = true; });
+    } else {
+      _stepActivate('broll');
+    }
 
     bumpPending(+1);
     const stockElapsedEl = document.getElementById('stockBrollElapsed');
@@ -3570,12 +3648,16 @@
       list.innerHTML = `<p style="color:var(--red);font-size:0.85rem;padding:8px 0">${t('stock.failedRetry', {msg: e.message.slice(0, 160)})} <button onclick="triggerStockBroll()" style="margin-left:8px;font-size:0.8rem;padding:3px 10px;border-radius:6px;border:1px solid var(--red);background:none;color:var(--red);cursor:pointer">${t('veo.retry')}</button></p>`;
     } finally {
       bumpPending(-1);
-      unlockPipelineActions();
-      // Restore caption editor and button
-      document.querySelectorAll('#captionsList .caption-input, #captionsList .caption-time-input, #captionsList .cap-btn').forEach(el => { el.disabled = false; });
-      _updateDeleteButtons();
-      findBrollBtn.textContent = t('stock.find');
-      findBrollBtn.disabled = false;
+      if (!background) {
+        unlockPipelineActions();
+        // Restore caption editor and button
+        document.querySelectorAll('#captionsList .caption-input, #captionsList .caption-time-input, #captionsList .cap-btn').forEach(el => { el.disabled = false; });
+        _updateDeleteButtons();
+        findBrollBtn.textContent = t('stock.find');
+        findBrollBtn.disabled = false;
+      } else {
+        _stepDone('broll');
+      }
     }
   }
 
@@ -4117,6 +4199,7 @@
       if (stockBrollAnalyzed && getCaptionsSignature() !== lastAnalyzedSignature) {
         document.getElementById('stockBrollRerunBanner').style.display = 'flex';
       }
+      _maybeShowHookRerun();
     });
     textInp.addEventListener('click', e => {
       e.stopPropagation();
