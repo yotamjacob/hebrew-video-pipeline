@@ -483,7 +483,6 @@
     location.reload();
   }
 
-  const VEO_ENABLED = false;
 
   // Limits
   const MAX_BYTES    = 500 * 1024 * 1024; // 500 MB
@@ -817,8 +816,7 @@
   const LOCK_BTN_IDS  = ['runBtn', 'reprocessBtn', 'generateHookBtn',
                          'findBrollBtn', 'openScheduleBtn',
                          'burnDownloadBtn'];   // startOverBtn stays clickable always
-  const LOCK_CARD_IDS = ['optionsCard', 'captionEditorCard', 'hookCard', 'brollCard',
-                         'stockBrollCard'];
+  const LOCK_CARD_IDS = ['optionsCard', 'captionEditorCard', 'hookCard', 'stockBrollCard'];
   let _actionLockDepth = 0;
   const _actionLockSaved = new Map();
 
@@ -1046,7 +1044,7 @@
   // Toggle the options UI between video and audio modes. In audio mode only
   // silence-cut + enhance-audio apply; captions are always produced (for SRT).
   function applyAudioMode(on) {
-    const hide = ['burnCaptionsRow', 'captionChildren', 'enhanceVideoRow', 'enhanceVideoPanel', 'suggestBrollsRow'];
+    const hide = ['burnCaptionsRow', 'captionChildren', 'enhanceVideoRow', 'enhanceVideoPanel'];
     hide.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = on ? 'none' : ''; });
     document.body.classList.toggle('audio-mode', on);
     if (typeof _syncCaptionChildren === 'function') _syncCaptionChildren();
@@ -1058,11 +1056,10 @@
     // available regardless of which audio-safe toggles are on.
     if (isAudioInput) { runBtn.disabled = false; return; }
     const ids = ['cutSilences', 'burnCaptions', 'enhanceAudio'];
-    if (VEO_ENABLED) ids.push('suggestBrolls');
     runBtn.disabled = !ids.some(id => document.getElementById(id)?.checked)
                       && _enhanceVideoMode() === 'none';
   }
-  ['cutSilences', 'burnCaptions', 'enhanceAudio', 'suggestBrolls'].forEach(id => {
+  ['cutSilences', 'burnCaptions', 'enhanceAudio'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', () => { checkToolsEnabled(); updateTimeEstimate(); _syncCaptionChildren(); });
   });
   ['autoBroll', 'autoHook'].forEach(id => {
@@ -1207,7 +1204,7 @@
 
   window.addEventListener('beforeunload', (e) => {
     const editing = document.getElementById('captionEditorCard').style.display !== 'none';
-    const hasBrollWork = selectedBrolls.length > 0 || Object.keys(stockBrollSelections).length > 0;
+    const hasBrollWork = Object.keys(stockBrollSelections).length > 0;
     // NOTE: a finished download URL is NOT "unsaved work" - the file lives on
     // the server (30-day retention) and in History, so leaving loses nothing.
     // (It also must NOT be a trigger: the download itself must never provoke a
@@ -1231,8 +1228,6 @@
     showUploadProgress();
 
     const aggr = AGGR_MAP[aggrSlider.value - 1];
-    const brollOn      = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
-    const needTranscript = brollOn && !document.getElementById('burnCaptions').checked;
     // Audio: no video processing / no burn - captions are always produced for
     // the SRT, output is a clean .m4a. Only cut-silences + enhance-audio apply.
     const params = new URLSearchParams({
@@ -1241,7 +1236,7 @@
       burn_captions:        (!isAudioInput && document.getElementById('burnCaptions').checked) ? 'true' : 'false',
       enhance_audio:        document.getElementById('enhanceAudio').checked ? 'true' : 'false',
       enhance_video:        isAudioInput ? 'none' : _enhanceVideoMode(),
-      transcribe_for_broll: (!isAudioInput && needTranscript) ? 'true' : 'false',
+      transcribe_for_broll: 'false',
       is_audio:             isAudioInput ? 'true' : 'false',
       min_silence:          aggr.silence,
       padding:              aggr.padding,
@@ -1309,11 +1304,9 @@
         // SRT + download-audio). No burn, no B-roll.
         showCaptionEditor();
       } else {
-        const brollActive = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
-        if (captionsData.length > 0 || brollActive) {
+        if (captionsData.length > 0) {
           // Keep checklist visible (steps 1-3 done) while user edits captions
           showCaptionEditor();
-          startBrollAnalysis();
           _startAutoGenerations();
         } else {
           // No captions, no B-roll - download directly
@@ -1354,7 +1347,7 @@
     resultBlob = null;
     resultDownloadUrl = null;
     _resetExactPreview();
-    ['captionEditorCard', 'hookCard', 'brollCard', 'stockBrollCard'].forEach(id => {
+    ['captionEditorCard', 'hookCard', 'stockBrollCard'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
@@ -1365,15 +1358,13 @@
     setSetupLocked(true);
 
     const aggr = AGGR_MAP[aggrSlider.value - 1];
-    const brollOn        = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
-    const needTranscript = brollOn && !document.getElementById('burnCaptions').checked;
     const params = new URLSearchParams({
       filename:             selectedFile.name,
       cut_silences:         document.getElementById('cutSilences').checked  ? 'true' : 'false',
       burn_captions:        document.getElementById('burnCaptions').checked ? 'true' : 'false',
       enhance_audio:        document.getElementById('enhanceAudio').checked ? 'true' : 'false',
       enhance_video:        _enhanceVideoMode(),
-      transcribe_for_broll: needTranscript ? 'true' : 'false',
+      transcribe_for_broll: 'false',
       min_silence:          aggr.silence,
       padding:              aggr.padding,
       key:                  currentUploadKey,
@@ -1415,11 +1406,9 @@
       videoKey     = result.video_key;
       cutFilename  = (selectedFile.name || 'video').replace(/\.[^/.]+$/, '') + '_cut.mp4';
 
-      const brollActive = VEO_ENABLED && document.getElementById('suggestBrolls').checked;
       unlockPipelineActions();
-      if (captionsData.length > 0 || brollActive) {
+      if (captionsData.length > 0) {
         showCaptionEditor();
-        startBrollAnalysis();
         _startAutoGenerations();
       } else {
         await _finalizeAndDownload(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`, cutFilename);
@@ -2260,8 +2249,6 @@
     statusError.classList.remove('visible');
     document.getElementById('captionEditorCard').style.display = 'none';
     document.getElementById('captionsList').innerHTML = '';
-    document.getElementById('brollCard').style.display = 'none';
-    document.getElementById('brollList').innerHTML = '';
     document.getElementById('stockBrollCard').style.display = 'none';
     document.getElementById('stockBrollList').innerHTML = '';
     stockBrollSelections = {};
@@ -2293,7 +2280,6 @@
     runBtn.style.display = 'block';
     const burnErrorEl = document.getElementById('burnError');
     if (burnErrorEl) burnErrorEl.style.display = 'none';
-    selectedBrolls = [];
     captionsData = [];
     videoKey    = null;
     cutFilename = '';
@@ -2799,7 +2785,6 @@
   }
 
   // ── B-roll ──
-  let selectedBrolls = [];
   let stockBrollSelections = {};
 
   function openLightbox(url) {
@@ -2822,7 +2807,7 @@
 
   function updateBurnBtn() {
     if (!burnMode) return;
-    const n = selectedBrolls.length + Object.keys(stockBrollSelections).length;
+    const n = Object.keys(stockBrollSelections).length;
     // Once the video has been burned + downloaded once, subsequent burns are re-burns.
     if (hasBurnedOnce) {
       runBtn.textContent = n > 0
@@ -2872,25 +2857,6 @@
     if (burnMode) runBtn.disabled = hasError || pendingAnalyses > 0;
   }
 
-  document.getElementById('suggestBrolls').addEventListener('change', e => {
-    if (!VEO_ENABLED) return;
-    const show = e.target.checked ? 'block' : 'none';
-    document.getElementById('geminiKeyRow').style.display = show;
-    document.getElementById('anthropicKeyRow').style.display = show;
-    document.getElementById('brollAspectRow').style.display = show;
-    if (e.target.checked) {
-      const savedGemini = localStorage.getItem('geminiApiKey') || '';
-      if (savedGemini) document.getElementById('geminiKey').value = savedGemini;
-      const savedAnthropic = localStorage.getItem('anthropicApiKey') || '';
-      if (savedAnthropic) document.getElementById('anthropicKey').value = savedAnthropic;
-    }
-  });
-  document.getElementById('geminiKey').addEventListener('change', e => {
-    localStorage.setItem('geminiApiKey', e.target.value.trim());
-  });
-  document.getElementById('anthropicKey').addEventListener('change', e => {
-    localStorage.setItem('anthropicApiKey', e.target.value.trim());
-  });
 
   // Init: check for a saved background job and show reconnect banner
   (function checkSavedJob() {
@@ -2926,99 +2892,6 @@
       }
     });
   }
-
-  // Init: apply VEO_ENABLED and restore stock B-roll state from localStorage
-  (function initToggles() {
-    // Disable Veo toggle if not enabled
-    if (!VEO_ENABLED) {
-      const veoRow = document.getElementById('suggestBrollsRow');
-      if (veoRow) {
-        veoRow.classList.add('disabled-feature');
-        veoRow.title = t('veo.later');
-      }
-      const veoChk = document.getElementById('suggestBrolls');
-      if (veoChk) { veoChk.checked = false; veoChk.disabled = true; }
-    }
-
-  })();
-
-  async function startBrollAnalysis() {
-    if (!document.getElementById('suggestBrolls').checked) return;
-    if (!videoKey) return;
-    const geminiKey = document.getElementById('geminiKey').value.trim()
-                   || localStorage.getItem('geminiApiKey') || '';
-    if (!geminiKey) return;
-    const anthropicKey = document.getElementById('anthropicKey').value.trim()
-                      || localStorage.getItem('anthropicApiKey') || '';
-
-    bumpPending(+1);
-    const card   = document.getElementById('brollCard');
-    const status = document.getElementById('brollStatus');
-    const list   = document.getElementById('brollList');
-    // Ensure broll card body is expanded when showing
-    const brollHeader = document.querySelector('#brollCard .card-header');
-    if (brollHeader) brollHeader.classList.remove('collapsed');
-    const brollBody = document.getElementById('brollBody');
-    if (brollBody) brollBody.style.display = 'block';
-    card.style.display   = 'block';
-    status.style.display = 'flex';
-    list.innerHTML       = '';
-    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-
-    const aspectRatio = document.querySelector('input[name="brollAspect"]:checked')?.value || '9:16';
-
-    try {
-      const resp = await apiFetch(`${API_BASE}/broll/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ video_key: videoKey, captions: captionsData, gemini_key: geminiKey, aspect_ratio: aspectRatio, anthropic_key: anthropicKey }),
-      });
-      if (!resp.ok) throw new Error(`Spawn failed: ${resp.status}`);
-      const { call_id } = await resp.json();
-
-      const result = await pollBroll(`${API_BASE}/broll_poll/${call_id}/`);
-      status.style.display = 'none';
-      selectedBrolls = [];
-      updateBurnBtn();
-      const suggestions = result.suggestions || [];
-      if (!suggestions.length) {
-        list.innerHTML = '<p style="color:var(--muted);font-size:0.85rem;padding:8px 0">' + t('veo.none') + '</p>';
-        return;
-      }
-      renderBrollList(suggestions);
-    } catch (e) {
-      console.error('B-roll error:', e.message);
-      status.style.display = 'none';
-      const isRetryable = /503|UNAVAILABLE|high demand|timeout|timed out/i.test(e.message);
-      const msg = isRetryable
-        ? t('veo.timeout')
-        : t('veo.failed', {msg: e.message});
-      list.innerHTML = `<p style="color:var(--red);font-size:0.85rem;padding:8px 0">${msg} <button onclick="startBrollAnalysis()" style="margin-left:8px;font-size:0.8rem;padding:3px 10px;border-radius:6px;border:1px solid var(--red);background:none;color:var(--red);cursor:pointer">${t('veo.retry')}</button></p>`;
-    } finally {
-      bumpPending(-1);
-    }
-  }
-
-  async function pollBroll(url) {
-    let retries = 0;
-    while (true) {
-      try {
-        const resp = await apiFetch(url);
-        if (resp.status === 200) return await resp.json();
-        if (resp.status === 202) { await new Promise(r => setTimeout(r, 5000)); continue; }
-        const body = await resp.json().catch(() => ({}));
-        throw new Error(body.error || `Server error ${resp.status}`);
-      } catch (e) {
-        if (e.message && !e.message.startsWith('Server error') && ++retries <= 3) {
-          await new Promise(r => setTimeout(r, 2000));
-          continue;
-        }
-        throw e;
-      }
-    }
-  }
-
-  // ── Stock B-roll ──
 
   function triggerStockBroll() {
     document.getElementById('stockBrollRerunBanner').style.display = 'none';
@@ -3645,7 +3518,7 @@
       clearInterval(stockTimer);
       console.error('Stock B-roll error:', e.message);
       status.style.display = 'none';
-      list.innerHTML = `<p style="color:var(--red);font-size:0.85rem;padding:8px 0">${t('stock.failedRetry', {msg: e.message.slice(0, 160)})} <button onclick="triggerStockBroll()" style="margin-left:8px;font-size:0.8rem;padding:3px 10px;border-radius:6px;border:1px solid var(--red);background:none;color:var(--red);cursor:pointer">${t('veo.retry')}</button></p>`;
+      list.innerHTML = `<p style="color:var(--red);font-size:0.85rem;padding:8px 0">${t('stock.failedRetry', {msg: e.message.slice(0, 160)})} <button onclick="triggerStockBroll()" style="margin-left:8px;font-size:0.8rem;padding:3px 10px;border-radius:6px;border:1px solid var(--red);background:none;color:var(--red);cursor:pointer">${t('stock.retry')}</button></p>`;
     } finally {
       bumpPending(-1);
       if (!background) {
@@ -3972,156 +3845,6 @@
     }
   }
 
-  async function retryBrollVideo(s, thumbBox, retryBtn) {
-    const geminiKey = document.getElementById('geminiKey').value.trim()
-                   || localStorage.getItem('geminiApiKey') || '';
-    const aspectRatio = document.querySelector('input[name="brollAspect"]:checked')?.value || '9:16';
-
-    retryBtn.disabled = true;
-    retryBtn.textContent = '…';
-
-    try {
-      const resp = await apiFetch(`${API_BASE}/broll_image/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description: s.description, aspect_ratio: aspectRatio, gemini_key: geminiKey }),
-      });
-      if (!resp.ok) throw new Error(`Spawn failed: ${resp.status}`);
-      const { call_id } = await resp.json();
-
-      while (true) {
-        const poll = await apiFetch(`${API_BASE}/broll_image_poll/${call_id}/`);
-        if (poll.status === 202) { await new Promise(r => setTimeout(r, 5000)); continue; }
-        if (!poll.ok) throw new Error(`Poll error: ${poll.status}`);
-        const result = await poll.json();
-        if (result.video_key) {
-          const videoUrl = _withToken(`${API_BASE}/download/${result.video_key}/`);
-          s.video_key = result.video_key;
-          // Update in selectedBrolls if this card was checked
-          const sel = selectedBrolls.find(b => b.start === s.start && b.end === s.end);
-          if (sel) sel.video_key = result.video_key;
-          // Replace thumb content with video
-          thumbBox.innerHTML = '';
-          thumbBox.classList.add('zoomable');
-          const vid = document.createElement('video');
-          vid.src = videoUrl;
-          vid.autoplay = true;
-          vid.loop = true;
-          vid.muted = true;
-          vid.playsInline = true;
-          thumbBox.appendChild(vid);
-          thumbBox.onclick = () => openLightbox(videoUrl);
-        } else {
-          throw new Error(result.video_error || 'Unknown error');
-        }
-        break;
-      }
-    } catch (e) {
-      console.error('B-roll video retry failed:', e.message);
-    } finally {
-      retryBtn.disabled = false;
-      retryBtn.textContent = t('veo.newVideo');
-    }
-  }
-
-  function renderBrollList(suggestions) {
-    const list = document.getElementById('brollList');
-    list.innerHTML = '';
-    suggestions.forEach((s, i) => {
-      const row = document.createElement('div');
-      row.className = 'broll-row';
-
-      // Checkbox - select this B-roll to include in the final video
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.className = 'broll-checkbox';
-      checkbox.title = t('veo.include');
-      checkbox.addEventListener('change', () => {
-        if (checkbox.checked) {
-          selectedBrolls.push({ start: s.start, end: s.end, video_key: s.video_key });
-        } else {
-          selectedBrolls = selectedBrolls.filter(b => !(b.start === s.start && b.end === s.end));
-        }
-        updateBurnBtn();
-      });
-
-      // Thumbnail + retry button wrapped together
-      const thumbWrap = document.createElement('div');
-      thumbWrap.className = 'broll-thumb-wrap';
-
-      const thumbBox = document.createElement('div');
-      thumbBox.className = 'broll-thumb';
-      if (s.video_key) {
-        const videoUrl = _withToken(`${API_BASE}/download/${s.video_key}/`);
-        const vid = document.createElement('video');
-        vid.src = videoUrl;
-        vid.autoplay = true;
-        vid.loop = true;
-        vid.muted = true;
-        vid.playsInline = true;
-        thumbBox.appendChild(vid);
-        thumbBox.classList.add('zoomable');
-        thumbBox.addEventListener('click', () => openLightbox(videoUrl));
-      } else {
-        const errMsg = s.video_error || t('veo.unavailable');
-        thumbBox.title = errMsg;
-        thumbBox.innerHTML = '<svg class="broll-thumb-placeholder" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="1.5"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>';
-      }
-
-      const retryBtn = document.createElement('button');
-      retryBtn.className = 'broll-retry';
-      retryBtn.textContent = t('veo.newVideo');
-      retryBtn.title = t('veo.soon');
-      retryBtn.disabled = true;
-
-      thumbWrap.appendChild(thumbBox);
-      thumbWrap.appendChild(retryBtn);
-
-      const content = document.createElement('div');
-      content.className = 'broll-content';
-
-      const time = document.createElement('div');
-      time.className = 'broll-time';
-      time.textContent = fmtCapTime(s.start) + ' - ' + fmtCapTime(s.end);
-
-      const label = document.createElement('div');
-      label.className = 'broll-label';
-      label.textContent = s.label;
-
-      const desc = document.createElement('div');
-      desc.className = 'broll-desc';
-      desc.textContent = s.description;
-
-      content.appendChild(time);
-      content.appendChild(label);
-      content.appendChild(desc);
-
-      if (!s.video_key && s.video_error) {
-        const vidErr = document.createElement('div');
-        vidErr.style.cssText = 'font-size:0.72rem;color:var(--amber);margin-top:4px;';
-        vidErr.textContent = t('stock.videoErr', {msg: s.video_error});
-        content.appendChild(vidErr);
-      }
-
-      const dismiss = document.createElement('button');
-      dismiss.className = 'broll-dismiss';
-      dismiss.innerHTML = ICON.x;
-      dismiss.addEventListener('click', () => {
-        if (checkbox.checked) {
-          selectedBrolls = selectedBrolls.filter(b => !(b.start === s.start && b.end === s.end));
-          updateBurnBtn();
-        }
-        row.remove();
-      });
-
-      row.appendChild(checkbox);
-      row.appendChild(thumbWrap);
-      row.appendChild(content);
-      row.appendChild(dismiss);
-      list.appendChild(row);
-    });
-  }
-
   function _selectCaption(row, seekSecs) {
     document.querySelectorAll('#captionsList .caption-row-selected')
       .forEach(r => r.classList.remove('caption-row-selected'));
@@ -4365,7 +4088,7 @@
 
   async function doBurn() {
     if (!videoKey) return;
-    if (captionsData.length === 0 && selectedBrolls.length === 0 && Object.keys(stockBrollSelections).length === 0) return;
+    if (captionsData.length === 0 && Object.keys(stockBrollSelections).length === 0) return;
     const confirmed = await showConfirmModal(
       t('confirm.burnTitle'),
       t('confirm.burnBody'),
@@ -4404,19 +4127,18 @@
     let burnBtnTimer = null;
 
     // Lock all editor cards and collapse them while burn is in progress
-    const editorIds = ['captionEditorCard', 'hookCard', 'brollCard', 'stockBrollCard'];
+    const editorIds = ['captionEditorCard', 'hookCard', 'stockBrollCard'];
     editorIds.forEach(id => document.getElementById(id)?.classList.add('burning'));
     [
       { h: document.querySelector('#captionEditorCard .card-header'), b: document.getElementById('captionBody') },
       { h: document.querySelector('#hookCard .card-header'),          b: document.getElementById('hookBody') },
-      { h: document.querySelector('#brollCard .card-header'),         b: document.getElementById('brollBody') },
       { h: document.querySelector('#stockBrollCard .card-header'),    b: document.getElementById('stockBrollBody') },
     ].forEach(({ h, b }) => {
       if (h && !h.classList.contains('collapsed')) { h.classList.add('collapsed'); if (b) b.style.display = 'none'; }
     });
     try {
-      // POST captions + selected B-rolls (Veo + stock) → get call_id immediately
-      const allBroll = [...selectedBrolls, ...Object.values(stockBrollSelections)];
+      // POST captions + selected stock B-rolls → get call_id immediately
+      const allBroll = Object.values(stockBrollSelections);
 
       // Collect hook settings if an option was selected
       let hookPayload = null;
@@ -4492,7 +4214,6 @@
       [
         { h: document.querySelector('#captionEditorCard .card-header'), b: document.getElementById('captionBody') },
         { h: document.querySelector('#hookCard .card-header'),          b: document.getElementById('hookBody') },
-        { h: document.querySelector('#brollCard .card-header'),         b: document.getElementById('brollBody') },
         { h: document.querySelector('#stockBrollCard .card-header'),    b: document.getElementById('stockBrollBody') },
       ].forEach(({ h, b }) => {
         if (h) { h.classList.remove('collapsed'); if (b) b.style.display = 'block'; }
@@ -4509,7 +4230,6 @@
         [
           { h: document.querySelector('#captionEditorCard .card-header'), b: document.getElementById('captionBody') },
           { h: document.querySelector('#hookCard .card-header'),          b: document.getElementById('hookBody') },
-          { h: document.querySelector('#brollCard .card-header'),         b: document.getElementById('brollBody') },
           { h: document.querySelector('#stockBrollCard .card-header'),    b: document.getElementById('stockBrollBody') },
         ].forEach(({ h, b }) => {
           if (h) { h.classList.remove('collapsed'); if (b) b.style.display = 'block'; }

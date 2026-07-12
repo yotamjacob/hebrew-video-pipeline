@@ -34,7 +34,7 @@ from pipeline_core import (
 # env once a custom domain is set; the API base is stable.
 API_BASE_URL = "https://yotamjacob--hebrew-video-pipeline-api.modal.run"
 from pipeline_fns import process_video, burn_captions_fn, burn_hook_fn, backup_dicts, restore_dicts, build_caption_ass
-from broll_fns import generate_broll_video, analyze_broll, analyze_stock_broll, search_stock_clips
+from broll_fns import analyze_stock_broll, search_stock_clips
 from content_fns import generate_hook_options, generate_caption_options
 from metricool_fns import (
     schedule_post_fn, oauth_store, _mc_refresh_access_token, _mcp_tool_call,
@@ -1326,95 +1326,6 @@ def api():
                 await send_error(str(e))
             return
 
-        # B-roll analysis endpoint
-        if path in ("/broll", "/broll/") and method == "POST":
-            body = await _read_body(receive)
-            data = json.loads(body.decode("utf-8"))
-            try:
-                _vk = data.get("video_key", "")
-                if _vk and not _owned_key(_vk, uid):
-                    await send_error("Forbidden", 403)
-                    return
-                call = analyze_broll.spawn(
-                    _vk,
-                    json.dumps(data.get("captions", [])),
-                    data.get("gemini_key", ""),
-                    data.get("aspect_ratio", "16:9"),
-                    data.get("anthropic_key", ""),
-                )
-                _record_call(call)
-                resp = json.dumps({"call_id": call.object_id}).encode()
-                await send({"type": "http.response.start", "status": 202,
-                            "headers": CORS + [(b"content-type", b"application/json")]})
-                await send({"type": "http.response.body", "body": resp})
-            except Exception as e:
-                await send_error(str(e))
-            return
-
-        if path.startswith("/broll_poll/") and method == "GET":
-            call_id = path[len("/broll_poll/"):].rstrip("/")
-            if not _call_owned(call_id):
-                await send_error("Forbidden", 403)
-                return
-            try:
-                import modal as _modal
-                fn_call = _modal.functions.FunctionCall.from_id(call_id)
-                result, still_running = _poll_fn_call(fn_call)
-                if still_running:
-                    body = json.dumps({"status": "running"}).encode()
-                    await send({"type": "http.response.start", "status": 202,
-                                "headers": CORS + [(b"content-type", b"application/json")]})
-                    await send({"type": "http.response.body", "body": body})
-                    return
-                body = json.dumps({"suggestions": result}).encode()
-                await send({"type": "http.response.start", "status": 200,
-                            "headers": CORS + [(b"content-type", b"application/json")]})
-                await send({"type": "http.response.body", "body": body})
-            except Exception as e:
-                await send_error(str(e))
-            return
-
-        # Single B-roll video generation (retry for one card)
-        if path in ("/broll_image", "/broll_image/") and method == "POST":
-            body = await _read_body(receive)
-            data = json.loads(body.decode("utf-8"))
-            try:
-                call = generate_broll_video.spawn(
-                    data.get("description", ""),
-                    data.get("aspect_ratio", "9:16"),
-                    data.get("gemini_key", ""),
-                )
-                _record_call(call)
-                resp = json.dumps({"call_id": call.object_id}).encode()
-                await send({"type": "http.response.start", "status": 202,
-                            "headers": CORS + [(b"content-type", b"application/json")]})
-                await send({"type": "http.response.body", "body": resp})
-            except Exception as e:
-                await send_error(str(e))
-            return
-
-        if path.startswith("/broll_image_poll/") and method == "GET":
-            call_id = path[len("/broll_image_poll/"):].rstrip("/")
-            if not _call_owned(call_id):
-                await send_error("Forbidden", 403)
-                return
-            try:
-                import modal as _modal
-                fn_call = _modal.functions.FunctionCall.from_id(call_id)
-                result, still_running = _poll_fn_call(fn_call)
-                if still_running:
-                    body = json.dumps({"status": "running"}).encode()
-                    await send({"type": "http.response.start", "status": 202,
-                                "headers": CORS + [(b"content-type", b"application/json")]})
-                    await send({"type": "http.response.body", "body": body})
-                    return
-                body = json.dumps(result).encode()
-                await send({"type": "http.response.start", "status": 200,
-                            "headers": CORS + [(b"content-type", b"application/json")]})
-                await send({"type": "http.response.body", "body": body})
-            except Exception as e:
-                await send_error(str(e))
-            return
 
         if path.startswith("/cancel/") and method in ("GET", "POST", "DELETE"):
             call_id = path[len("/cancel/"):].rstrip("/")

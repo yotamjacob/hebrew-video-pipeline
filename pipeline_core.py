@@ -378,14 +378,8 @@ def _usage_since(quota_store, since_ts: float):
         pass
     return n, len(uids)
 
-TRANSCRIPT_ANALYSIS_MODEL   = "gemini-2.5-flash"
-IMAGE_GENERATION_MODEL      = "gemini-3.1-flash-image-preview"
-VIDEO_GENERATION_MODEL      = "veo-3.0-generate-001"
-VIDEO_GENERATION_MODEL_FAST = "veo-3.0-fast-generate-001"
-
-SONNET_MODEL = "claude-sonnet-5"
-HAIKU_MODEL  = "claude-haiku-4-5-20251001"
-OPUS_MODEL   = "claude-opus-4-7"
+SONNET_MODEL = "claude-sonnet-5"             # moment selection, hooks, captions, video context
+HAIKU_MODEL  = "claude-haiku-4-5-20251001"   # stock clip frame scoring
 
 # Scoring temperatures (Haiku only — Sonnet 5 rejects sampling params)
 HAIKU_SCORING_TEMPERATURE  = 0.2   # consistent judgment across clips

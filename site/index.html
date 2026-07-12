@@ -423,21 +423,6 @@
     </div>
   </div>
 
-  <!-- B-roll suggestions - shown after caption editor when toggle is on -->
-  <div class="card" id="brollCard" style="display:none">
-    <div class="card-header" onclick="toggleCard('brollBody', this)">
-      <p class="options-title" data-i18n="broll.title">B-roll Suggestions</p>
-      <i class="collapse-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></i>
-    </div>
-    <div id="brollBody" style="padding-top:16px">
-      <div id="brollStatus" class="broll-status" style="display:none">
-        <div class="spinner-sm"></div>
-        <span data-i18n="broll.analyzing">Analyzing video for B-roll opportunities…</span>
-      </div>
-      <div id="brollList"></div>
-    </div>
-  </div>
-
   <!-- Stock B-roll suggestions - shown after processing when toggle is on -->
   <div class="card" id="stockBrollCard" style="display:none">
     <div class="card-header" onclick="toggleCard('stockBrollBody', this)">
@@ -457,41 +442,6 @@
       </div>
       <div id="stockCostLimitBanner" style="display:none;margin-bottom:12px;padding:10px 14px;background:var(--purple-50);border:1.5px solid var(--purple-200);border-radius:12px;font-size:0.82rem;color:var(--purple-800)"></div>
       <div id="stockBrollList"></div>
-
-      <!-- Veo AI B-roll generation - relocated here as a coming-soon (greyed) option -->
-      <div class="option-row disabled-feature" id="suggestBrollsRow" style="border-bottom:none;margin-top:8px">
-        <div class="option-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3 9h18M3 15h18M8 5v14M16 5v14"/></svg></div>
-        <div class="option-text">
-          <div class="option-label" data-i18n="opt.broll.label">Suggest B-rolls (Veo)</div>
-          <div class="option-desc" data-i18n="opt.broll.desc">AI generates video B-rolls with Veo - coming soon</div>
-        </div>
-        <div class="toggle-wrap">
-          <label class="toggle">
-            <input type="checkbox" id="suggestBrolls" />
-            <div class="toggle-track"></div>
-            <div class="toggle-thumb"></div>
-          </label>
-        </div>
-      </div>
-      <div id="geminiKeyRow" class="gemini-key-row" style="display:none">
-        <input type="password" id="geminiKey" class="gemini-key-input"
-               placeholder="Gemini API key - get one free at ai.google.dev" data-i18n-placeholder="opt.geminiKey" autocomplete="off" />
-      </div>
-      <div id="anthropicKeyRow" class="gemini-key-row" style="display:none">
-        <input type="password" id="anthropicKey" class="gemini-key-input"
-               placeholder="Anthropic API key (optional) - for smarter B-roll descriptions" data-i18n-placeholder="opt.anthropicKey" autocomplete="off" />
-      </div>
-      <div id="brollAspectRow" style="display:none; margin-top:8px;">
-        <div style="font-size:0.72rem;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--purple-400);margin-bottom:6px;" data-i18n="opt.brollAspect">B-roll aspect ratio</div>
-        <div class="ar-select">
-          <input type="radio" name="brollAspect" id="ar169" value="16:9">
-          <label for="ar169" data-i18n="ar.landscape">Landscape</label>
-          <input type="radio" name="brollAspect" id="ar916" value="9:16" checked>
-          <label for="ar916" data-i18n="ar.portrait">Portrait</label>
-          <input type="radio" name="brollAspect" id="ar11" value="1:1">
-          <label for="ar11" data-i18n="ar.square">Square</label>
-        </div>
-      </div>
     </div>
   </div>
 

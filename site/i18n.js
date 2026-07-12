@@ -104,14 +104,6 @@
     'ev.desc.none':        { en: 'Off - video is untouched', he: 'כבוי - הווידאו נשאר כמו שהוא' },
     'ev.desc.filters':     { en: 'Light denoise, sharpen and color lift', he: 'ניקוי רעש עדין, חידוד והרמת צבע' },
     'ev.desc.esrgan':      { en: 'AI upscale to sharp 4K (Real-ESRGAN + smart sharpen) - <span class="ev-warn">adds a few minutes</span>', he: 'שדרוג AI ל-4K חד (Real-ESRGAN + חידוד חכם) - <span class="ev-warn">מוסיף כמה דקות</span>' },
-    'opt.broll.label':     { en: 'Suggest B-rolls (Veo)', he: 'הצעות בי-רול (Veo)' },
-    'opt.broll.desc':      { en: 'AI generates video B-rolls with Veo - coming soon', he: 'יצירת בי-רול עם Veo - בקרוב' },
-    'opt.brollAspect':     { en: 'B-roll aspect ratio', he: 'יחס תצוגה לבי-רול' },
-    'ar.landscape':        { en: 'Landscape', he: 'לרוחב' },
-    'ar.portrait':         { en: 'Portrait', he: 'לאורך' },
-    'ar.square':           { en: 'Square', he: 'ריבוע' },
-    'opt.geminiKey':       { en: 'Gemini API key - get one free at ai.google.dev', he: 'מפתח API של Gemini - חינם ב-ai.google.dev' },
-    'opt.anthropicKey':    { en: 'Anthropic API key (optional) - for smarter B-roll descriptions', he: 'מפתח API של Anthropic (רשות) - לתיאורי בי-רול חכמים יותר' },
     'reprocess.btn':       { en: 'Re-process with new settings', he: 'עיבוד מחדש עם הגדרות חדשות' },
 
     // ── Caption editor ──
@@ -134,12 +126,11 @@
     'capedit.badTimes':  { en: 'Fix overlapping caption times before burning.', he: 'תקנו חפיפות בזמני הכתוביות לפני הצריבה.' },
 
     // ── B-roll cards ──
-    'broll.title':        { en: 'B-roll Suggestions', he: 'הצעות בי-רול' },
-    'broll.analyzing':    { en: 'Analyzing video for B-roll opportunities…', he: 'מנתח את הסרטון לאיתור הזדמנויות בי-רול…' },
     'stock.title':        { en: 'Stock B-Roll Suggestions', he: 'הצעות בי-רול ממאגרים' },
     'stock.find':         { en: 'Find B-Roll Moments', he: 'איתור רגעים לבי-רול' },
     'stock.rerunMsg':     { en: 'Captions changed since last analysis - re-run to update B-roll suggestions.', he: 'הכתוביות השתנו מאז הניתוח האחרון - הריצו שוב לעדכון ההצעות.' },
     'stock.rerun':        { en: 'Re-run', he: 'הרצה מחדש' },
+    'stock.retry':        { en: 'Retry', he: 'ניסיון חוזר' },
     'stock.finding':      { en: 'Finding B-roll moments…', he: 'מאתר רגעים לבי-רול…' },
 
     // ── Hook card ──
@@ -358,15 +349,6 @@
     'confirm.startOk':     { en: 'Start over', he: 'התחלה מחדש' },
 
     // ── Veo B-roll (dynamic) ──
-    'veo.later':      { en: 'Veo video generation - maybe later!', he: 'יצירת וידאו עם Veo - אולי בהמשך!' },
-    'veo.none':       { en: 'No B-roll suggestions found.', he: 'לא נמצאו הצעות בי-רול.' },
-    'veo.timeout':    { en: 'Analysis timed out or Gemini is overloaded - try again.', he: 'הניתוח נכשל או ש-Gemini עמוס - נסו שוב.' },
-    'veo.failed':     { en: 'Analysis failed: {msg}', he: 'הניתוח נכשל: {msg}' },
-    'veo.retry':      { en: 'Retry', he: 'ניסיון חוזר' },
-    'veo.newVideo':   { en: 'new video', he: 'וידאו חדש' },
-    'veo.include':    { en: 'Include this B-roll in the final video', he: 'לכלול את הבי-רול הזה בסרטון הסופי' },
-    'veo.unavailable': { en: 'Video generation unavailable.', he: 'יצירת וידאו אינה זמינה.' },
-    'veo.soon':       { en: 'Coming soon', he: 'בקרוב' },
 
     // ── Caption time validation (dynamic titles) ──
     'cap.negStart':   { en: 'Start time cannot be negative', he: 'זמן ההתחלה לא יכול להיות שלילי' },
