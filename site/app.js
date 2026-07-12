@@ -183,6 +183,7 @@
     refreshMetricoolChip();
     if (quotaInfo) { updateQuotaUI(); updateVerifyBanner(); } else refreshQuota();
     restoreTab();
+    if (typeof _initPush === 'function') _initPush();
   }
 
   // ── Email verification nudge (non-blocking) ──
@@ -1035,6 +1036,32 @@
     if (b) b.addEventListener('click', () => nativeShareVideo(resultDownloadUrl, resultName));
   });
 
+  // Register this device for "your video is ready" push notifications. Native
+  // only; needs google-services.json in the build (fails gracefully without it).
+  // Runs once per app session after login.
+  let _pushInited = false;
+  async function _initPush() {
+    if (!_isNative() || _pushInited) return;
+    const Push = _capPlugin('PushNotifications');
+    if (!Push) return;
+    _pushInited = true;
+    try {
+      let perm = await Push.checkPermissions();
+      if (perm.receive === 'prompt' || perm.receive === 'prompt-with-rationale') {
+        perm = await Push.requestPermissions();
+      }
+      if (perm.receive !== 'granted') return;
+      Push.addListener('registration', (tok) => {
+        const value = tok && tok.value;
+        if (value) apiFetch(`${API_BASE}/push/register/`, {
+          method: 'POST', body: JSON.stringify({ token: value, platform: 'android' }),
+        }).catch(() => {});
+      });
+      Push.addListener('registrationError', (e) => console.warn('push reg error', e));
+      await Push.register();
+    } catch (e) { console.warn('push init failed', e); }
+  }
+
   // On native, route the upload zone / browse tap to the native picker instead
   // of the hidden <input> (which yields a pathless browser File).
   if (_isNative()) {
@@ -1043,6 +1070,15 @@
       e.preventDefault(); e.stopPropagation();
       pickNativeFile();
     }, true);
+    // Keep the brand splash up until the UI has actually painted (config sets
+    // launchAutoHide:false), so a slow first load shows branding, not a blank
+    // screen. Hide after two frames = first real paint.
+    const SplashScreen = _capPlugin('SplashScreen');
+    if (SplashScreen) {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        try { SplashScreen.hide(); } catch (_) {}
+      }));
+    }
   }
 
   async function handleFile(file) {

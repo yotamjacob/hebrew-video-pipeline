@@ -29,6 +29,7 @@ image = (
         "python-multipart",
         "google-genai>=1.9.0",
         "anthropic>=0.40.0",
+        "google-auth",   # FCM "video ready" push (HTTP v1 send)
     )
     .run_commands(
         "mkdir -p /usr/local/share/fonts/hebrew",
@@ -58,7 +59,7 @@ image = (
 burn_image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg", "fontconfig", "wget")
-    .pip_install("requests")
+    .pip_install("requests", "google-auth")   # google-auth: FCM "video ready" push
     .run_commands(
         "mkdir -p /usr/local/share/fonts/hebrew",
         'wget -q "https://github.com/google/fonts/raw/main/ofl/heebo/Heebo%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/Heebo.ttf',
@@ -149,6 +150,45 @@ progress_store = modal.Dict.from_name("hebpipe-progress", create_if_missing=True
 users_store = modal.Dict.from_name("hebpipe-users", create_if_missing=True)   # email (legacy: username) → {uid, salt, pw, created}
 calls_store = modal.Dict.from_name("hebpipe-calls", create_if_missing=True)   # call_id  → {uid, ts}
 quota_store = modal.Dict.from_name("hebpipe-quota", create_if_missing=True)   # f"{uid}:{call_id}" → ts (one unique entry per consumed credit)
+fcm_store   = modal.Dict.from_name("hebpipe-fcm", create_if_missing=True)     # uid → [device FCM tokens] for "video ready" push notifications
+
+
+def _send_fcm(uid, title, body):
+    """Best-effort 'video ready' push to a user's devices via FCM HTTP v1.
+    No-op unless the hebpipe-fcm secret (FCM_SERVICE_ACCOUNT = the Firebase
+    service-account JSON) is configured. Prunes tokens the server rejects."""
+    import os
+    import json as _json
+    raw = os.environ.get("FCM_SERVICE_ACCOUNT")
+    if not raw or not uid:
+        return
+    try:
+        tokens = fcm_store.get(uid) or []
+        if not tokens:
+            return
+        info = _json.loads(raw)
+        project_id = info["project_id"]
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request as _GReq
+        creds = service_account.Credentials.from_service_account_info(
+            info, scopes=["https://www.googleapis.com/auth/firebase.messaging"])
+        creds.refresh(_GReq())
+        import requests as _rq
+        url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
+        headers = {"Authorization": f"Bearer {creds.token}"}
+        dead = []
+        for tkn in tokens:
+            r = _rq.post(url, headers=headers, timeout=15, json={"message": {
+                "token": tkn,
+                "notification": {"title": title, "body": body},
+                "android": {"priority": "high"},
+            }})
+            if r.status_code in (400, 404):   # unregistered / invalid token
+                dead.append(tkn)
+        if dead:
+            fcm_store[uid] = [t for t in tokens if t not in dead]
+    except Exception as e:
+        print(f"[fcm] send failed: {e!r}")
 
 import re as _auth_re
 

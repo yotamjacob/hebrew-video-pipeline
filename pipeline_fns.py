@@ -13,6 +13,7 @@ from pipeline_core import (
     jobs_store, JOB_RETENTION_DAYS, SCRATCH_RETENTION_HOURS,
     progress_store, calls_store, CALL_RETENTION_SECONDS, _UID_PREFIX_RE,
     quota_store, _usage_since, _send_email, _email_html, SONNET_MODEL,
+    _send_fcm,
 )
 
 
@@ -634,7 +635,8 @@ def render_audio(audio_in, segs, out):
     max_containers=12,
     volumes={MODEL_DIR: model_volume, TMP_DIR: tmp_vol},
     memory=4096,
-    secrets=[modal.Secret.from_name("anthropic-secret")],
+    secrets=[modal.Secret.from_name("anthropic-secret"),
+             modal.Secret.from_name("hebpipe-fcm")],
 )
 def process_video(
     upload_key: str = None,
@@ -1322,7 +1324,8 @@ def _peak_window(path, want_dur):
 # ---------------------------------------------------------------------------
 # Caption-burn worker — CPU only, no GPU needed
 # ---------------------------------------------------------------------------
-@app.function(image=burn_image, timeout=600, volumes={TMP_DIR: tmp_vol})
+@app.function(image=burn_image, timeout=600, volumes={TMP_DIR: tmp_vol},
+              secrets=[modal.Secret.from_name("hebpipe-fcm")])
 def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", margin_v_pct: float = 0.08, broll_json: str = "[]", font_size: int = 48, hook_json: str = "", source_name: str = "") -> dict:
     import json, subprocess, tempfile, uuid, shutil
     from pathlib import Path
@@ -1542,6 +1545,10 @@ def _record_job(output_key, source_name, out_path):
         "size": out_path.stat().st_size,
         "duration": round(duration, 1),
     }
+    # "Your video is ready" push (best-effort; no-op unless FCM is configured).
+    uid = output_key[1:33] if _UID_PREFIX_RE.match(output_key) else None
+    if uid:
+        _send_fcm(uid, "הסרטון שלך מוכן", "העריכה הסתיימה - הסרטון מוכן להורדה ולשיתוף.")
 
 
 def prune_volume():

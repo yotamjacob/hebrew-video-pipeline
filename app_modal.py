@@ -17,7 +17,7 @@ import modal
 
 from pipeline_core import (
     light_image,
-    jobs_store, progress_store, users_store, calls_store, quota_store,
+    jobs_store, progress_store, users_store, calls_store, quota_store, fcm_store,
     app, image, tmp_vol, TMP_DIR,
     _SAFE_KEY_RE, _SAFE_DOWNLOAD_KEY_RE, _check_rate_limit, _get_client_ip,
     throttle_store, _throttle_allowed, _throttle_record_fail, _throttle_clear,
@@ -672,6 +672,32 @@ def api():
                         break
             finally:
                 await asyncio.to_thread(fh.close)
+            body = json.dumps({"ok": True}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # Register this device's FCM token for "video ready" push notifications.
+        if path in ("/push/register", "/push/register/") and method == "POST":
+            if not uid:
+                await send_error("unauthorized", 401)
+                return
+            raw = await _read_body(receive)
+            try:
+                data = json.loads(raw or b"{}")
+            except Exception:
+                data = {}
+            token = (data.get("token") or "").strip()
+            if not token or len(token) > 4096:
+                await send_error("invalid token", 400)
+                return
+            try:
+                toks = fcm_store.get(uid) or []
+                if token not in toks:
+                    fcm_store[uid] = ([token] + toks)[:10]   # cap tokens per user
+            except Exception as e:
+                print(f"[push] register failed: {e}")
             body = json.dumps({"ok": True}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
