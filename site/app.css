@@ -647,6 +647,79 @@
       width: 100%;
       box-shadow: 0 12px 40px rgba(55, 7, 100, 0.22);
     }
+    /* ── Floating WhatsApp feedback button (tester nudge) ── */
+    .wa-fab {
+      position: fixed;
+      right: max(16px, env(safe-area-inset-right));
+      bottom: max(16px, env(safe-area-inset-bottom));
+      z-index: 800;                 /* below modals (900+), above page content */
+      /* Force LTR layout so the button pins to the bottom-RIGHT corner in both
+         languages (RTL flex-end would push it left). Bubble text direction is
+         set separately below. */
+      direction: ltr;
+      display: flex; flex-direction: column; align-items: flex-end; gap: 10px;
+    }
+    .wa-fab-btn {
+      width: 58px; height: 58px; border-radius: 50%;
+      background: #25D366; color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.28);
+      cursor: pointer; text-decoration: none;
+      animation: waGlow 2.4s ease-in-out infinite;
+      transition: transform 0.15s ease;
+    }
+    .wa-fab-btn:hover  { transform: scale(1.06); }
+    .wa-fab-btn:active { transform: scale(0.96); }
+    .wa-fab-btn svg { width: 34px; height: 34px; display: block; }
+    @keyframes waGlow {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(37,211,102,0.55), 0 6px 18px rgba(0,0,0,0.28); }
+      50%      { box-shadow: 0 0 0 14px rgba(37,211,102,0),  0 6px 18px rgba(0,0,0,0.28); }
+    }
+    .wa-fab-bubble {
+      position: relative;
+      max-width: min(258px, calc(100vw - 40px));
+      background: var(--white);
+      border: 1.5px solid var(--purple-100);
+      border-radius: 14px;
+      padding: 12px 30px 12px 14px;
+      font-size: 0.82rem; line-height: 1.4; color: var(--text);
+      box-shadow: 0 10px 28px rgba(55, 40, 20, 0.20);
+      transition: opacity 0.25s ease, transform 0.25s ease, visibility 0.25s;
+      transform-origin: bottom right;
+    }
+    /* Little tail pointing down toward the button. */
+    .wa-fab-bubble::after {
+      content: ''; position: absolute; bottom: -7px; right: 22px;
+      width: 13px; height: 13px; background: var(--white);
+      border-right: 1.5px solid var(--purple-100);
+      border-bottom: 1.5px solid var(--purple-100);
+      transform: rotate(45deg);
+    }
+    .wa-fab-close {
+      position: absolute; top: 6px; right: 6px;
+      background: none; border: none; padding: 3px; cursor: pointer;
+      color: var(--muted); border-radius: 6px; line-height: 0;
+    }
+    .wa-fab-close:hover { background: var(--purple-50); color: var(--text); }
+    .wa-fab-close svg { width: 13px; height: 13px; display: block; }
+    /* Hebrew: render the text RTL and move the close X to the LEFT (opposite the
+       reading start) so it doesn't sit on the text. The tail + button stay on the
+       right (the button is corner-pinned in both languages). */
+    :root[dir="rtl"] .wa-fab-bubble {
+      direction: rtl; text-align: right; padding: 12px 14px 12px 30px;
+    }
+    :root[dir="rtl"] .wa-fab-close { right: auto; left: 6px; }
+    /* Collapsed (auto-timeout or dismissed): hide the bubble, keep the button. */
+    .wa-fab.wa-collapsed .wa-fab-bubble {
+      opacity: 0; visibility: hidden; transform: scale(0.85) translateY(6px); pointer-events: none;
+    }
+    /* Desktop: re-reveal on hover even after it collapsed. */
+    @media (hover: hover) {
+      .wa-fab:hover .wa-fab-bubble {
+        opacity: 1; visibility: visible; transform: none; pointer-events: auto;
+      }
+    }
+
     .modal-dialog-title { font-size: 1.05rem; font-weight: 700; color: var(--text); margin-bottom: 8px; }
     /* Privacy & Terms modal: a tall, wide dialog hosting legal.html in an iframe */
     .legal-dialog {

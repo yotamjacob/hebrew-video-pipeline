@@ -941,6 +941,20 @@
 </div>
 
 
+<!-- Floating WhatsApp feedback button (tester nudge, pre-launch) -->
+<div id="waFab" class="wa-fab">
+  <div class="wa-fab-bubble" id="waFabBubble" role="status">
+    <button type="button" class="wa-fab-close" id="waFabClose" aria-label="Dismiss" data-i18n-aria-label="wa.dismiss">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+    </button>
+    <span data-i18n="wa.annotation">Issue? Feedback? Let us know so we can improve before the official launch.</span>
+  </div>
+  <a class="wa-fab-btn" href="https://wa.me/972528828232" target="_blank" rel="noopener"
+     aria-label="Send feedback on WhatsApp" data-i18n-aria-label="wa.aria">
+    <svg viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M16.003 3C9.38 3 4 8.38 4 15.003c0 2.117.553 4.185 1.603 6.007L4 29l8.17-1.573A11.94 11.94 0 0 0 16.003 27C22.626 27 28 21.626 28 15.003 28 8.38 22.626 3 16.003 3zm0 21.8a9.74 9.74 0 0 1-4.964-1.36l-.356-.211-3.69.71.7-3.6-.232-.37a9.72 9.72 0 0 1-1.49-5.166c0-5.406 4.397-9.803 9.803-9.803 5.406 0 9.797 4.397 9.797 9.803 0 5.406-4.39 9.797-9.797 9.797zm5.38-7.34c-.295-.148-1.746-.862-2.016-.96-.27-.099-.467-.148-.664.148-.197.295-.762.96-.934 1.157-.172.197-.344.222-.639.074-.295-.148-1.246-.459-2.373-1.463-.877-.782-1.469-1.748-1.641-2.043-.172-.295-.018-.454.13-.601.134-.132.295-.344.443-.517.148-.172.197-.295.295-.492.099-.197.05-.369-.025-.517-.074-.148-.664-1.6-.909-2.191-.24-.576-.483-.498-.664-.507l-.566-.01c-.197 0-.517.074-.787.369-.27.295-1.033 1.01-1.033 2.462 0 1.452 1.058 2.855 1.205 3.052.148.197 2.082 3.18 5.043 4.458.705.304 1.255.486 1.684.622.708.225 1.352.193 1.861.117.568-.085 1.746-.714 1.992-1.403.246-.69.246-1.281.172-1.404-.074-.123-.27-.197-.565-.345z"/></svg>
+  </a>
+</div>
+
 <script src="i18n.js"></script>
 <script src="app.js"></script>
 <!-- Monstera vine: scroll-scrubbed growth (grows down, retracts up) -->
@@ -986,6 +1000,28 @@
   addEventListener('scroll', function(){ if(!ticking){ ticking=true; requestAnimationFrame(function(){render();ticking=false;}); } }, {passive:true});
   addEventListener('resize', render);
   render();
+})();
+</script>
+<!-- WhatsApp feedback FAB: show the bubble on load (nudge), auto-collapse after
+     a while, and let the user dismiss it for the session. Desktop re-reveals on
+     hover (CSS). The glowing button always stays. -->
+<script>
+(function(){
+  var fab = document.getElementById('waFab');
+  var closeBtn = document.getElementById('waFabClose');
+  if (!fab) return;
+  var dismissed = false;
+  try { dismissed = sessionStorage.getItem('waFabDismissed') === '1'; } catch(e){}
+  if (dismissed) {
+    fab.classList.add('wa-collapsed');
+  } else {
+    setTimeout(function(){ fab.classList.add('wa-collapsed'); }, 9000);
+  }
+  if (closeBtn) closeBtn.addEventListener('click', function(e){
+    e.preventDefault(); e.stopPropagation();
+    fab.classList.add('wa-collapsed');
+    try { sessionStorage.setItem('waFabDismissed', '1'); } catch(err){}
+  });
 })();
 </script>
 </body>
