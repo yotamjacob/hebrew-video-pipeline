@@ -43,3 +43,9 @@ exports/
 *.keystore
 keystore.properties
 android/keystore.properties
+
+# Firebase / FCM - NEVER commit (service account has a private key; public repo)
+google-services.json
+android/app/google-services.json
+*firebase-adminsdk*.json
+*-service-account*.json
