@@ -961,8 +961,36 @@
       const Uploader = _capPlugin('Uploader');
       if (!Uploader) { reject(new Error('Uploader plugin unavailable')); return; }
       const key = crypto.randomUUID().replace(/-/g, '');
-      let handle = null, settled = false;
-      const cleanup = () => { try { handle && handle.remove(); } catch (_) {} };
+      const expected = desc.size || 0;
+      let handle = null, settled = false, reconciling = false;
+      const _buzz = () => { try { navigator.vibrate && navigator.vibrate(90); } catch (_) {} };
+      const cleanup = () => {
+        try { handle && handle.remove(); } catch (_) {}
+        document.removeEventListener('visibilitychange', _onVis);
+      };
+      const _finish = () => { settled = true; cleanup(); _buzz(); onProgress(1); resolve(key); };
+      // While the app is backgrounded the WebView is frozen, so the uploader's
+      // 'completed' event can be MISSED and the promise would hang forever. On
+      // return to foreground, confirm with the server whether the whole file
+      // landed (chunk 0000 size == file size) and finish the flow if so.
+      async function reconcile() {
+        if (settled || reconciling || !expected) return;
+        reconciling = true;
+        try {
+          for (let i = 0; i < 30 && !settled; i++) {
+            try {
+              const r = await apiFetch(`${API_BASE}/upload_check/?key=${key}`);
+              if (r.ok) {
+                const { bytes } = await r.json();
+                if (bytes >= expected) { _finish(); return; }
+              }
+            } catch (_) {}
+            await new Promise(res => setTimeout(res, 2500));
+          }
+        } finally { reconciling = false; }
+      }
+      const _onVis = () => { if (!document.hidden && !settled) reconcile(); };
+      document.addEventListener('visibilitychange', _onVis);
       // addListener may return the handle directly OR a Promise<handle>
       // depending on the plugin/Capacitor version - normalize with
       // Promise.resolve so ".then is not a function" can't happen.
@@ -973,9 +1001,8 @@
           onProgress(Math.max(0, Math.min(1, p / 100)));
         } else if (ev.name === 'completed') {
           const sc = ev.payload && ev.payload.statusCode;
-          settled = true; cleanup();
-          if (sc && sc >= 400) reject(new Error(t('err.chunk', { i: 0, status: sc })));
-          else { onProgress(1); resolve(key); }
+          if (sc && sc >= 400) { settled = true; cleanup(); reject(new Error(t('err.chunk', { i: 0, status: sc }))); }
+          else _finish();
         } else if (ev.name === 'failed') {
           settled = true; cleanup();
           reject(new Error((ev.payload && ev.payload.error) || t('err.chunk', { i: 0, status: 0 })));

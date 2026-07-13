@@ -678,6 +678,25 @@ def api():
             await send({"type": "http.response.body", "body": body})
             return
 
+        # How many bytes of a streamed upload have landed (chunk 0000). Lets the
+        # native client confirm a background upload finished even if its WebView
+        # was frozen and missed the uploader's 'completed' event.
+        if path in ("/upload_check", "/upload_check/") and method == "GET":
+            qs  = parse_qs(scope.get("query_string", b"").decode())
+            _uh = {bytes(k).lower(): bytes(v).decode() for k, v in scope.get("headers", [])}
+            key = _uh.get(b"x-upload-key") or qs.get("key", [""])[0]
+            if not key or not _SAFE_KEY_RE.match(key):
+                await send_error("Invalid or missing key", 400)
+                return
+            from pathlib import Path as _Path
+            cp = _Path(TMP_DIR) / f"{uprefix}{key}_chunk_0000"
+            nbytes = cp.stat().st_size if cp.exists() else 0
+            body = json.dumps({"bytes": nbytes}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
         # Register this device's FCM token for "video ready" push notifications.
         if path in ("/push/register", "/push/register/") and method == "POST":
             if not uid:
