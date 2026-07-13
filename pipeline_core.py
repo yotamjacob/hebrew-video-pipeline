@@ -181,7 +181,9 @@ def _send_fcm(uid, title, body):
             r = _rq.post(url, headers=headers, timeout=15, json={"message": {
                 "token": tkn,
                 "notification": {"title": title, "body": body},
-                "android": {"priority": "high"},
+                # Target the client-created no-vibration channel (user request).
+                "android": {"priority": "high",
+                            "notification": {"channel_id": "video_ready"}},
             }})
             if r.status_code in (400, 404):   # unregistered / invalid token
                 dead.append(tkn)

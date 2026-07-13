@@ -618,6 +618,15 @@
       return URL.createObjectURL(new Blob([await resp.arrayBuffer()], { type: 'video/mp4' }));
     })().catch(e => { console.error('preview prefetch failed', e); return null; });
   }
+  // Block (as a visible "almost ready" step, part of processing) until the
+  // preview blob has downloaded, so the editor's Play is instant. Bounded so a
+  // slow/failed download never hangs the flow (player falls back to streaming).
+  async function _ensurePreviewReady() {
+    if (isAudioInput || !_previewBlobPromise) return;
+    _stepActivate('finalize');
+    try { await Promise.race([_previewBlobPromise, new Promise(r => setTimeout(r, 30000))]); } catch (_) {}
+    _stepDone('finalize');
+  }
   let _playerDispW           = 0;   // detected display width (accounts for browser rotation)
   let videoOrientation       = 'portrait'; // 'portrait' | 'landscape' | 'square' - drives B-roll orientation
   let _uplinkMbps            = null;        // measured upload speed (best-effort probe at file selection)
@@ -1054,9 +1063,15 @@
 
   // Silently pre-fetch the finished video into the cache so a later Share is
   // instant. No UI, no error surfacing - it's a best-effort warm-up.
+  function _revealShareButtons() {
+    ['burnShareBtn', 'shareBtn'].forEach(id => {
+      const b = document.getElementById(id);
+      if (b) b.style.display = '';
+    });
+  }
   async function _prepareShareFile(url, name) {
     if (!_isNative() || !url) return;
-    if (_sharePrep && _sharePrep.url === url) return;   // already prepared
+    if (_sharePrep && _sharePrep.url === url) { _revealShareButtons(); return; }   // already cached
     const Filesystem = _capPlugin('Filesystem');
     if (!Filesystem) return;
     try {
@@ -1064,6 +1079,7 @@
       await Filesystem.downloadFile({ url: _withToken(url), path: safe, directory: 'CACHE' });
       const { uri } = await Filesystem.getUri({ directory: 'CACHE', path: safe });
       _sharePrep = { url, uri };
+      _revealShareButtons();   // only show Share once the file is cached => instant tap
     } catch (_) { /* silent: this is a background warm-up, not user-initiated */ }
   }
 
@@ -1098,13 +1114,14 @@
       btns.forEach((b, i) => { b.disabled = false; b.textContent = labels[i]; });
     }
   }
-  // Reveal + wire the share buttons on native when a result is ready, and warm
-  // the shareable file so the first tap is instant.
+  // On native, warm the shareable file when a result is ready; the Share button
+  // stays HIDDEN until the file is cached (_prepareShareFile reveals it), so it's
+  // never visible-but-not-ready. Kept hidden here to clear any prior reveal.
   function _maybeShowShare() {
     if (!_isNative()) return;
     ['burnShareBtn', 'shareBtn'].forEach(id => {
       const b = document.getElementById(id);
-      if (b) b.style.display = '';
+      if (b) b.style.display = 'none';
     });
     if (resultDownloadUrl) _prepareShareFile(resultDownloadUrl, resultName);
   }
@@ -1128,6 +1145,16 @@
         perm = await Push.requestPermissions();
       }
       if (perm.receive !== 'granted') return;
+      // "Video ready" notifications show but do NOT vibrate (user request).
+      // A dedicated channel with vibration disabled; the backend targets it via
+      // android.notification.channel_id.
+      try {
+        if (Push.createChannel) await Push.createChannel({
+          id: 'video_ready', name: 'Video ready',
+          description: 'Notifies when your edited video is ready',
+          importance: 4, vibration: false, visibility: 1,
+        });
+      } catch (_) {}
       Push.addListener('registration', (tok) => {
         const value = tok && tok.value;
         if (value) apiFetch(`${API_BASE}/push/register/`, {
@@ -1591,8 +1618,9 @@
         showCaptionEditor();
       } else {
         if (captionsData.length > 0) {
-          // Keep checklist visible (steps 1-3 done) while user edits captions
-          showCaptionEditor();
+          // Keep checklist visible (steps 1-3 done) while user edits captions.
+          // await so the editor is built before the auto-generations fire.
+          await showCaptionEditor();
           _startAutoGenerations();
         } else {
           // No captions, no B-roll - download directly
@@ -1695,7 +1723,7 @@
 
       unlockPipelineActions();
       if (captionsData.length > 0) {
-        showCaptionEditor();
+        await showCaptionEditor();
         _startAutoGenerations();
       } else {
         await _finalizeAndDownload(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`, cutFilename);
@@ -4310,7 +4338,8 @@
     return row;
   }
 
-  function showCaptionEditor() {
+  async function showCaptionEditor() {
+    await _ensurePreviewReady();   // preview blob fully downloaded before the editor opens (instant Play)
     _resetExactPreview();   // clear any stale exact frame from a prior video
     // Ensure card body is expanded (may have been collapsed in a previous burn)
     const captionHeader = document.querySelector('#captionEditorCard .card-header');

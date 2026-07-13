@@ -221,7 +221,7 @@
 
     // ── Progress / checklist ──
     'prog.title':       { en: 'Progress', he: 'התקדמות' },
-    'prog.finalize':    { en: 'Preparing download', he: 'מכין את ההורדה' },
+    'prog.finalize':    { en: 'Almost ready', he: 'עוד רגע ומסיימים' },
     'prog.upload':      { en: 'Upload video', he: 'העלאת הסרטון' },
     'prog.enhance':     { en: 'Enhance audio', he: 'שיפור אודיו' },
     'prog.cut':         { en: 'Cut silences', he: 'חיתוך שתיקות' },
