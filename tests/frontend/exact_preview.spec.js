@@ -29,11 +29,16 @@ test('exact overlay hides while the video plays (approximate preview shows)', as
   await expect(page.locator('#exactCap')).toBeHidden();
 });
 
-test('selecting a hook renders the exact hook frame overlay', async ({ page }) => {
+test('selecting a hook renders the exact frame on the main player', async ({ page }) => {
   await runFullUpload(page, { captions: DEFAULT_CAPTIONS });
+  await page.click('#tabBtnHook');
   await page.click('#generateHookBtn');
   await page.waitForSelector('#hookOptions', { state: 'visible', timeout: 8000 });
   await page.click('#hookOption0');
-  await expect(page.locator('#exactHook')).toBeVisible({ timeout: 5000 });
-  await expect(page.locator('#exactHook')).toHaveAttribute('src', /^blob:/);
+  // Selecting a hook seeks into its window and refreshes the player's exact
+  // still (which includes the hook payload while inside the window).
+  await expect(page.locator('#exactCap')).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('#exactCap')).toHaveAttribute('src', /^blob:/);
+  // The DOM hook overlay also shows on the player.
+  await expect(page.locator('#playerHook')).toBeVisible();
 });

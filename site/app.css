@@ -1425,6 +1425,47 @@
     .fs-lbl { color: var(--purple-500); font-weight: 700; line-height: 1; user-select: none; }
     .fs-lbl-sm { font-size: 0.72rem; }
     .fs-lbl-lg { font-size: 1.1rem; }
+    /* ── Unified video editor: tabs + sticky preview + overlays ── */
+    .editor-tabs {
+      display: flex; gap: 6px; margin: 2px 0 14px;
+      background: var(--purple-50); border: 1.5px solid var(--purple-100);
+      border-radius: 12px; padding: 4px;
+    }
+    .editor-tab {
+      flex: 1; padding: 9px 6px; border: none; border-radius: 9px;
+      background: none; color: var(--purple-500); font-family: inherit;
+      font-size: 0.88rem; font-weight: 700; cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .editor-tab.active { background: var(--white); color: var(--text); box-shadow: 0 1px 4px rgba(62,58,52,0.14); }
+    .editor-panel { min-height: 40px; }
+    /* Docked preview: while the editor area is scrolled, the player floats as a
+       FIXED corner mini-player (PiP) and its original slot keeps its height
+       (JS sets min-height), so the layout never shifts - no sticky oscillation,
+       and it only ever covers a small corner of the editors. */
+    .player-outer { margin-bottom: 12px; }
+    .player-outer .player-wrap { margin: 0 auto; }
+    .player-outer.is-stuck .player-wrap {
+      position: fixed; top: calc(var(--topbar-h, 52px) + 8px);
+      inset-inline-end: 10px; width: min(150px, 40vw) !important;
+      z-index: 45; border-radius: 12px;
+      box-shadow: 0 10px 26px -10px rgba(62,58,52,0.6);
+    }
+    .player-outer.is-stuck .player-controls { display: none; }
+    /* B-roll preview overlays: cover the frame during their moment window. */
+    #brollLayer video {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: cover; display: none; z-index: 1; pointer-events: none;
+    }
+    /* Hook overlay box (drag to reposition) */
+    #playerHook {
+      position: absolute; left: 50%; transform: translateX(-50%);
+      z-index: 3; cursor: grab; touch-action: none;
+      text-align: center; user-select: none; -webkit-user-select: none;
+    }
+    #playerHook:active { cursor: grabbing; }
+    #playerHook .hook-line { white-space: nowrap; }
+
     /* Caption video player */
     .player-outer { margin-bottom: 16px; }
     .player-wrap {
@@ -1449,7 +1490,9 @@
     #playerCap {
       position: absolute; left: 50%; transform: translateX(-50%);
       max-width: 92%; color: #fff; font-weight: 700; text-align: center;
-      white-space: pre; word-break: normal; pointer-events: none; line-height: 1.35;
+      white-space: pre; word-break: normal; line-height: 1.35;
+      pointer-events: auto; cursor: grab; touch-action: none;
+      user-select: none; -webkit-user-select: none; z-index: 3;
       -webkit-text-stroke: 0.5px rgba(0,0,0,0.85);
       text-shadow: 2px 2px 0 rgba(0,0,0,0.75);
     }

@@ -64,9 +64,8 @@ test('audio processing lands on the reduced editor (audio player + downloads, no
   // Downloads present
   await expect(page.locator('#downloadAudioBtn')).toBeVisible();
   await expect(page.locator('#downloadSrtBtn')).toBeVisible();
-  // Video-only sections hidden, no burn button
-  await expect(page.locator('#hookCard')).toBeHidden();
-  await expect(page.locator('#stockBrollCard')).toBeHidden();
+  // Video-only sections hidden (tab bar gone in audio mode), no burn button
+  await expect(page.locator('#editorTabs')).toBeHidden();
   await expect(page.locator('#runBtn')).toBeHidden();
 
   // Captions still editable

@@ -25,14 +25,17 @@ test('undo restores a deleted caption', async ({ page }) => {
   await expect(page.locator('#capUndoBtn')).toBeDisabled();
 });
 
-test('caption editor shows hook card', async ({ page }) => {
+test('caption editor shows the hook tab', async ({ page }) => {
   await runFullUpload(page);
-  // The hook card becomes visible alongside the caption editor
-  await expect(page.locator('#hookCard')).toBeVisible();
+  // The hook editor is a tab inside the unified editor card
+  await expect(page.locator('#tabBtnHook')).toBeVisible();
+  await page.click('#tabBtnHook');
+  await expect(page.locator('#tabHook')).toBeVisible();
 });
 
 test('caption editor shows generate hook button', async ({ page }) => {
   await runFullUpload(page);
+  await page.click('#tabBtnHook');   // hook editor lives in a tab now
   await expect(page.locator('#generateHookBtn')).toBeVisible();
 });
 

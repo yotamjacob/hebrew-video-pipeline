@@ -129,6 +129,12 @@
     'reprocess.btn':       { en: 'Re-process with new settings', he: 'עיבוד מחדש עם הגדרות חדשות' },
 
     // ── Caption editor ──
+    'editor.title':   { en: 'Video Editor', he: 'עריכת הווידאו' },
+    'editor.tabCaptions': { en: 'Captions', he: 'כתוביות' },
+    'editor.tabHook':     { en: 'Hook', he: 'הוק' },
+    'editor.tabBroll':    { en: 'B-roll', he: 'בי-רול' },
+    'capedit.dragHint':   { en: 'Drag to reposition the captions', he: 'גררו כדי למקם את הכתוביות' },
+    'hook.dragHint':      { en: 'Drag to reposition the hook', he: 'גררו כדי למקם את ההוק' },
     'capedit.title':   { en: 'Edit Captions', he: 'עריכת כתוביות' },
     'capedit.font':    { en: 'Font', he: 'גופן' },
     'capedit.size':    { en: 'Size', he: 'גודל' },

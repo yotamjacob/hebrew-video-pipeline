@@ -40,18 +40,19 @@ test('hook generation greys out every other section but keeps its own card live'
   await delayedFulfill(page, `${API_BASE}/generate-hook-poll/**`,
     { hooks: [{ text: 'hook', rationale: 'r' }] });
 
+  await page.click('#tabBtnHook');
   await page.click('#generateHookBtn');
 
   // In flight: run/burn disabled, all other sections greyed out…
   await expect(page.locator('#runBtn')).toBeDisabled();
-  await expect(page.locator('#captionEditorCard')).toHaveClass(/action-locked/);
   await expect(page.locator('#optionsCard')).toHaveClass(/action-locked/);
-  // …but the hook card itself stays interactive
-  await expect(page.locator('#hookCard')).not.toHaveClass(/action-locked/);
+  // …but the editor card (which hosts the hook tab) stays interactive
+  await expect(page.locator('#captionEditorCard')).not.toHaveClass(/action-locked/);
 
   await expect(page.locator('#runBtn')).toBeEnabled({ timeout: 10_000 });
-  await expect(page.locator('#captionEditorCard')).not.toHaveClass(/action-locked/);
+  await expect(page.locator('#optionsCard')).not.toHaveClass(/action-locked/);
 });
+
 
 test('burn completion reveals schedule + success banner immediately (download is browser-native)', async ({ page }) => {
   await runFullUpload(page);

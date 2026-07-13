@@ -88,6 +88,7 @@ test('starting Generate Hook pauses the preview video', async ({ page }) => {
     proto.pause = function () { window.__pausedCount++; return orig.apply(this, arguments); };
   });
 
+  await page.click('#tabBtnHook');
   await page.click('#generateHookBtn');
   await page.waitForFunction(() => window.__pausedCount > 0, { timeout: 6_000 });
   expect(await page.evaluate(() => window.__pausedCount)).toBeGreaterThan(0);
@@ -107,6 +108,7 @@ test('starting Find B-Roll pauses the preview video', async ({ page }) => {
     proto.pause = function () { window.__pausedCount++; return orig.apply(this, arguments); };
   });
 
+  await page.click('#tabBtnBroll');
   await page.click('#findBrollBtn');
   await page.waitForFunction(() => window.__pausedCount > 0, { timeout: 6_000 });
   expect(await page.evaluate(() => window.__pausedCount)).toBeGreaterThan(0);
@@ -128,6 +130,7 @@ test('B-roll moment card shows the verbatim transcript quote for its window', as
       video_context: null,
     }) }));
 
+  await page.click('#tabBtnBroll');
   await page.click('#findBrollBtn');
   await page.waitForSelector('.moment-excerpt', { state: 'visible', timeout: 8_000 });
   const quote = await page.evaluate(() => document.querySelector('.moment-excerpt').textContent);
@@ -139,6 +142,7 @@ test('B-roll moment card shows the verbatim transcript quote for its window', as
 
 test('hook preview canvas renders the caption (white pixels over the teal thumbnail)', async ({ page }) => {
   await runToEditor(page, LANDSCAPE_MP4, TEAL_JPG);
+  await page.click('#tabBtnHook');
   await page.click('#generateHookBtn');
   await page.waitForSelector('#hookControls', { state: 'visible', timeout: 8_000 });
 
@@ -168,6 +172,7 @@ test('hook preview caption is sized by the real video, not the 400px thumbnail',
   // editor: captionFontSize * canvasHeight / videoHeight), NOT the thumbnail
   // width (the old bug oversized it).
   await runToEditor(page, PORTRAIT_MP4, PORTRAIT_JPG);
+  await page.click('#tabBtnHook');
   await page.click('#generateHookBtn');
   await page.waitForSelector('#hookControls', { state: 'visible', timeout: 8_000 });
   await page.waitForFunction(() => window.__hookCapFs > 0, { timeout: 8_000 });
@@ -206,6 +211,7 @@ async function captionCentroidY(page) {
 
 test('hook preview caption follows the caption position slider', async ({ page }) => {
   await runToEditor(page, LANDSCAPE_MP4, TEAL_JPG);
+  await page.click('#tabBtnHook');
   await page.click('#generateHookBtn');
   await page.waitForSelector('#hookControls', { state: 'visible', timeout: 8_000 });
   await page.waitForFunction(() => {
@@ -217,15 +223,14 @@ test('hook preview caption follows the caption position slider', async ({ page }
   const before = await captionCentroidY(page);
   expect(before).not.toBeNull();
 
-  // Drag the position thumb to the top of its track (moves the caption up).
-  // The hook card scrolled into view earlier, so bring the track back on-screen
-  // first, then read fresh bounding boxes.
-  await page.locator('#posTrack').scrollIntoViewIfNeeded();
-  const track = await page.locator('#posTrack').boundingBox();
-  const thumb = await page.locator('#posThumb').boundingBox();
-  await page.mouse.move(thumb.x + thumb.width / 2, thumb.y + thumb.height / 2);
+  // Drag the caption ON the player toward the top (the rail is gone - captions
+  // are repositioned directly on the preview now).
+  await page.locator('#playerWrap').scrollIntoViewIfNeeded();
+  const wrap = await page.locator('#playerWrap').boundingBox();
+  const cap  = await page.locator('#playerCap').boundingBox();
+  await page.mouse.move(cap.x + cap.width / 2, cap.y + cap.height / 2);
   await page.mouse.down();
-  await page.mouse.move(track.x + track.width / 2, track.y + 2, { steps: 8 });
+  await page.mouse.move(wrap.x + wrap.width / 2, wrap.y + wrap.height * 0.15, { steps: 8 });
   await page.mouse.up();
 
   await page.waitForFunction(

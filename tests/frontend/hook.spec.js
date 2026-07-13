@@ -7,6 +7,7 @@ test.beforeEach(async ({ page }) => {
 
 test('generate hook button is present and clickable after captions load', async ({ page }) => {
   await runFullUpload(page);
+  await page.click('#tabBtnHook');   // the hook editor lives in a tab now
   const btn = page.locator('#generateHookBtn');
   await expect(btn).toBeVisible();
   await expect(btn).toBeEnabled();
@@ -14,6 +15,7 @@ test('generate hook button is present and clickable after captions load', async 
 
 test('clicking generate hook calls the API and shows options', async ({ page }) => {
   await runFullUpload(page);
+  await page.click('#tabBtnHook');
   await page.click('#generateHookBtn');
 
   // Wait for hook options to render - each option is a div with id hookOption{n}
@@ -34,6 +36,7 @@ test('hook API sends captions_json and video_key', async ({ page }) => {
     await route.fallback();
   });
 
+  await page.click('#tabBtnHook');
   await page.click('#generateHookBtn');
   await page.waitForSelector('#hookOptions', { state: 'visible', timeout: 8_000 });
 
@@ -45,6 +48,7 @@ test('hook API sends captions_json and video_key', async ({ page }) => {
 test('hook generation 500 error shows error message in hook section', async ({ page }) => {
   // Process succeeds but hook returns 500
   await runFullUpload(page, { hookStatus: 500 });
+  await page.click('#tabBtnHook');
   await page.click('#generateHookBtn');
 
   const errEl = page.locator('#hookError');
@@ -55,16 +59,19 @@ test('hook generation 500 error shows error message in hook section', async ({ p
 
 test('hook error does not crash the rest of the page', async ({ page }) => {
   await runFullUpload(page, { hookStatus: 500 });
+  await page.click('#tabBtnHook');
   await page.click('#generateHookBtn');
   await page.locator('#hookError').waitFor({ state: 'visible', timeout: 6_000 });
 
-  // Caption editor should still be intact
+  // Caption editor should still be intact (switch back to the captions tab)
   await expect(page.locator('#captionEditorCard')).toBeVisible();
+  await page.click('#tabBtnCaptions');
   await expect(page.locator('.caption-input').first()).toBeVisible();
 });
 
 test('hook generate button re-enables after error', async ({ page }) => {
   await runFullUpload(page, { hookStatus: 500 });
+  await page.click('#tabBtnHook');
   await page.click('#generateHookBtn');
   await page.locator('#hookError').waitFor({ state: 'visible', timeout: 6_000 });
 
@@ -79,6 +86,7 @@ test('poll endpoint receives the hook call_id', async ({ page }) => {
   });
 
   await runFullUpload(page);
+  await page.click('#tabBtnHook');
   await page.click('#generateHookBtn');
   await page.waitForSelector('#hookOptions', { state: 'visible', timeout: 8_000 });
 
@@ -97,6 +105,7 @@ test('burn sends the exact hook lines the preview wrapped (WYSIWYG)', async ({ p
     await route.fallback();   // hand off to the mock from runFullUpload
   });
 
+  await page.click('#tabBtnHook');
   await page.click('#generateHookBtn');
   await page.waitForSelector('#hookOptions', { state: 'visible', timeout: 8_000 });
   await page.click('#hookOption0');

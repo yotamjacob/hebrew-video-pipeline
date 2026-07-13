@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.2.2';
+  const APP_VERSION = '1.3.0';
   document.querySelectorAll('p.footer').forEach(f => {
     const v = document.createElement('span');
     v.className = 'footer-version';
@@ -983,7 +983,7 @@
   const LOCK_BTN_IDS  = ['runBtn', 'reprocessBtn', 'generateHookBtn',
                          'findBrollBtn', 'openScheduleBtn',
                          'burnDownloadBtn'];   // startOverBtn stays clickable always
-  const LOCK_CARD_IDS = ['optionsCard', 'captionEditorCard', 'hookCard', 'stockBrollCard'];
+  const LOCK_CARD_IDS = ['optionsCard', 'captionEditorCard'];
   let _actionLockDepth = 0;
   const _actionLockSaved = new Map();
 
@@ -1888,10 +1888,7 @@
     resultBlob = null;
     resultDownloadUrl = null;
     _resetExactPreview();
-    ['captionEditorCard', 'hookCard', 'stockBrollCard'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.style.display = 'none';
-    });
+    { const el = document.getElementById('captionEditorCard'); if (el) el.style.display = 'none'; }
     document.getElementById('reprocessBtn').style.display = 'none';
     document.getElementById('burnSuccessBanner').style.display = 'none';
     { const _osb = document.getElementById('openScheduleBtn'); if (_osb) _osb.style.display = 'none';
@@ -2793,10 +2790,10 @@
     statusError.classList.remove('visible');
     document.getElementById('captionEditorCard').style.display = 'none';
     document.getElementById('captionsList').innerHTML = '';
-    document.getElementById('stockBrollCard').style.display = 'none';
     document.getElementById('stockBrollList').innerHTML = '';
     stockBrollSelections = {};
-    document.getElementById('hookCard').style.display = 'none';
+    syncBrollPreviewPool();
+    { const ph = document.getElementById('playerHook'); if (ph) ph.style.display = 'none'; }
     document.getElementById('hookOptions').style.display = 'none';
     document.getElementById('hookControls').style.display = 'none';
     document.getElementById('hookError').style.display = 'none';
@@ -2944,8 +2941,9 @@
       const cap = captionsData && captionsData.find(c => t >= c.start && t <= c.end + 0.05);
       if (cap) capEl.textContent = rewrapCaption(cap.text, displayW, captionFontSize);
     }
-    // Keep the hook preview's caption overlay in sync with these changes.
+    // Keep the hook wrap (hidden measurement canvas) + on-player overlay in sync.
     drawHookPreview();
+    updatePlayerHook();
     // Font/size/position changed → the exact still is stale: show the instant
     // approximate now, re-render the exact frame once edits settle.
     _hideExactCap();
@@ -3038,9 +3036,13 @@
     clearTimeout(_exactCapTimer);
     _exactCapTimer = setTimeout(async () => {
       if (!vid.paused) return;               // only meaningful while paused
+      const t = vid.currentTime;
+      if (_activeBrollAt(t)) return;          // b-roll overlay showing - keep the DOM preview
       const seq = ++_exactCapSeq;
       try {
-        const url = await _fetchExactFrame(vid.currentTime, _hookPreviewPayload());
+        const hw = _hookWindow();
+        const hp = (hw && t >= hw[0] && t <= hw[1]) ? _hookPreviewPayload() : null;
+        const url = await _fetchExactFrame(t, hp);
         if (seq !== _exactCapSeq || !url) { if (url) URL.revokeObjectURL(url); return; }
         if (!vid.paused) { URL.revokeObjectURL(url); return; }   // started playing meanwhile
         if (_exactCapURL) URL.revokeObjectURL(_exactCapURL);
@@ -3049,25 +3051,11 @@
     }, 400);
   }
 
-  function _hideExactHook() { const i = document.getElementById('exactHook'); if (i) i.style.display = 'none'; }
-
-  function scheduleExactHook() {
-    const img = document.getElementById('exactHook');
-    if (!img || selectedHookIdx < 0 || isAudioInput || !videoKey) return;
-    clearTimeout(_exactHookTimer);
-    _exactHookTimer = setTimeout(async () => {
-      const hp = _hookPreviewPayload();
-      if (!hp) return;
-      const t = (parseFloat(hp.start_seconds) || 0) + Math.min(0.15, (parseFloat(hp.duration_seconds) || 3) / 2);
-      const seq = ++_exactHookSeq;
-      try {
-        const url = await _fetchExactFrame(t, hp);
-        if (seq !== _exactHookSeq || !url) { if (url) URL.revokeObjectURL(url); return; }
-        if (_exactHookURL) URL.revokeObjectURL(_exactHookURL);
-        _exactHookURL = url; img.src = url; img.style.display = 'block';
-      } catch (e) { /* keep the approximate canvas */ }
-    }, 400);
-  }
+  // The hook previews on the MAIN player now: refresh its DOM overlay and let
+  // the player's exact-frame path (which includes the hook payload when the
+  // playhead is inside the hook window) provide libass parity.
+  function _hideExactHook() { _hideExactCap(); }
+  function scheduleExactHook() { updatePlayerHook(); scheduleExactCap(); }
 
   // Drop any pending/loaded exact frames (new video, re-run, mode switch).
   function _resetExactPreview() {
@@ -3075,10 +3063,8 @@
     clearTimeout(_exactCapTimer); clearTimeout(_exactHookTimer);
     if (_exactCapURL)  { URL.revokeObjectURL(_exactCapURL);  _exactCapURL = null; }
     if (_exactHookURL) { URL.revokeObjectURL(_exactHookURL); _exactHookURL = null; }
-    ['exactCap', 'exactHook'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) { el.style.display = 'none'; el.removeAttribute('src'); }
-    });
+    { const el = document.getElementById('exactCap');
+      if (el) { el.style.display = 'none'; el.removeAttribute('src'); } }
   }
 
   function _safePlay(vid) {
@@ -3230,6 +3216,17 @@
         if (cap) _applyCaptionStyles();
         _highlightRow();
       }
+
+      // Hook overlay: visible only inside its time window.
+      { const hw = _hookWindow();
+        const ph = document.getElementById('playerHook');
+        if (ph) {
+          const show = !!(hw && t >= hw[0] && t <= hw[1] && ph.dataset.ready === '1');
+          if ((ph.style.display !== 'none') !== show) ph.style.display = show ? 'block' : 'none';
+        } }
+
+      // B-roll overlay: swap in the selected clip during its moment window.
+      _updateBrollOverlay(t);
     }
 
     function _playerLoop() {
@@ -3242,11 +3239,11 @@
     const playerWrap = document.getElementById('playerWrap');
     if (playerWrap) playerWrap.addEventListener('click', togglePlay);
     if (playBtn) playBtn.addEventListener('click', togglePlay);
-    vid.addEventListener('play',  () => { bigPlay.style.opacity = '0'; playBtn.classList.add('is-playing'); _startLoop(); _hideExactCap(); });
-    vid.addEventListener('pause', () => { bigPlay.style.opacity = '1'; playBtn.classList.remove('is-playing'); _stopLoop(); scheduleExactCap(); });
-    vid.addEventListener('ended', () => { bigPlay.style.opacity = '1'; playBtn.classList.remove('is-playing'); _stopLoop(); });
+    vid.addEventListener('play',  () => { bigPlay.style.opacity = '0'; playBtn.classList.add('is-playing'); _startLoop(); _hideExactCap(); _brollSetPlaying(true); });
+    vid.addEventListener('pause', () => { bigPlay.style.opacity = '1'; playBtn.classList.remove('is-playing'); _stopLoop(); scheduleExactCap(); _brollSetPlaying(false); });
+    vid.addEventListener('ended', () => { bigPlay.style.opacity = '1'; playBtn.classList.remove('is-playing'); _stopLoop(); _brollSetPlaying(false); });
     // Paused scrubs + programmatic seeks (e.g. seek-to-first-caption on load).
-    vid.addEventListener('seeked', () => { renderPlayerFrame(); _hideExactCap(); if (vid.paused) scheduleExactCap(); });
+    vid.addEventListener('seeked', () => { _brollResync(); renderPlayerFrame(); _hideExactCap(); if (vid.paused) scheduleExactCap(); });
     // Safety net if the rAF loop isn't running (e.g. a background tab resumes).
     vid.addEventListener('timeupdate', () => { if (vid.paused) renderPlayerFrame(); });
 
@@ -3270,44 +3267,242 @@
     document.addEventListener('touchend',   () => { scrubbing = false; });
   }
 
-  function initPositionTrack() {
-    const track = document.getElementById('posTrack');
-    const thumb = document.getElementById('posThumb');
-    if (!track || !thumb) return;
-
-    function setFromPct(pct) {
-      const MIN_PCT = 0.03; const MAX_PCT = 0.80;
-      const clamped = Math.max(MIN_PCT, Math.min(MAX_PCT, pct));
-      captionMarginPct = clamped;
-      const ratio = 1 - (clamped - MIN_PCT) / (MAX_PCT - MIN_PCT);
-      thumb.style.top = (ratio * 100) + '%';
-      updatePreviewCaption();
-    }
-
-    function onMove(clientY) {
-      const rect = track.getBoundingClientRect();
-      const ratio = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
-      const MIN_PCT = 0.03; const MAX_PCT = 0.80;
-      setFromPct(MIN_PCT + (1 - ratio) * (MAX_PCT - MIN_PCT));
-    }
-
-    thumb.addEventListener('mousedown', e => {
-      e.preventDefault();
-      const onMove2 = e2 => onMove(e2.clientY);
-      const stop = () => { document.removeEventListener('mousemove', onMove2); document.removeEventListener('mouseup', stop); };
-      document.addEventListener('mousemove', onMove2);
-      document.addEventListener('mouseup', stop);
+  // ── Drag-to-position: grab the caption (or hook) ON the player ──────────
+  function _dragVertical(el, onPct) {
+    if (!el) return;
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();   // don't toggle play
+      const wrap = document.getElementById('playerWrap');
+      if (!wrap) return;
+      try { el.setPointerCapture(e.pointerId); } catch (_) {}
+      const move = (ev) => {
+        const r = wrap.getBoundingClientRect();
+        onPct(Math.max(0, Math.min(1, (ev.clientY - r.top) / r.height)));
+      };
+      const stop = (ev) => {
+        el.removeEventListener('pointermove', move);
+        el.removeEventListener('pointerup', stop);
+        el.removeEventListener('pointercancel', stop);
+        _hideExactCap(); scheduleExactCap();
+      };
+      el.addEventListener('pointermove', move);
+      el.addEventListener('pointerup', stop);
+      el.addEventListener('pointercancel', stop);
     });
-    thumb.addEventListener('touchstart', e => {
-      e.preventDefault();
-      const onMove2 = e2 => { e2.preventDefault(); onMove(e2.touches[0].clientY); };
-      const stop = () => { document.removeEventListener('touchmove', onMove2); document.removeEventListener('touchend', stop); };
-      document.addEventListener('touchmove', onMove2, { passive: false });
-      document.addEventListener('touchend', stop);
-    }, { passive: false });
-    track.addEventListener('click', e => onMove(e.clientY));
+    // A bare tap on the overlay shouldn't toggle playback underneath it.
+    el.addEventListener('click', (e) => e.stopPropagation());
+  }
 
-    setFromPct(captionMarginPct);
+  function initCaptionDrag() {
+    const capEl = document.getElementById('playerCap');
+    _dragVertical(capEl, (ratio) => {
+      // ratio = pointer distance from the TOP of the frame; caption anchor is
+      // its bottom margin as a fraction of height (same as the burn).
+      const MIN_PCT = 0.03, MAX_PCT = 0.80;
+      captionMarginPct = Math.max(MIN_PCT, Math.min(MAX_PCT, 1 - ratio - 0.02));
+      updatePreviewCaption();
+    });
+    const hookEl = document.getElementById('playerHook');
+    _dragVertical(hookEl, (ratio) => {
+      const inp = document.getElementById('hookPosition');
+      if (!inp) return;
+      inp.value = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
+      drawHookPreview();
+      updatePlayerHook();
+    });
+  }
+
+  // ── Hook overlay on the main player (DOM approximation; the paused exact
+  //    frame provides libass parity). Geometry mirrors drawHookPreview(). ──
+  function _hookWindow() {
+    if (selectedHookIdx < 0) return null;
+    const el = document.getElementById(`hookText${selectedHookIdx}`);
+    if (!el || !el.value.trim()) return null;
+    const s = parseFloat(document.getElementById('hookStartSec')?.value || '0') || 0;
+    const d = parseFloat(document.getElementById('hookDurationSec')?.value || '3') || 3;
+    return [s, s + d];
+  }
+
+  function updatePlayerHook() {
+    const ph   = document.getElementById('playerHook');
+    const wrap = document.getElementById('playerWrap');
+    const vid  = document.getElementById('cutVideo');
+    if (!ph || !wrap) return;
+    const hw = _hookWindow();
+    if (!hw) { ph.dataset.ready = '0'; ph.style.display = 'none'; return; }
+    drawHookPreview();   // refresh _hookLines (wrap authority)
+    const W = wrap.clientWidth, H = wrap.clientHeight;
+    if (!W || !H || !_hookLines.length) { ph.dataset.ready = '0'; ph.style.display = 'none'; return; }
+    const sizePct  = parseInt(document.getElementById('hookFontSize')?.value || '100') / 100;
+    const fs       = Math.max(8, Math.min(W, H) * 0.075 * sizePct);
+    const padH     = fs * 0.55, padV = fs * 0.35, lineH = fs * 1.10, edgePad = fs * 0.7;
+    const vPos     = parseInt(document.getElementById('hookPosition')?.value || '10') / 100;
+    const blockH   = _hookLines.length * lineH;
+    const rawCY    = edgePad + (H - 2 * edgePad) * vPos;
+    const centerY  = Math.max(blockH / 2 + padV + 4, Math.min(H - blockH / 2 - padV - 4, rawCY));
+    const bg       = document.getElementById('hookBgColor')?.value || '#000000';
+    const bgOp     = parseInt(document.getElementById('hookBgOpacity')?.value || '60') / 100;
+    const fontCol  = document.getElementById('hookFontColor')?.value || '#FFFFFF';
+    const fontName = document.getElementById('hookFont')?.value || 'Heebo';
+    const bSize    = parseInt(document.getElementById('hookBorderSize')?.value || '0');
+    const bColor   = document.getElementById('hookBorderColor')?.value || '#000000';
+    const r = parseInt(bg.slice(1, 3), 16), g = parseInt(bg.slice(3, 5), 16), b = parseInt(bg.slice(5, 7), 16);
+    ph.style.background   = `rgba(${r},${g},${b},${bgOp})`;
+    ph.style.width        = (W - 2 * edgePad + 2 * padH) + 'px';
+    ph.style.top          = (centerY - blockH / 2 - padV) + 'px';
+    ph.style.padding      = padV + 'px 0';
+    ph.style.fontFamily   = `'${fontName.replace(/([a-z])([A-Z])/g, '$1 $2')}', 'Heebo', sans-serif`;
+    ph.style.fontWeight   = '700';
+    ph.style.fontSize     = fs + 'px';
+    ph.style.lineHeight   = lineH + 'px';
+    ph.style.color        = fontCol;
+    ph.style.webkitTextStroke = bSize > 0 ? `${Math.max(0.5, bSize * (W / 270))}px ${bColor}` : '';
+    ph.innerHTML = _hookLines.map(l => '<div class="hook-line">' + _escapeHtml(l) + '</div>').join('');
+    ph.dataset.ready = '1';
+    // Visibility itself follows the playhead (renderPlayerFrame); when paused
+    // inside the window show immediately.
+    const vid2 = document.getElementById('cutVideo');
+    const t = vid2 ? vid2.currentTime : 0;
+    ph.style.display = (t >= hw[0] && t <= hw[1]) ? 'block' : 'none';
+  }
+
+  // ── B-roll live preview: one muted <video> per selected clip, shown during
+  //    its moment window over the main video (audio keeps playing under it,
+  //    exactly like the burn). ──
+  let _brollActiveIdx = null;
+  function syncBrollPreviewPool() {
+    const layer = document.getElementById('brollLayer');
+    if (!layer) return;
+    const want = {};
+    for (const [idx, sel] of Object.entries(stockBrollSelections)) {
+      if (sel && sel.download_url) want[idx] = sel;
+    }
+    // Remove stale pool entries.
+    Array.from(layer.children).forEach(v => {
+      if (!(v.dataset.momentIdx in want) || v.dataset.url !== want[v.dataset.momentIdx].download_url) v.remove();
+    });
+    // Add missing ones (preloaded + muted so window entry is seamless).
+    for (const [idx, sel] of Object.entries(want)) {
+      if (layer.querySelector(`video[data-moment-idx="${idx}"]`)) continue;
+      const v = document.createElement('video');
+      v.muted = true; v.playsInline = true; v.preload = 'auto'; v.loop = false;
+      v.dataset.momentIdx = idx; v.dataset.url = sel.download_url;
+      v.src = sel.download_url;
+      layer.appendChild(v);
+    }
+    _brollActiveIdx = null;   // force re-evaluation on the next frame
+    const vid = document.getElementById('cutVideo');
+    if (vid) _updateBrollOverlay(vid.currentTime);
+  }
+
+  function _activeBrollAt(t) {
+    for (const [idx, sel] of Object.entries(stockBrollSelections)) {
+      if (sel && sel.download_url && t >= sel.start && t < sel.end) return { idx, sel };
+    }
+    return null;
+  }
+
+  function _brollClipTime(sel, t) {
+    const clipStart = sel.clip_use_start_seconds || 0;
+    const clipEnd   = sel.clip_use_end_seconds;
+    let ct = clipStart + (t - sel.start);
+    if (clipEnd != null && ct > clipEnd) ct = clipEnd;
+    return ct;
+  }
+
+  function _updateBrollOverlay(t) {
+    const layer = document.getElementById('brollLayer');
+    if (!layer) return;
+    const vid = document.getElementById('cutVideo');
+    const active = _activeBrollAt(t);
+    const key = active ? active.idx : null;
+    if (key !== _brollActiveIdx) {
+      _brollActiveIdx = key;
+      Array.from(layer.children).forEach(v => {
+        const on = v.dataset.momentIdx === key;
+        v.style.display = on ? 'block' : 'none';
+        if (!on) { try { v.pause(); } catch (_) {} }
+      });
+      if (active) {
+        const v = layer.querySelector(`video[data-moment-idx="${key}"]`);
+        if (v) {
+          try { v.currentTime = _brollClipTime(active.sel, t); } catch (_) {}
+          if (vid && !vid.paused) { const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); }
+        }
+      }
+      // Entering/leaving a b-roll window invalidates the exact still.
+      _hideExactCap(); if (vid && vid.paused) scheduleExactCap();
+    }
+  }
+
+  function _brollResync() {
+    const vid = document.getElementById('cutVideo');
+    if (!vid) return;
+    const active = _activeBrollAt(vid.currentTime);
+    if (!active) return;
+    const layer = document.getElementById('brollLayer');
+    const v = layer && layer.querySelector(`video[data-moment-idx="${active.idx}"]`);
+    if (v) { try { v.currentTime = _brollClipTime(active.sel, vid.currentTime); } catch (_) {} }
+  }
+
+  function _brollSetPlaying(playing) {
+    const layer = document.getElementById('brollLayer');
+    if (!layer) return;
+    Array.from(layer.children).forEach(v => {
+      if (v.style.display !== 'none') {
+        if (playing) { _brollResync(); const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); }
+        else { try { v.pause(); } catch (_) {} }
+      }
+    });
+  }
+
+  // ── Editor tabs ──
+  function switchEditorTab(name) {
+    const map = { captions: 'tabCaptions', hook: 'tabHook', broll: 'tabBroll' };
+    for (const [key, id] of Object.entries(map)) {
+      const panel = document.getElementById(id);
+      const btn   = document.getElementById('tabBtn' + key.charAt(0).toUpperCase() + key.slice(1));
+      if (panel) panel.style.display = key === name ? 'block' : 'none';
+      if (btn)   btn.classList.toggle('active', key === name);
+    }
+    // Opening the hook tab with a hook selected: land the playhead inside the
+    // hook window so the user immediately SEES what they're editing.
+    if (name === 'hook') {
+      const hw = _hookWindow();
+      const vid = document.getElementById('cutVideo');
+      if (hw && vid && (vid.currentTime < hw[0] || vid.currentTime > hw[1])) {
+        try { vid.currentTime = hw[0] + 0.1; } catch (_) {}
+      }
+      updatePlayerHook();
+    }
+  }
+
+  // ── Sticky preview: dock + shrink the player once its sentinel scrolls out ──
+  let _stickyObs = null;
+  function initStickyPlayer() {
+    const sentinel = document.getElementById('playerStickySentinel');
+    const player   = document.getElementById('captionPlayer');
+    if (!sentinel || !player || _stickyObs) return;
+    const topbar = document.querySelector('.app-topbar');
+    const tbH = topbar ? topbar.offsetHeight : 52;
+    document.documentElement.style.setProperty('--topbar-h', tbH + 'px');
+    _stickyObs = new IntersectionObserver(([entry]) => {
+      const stick = !entry.isIntersecting;
+      if (stick === player.classList.contains('is-stuck')) return;
+      if (stick) {
+        // Reserve the full-size slot BEFORE the wrap goes position:fixed, so
+        // the layout doesn't shift (a shift would re-trigger the observer and
+        // oscillate the docked state forever).
+        player.style.minHeight = player.getBoundingClientRect().height + 'px';
+        player.classList.add('is-stuck');
+      } else {
+        player.classList.remove('is-stuck');
+        player.style.minHeight = '';
+      }
+      // The wrap resizes → rescale the caption + hook overlays.
+      requestAnimationFrame(() => { updatePreviewCaption(); });
+    }, { rootMargin: `-${tbH + 6}px 0px 0px 0px`, threshold: 0 });
+    _stickyObs.observe(sentinel);
   }
 
   document.getElementById('fontSelect')?.addEventListener('change', e => {
@@ -3646,7 +3841,7 @@
 
   function _hookSettingListeners() {
     const onEdit = () => { drawHookPreview(); _hideExactHook(); scheduleExactHook(); };
-    ['hookFont','hookFontColor','hookBgColor','hookBgOpacity','hookPosition','hookFontSize','hookBorderColor','hookBorderSize'].forEach(id => {
+    ['hookFont','hookFontColor','hookBgColor','hookBgOpacity','hookPosition','hookFontSize','hookBorderColor','hookBorderSize','hookStartSec','hookDurationSec'].forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
       el.addEventListener('input',  onEdit);
@@ -3829,7 +4024,7 @@
 
     hookGenAborted        = false;
     if (!background) {
-      lockPipelineActions({ activeBtn: 'generateHookBtn', activeCard: 'hookCard' });
+      lockPipelineActions({ activeBtn: 'generateHookBtn', activeCard: 'captionEditorCard' });
       btn.disabled        = true;
     } else {
       _stepActivate('hook');
@@ -3945,6 +4140,12 @@
         card.classList.add('selected');
         selectedHookIdx = i;
         drawHookPreview();
+        // Land the playhead inside the hook window so the pick is instantly visible.
+        { const hw = _hookWindow();
+          const v = document.getElementById('cutVideo');
+          if (hw && v && (v.currentTime < hw[0] || v.currentTime > hw[1])) {
+            try { v.currentTime = hw[0] + 0.1; } catch (_) {}
+          } }
         _hideExactHook(); scheduleExactHook();
       };
 
@@ -3977,22 +4178,15 @@
     const captions = captionsOverride || captionsData;
     if (!captions.length) return;
 
-    const card   = document.getElementById('stockBrollCard');
     const status = document.getElementById('stockBrollStatus');
     const list   = document.getElementById('stockBrollList');
 
-    const cardHeader = card.querySelector('.card-header');
-    if (cardHeader) cardHeader.classList.remove('collapsed');
-    const cardBody = document.getElementById('stockBrollBody');
-    if (cardBody) cardBody.style.display = 'block';
-    card.style.display   = 'block';
     status.style.display = 'flex';
     list.innerHTML       = '';
     if (!background) {
-      // Bring the B-roll card into view - NOT the page bottom (jarring jump past
-      // the card the user just triggered).
-      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      lockPipelineActions({ activeBtn: 'findBrollBtn', activeCard: 'stockBrollCard' });
+      switchEditorTab('broll');
+      document.getElementById('tabBroll')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      lockPipelineActions({ activeBtn: 'findBrollBtn', activeCard: 'captionEditorCard' });
       findBrollBtn.disabled = true;
       findBrollBtn.textContent = t('stock.searching');
       document.querySelectorAll('#captionsList .caption-input, #captionsList .caption-time-input, #captionsList .cap-btn').forEach(el => { el.disabled = true; });
@@ -4144,6 +4338,7 @@
       dismissBtn.title = isCoverage ? t('stock.skipRhythm') : t('stock.skip');
       dismissBtn.addEventListener('click', () => {
         delete stockBrollSelections[momentIdx];
+        syncBrollPreviewPool();
         if (isCoverage) {
           card.remove();
         } else {
@@ -4215,6 +4410,7 @@
         findBtn.disabled = true;
         findBtn.textContent = t('stock.scoring');
         delete stockBrollSelections[momentIdx];
+        syncBrollPreviewPool();
         await retryStockMomentClips(momentCtx.broad_search_prompt || m.search_query, clipsContainer, clipPage++, findBtn, momentCtx);
       });
       card.appendChild(findBtn);
@@ -4320,12 +4516,16 @@
               clip_use_start_seconds: clip.clip_use_start_seconds != null ? clip.clip_use_start_seconds : 0,
               clip_use_end_seconds:   clip.clip_use_end_seconds   != null ? clip.clip_use_end_seconds   : null,
             };
+            // Show it in the unified preview right away: jump to the moment.
+            syncBrollPreviewPool();
+            const _v = document.getElementById('cutVideo');
+            if (_v && momentCtx.start != null) { try { _v.currentTime = momentCtx.start + 0.05; } catch (_) {} }
           }
         } else {
           // Toggled off - remove selection
           clipCard.classList.remove('selected');
           selLabel.classList.remove('checked');
-          if (momentCtx) delete stockBrollSelections[momentCtx.momentIdx];
+          if (momentCtx) { delete stockBrollSelections[momentCtx.momentIdx]; syncBrollPreviewPool(); }
         }
       });
       selLabel.appendChild(radio);
@@ -4584,9 +4784,9 @@
     if (isAudioInput) {
       // Audio mode: reduced editor - a native audio player, the editable
       // caption list, and Download SRT / Download audio. No video preview,
-      // sliders, hooks, B-roll or burn.
-      document.getElementById('hookCard').style.display = 'none';
-      document.getElementById('stockBrollCard').style.display = 'none';
+      // tabs, hooks, B-roll or burn.
+      document.getElementById('editorTabs').style.display = 'none';
+      switchEditorTab('captions');
       document.getElementById('captionPlayer').style.display = 'none';
       // Font + size only affect burned captions - irrelevant for audio.
       document.querySelectorAll('#captionEditorCard .caption-controls')
@@ -4612,9 +4812,8 @@
     document.querySelectorAll('#captionEditorCard .caption-controls')
       .forEach(el => { el.style.display = ''; });
     const _au = document.getElementById('cutAudio'); if (_au) { _au.pause(); _au.removeAttribute('src'); _au.load(); }
-    document.getElementById('hookCard').style.display = 'block';
-    // Stock B-roll card hosts the Find B-Roll Moments button
-    document.getElementById('stockBrollCard').style.display = 'block';
+    document.getElementById('editorTabs').style.display = 'flex';
+    switchEditorTab('captions');
     // Fresh video → clear any prior hooks and reset the button back to "Generate".
     const ghb = document.getElementById('generateHookBtn');
     ghb.disabled = false;
@@ -4637,7 +4836,9 @@
     updateBurnBtn();
     setupCaptionPlayer();
     _preloadCaptionFonts();   // warm every face so font switches never flash fallback
-    setTimeout(() => { initPositionTrack(); updatePreviewCaption(); validateCaptionTimes(); }, 50);
+    initStickyPlayer();
+    syncBrollPreviewPool();
+    setTimeout(() => { initCaptionDrag(); updatePreviewCaption(); validateCaptionTimes(); }, 50);
     // Land on the caption editor (its header just below the sticky topbar), not
     // at the bottom of the page - the user should see the editor they just
     // unlocked, not the finished progress card / burn button below it.
@@ -4684,16 +4885,12 @@
     if (reprocessBtn) reprocessBtn.disabled = true;
     let burnBtnTimer = null;
 
-    // Lock all editor cards and collapse them while burn is in progress
-    const editorIds = ['captionEditorCard', 'hookCard', 'stockBrollCard'];
+    // Lock the editor card and collapse it while burn is in progress
+    const editorIds = ['captionEditorCard'];
     editorIds.forEach(id => document.getElementById(id)?.classList.add('burning'));
-    [
-      { h: document.querySelector('#captionEditorCard .card-header'), b: document.getElementById('captionBody') },
-      { h: document.querySelector('#hookCard .card-header'),          b: document.getElementById('hookBody') },
-      { h: document.querySelector('#stockBrollCard .card-header'),    b: document.getElementById('stockBrollBody') },
-    ].forEach(({ h, b }) => {
-      if (h && !h.classList.contains('collapsed')) { h.classList.add('collapsed'); if (b) b.style.display = 'none'; }
-    });
+    { const h = document.querySelector('#captionEditorCard .card-header');
+      const b = document.getElementById('captionBody');
+      if (h && !h.classList.contains('collapsed')) { h.classList.add('collapsed'); if (b) b.style.display = 'none'; } }
     try {
       // POST captions + selected stock B-rolls → get call_id immediately
       const allBroll = Object.values(stockBrollSelections);
@@ -4772,8 +4969,6 @@
       editorIds.forEach(id => document.getElementById(id).classList.remove('burning'));
       [
         { h: document.querySelector('#captionEditorCard .card-header'), b: document.getElementById('captionBody') },
-        { h: document.querySelector('#hookCard .card-header'),          b: document.getElementById('hookBody') },
-        { h: document.querySelector('#stockBrollCard .card-header'),    b: document.getElementById('stockBrollBody') },
       ].forEach(({ h, b }) => {
         if (h) { h.classList.remove('collapsed'); if (b) b.style.display = 'block'; }
       });
@@ -4788,8 +4983,6 @@
         // Expand editors back so user can retry
         [
           { h: document.querySelector('#captionEditorCard .card-header'), b: document.getElementById('captionBody') },
-          { h: document.querySelector('#hookCard .card-header'),          b: document.getElementById('hookBody') },
-          { h: document.querySelector('#stockBrollCard .card-header'),    b: document.getElementById('stockBrollBody') },
         ].forEach(({ h, b }) => {
           if (h) { h.classList.remove('collapsed'); if (b) b.style.display = 'block'; }
         });
