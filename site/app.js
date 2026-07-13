@@ -1,5 +1,15 @@
   const API_BASE = 'https://yotamjacob--hebrew-video-pipeline-api.modal.run';
   const API      = API_BASE + '/process/';
+  // Frontend version, shown in every footer. The app loads this site LIVE
+  // (remote webview), so bumping this on each deploy is how we confirm the
+  // installed app is running the latest push.
+  const APP_VERSION = '1.2.1';
+  document.querySelectorAll('p.footer').forEach(f => {
+    const v = document.createElement('span');
+    v.className = 'footer-version';
+    v.textContent = 'v' + APP_VERSION;
+    f.appendChild(v);
+  });
   // Google Sign-In OAuth Web client ID (PUBLIC - ships in the app + web page).
   // Used as the native plugin's serverClientId and the web GIS client_id; the
   // backend verifies the returned ID token against this same audience.
@@ -146,6 +156,9 @@
   function showAuthView() {
     _hideBootLoader();
     document.getElementById('authView').style.display = 'block';
+    // TEMPORARY auth-migration nudge (passwords -> email codes/Google).
+    { const mn = document.getElementById('migrationNote');
+      if (mn && localStorage.getItem('hebpipe_migration_dismissed') !== '1') mn.style.display = 'flex'; }
     // Prefill the last-used email + password (saved on sign-in while "remember
     // me" was checked) so a returning user - e.g. right after logging out -
     // lands on a ready-to-submit form.
@@ -410,6 +423,11 @@
     return !msg;
   }
 
+  { const mc = document.getElementById('migrationNoteClose');
+    if (mc) mc.addEventListener('click', () => {
+      document.getElementById('migrationNote').style.display = 'none';
+      try { localStorage.setItem('hebpipe_migration_dismissed', '1'); } catch (_) {}
+    }); }
   document.getElementById('authChoiceExisting').addEventListener('click', () => _enterAuthFlow('login'));
   document.getElementById('authChoiceNew').addEventListener('click', () => _enterAuthFlow('register'));
   document.getElementById('authBackToChoice').addEventListener('click', () => _showAuthStep('choice'));
@@ -1241,26 +1259,80 @@
       if (state === 'loading') {
         b.classList.add('share-loading');
         b.innerHTML = '<span class="spinner" style="width:14px;height:14px;margin-inline-end:8px"></span>' +
-                      _escapeHtml(t('share.loading'));
+                      _escapeHtml(t('share.loading')) +
+                      ' <span class="share-prep-pct"></span>';
       } else { // ready
         b.classList.remove('share-loading');
         b.textContent = t('share.btn');
       }
     });
   }
+  function _setSharePct(pct) {
+    document.querySelectorAll('.share-prep-pct').forEach(el => {
+      el.textContent = pct != null ? `${pct}%` : '';
+    });
+  }
   function _escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+  // Write an in-memory Blob to the app cache in base64 chunks (Filesystem.writeFile
+  // only takes strings). Used to reuse the ALREADY-DOWNLOADED preview blob for
+  // sharing instead of re-downloading the same file over the network.
+  function _blobToB64(blob) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(',', 2)[1] || '');
+      r.onerror = reject;
+      r.readAsDataURL(blob);
+    });
+  }
+  async function _writeBlobToCache(Filesystem, blob, path) {
+    const CHUNK = 6 * 1024 * 1024;
+    for (let off = 0; off < blob.size; off += CHUNK) {
+      const data = await _blobToB64(blob.slice(off, off + CHUNK));
+      await Filesystem.writeFile({ path, directory: 'CACHE', data, append: off > 0 });
+    }
+  }
+  // The /download/<key> segment identifies the file regardless of query params.
+  function _downloadKeyOf(url) { const m = /\/download\/([^/?]+)/.exec(url || ''); return m ? m[1] : null; }
 
   async function _prepareShareFile(url, name) {
     if (!_isNative() || !url) return;
     if (_sharePrep && _sharePrep.url === url) { _setShareState('ready'); return; }   // already cached
     const Filesystem = _capPlugin('Filesystem');
     if (!Filesystem) { _setShareState('ready'); return; }
+    let progHandle = null;
     try {
       const safe = _safeShareName(name);
-      await Filesystem.downloadFile({ url: _withToken(url), path: safe, directory: 'CACHE' });
+      // Fast path: the preview player already downloaded this exact file into a
+      // blob - write it to the cache locally (seconds) instead of a SECOND full
+      // network download (the old behavior, which also competed with the preview
+      // fetch for bandwidth and made the button take ages to become ready).
+      let reused = false;
+      if (_previewBlobPromise && videoKey && _downloadKeyOf(url) === videoKey) {
+        try {
+          const objURL = await _previewBlobPromise;
+          if (objURL) {
+            const blob = await (await fetch(objURL)).blob();   // in-memory, no network
+            await _writeBlobToCache(Filesystem, blob, safe);
+            reused = true;
+          }
+        } catch (_) { /* fall through to the network download */ }
+      }
+      if (!reused) {
+        // Real download - surface live progress on the button so it's not an
+        // opaque spinner.
+        try {
+          progHandle = await Filesystem.addListener('progress', (p) => {
+            if (p && p.contentLength > 0) _setSharePct(Math.min(99, Math.round(p.bytes * 100 / p.contentLength)));
+          });
+        } catch (_) {}
+        await Filesystem.downloadFile({ url: _withToken(url), path: safe, directory: 'CACHE', progress: true });
+      }
       const { uri } = await Filesystem.getUri({ directory: 'CACHE', path: safe });
       _sharePrep = { url, uri };
     } catch (_) { /* silent: this is a background warm-up; tap still downloads on demand */ }
+    if (progHandle) { try { progHandle.remove(); } catch (_) {} }
+    _setSharePct(null);
     _setShareState('ready');   // ready either way - a tap downloads on demand if not warmed
   }
 

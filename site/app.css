@@ -470,6 +470,21 @@
     .auth-terms a { color: var(--olive); text-decoration: underline; }
     .auth-hint { font-size: 0.85rem; color: var(--muted); line-height: 1.55; margin: 0 0 4px; }
     #authTermsRow a { color: var(--olive); text-decoration: underline; }
+    /* TEMPORARY auth-migration nudge above the sign-in card. */
+    .migration-note {
+      display: flex; align-items: flex-start; gap: 10px;
+      background: var(--white); border: 1.5px solid var(--terracotta);
+      border-radius: 14px; padding: 12px 14px; margin-bottom: 14px;
+      font-size: 0.85rem; line-height: 1.55; color: var(--text);
+    }
+    .migration-note a { color: var(--terracotta); font-weight: 700; text-decoration: underline; }
+    .migration-note span { flex: 1; }
+    .migration-close {
+      background: none; border: none; padding: 3px; cursor: pointer;
+      color: var(--muted); border-radius: 6px; line-height: 0; flex: 0 0 auto;
+    }
+    .migration-close:hover { background: var(--purple-50); color: var(--text); }
+    .migration-close svg { width: 14px; height: 14px; display: block; }
     /* Continue with Google (native custom button; web swaps in Google's own). */
     .google-btn {
       width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;
@@ -1553,6 +1568,11 @@
     }
     .footer-contact:hover { color: var(--purple-700); border-color: var(--purple-700); }
     .footer-contact + .footer-contact { margin-inline-start: 10px; margin-top: 6px; }
+    /* Frontend version marker (injected by app.js into every footer). */
+    .footer-version {
+      display: block; margin-top: 10px;
+      font-size: 0.66rem; letter-spacing: 0.14em; color: var(--purple-300);
+    }
 
     /* ── Schedule card ── */
     .sched-intro { font-size: 0.82rem; color: var(--muted); line-height: 1.5; margin-bottom: 16px; }

@@ -375,3 +375,13 @@ test('server errors render in the UI language (Hebrew default) via their code', 
   await page.click('#authVerifyBtn');
   await expect(page.locator('#authCodeError')).toHaveText('קוד שגוי. נסו שוב.');
 });
+
+test('migration note shows on login view; dismiss persists across reloads', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#migrationNote')).toBeVisible();
+  await page.click('#migrationNoteClose');
+  await expect(page.locator('#migrationNote')).toBeHidden();
+  await page.reload();
+  await expect(page.locator('#authView')).toBeVisible();
+  await expect(page.locator('#migrationNote')).toBeHidden();
+});

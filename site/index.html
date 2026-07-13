@@ -121,6 +121,15 @@
 
 <!-- ── Sign in / register ── -->
 <div class="container" id="authView" style="display:none">
+  <!-- TEMPORARY migration nudge (2026-07): auth moved from passwords to email
+       codes / Google - old credentials no longer work. Remove once the existing
+       users have migrated. Dismiss persists per device (localStorage). -->
+  <div id="migrationNote" class="migration-note" style="display:none">
+    <span data-i18n="auth.migrationNote">We have a new look! If you can't sign in the way you used to, sign in with your email or Google - or <a href="mailto:yotamjacob@gmail.com" onclick="openContactModal();return false;">contact us</a> and we'll help.</span>
+    <button type="button" class="migration-close" id="migrationNoteClose" aria-label="Dismiss">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+    </button>
+  </div>
   <div class="card">
     <div class="card-header" style="cursor:default">
       <p class="options-title" data-i18n="auth.title">Sign In</p>

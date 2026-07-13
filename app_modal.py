@@ -48,8 +48,12 @@ def _code_email_html(code: str) -> str:
         "<h2 style='color:#3E3A34;font-size:19px;margin:0 0 10px'>Your login code</h2>"
         "<p style='color:#6B6455;font-size:14px;line-height:1.6;margin:0 0 22px'>"
         "Enter this code in the app to sign in. It expires in 10 minutes.</p>"
-        f"<div style='display:inline-block;background:#fff;border:1.5px solid #DDD2C0;border-radius:14px;"
-        f"padding:14px 28px;font-size:34px;font-weight:800;letter-spacing:10px;color:#3E3A34'>{code}</div>"
+        # direction:ltr pins digit order in RTL mail clients; the right padding is
+        # 10px smaller than the left to swallow the phantom letter-spacing after
+        # the LAST digit, so the code sits visually centered in its box (was
+        # noticeably off-center on mobile Gmail).
+        f"<div style='display:inline-block;direction:ltr;background:#fff;border:1.5px solid #DDD2C0;border-radius:14px;"
+        f"padding:14px 18px 14px 28px;font-size:34px;font-weight:800;letter-spacing:10px;color:#3E3A34'>{code}</div>"
         "<p style='color:#9A927F;font-size:12px;margin:22px 0 0'>"
         "If you didn't request this, you can ignore this email.</p>"
         "</div></div>"
