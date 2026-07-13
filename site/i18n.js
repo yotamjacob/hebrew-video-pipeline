@@ -26,9 +26,9 @@
     'tab.history':     { en: 'History', he: 'היסטוריה' },
     'tab.guide':       { en: 'Guide', he: 'מדריך' },
     'tab.logout':      { en: 'Sign out', he: 'התנתקות' },
-    'reconnect.msg':     { en: 'A previous job is still running - tap to reconnect and get your result.', he: 'עבודה קודמת עדיין רצה - הקישו כדי להתחבר מחדש ולקבל את התוצאה.' },
+    'reconnect.msg':     { en: 'Did you close your last job on purpose? Resume it or cancel.', he: 'סגרתם את העבודה האחרונה בכוונה? אפשר להמשיך אותה או לבטל.' },
     'reconnect.resume':  { en: 'Resume', he: 'המשך' },
-    'reconnect.dismiss': { en: 'Dismiss', he: 'סגירה' },
+    'reconnect.dismiss': { en: 'Cancel', he: 'ביטול' },
 
     // ── Auth ──
     'auth.title':      { en: 'Sign In', he: 'התחברות' },

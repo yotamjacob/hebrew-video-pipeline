@@ -69,6 +69,9 @@
       font-size: 0.72rem;
       font-weight: 400;
       letter-spacing: 0.14em;
+      /* Clear the absolutely-positioned top-corner actions (language + logout)
+         so the username is never hidden behind the pills. */
+      margin-top: 26px;
       margin-bottom: 10px;
     }
     .hero-title-row {

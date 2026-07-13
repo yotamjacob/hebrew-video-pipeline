@@ -481,6 +481,7 @@
     const ok = await showConfirmModal(t('logout.title'), t('logout.body'), t('logout.confirm'));
     if (!ok) return;
     _clearToken();
+    _intentionalNav = true;   // confirmed in-app; skip the browser "leave page?" prompt
     location.reload();
   }
 
@@ -1468,7 +1469,12 @@
   runBtn.addEventListener('click', () => { if (burnMode) doBurn(); else run(); });
   retryBtn.addEventListener('click', run);
 
+  // Set before an intentional in-app reload (Start over, logout) so the
+  // beforeunload guard below doesn't pop the browser's "leave page?" prompt -
+  // the user already confirmed in the app's own modal.
+  let _intentionalNav = false;
   window.addEventListener('beforeunload', (e) => {
+    if (_intentionalNav) return;
     const editing = document.getElementById('captionEditorCard').style.display !== 'none';
     const hasBrollWork = Object.keys(stockBrollSelections).length > 0;
     // NOTE: a finished download URL is NOT "unsaved work" - the file lives on
@@ -2194,6 +2200,7 @@
     if (!confirmed) return;
     if (currentCallId) apiFetch(`${API_BASE}/cancel/${currentCallId}/`, { keepalive: true }).catch(() => {});
     clearSavedJob();
+    _intentionalNav = true;   // already confirmed in-app; skip the browser prompt
     location.reload();
   });
 
