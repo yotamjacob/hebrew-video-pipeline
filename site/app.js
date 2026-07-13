@@ -976,7 +976,16 @@
       const key = crypto.randomUUID().replace(/-/g, '');
       const expected = desc.size || 0;
       let handle = null, settled = false, reconciling = false;
-      const _buzz = () => { try { navigator.vibrate && navigator.vibrate(90); } catch (_) {} };
+      const _buzz = () => {
+        // Native Haptics is reliable (no user-gesture requirement like
+        // navigator.vibrate, which silently no-ops when the upload finishes
+        // without a recent tap). Falls back to the web Vibration API.
+        try {
+          const H = _capPlugin('Haptics');
+          if (H && H.vibrate) { H.vibrate({ duration: 90 }); return; }
+        } catch (_) {}
+        try { navigator.vibrate && navigator.vibrate(90); } catch (_) {}
+      };
       const cleanup = () => {
         try { handle && handle.remove(); } catch (_) {}
         document.removeEventListener('visibilitychange', _onVis);
