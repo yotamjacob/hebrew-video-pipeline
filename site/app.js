@@ -606,6 +606,17 @@
   let _hookLines             = [];
   let _playerSetupDone       = false;
   let _previewObjURL         = null; // object URL for the blob-backed preview player (revoked on reset)
+  // Prefetch the cut-video blob the moment processing finishes (video_key known)
+  // so the editor's preview is ready instantly instead of downloading on open.
+  let _previewBlobPromise    = null;
+  function _prefetchPreviewBlob(key) {
+    if (!key || String(key).endsWith('.m4a')) { _previewBlobPromise = null; return; }  // audio has no video preview
+    _previewBlobPromise = (async () => {
+      const resp = await apiFetch(_withToken(`${API_BASE}/download/${key}`));
+      if (!resp.ok) throw new Error('download ' + resp.status);
+      return URL.createObjectURL(new Blob([await resp.arrayBuffer()], { type: 'video/mp4' }));
+    })().catch(e => { console.error('preview prefetch failed', e); return null; });
+  }
   let _playerDispW           = 0;   // detected display width (accounts for browser rotation)
   let videoOrientation       = 'portrait'; // 'portrait' | 'landscape' | 'square' - drives B-roll orientation
   let _uplinkMbps            = null;        // measured upload speed (best-effort probe at file selection)
@@ -667,6 +678,7 @@
         clearSavedJob();
         captionsData = result.captions || [];
         videoKey     = result.video_key;
+      _prefetchPreviewBlob(videoKey);
         // Derive audio-mode from the output key so a reload-resumed job (where
         // the picked File is gone) still renders the right editor.
         isAudioInput = (videoKey || '').endsWith('.m4a');
@@ -1023,40 +1035,68 @@
   }
 
   // Share the finished video via the OS share sheet (WhatsApp/Instagram/etc).
-  // The result lives on the server, so download it to the app cache first, then
-  // hand the local file to @capacitor/share. Native only.
+  // The result lives on the server, so it's pre-downloaded to the app cache the
+  // moment the video is ready (_prepareShareFile) - so tapping Share is instant
+  // instead of a multi-second "preparing" wait. Native only.
   let _sharing = false;
-  async function nativeShareVideo(url, name) {
+  let _sharePrep = null;   // { url, uri } once the finished file is cached locally
+  function _safeShareName(name) { return (name || 'video.mp4').replace(/[^\w.\-]+/g, '_'); }
+
+  // Silently pre-fetch the finished video into the cache so a later Share is
+  // instant. No UI, no error surfacing - it's a best-effort warm-up.
+  async function _prepareShareFile(url, name) {
+    if (!_isNative() || !url) return;
+    if (_sharePrep && _sharePrep.url === url) return;   // already prepared
     const Filesystem = _capPlugin('Filesystem');
+    if (!Filesystem) return;
+    try {
+      const safe = _safeShareName(name);
+      await Filesystem.downloadFile({ url: _withToken(url), path: safe, directory: 'CACHE' });
+      const { uri } = await Filesystem.getUri({ directory: 'CACHE', path: safe });
+      _sharePrep = { url, uri };
+    } catch (_) { /* silent: this is a background warm-up, not user-initiated */ }
+  }
+
+  async function nativeShareVideo(url, name) {
     const Share = _capPlugin('Share');
-    if (!Filesystem || !Share || !url) return;
-    if (_sharing) return;
+    const Filesystem = _capPlugin('Filesystem');
+    if (!Share || !url || _sharing) return;
     _sharing = true;
     const btns = [document.getElementById('burnShareBtn'), document.getElementById('shareBtn')].filter(Boolean);
     const labels = btns.map(b => b.textContent);
-    btns.forEach(b => { b.disabled = true; b.textContent = t('share.preparing'); });
     try {
-      const safe = (name || 'video.mp4').replace(/[^\w.\-]+/g, '_');
-      await Filesystem.downloadFile({ url: _withToken(url), path: safe, directory: 'CACHE' });
-      const { uri } = await Filesystem.getUri({ directory: 'CACHE', path: safe });
+      let uri = (_sharePrep && _sharePrep.url === url) ? _sharePrep.uri : null;
+      if (!uri && Filesystem) {                 // not warmed yet - fetch now
+        btns.forEach(b => { b.disabled = true; b.textContent = t('share.preparing'); });
+        const safe = _safeShareName(name);
+        await Filesystem.downloadFile({ url: _withToken(url), path: safe, directory: 'CACHE' });
+        uri = (await Filesystem.getUri({ directory: 'CACHE', path: safe })).uri;
+        _sharePrep = { url, uri };
+      }
       await Share.share({ title: name, text: t('share.text'), files: [uri], dialogTitle: t('share.dialog') });
     } catch (e) {
-      if (!/cancel/i.test((e && e.message) || '')) {
+      const msg = (e && e.message) || '';
+      // Ignore user cancel + interruptions from the app being backgrounded/closed;
+      // only a genuine failure gets a brief, NON-blocking toast (never the
+      // processing/status area).
+      if (!/cancel/i.test(msg) && !document.hidden) {
         console.error('share failed', e);
-        showBlockNotice(t('share.btn'), t('share.failed'));
+        try { celebrateToast(t('share.failed')); } catch (_) {}
       }
     } finally {
       _sharing = false;
       btns.forEach((b, i) => { b.disabled = false; b.textContent = labels[i]; });
     }
   }
-  // Reveal + wire the share buttons on native when a result is ready.
+  // Reveal + wire the share buttons on native when a result is ready, and warm
+  // the shareable file so the first tap is instant.
   function _maybeShowShare() {
     if (!_isNative()) return;
     ['burnShareBtn', 'shareBtn'].forEach(id => {
       const b = document.getElementById(id);
       if (b) b.style.display = '';
     });
+    if (resultDownloadUrl) _prepareShareFile(resultDownloadUrl, resultName);
   }
   ['burnShareBtn', 'shareBtn'].forEach(id => {
     const b = document.getElementById(id);
@@ -1085,6 +1125,11 @@
         }).catch(() => {});
       });
       Push.addListener('registrationError', (e) => console.warn('push reg error', e));
+      // Tapping the "video ready" notification opens the app (default) and jumps
+      // to History where the finished video is.
+      Push.addListener('pushNotificationActionPerformed', () => {
+        try { if (typeof switchTab === 'function') switchTab('history'); } catch (_) {}
+      });
       await Push.register();
     } catch (e) { console.warn('push init failed', e); }
   }
@@ -1517,6 +1562,7 @@
 
       captionsData = result.captions;
       videoKey     = result.video_key;
+      _prefetchPreviewBlob(videoKey);
       // Trust the output key: the backend auto-detects audio even if the
       // frontend guessed wrong, so mode follows the real result.
       isAudioInput = (videoKey || '').endsWith('.m4a');
@@ -1629,6 +1675,7 @@
 
       captionsData = result.captions;
       videoKey     = result.video_key;
+      _prefetchPreviewBlob(videoKey);
       cutFilename  = (selectedFile.name || 'video').replace(/\.[^/.]+$/, '') + '_cut.mp4';
 
       unlockPipelineActions();
@@ -2801,12 +2848,17 @@
     }, { once: true });
     (async () => {
       try {
-        const resp = await apiFetch(_withToken(`${API_BASE}/download/${videoKey}`));
-        if (!resp.ok) throw new Error('download ' + resp.status);
-        const blob = new Blob([await resp.arrayBuffer()], { type: 'video/mp4' });
+        // Reuse the blob prefetched when processing finished (instant if ready);
+        // otherwise fetch it now.
+        let objURL = _previewBlobPromise ? await _previewBlobPromise : null;
+        if (!objURL) {
+          const resp = await apiFetch(_withToken(`${API_BASE}/download/${videoKey}`));
+          if (!resp.ok) throw new Error('download ' + resp.status);
+          objURL = URL.createObjectURL(new Blob([await resp.arrayBuffer()], { type: 'video/mp4' }));
+        }
         if (!_playerSetupDone) return;   // player was reset while fetching
         if (_previewObjURL) { try { URL.revokeObjectURL(_previewObjURL); } catch (_) {} }
-        _previewObjURL = URL.createObjectURL(blob);
+        _previewObjURL = objURL;
         vid.src = _previewObjURL;
       } catch (e) {
         console.error('preview blob fetch failed, streaming instead', e);
