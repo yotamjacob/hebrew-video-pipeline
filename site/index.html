@@ -5,12 +5,29 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>פייפליין - עריכות וידאו בלחיצת כפתור</title>
   <link rel="icon" type="image/svg+xml" href="img/logo.svg" />
+  <!-- Safety net: on a slow/blocked network the native splash (launchAutoHide=false)
+       could hang if script execution stalls. Hide it after a few seconds no matter
+       what. Placed FIRST in <head> so it runs before any render-blocking resource;
+       no-op on the web (window.Capacitor is undefined there). -->
+  <script>
+    setTimeout(function () {
+      try {
+        var C = window.Capacitor;
+        if (C && C.Plugins && C.Plugins.SplashScreen) C.Plugins.SplashScreen.hide();
+      } catch (e) {}
+    }, 3500);
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@400;500&family=Assistant:wght@400;500;600&display=swap" rel="stylesheet" />
+  <!-- Google Fonts loaded NON-render-blocking (media=print then all onload): a slow or
+       blocked fonts.googleapis.com must never stall first paint or script execution
+       (which previously hung the app on the native splash). display=swap already
+       renders text in a fallback until each face arrives. -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@400;500&family=Assistant:wght@400;500;600&display=swap" media="print" onload="this.media='all'" />
   <!-- Caption-editor fonts: preview must match the server-burned result (the same
        families are installed on the Modal burn image in pipeline_core.py). -->
-  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;700&family=Secular+One&family=Rubik:wght@400;700&family=Suez+One&family=Karantina:wght@400;700&family=Playpen+Sans+Hebrew:wght@500;700&family=Miriam+Libre:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;700&family=Secular+One&family=Rubik:wght@400;700&family=Suez+One&family=Karantina:wght@400;700&family=Playpen+Sans+Hebrew:wght@500;700&family=Miriam+Libre:wght@400;700&display=swap" media="print" onload="this.media='all'" />
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@400;500&family=Assistant:wght@400;500;600&display=swap" /></noscript>
   <link rel="stylesheet" href="app.css" />
 </head>
 <body>
