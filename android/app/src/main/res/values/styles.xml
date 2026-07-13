@@ -9,7 +9,9 @@
         <item name="colorAccent">@color/colorAccent</item>
     </style>
 
-    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <!-- Always-LIGHT: the web UI has no dark mode (warm sand design), so a dark
+         window/WebView would flash black around it in system dark mode. -->
+    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
@@ -18,5 +20,8 @@
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
+        <!-- Android 12+ system splash: sand brand background instead of the
+             theme default (which went BLACK in dark mode). -->
+        <item name="windowSplashScreenBackground">#E8DFD3</item>
     </style>
 </resources>

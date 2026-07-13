@@ -17,5 +17,6 @@
       "showSpinner": true,
       "spinnerColor": "#C4703F"
     }
-  }
+  },
+  "backgroundColor": "#E8DFD3"
 }
