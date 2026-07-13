@@ -1211,14 +1211,17 @@ def api():
                     captions_json = raw
                     broll_json    = "[]"
                     hook_json     = ""
+                    caption_style_json = ""
                 else:
                     captions_json = json.dumps(parsed.get("captions", []))
                     broll_json    = json.dumps(parsed.get("broll", []))
                     hook_json     = json.dumps(parsed.get("hook", {})) if parsed.get("hook") else ""
+                    caption_style_json = json.dumps(parsed.get("caption_style", {})) if parsed.get("caption_style") else ""
             except Exception:
                 captions_json = raw
                 broll_json    = "[]"
                 hook_json     = ""
+                caption_style_json = ""
 
             if not _owned_key(video_key, uid):
                 await send_error("Forbidden", 403)
@@ -1235,7 +1238,7 @@ def api():
                 await send_error("Forbidden", 403)
                 return
             try:
-                call = burn_captions_fn.spawn(video_key, captions_json, font, margin_v_pct, broll_json, font_size, hook_json, source_name=filename)
+                call = burn_captions_fn.spawn(video_key, captions_json, font, margin_v_pct, broll_json, font_size, hook_json, caption_style_json=caption_style_json, source_name=filename)
                 _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
@@ -1351,6 +1354,7 @@ def api():
                 font_size    = int(data.get("font_size", 48))
                 margin_v_pct = float(data.get("margin_v", 0.08))
                 hook         = data.get("hook") or {}
+                caption_style = data.get("caption_style") or {}
                 caps_in      = data.get("captions") or []
 
                 def _render():
@@ -1381,7 +1385,7 @@ def api():
                             hd = float(hook.get("duration_seconds", 4.0))
                             if hs <= t <= hs + hd:
                                 hk = dict(hook); hk["start_seconds"] = 0.0; hk["duration_seconds"] = 9.0
-                        ass = build_caption_ass(W, Hh, font, font_size, margin_h, margin_v, caps, hk)
+                        ass = build_caption_ass(W, Hh, font, font_size, margin_h, margin_v, caps, hk, caption_style=caption_style)
                         ap.write_text(ass, encoding="utf-8")
                         _sp.run(["ffmpeg", "-y", "-i", str(fr), "-vf", f"ass={ap}",
                                  "-frames:v", "1", str(out)],

@@ -478,6 +478,35 @@
           <option value="150">150 px</option>
         </select>
       </div>
+      <!-- Caption styling (hook-parity): text/outline colours + optional
+           background box. Flows through build_caption_ass for WYSIWYG burns. -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+          <span data-i18n="hook.textColor">Text color</span>
+          <input type="color" id="capFontColor" value="#FFFFFF"
+            style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
+        </label>
+        <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+          <span data-i18n="hook.borderColor">Border color</span>
+          <input type="color" id="capBorderColor" value="#000000"
+            style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
+        </label>
+        <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+          <span><span data-i18n="hook.borderSize">Border size:</span> <span id="capBorderSizeVal">2px</span></span>
+          <input type="range" id="capBorderSize" min="0" max="8" value="2" step="1"
+            oninput="document.getElementById('capBorderSizeVal').textContent=this.value+'px'" style="width:100%;margin-top:4px">
+        </label>
+        <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+          <span data-i18n="hook.bgColor">Background color</span>
+          <input type="color" id="capBgColor" value="#000000"
+            style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
+        </label>
+        <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px;grid-column:1/-1">
+          <span><span data-i18n="hook.bgOpacity">Background opacity:</span> <span id="capBgOpacityVal">0%</span></span>
+          <input type="range" id="capBgOpacity" min="0" max="100" value="0"
+            oninput="document.getElementById('capBgOpacityVal').textContent=this.value+'%'" style="width:100%;margin-top:4px">
+        </label>
+      </div>
 
       <div class="cap-hint-row">
         <p style="font-size:0.78rem;color:var(--muted);margin:0" data-i18n="capedit.hint">Edit captions below, then burn.</p>

@@ -395,3 +395,56 @@ class TestCaptionRewrap:
             "generate_ass max_chars must also use 0.60 so initial captions "
             "already have consistent \\N positions before the burn re-wraps"
         )
+
+
+class TestCaptionStyle:
+    """caption_style (hook-parity styling) flows into the Default ASS style:
+    text colour → PrimaryColour, outline colour/width → OutlineColour/Outline,
+    background box → BorderStyle=4 + BackColour alpha. Defaults must reproduce
+    the historical style byte-for-byte."""
+
+    def _build(self, cs=None):
+        from tests.backend.conftest import _extract_fn, _build_ns
+        ns = _build_ns()
+        ns.update({'_fix_rtl_punct': lambda s: s, '_censor_caption_text': lambda s: s,
+                   '_rtl_ass_text': lambda s: s, '_RLE': '', '_PDF': ''})
+        fn = _extract_fn(MODAL_SRC, 'build_caption_ass', extra_ns=ns)['build_caption_ass']
+        return fn(1080, 1920, 'Heebo', 48, 77, 153,
+                  [{'start': 0, 'end': 1, 'text': 'שלום'}], {}, caption_style=cs)
+
+    def _style_line(self, ass):
+        return next(l for l in ass.splitlines() if l.startswith('Style: Default,'))
+
+    def test_default_style_is_unchanged(self):
+        line = self._style_line(self._build(None))
+        assert '&H00FFFFFF,&H000000FF,&H00000000,&H80000000,' in line
+        assert ',1,2,0,2,' in line   # BorderStyle=1, Outline=2, Shadow=0, Align=2
+
+    def test_empty_dict_same_as_none(self):
+        assert self._style_line(self._build({})) == self._style_line(self._build(None))
+
+    def test_font_color_maps_to_primary(self):
+        line = self._style_line(self._build({'font_color': '#FF0000'}))
+        assert line.split(',')[3] == '&H000000FF'   # red → BGR 0000FF
+
+    def test_outline_color_and_width(self):
+        line = self._style_line(self._build({'border_color': '#00FF00', 'border_size': 4}))
+        parts = line.split(',')
+        assert parts[5] == '&H0000FF00'             # green outline
+        assert parts[16] == '4'                     # Outline width
+
+    def test_background_box_uses_borderstyle4_and_alpha(self):
+        line = self._style_line(self._build({'bg_color': '#0000FF', 'bg_opacity': 0.6}))
+        parts = line.split(',')
+        assert parts[15] == '4'                     # BorderStyle=4 (background pad box)
+        assert parts[6] == '&H66FF0000'             # alpha (1-0.6)*255=0x66, blue → BGR FF0000
+
+    def test_box_guarantees_padding_with_zero_outline(self):
+        line = self._style_line(self._build({'bg_opacity': 0.5, 'border_size': 0}))
+        assert int(line.split(',')[16]) >= 1        # pad comes from Outline in BS=4
+
+    def test_no_box_keeps_borderstyle1(self):
+        line = self._style_line(self._build({'font_color': '#FFEE00', 'bg_opacity': 0}))
+        parts = line.split(',')
+        assert parts[15] == '1'
+        assert parts[6] == '&H80000000'             # historical BackColour untouched

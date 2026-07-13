@@ -1115,8 +1115,14 @@ def process_video(
 # burn_captions_fn (final video) and the /preview_frame endpoint (WYSIWYG editor
 # preview) call this, so the preview is drawn by the EXACT same libass path as
 # the burn — pixel-identical (no browser-vs-libass font-metric/outline drift).
-def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captions, hook):
+def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captions, hook,
+                      caption_style=None):
     font_size = max(12, min(200, int(font_size)))
+    # Caption styling (hook-parity): text colour, outline colour/width and an
+    # optional background box. Defaults reproduce the historical style EXACTLY
+    # (white text, black outline 2, no box), so omitting caption_style is a
+    # byte-identical no-op for existing callers/tests.
+    _cs = caption_style or {}
 
     def seconds_to_ass(t):
         h = int(t // 3600); m = int((t % 3600) // 60); s = t % 60
@@ -1248,6 +1254,22 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
         )
         hook_event_lines = box_ev + text_ev
 
+    # Resolve caption style → ASS Style fields. With a background box we use
+    # libass BorderStyle=4 (background pad box from BackColour, outline kept);
+    # the box pad comes from the Outline value, so guarantee a minimum pad even
+    # when the user sets outline width 0.
+    _cs_primary     = hex_to_ass(_cs.get("font_color", "#FFFFFF"), 0)[:-1]
+    _cs_outline_col = hex_to_ass(_cs.get("border_color", "#000000"), 0)[:-1]
+    _cs_outline_w   = max(0, min(8, int(_cs.get("border_size", 2))))
+    _cs_bg_op       = max(0.0, min(1.0, float(_cs.get("bg_opacity", 0.0))))
+    if _cs_bg_op > 0:
+        _cs_border_style = 4
+        _cs_back = hex_to_ass(_cs.get("bg_color", "#000000"), int(round((1.0 - _cs_bg_op) * 255)))[:-1]
+        _cs_outline_w = max(_cs_outline_w, max(1, round(font_size * 0.12)))
+    else:
+        _cs_border_style = 1
+        _cs_back = "&H80000000"
+
     header = (
         "[Script Info]\nScriptType: v4.00+\n"
         f"PlayResX: {width}\nPlayResY: {height}\n"
@@ -1258,8 +1280,8 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
         "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
         f"Style: Default,{font},{font_size},"
-        "&H00FFFFFF,&H000000FF,&H00000000,&H80000000,"
-        f"-1,0,0,0,100,100,0,0,1,2,0,2,"
+        f"{_cs_primary},&H000000FF,{_cs_outline_col},{_cs_back},"
+        f"-1,0,0,0,100,100,0,0,{_cs_border_style},{_cs_outline_w},0,2,"
         f"{margin_h},{margin_h},{margin_v},1\n"
         + hook_style_line +
         "\n[Events]\n"
@@ -1326,7 +1348,7 @@ def _peak_window(path, want_dur):
 # ---------------------------------------------------------------------------
 @app.function(image=burn_image, timeout=600, volumes={TMP_DIR: tmp_vol},
               secrets=[modal.Secret.from_name("hebpipe-fcm")])
-def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", margin_v_pct: float = 0.08, broll_json: str = "[]", font_size: int = 48, hook_json: str = "", source_name: str = "") -> dict:
+def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", margin_v_pct: float = 0.08, broll_json: str = "[]", font_size: int = 48, hook_json: str = "", caption_style_json: str = "", source_name: str = "") -> dict:
     import json, subprocess, tempfile, uuid, shutil
     from pathlib import Path
 
@@ -1334,6 +1356,7 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
     captions = json.loads(captions_json)
     broll_items = json.loads(broll_json) if broll_json else []
     hook = json.loads(hook_json) if hook_json else {}
+    caption_style = json.loads(caption_style_json) if caption_style_json else {}
 
     def run(cmd):
         result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=480)
@@ -1390,7 +1413,8 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
 
         # Captions + hook ASS are built by the shared builder so the editor
         # preview (/preview_frame) is rendered by the identical libass path.
-        ass_str = build_caption_ass(width, height, font, font_size, margin_h, margin_v, captions, hook)
+        ass_str = build_caption_ass(width, height, font, font_size, margin_h, margin_v, captions, hook,
+                                    caption_style=caption_style)
         ass_path.write_text(ass_str, encoding="utf-8")
 
         # Copy / download selected B-roll clips into temp dir

@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.3.1';
+  const APP_VERSION = '1.4.0';
   document.querySelectorAll('p.footer').forEach(f => {
     const v = document.createElement('span');
     v.className = 'footer-version';
@@ -2496,6 +2496,66 @@
     fontSizeSlider.value = captionFontSize;
   })();
 
+  // ── Caption styling (hook-parity): text/outline colours + background box ──
+  // Flows through /preview_frame + /burn (build_caption_ass) for WYSIWYG.
+  function _captionStylePayload() {
+    return {
+      font_color:   document.getElementById('capFontColor')?.value || '#FFFFFF',
+      border_color: document.getElementById('capBorderColor')?.value || '#000000',
+      border_size:  parseInt(document.getElementById('capBorderSize')?.value || '2', 10),
+      bg_color:     document.getElementById('capBgColor')?.value || '#000000',
+      bg_opacity:   parseInt(document.getElementById('capBgOpacity')?.value || '0', 10) / 100,
+    };
+  }
+  function _hexToRgba(hex, alpha) {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  // Apply the style to the live caption overlay (scale = player px per burn px).
+  function _applyCapStyleColors(el, scale) {
+    const cs = _captionStylePayload();
+    el.style.color = cs.font_color;
+    el.style.webkitTextStroke = cs.border_size > 0
+      ? `${Math.max(0.5, cs.border_size * scale)}px ${cs.border_color}` : '';
+    el.style.textShadow = 'none';
+    if (cs.bg_opacity > 0) {
+      el.style.background = _hexToRgba(cs.bg_color, cs.bg_opacity);
+      el.style.padding = '0.14em 0.3em';
+    } else {
+      el.style.background = ''; el.style.padding = '';
+    }
+  }
+  (function initCaptionStyle() {
+    // Persist per device, like font + size.
+    try {
+      const saved = JSON.parse(localStorage.getItem('captionStyle') || 'null');
+      if (saved) {
+        const map = { capFontColor: saved.font_color, capBorderColor: saved.border_color,
+                      capBorderSize: saved.border_size, capBgColor: saved.bg_color,
+                      capBgOpacity: Math.round((saved.bg_opacity || 0) * 100) };
+        for (const [id, v] of Object.entries(map)) {
+          const el = document.getElementById(id);
+          if (el && v != null) el.value = v;
+        }
+        const bsv = document.getElementById('capBorderSizeVal');
+        if (bsv) bsv.textContent = (saved.border_size != null ? saved.border_size : 2) + 'px';
+        const bov = document.getElementById('capBgOpacityVal');
+        if (bov) bov.textContent = Math.round((saved.bg_opacity || 0) * 100) + '%';
+      }
+    } catch (_) {}
+    const onEdit = () => {
+      try { localStorage.setItem('captionStyle', JSON.stringify(_captionStylePayload())); } catch (_) {}
+      updatePreviewCaption();
+    };
+    ['capFontColor', 'capBorderColor', 'capBorderSize', 'capBgColor', 'capBgOpacity'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('input', onEdit);
+      el.addEventListener('change', onEdit);
+    });
+  })();
+
   // Kick off a browser-native download of a server URL. The /download route
   // sends `Content-Disposition: attachment; filename=…`, so the browser streams
   // it to disk (its own progress shelf) - far lighter than buffering a Blob.
@@ -2943,6 +3003,9 @@
     if (!capEl) return;
     capEl.style.fontFamily = `'${captionFont}', sans-serif`;
     capEl.style.bottom     = (captionMarginPct * 100) + '%';
+    // Colours apply regardless of whether the video's metadata is ready yet
+    // (fallback scale until the real display width is known).
+    _applyCapStyleColors(capEl, (vid && vid.videoWidth) ? vid.clientWidth / (_playerDispW || vid.videoWidth) : 0.24);
     if (vid && vid.videoWidth) {
       // _playerDispW = detected display width (handles browser-auto-rotated videos where
       // videoWidth reports stream width, not display width)
@@ -3028,6 +3091,7 @@
       font: captionFont, font_size: captionFontSize, margin_v: captionMarginPct,
       captions: (captionsData || []).map(c => ({ start: c.start, end: c.end, text: c.text })),
       hook: hookPayload || null,
+      caption_style: _captionStylePayload(),
     };
     const resp = await apiFetch(`${API_BASE}/preview_frame`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -3194,6 +3258,7 @@
       const scale = vid.videoWidth ? vid.clientWidth / vid.videoWidth
                                    : vid.clientHeight / (vid.videoHeight || 1920);
       capEl.style.fontSize = Math.max(7, captionFontSize * scale) + 'px';
+      _applyCapStyleColors(capEl, scale);
       if (vid.videoWidth) {
         const marginH = Math.max(25, Math.floor(vid.videoWidth / 14));
         capEl.style.maxWidth = ((vid.videoWidth - 2 * marginH) / vid.videoWidth * 100).toFixed(2) + '%';
@@ -4954,7 +5019,7 @@
       _setStage('burn');
       const spawnResp = await apiFetch(burnUrl.toString(), {
         method: 'POST',
-        body: JSON.stringify({ captions: edited, broll: allBroll, ...(hookPayload ? { hook: hookPayload } : {}) }),
+        body: JSON.stringify({ captions: edited, broll: allBroll, caption_style: _captionStylePayload(), ...(hookPayload ? { hook: hookPayload } : {}) }),
         headers: { 'Content-Type': 'application/json' },
         signal: pollController.signal,
       });
