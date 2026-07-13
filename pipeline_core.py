@@ -86,7 +86,8 @@ burn_image = (
 light_image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg", "fontconfig", "wget")
-    .pip_install("requests", "anthropic>=0.40.0", "fastapi", "python-multipart", "boto3")
+    .pip_install("requests", "anthropic>=0.40.0", "fastapi", "python-multipart", "boto3",
+                 "google-auth")   # verify Google Sign-In ID tokens (/auth/google)
     # Hebrew caption/hook fonts so /preview_frame renders the WYSIWYG editor
     # preview through libass with the SAME faces the burn uses (keep in sync
     # with burn_image + the full image + site/index.html's #fontSelect).
@@ -151,6 +152,7 @@ users_store = modal.Dict.from_name("hebpipe-users", create_if_missing=True)   # 
 calls_store = modal.Dict.from_name("hebpipe-calls", create_if_missing=True)   # call_id  → {uid, ts}
 quota_store = modal.Dict.from_name("hebpipe-quota", create_if_missing=True)   # f"{uid}:{call_id}" → ts (one unique entry per consumed credit)
 fcm_store   = modal.Dict.from_name("hebpipe-fcm", create_if_missing=True)     # uid → [device FCM tokens] for "video ready" push notifications
+codes_store = modal.Dict.from_name("hebpipe-codes", create_if_missing=True)   # normalized email → {salt, hash, exp, attempts, is_new, terms_ts} for passwordless login
 
 
 def _send_fcm(uid, title, body):
@@ -309,6 +311,57 @@ def _verify_scoped_token(token: str, scope: str, secret: str, now: float = None)
 
 
 _EMAIL_RE = _auth_re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _normalize_email(email: str) -> str:
+    """Canonical form used as the ACCOUNT KEY, so aliases that reach the same
+    inbox collapse to one account (anti multi-signup / free-credit farming).
+    Lowercases + trims, and for Gmail/Googlemail strips dots and any '+tag' in
+    the local part (both are ignored by Gmail delivery). Non-Gmail hosts keep
+    their local part intact (many providers DO treat dots as significant)."""
+    email = (email or "").strip().lower()
+    if "@" not in email:
+        return email
+    local, _, domain = email.partition("@")
+    local = local.split("+", 1)[0]
+    if domain in ("gmail.com", "googlemail.com"):
+        local = local.replace(".", "")
+        domain = "gmail.com"   # googlemail is an alias of gmail
+    return f"{local}@{domain}"
+
+
+def _gen_login_code() -> str:
+    """A 6-digit numeric login code (leading zeros preserved)."""
+    import secrets
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+# Google Sign-In: the OAuth **Web** client ID is the token audience. It is PUBLIC
+# (it ships inside the Android APK and the web page), so hardcoding is fine and
+# avoids a risky --force rewrite of the hebpipe-auth secret. The native plugin
+# uses this same value as its serverClientId so the ID token's aud matches.
+GOOGLE_WEB_CLIENT_ID = "229326610541-4870rqhqu4sckii6rv15sjm3bqogeku1.apps.googleusercontent.com"
+
+
+def _verify_google_id_token(token: str):
+    """Verify a Google Sign-In ID token and return its claims dict, else None.
+    Checks the RS256 signature against Google's certs, the audience (our Web
+    client ID), issuer and expiry. Best-effort: any failure returns None so the
+    route can answer a clean 401 instead of 500-ing."""
+    if not token:
+        return None
+    try:
+        from google.oauth2 import id_token as _gid
+        from google.auth.transport import requests as _greq
+        claims = _gid.verify_oauth2_token(token, _greq.Request(), GOOGLE_WEB_CLIENT_ID)
+        if claims.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
+            return None
+        if not claims.get("email") or not claims.get("email_verified"):
+            return None
+        return claims
+    except Exception as e:
+        print(f"[google] id-token verify failed: {e}")
+        return None
 
 
 def _send_email(to: str, subject: str, html: str) -> bool:

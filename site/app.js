@@ -1,5 +1,9 @@
   const API_BASE = 'https://yotamjacob--hebrew-video-pipeline-api.modal.run';
   const API      = API_BASE + '/process/';
+  // Google Sign-In OAuth Web client ID (PUBLIC - ships in the app + web page).
+  // Used as the native plugin's serverClientId and the web GIS client_id; the
+  // backend verifies the returned ID token against this same audience.
+  const GOOGLE_WEB_CLIENT_ID = '229326610541-4870rqhqu4sckii6rv15sjm3bqogeku1.apps.googleusercontent.com';
 
   // ── Console capture ──
   // Ring buffer of recent console output, surfaced in the error card so
@@ -60,14 +64,11 @@
     // only on a login where "remember me" was unchecked (see _forgetCreds).
   }
 
-  // Remembered credentials for login-form prefill. base64 is obfuscation, not
-  // encryption - see the tradeoff note at the login call site. unicode-safe so
-  // non-Latin passwords survive the round-trip.
-  function _b64enc(s) { return btoa(unescape(encodeURIComponent(s))); }
-  function _b64dec(s) { try { return decodeURIComponent(escape(atob(s))); } catch { return ''; } }
-  function _rememberCreds(email, pw) {
-    localStorage.setItem('hebpipe_email', email);
-    localStorage.setItem('hebpipe_pw', _b64enc(pw));
+  // Remember the last-used email for prefill (passwordless - there's no password
+  // to store anymore). Kept only when "remember me" was checked at sign-in.
+  function _rememberCreds(email) {
+    localStorage.setItem('hebpipe_email', email || '');
+    localStorage.removeItem('hebpipe_pw');   // clear any legacy stored password
   }
   function _forgetCreds() {
     localStorage.removeItem('hebpipe_email');
@@ -151,11 +152,6 @@
     const emailInput = document.getElementById('authEmail');
     if (emailInput && !emailInput.value) {
       emailInput.value = localStorage.getItem('hebpipe_email') || '';
-    }
-    const pwInput = document.getElementById('authPassword');
-    if (pwInput && !pwInput.value) {
-      const savedPw = localStorage.getItem('hebpipe_pw');
-      if (savedPw) pwInput.value = _b64dec(savedPw);
     }
     document.getElementById('resetView').style.display = 'none';
     document.getElementById('tabsBar').style.display = 'none';
@@ -325,148 +321,183 @@
     pill.style.display = '';
   }
 
-  let authMode = 'login';   // 'login' | 'register' | 'forgot'
-
-  function applyAuthMode() {
-    const reg = authMode === 'register', forgot = authMode === 'forgot';
-    document.getElementById('authPasswordRow').style.display = forgot ? 'none' : 'block';
-    document.getElementById('authMarketingRow').style.display = (reg && EMAIL_UI_ENABLED) ? 'flex' : 'none';
-    document.getElementById('authTermsRow').style.display    = reg ? 'flex' : 'none';
-    document.getElementById('authInviteRow').style.display   = reg ? 'block' : 'none';
-    document.getElementById('rememberRow').style.display     = forgot ? 'none' : 'flex';
-    document.getElementById('authForgotLink').style.display  = (EMAIL_UI_ENABLED && !forgot) ? 'block' : 'none';
-    document.getElementById('authEmailLabel').textContent = t('auth.email');
-    document.getElementById('authSubmitBtn').textContent =
-      reg ? t('auth.register') : forgot ? t('auth.sendReset') : t('auth.signin');
-    document.getElementById('authModeBtn').textContent =
-      reg ? t('auth.toSignin') : forgot ? t('auth.toSignin') : t('auth.toRegister');
-    document.getElementById('authError').style.display = 'none';
-    document.getElementById('authInfo').style.display = 'none';
-    ['authEmailErr', 'authPasswordErr', 'authInviteErr'].forEach(id => _fieldErr(id, ''));
-  }
-
-  // ── Inline per-field validation (helps low-tech users fix inputs) ──
+  // ── Passwordless auth: choose a lane → Google or email code → session ──
+  // Landing offers "I have an account" / "I'm new here". Existing users sign in
+  // with Google or an emailed 6-digit code; new users do the same but must also
+  // provide the invite code + accept the Terms (shown up front). The backend
+  // gets an explicit `mode` so an existing email can't register a duplicate and
+  // a nonexistent email gets a clear "no account". No passwords anywhere.
   const _EMAIL_JS_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  let _authEmail = '';        // the email awaiting a code (drives step 2 + resend)
+  let _authFlow  = 'login';   // 'login' (existing user) | 'register' (new user)
+
   function _fieldErr(id, msg) {
     const el = document.getElementById(id);
     if (!el) return;
     el.textContent = msg || '';
     el.style.display = msg ? 'block' : 'none';
   }
-  // onSubmit=true also flags empty required fields; live validation (false) only
-  // warns about non-empty invalid input so users aren't nagged mid-typing.
+
+  // Translate a server auth error into the UI language via its machine `code`
+  // (structured flags first, then the code map, then the raw English fallback
+  // for anything unmapped / an older backend).
+  const _AUTH_ERR_KEYS = {
+    rate_limited: 'autherr.rate_limited', throttled: 'autherr.throttled',
+    invalid_email: 'autherr.invalid_email', invalid_invite: 'autherr.invalid_invite',
+    terms_required: 'auth.termsError', google_failed: 'auth.googleFailed',
+    code_format: 'autherr.code_format', code_expired: 'autherr.code_expired',
+    code_tries: 'autherr.code_tries', code_incorrect: 'autherr.code_incorrect',
+  };
+  function _authErrMsg(data, status) {
+    if (data && data.no_account) return t('auth.noAccount');
+    if (data && data.exists) return t('auth.emailTaken');
+    const key = data && _AUTH_ERR_KEYS[data.code];
+    if (key) return t(key, { n: (data && data.retry_min) || 1 });
+    return (data && data.error) || t('auth.errStatus', { status });
+  }
+
+  function _showAuthStep(step) {
+    document.getElementById('authChoice').style.display    = step === 'choice' ? 'block' : 'none';
+    document.getElementById('authStepEmail').style.display = step === 'email'  ? 'block' : 'none';
+    document.getElementById('authStepCode').style.display  = step === 'code'   ? 'block' : 'none';
+  }
+
+  function _clearAuthMessages() {
+    ['authError', 'authInfo', 'authCodeError', 'authCodeInfo'].forEach(id => {
+      const e = document.getElementById(id); if (e) e.style.display = 'none';
+    });
+    ['authEmailErr', 'authInviteErr', 'authCodeErr'].forEach(id => _fieldErr(id, ''));
+  }
+
+  // Login lane submits straight to "sign in" wording; only the register lane
+  // talks about sending a code (the user meets the code on the next screen anyway).
+  function _syncAuthSubmitLabel() {
+    const b = document.getElementById('authSubmitBtn');
+    if (b) b.textContent = t(_authFlow === 'register' ? 'auth.sendCode' : 'auth.loginEmail');
+  }
+
+  function _enterAuthFlow(flow) {
+    _authFlow = flow;
+    _pendingGoogleToken = null;
+    _clearAuthMessages();
+    document.getElementById('authNewFields').style.display = flow === 'register' ? 'block' : 'none';
+    _syncAuthSubmitLabel();
+    _showAuthStep('email');
+    document.getElementById(flow === 'register' ? 'authInvite' : 'authEmail').focus();
+  }
+
+  // Reset the auth view. A device that remembers its email skips the landing
+  // straight into the existing-user panel; anyone else picks a lane first.
+  function applyAuthMode() {
+    _clearAuthMessages();
+    _syncAuthSubmitLabel();
+    document.getElementById('authVerifyBtn').textContent = t('auth.verify');
+    if (localStorage.getItem('hebpipe_email')) {
+      _authFlow = 'login';
+      document.getElementById('authNewFields').style.display = 'none';
+      _showAuthStep('email');
+    } else {
+      _showAuthStep('choice');
+    }
+  }
+
   function validateEmail(onSubmit) {
     const v = document.getElementById('authEmail').value.trim();
     let msg = '';
     if (!v) { if (onSubmit) msg = t('valid.emailRequired'); }
-    // Only registration enforces the email shape - login and forgot still
-    // accept legacy username accounts from the pre-email era.
-    else if (authMode === 'register' && !_EMAIL_JS_RE.test(v)) msg = t('valid.emailInvalid');
+    else if (!_EMAIL_JS_RE.test(v)) msg = t('valid.emailInvalid');
     _fieldErr('authEmailErr', msg);
     return !msg;
   }
-  function validatePassword(onSubmit) {
-    if (authMode === 'forgot') { _fieldErr('authPasswordErr', ''); return true; }
-    const v = document.getElementById('authPassword').value;
-    let msg = '';
-    if (!v) { if (onSubmit) msg = t('valid.pwRequired'); }
-    else if (authMode === 'register' && v.length < 8) msg = t('valid.pwShort');
-    _fieldErr('authPasswordErr', msg);
-    return !msg;
-  }
-  function validateInvite(onSubmit) {
-    if (authMode !== 'register') { _fieldErr('authInviteErr', ''); return true; }
-    const v = document.getElementById('authInvite').value.trim();
-    const msg = (!v && onSubmit) ? t('valid.inviteRequired') : '';
-    _fieldErr('authInviteErr', msg);
-    return !msg;
-  }
+
+  document.getElementById('authChoiceExisting').addEventListener('click', () => _enterAuthFlow('login'));
+  document.getElementById('authChoiceNew').addEventListener('click', () => _enterAuthFlow('register'));
+  document.getElementById('authBackToChoice').addEventListener('click', () => _showAuthStep('choice'));
   document.getElementById('authEmail').addEventListener('input', () => validateEmail(false));
-  document.getElementById('authPassword').addEventListener('input', () => validatePassword(false));
-  document.getElementById('authInvite').addEventListener('input', () => validateInvite(false));
-  // Submit via the real <form> so the browser's password manager sees a login
-  // and offers to save / autofill credentials on the next visit.
+  document.getElementById('authInvite').addEventListener('input', () => _fieldErr('authInviteErr', ''));
+  // Step 1 goes through the real <form> submit (Enter in the email field works).
   document.getElementById('authForm').addEventListener('submit', (e) => {
     e.preventDefault();
-    authSubmit();
+    sendLoginCode(false);
+  });
+  document.getElementById('authVerifyBtn').addEventListener('click', () => verifyLoginCode());
+  document.getElementById('authResendBtn').addEventListener('click', () => sendLoginCode(true));
+  document.getElementById('authBackBtn').addEventListener('click', () => {
+    _clearAuthMessages();
+    _showAuthStep('email');
+  });
+  const _codeInput = document.getElementById('authCode');
+  _codeInput.addEventListener('input', () => {
+    _codeInput.value = _codeInput.value.replace(/\D/g, '').slice(0, 6);
+    _fieldErr('authCodeErr', '');
+  });
+  _codeInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); verifyLoginCode(); }
   });
 
-  function toggleAuthMode() {
-    authMode = authMode === 'register' ? 'login' : (authMode === 'forgot' ? 'login' : 'register');
-    applyAuthMode();
-  }
-
-  function showForgot() {
-    authMode = 'forgot';
-    applyAuthMode();
-  }
-
-  async function authSubmit() {
-    const btn = document.getElementById('authSubmitBtn');
+  // Step 1: request a login code. `resend` re-requests for the same email.
+  async function sendLoginCode(resend) {
+    const btn = document.getElementById(resend ? 'authResendBtn' : 'authSubmitBtn');
     const errEl = document.getElementById('authError');
-    const infoEl = document.getElementById('authInfo');
+    if (!resend && !validateEmail(true)) return;
+    const email = resend ? _authEmail : document.getElementById('authEmail').value.trim();
+    const registering = _authFlow === 'register';
+    let invite = '';
+    if (registering) {
+      invite = document.getElementById('authInvite').value.trim();
+      if (!invite) { _fieldErr('authInviteErr', t('valid.inviteRequired')); return; }
+      if (!document.getElementById('authTermsCheck').checked) {
+        errEl.textContent = t('auth.termsError'); errEl.style.display = 'block'; return;
+      }
+    }
     _btnBusy(btn, true);
     errEl.style.display = 'none';
-    infoEl.style.display = 'none';
-
-    // ── Forgot password: request a reset link, always report success ──
-    if (authMode === 'forgot') {
-      try {
-        await fetch(`${API_BASE}/auth/forgot`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ identifier: document.getElementById('authEmail').value.trim() }),
-        });
-      } catch { /* never reveal existence */ }
-      infoEl.textContent = t('auth.resetSent');
-      infoEl.style.display = 'block';
-      _btnBusy(btn, false);
-      return;
-    }
-
-    // Inline field validation (login + register) - run all so every bad field
-    // shows its own message, then stop if any is invalid.
-    const uOk = validateEmail(true);
-    const pOk = validatePassword(true);
-    const iOk = validateInvite(true);
-    if (!(uOk && pOk && iOk)) { _btnBusy(btn, false); return; }
-
-    const payload = {
-      email: document.getElementById('authEmail').value.trim(),
-      password: document.getElementById('authPassword').value,
-    };
-    if (authMode === 'register') {
-      if (!document.getElementById('authTermsCheck').checked) {
-        errEl.textContent = t('auth.termsError');
-        errEl.style.display = 'block';
-        _btnBusy(btn, false);
-        return;
-      }
-      payload.invite = document.getElementById('authInvite').value.trim();
-      payload.terms_accepted = true;
-      // Update/promo consent is deferred for now (EMAIL_UI_ENABLED).
-      if (EMAIL_UI_ENABLED) {
-        payload.marketing_consent = document.getElementById('authMarketing').checked;
-      }
-    }
     try {
-      const resp = await fetch(`${API_BASE}/auth/${authMode}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+      const body = { email, mode: _authFlow };
+      if (registering) { body.invite = invite; body.terms_accepted = true; }
+      const resp = await fetch(`${API_BASE}/auth/request-code`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || t('auth.errStatus', {status: resp.status}));
+      const data = await resp.json().catch(() => ({}));
+      // Wrong lane, bad invite, throttle, etc - all translated to the UI language.
+      if (!resp.ok) throw new Error(_authErrMsg(data, resp.status));
+      // Code sent → step 2.
+      _authEmail = email;
+      _showAuthStep('code');
+      document.getElementById('authCodeHint').textContent = t('auth.codeHint', { email });
+      if (resend) {
+        const ci = document.getElementById('authCodeInfo');
+        ci.textContent = t('auth.codeResent'); ci.style.display = 'block';
+      }
+      const ci2 = document.getElementById('authCode');
+      ci2.value = ''; ci2.focus();
+    } catch (e) {
+      errEl.textContent = e.message || String(e);
+      errEl.style.display = 'block';
+    } finally {
+      _btnBusy(btn, false);
+    }
+  }
+
+  // Step 2: verify the code → session token.
+  async function verifyLoginCode() {
+    const btn = document.getElementById('authVerifyBtn');
+    const errEl = document.getElementById('authCodeError');
+    const code = document.getElementById('authCode').value.trim();
+    if (!code) { _fieldErr('authCodeErr', t('valid.codeRequired')); return; }
+    if (!/^\d{6}$/.test(code)) { _fieldErr('authCodeErr', t('valid.codeInvalid')); return; }
+    _btnBusy(btn, true);
+    errEl.style.display = 'none';
+    try {
+      const resp = await fetch(`${API_BASE}/auth/verify-code`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: _authEmail, code }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(_authErrMsg(data, resp.status));
       const remember = document.getElementById('rememberMe')?.checked ?? true;
       _storeToken(data.token, remember);
-      // Remember the sign-in email + password for next time's prefill (so a
-      // logout lands on a pre-filled form) - but never on a shared/incognito
-      // session where "remember me" was unchecked. NOTE: the stored password
-      // is only base64-obfuscated, not encrypted - it is recoverable by
-      // anything with access to this origin's localStorage (an XSS bug or the
-      // device itself). This is a deliberate convenience-over-secrecy tradeoff.
-      if (remember && authMode === 'login') _rememberCreds(payload.email, payload.password);
-      else                                  _forgetCreds();
+      if (remember) _rememberCreds(_authEmail); else _forgetCreds();
       showApp();
       fetch(API_BASE + '/warmup/', { headers: { 'Authorization': 'Bearer ' + authToken } }).catch(() => {});
     } catch (e) {
@@ -476,6 +507,141 @@
       _btnBusy(btn, false);
     }
   }
+
+  // ── Continue with Google ──────────────────────────────────────────────────
+  // Exchange a Google ID token for a session token. Same account keying as the
+  // code flow (backend normalizes the email), so Google + code = one account.
+  let _pendingGoogleToken = null;   // native: reuse the ID token across a lane switch / invite fix
+  async function _exchangeGoogleToken(idToken) {
+    const body = { id_token: idToken, mode: _authFlow };
+    if (_authFlow === 'register') {
+      body.invite = document.getElementById('authInvite').value.trim();
+      body.terms_accepted = document.getElementById('authTermsCheck').checked;
+    }
+    const resp = await fetch(`${API_BASE}/auth/google`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      const errEl = document.getElementById('authError');
+      // Wrong lane: this Google account has no record yet → point at "I'm new".
+      if (data.no_account) {
+        _pendingGoogleToken = idToken;   // native: reuse after switching lanes
+        errEl.textContent = t('auth.noAccount');
+        errEl.style.display = 'block';
+        return;
+      }
+      // Register lane with a missing/wrong invite or unchecked Terms.
+      if (data.need_invite) {
+        _pendingGoogleToken = idToken;   // reuse on native so no second account picker
+        errEl.textContent = data.code ? _authErrMsg(data, resp.status) : t('auth.googleNeedInvite');
+        errEl.style.display = 'block';
+        document.getElementById('authInvite').focus();
+        return;
+      }
+      throw new Error(_authErrMsg(data, resp.status));
+    }
+    _pendingGoogleToken = null;
+    const remember = document.getElementById('rememberMe')?.checked ?? true;
+    _storeToken(data.token, remember);
+    if (remember && data.username) _rememberCreds(data.username); else _forgetCreds();
+    showApp();
+    fetch(API_BASE + '/warmup/', { headers: { 'Authorization': 'Bearer ' + authToken } }).catch(() => {});
+  }
+
+  function _googleAuthError(e) {
+    const msg = (e && (e.message || e.errorMessage)) || String(e || '');
+    try { console.error('google sign-in failed:', msg, e); } catch (_) {}
+    if (/cancel|closed|popup|dismiss|USER_CANCELED|USER_CANCELLED/i.test(msg)) return;   // backed out - stay quiet
+    const errEl = document.getElementById('authError');
+    // Surface the raw reason on a detail line so device users (no devtools) can
+    // report exactly what Google returned (SHA-1/client-id mismatches show here).
+    errEl.innerHTML = _escapeHtml(t('auth.googleFailed')) +
+      (msg ? '<br><span style="font-size:0.72rem;opacity:0.7;word-break:break-word">' + _escapeHtml(msg) + '</span>' : '');
+    errEl.style.display = 'block';
+  }
+
+  let _glInited = false;
+  // Native: the SocialLogin plugin (Credential Manager) returns an ID token
+  // minted for our Web client ID (serverClientId).
+  async function _googleNativeSignIn() {
+    const SL = _capPlugin('SocialLogin');
+    const btn = document.getElementById('googleSignInBtn');
+    if (!SL) { _googleAuthError(new Error('unavailable')); return; }
+    // Register lane: require the invite + Terms BEFORE opening the account
+    // picker, so nobody authenticates with Google only to bounce on the invite.
+    if (_authFlow === 'register') {
+      if (!document.getElementById('authInvite').value.trim()) {
+        _fieldErr('authInviteErr', t('valid.inviteRequired')); return;
+      }
+      if (!document.getElementById('authTermsCheck').checked) {
+        const errEl = document.getElementById('authError');
+        errEl.textContent = t('auth.termsError'); errEl.style.display = 'block'; return;
+      }
+    }
+    _btnBusy(btn, true);
+    try {
+      // Retry after a lane switch / invite fix: reuse the token we already got,
+      // so the user doesn't have to pick their Google account a second time.
+      if (_pendingGoogleToken) { await _exchangeGoogleToken(_pendingGoogleToken); return; }
+      if (!_glInited) {
+        await SL.initialize({ google: { webClientId: GOOGLE_WEB_CLIENT_ID, mode: 'online' } });
+        _glInited = true;
+      }
+      // NO scopes here: on Android, passing scopes switches the plugin to an
+      // authorization-code flow that needs a modified MainActivity ("You CANNOT
+      // use scopes without modifying the main activity"). Plain Credential
+      // Manager sign-in already returns an ID token with email + profile claims.
+      const res = await SL.login({ provider: 'google', options: {} });
+      const r = (res && res.result) ? res.result : {};
+      const idToken = r.idToken || r.id_token || (r.credential && r.credential.idToken) || null;
+      if (!idToken) throw new Error('no ID token in result (keys: ' + Object.keys(r).join(',') + ')');
+      await _exchangeGoogleToken(idToken);
+    } catch (e) {
+      _googleAuthError(e);
+    } finally {
+      _btnBusy(btn, false);
+    }
+  }
+
+  // Web: Google Identity Services renders its own compliant button into
+  // #gsiButton and hands back a credential (ID token) via the callback.
+  function _initWebGoogle() {
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.async = true; s.defer = true;
+    s.onload = () => {
+      if (!(window.google && window.google.accounts && window.google.accounts.id)) return;
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_WEB_CLIENT_ID,
+        callback: (resp) => {
+          if (resp && resp.credential) _exchangeGoogleToken(resp.credential).catch(_googleAuthError);
+        },
+      });
+      const cont = document.getElementById('gsiButton');
+      const custom = document.getElementById('googleSignInBtn');
+      if (custom) custom.style.display = 'none';
+      if (cont) {
+        cont.style.display = 'flex';
+        window.google.accounts.id.renderButton(cont, {
+          theme: 'outline', size: 'large', text: 'continue_with', shape: 'pill',
+        });
+      }
+    };
+    s.onerror = () => { /* GIS blocked - the email-code flow still works */ };
+    document.head.appendChild(s);
+  }
+
+  function _setupGoogleAuth() {
+    const btn = document.getElementById('googleSignInBtn');
+    if (_isNative()) {
+      if (btn) btn.addEventListener('click', _googleNativeSignIn);
+    } else {
+      _initWebGoogle();
+    }
+  }
+  _setupGoogleAuth();
 
   async function logout() {
     const ok = await showConfirmModal(t('logout.title'), t('logout.body'), t('logout.confirm'));
@@ -1061,26 +1227,41 @@
   let _sharePrep = null;   // { url, uri } once the finished file is cached locally
   function _safeShareName(name) { return (name || 'video.mp4').replace(/[^\w.\-]+/g, '_'); }
 
-  // Silently pre-fetch the finished video into the cache so a later Share is
-  // instant. No UI, no error surfacing - it's a best-effort warm-up.
-  function _revealShareButtons() {
+  // Share buttons have three visual states: hidden, 'loading' (visible with a
+  // spinner + "loading share button" - the finished file is still being cached,
+  // but a tap already works via the on-tap fallback), and 'ready' (plain label,
+  // instant tap). Showing 'loading' immediately means the button appears at once
+  // instead of after the multi-second warm-up download.
+  function _setShareState(state) {
     ['burnShareBtn', 'shareBtn'].forEach(id => {
       const b = document.getElementById(id);
-      if (b) b.style.display = '';
+      if (!b) return;
+      if (state === 'hidden') { b.style.display = 'none'; b.classList.remove('share-loading'); return; }
+      b.style.display = '';
+      if (state === 'loading') {
+        b.classList.add('share-loading');
+        b.innerHTML = '<span class="spinner" style="width:14px;height:14px;margin-inline-end:8px"></span>' +
+                      _escapeHtml(t('share.loading'));
+      } else { // ready
+        b.classList.remove('share-loading');
+        b.textContent = t('share.btn');
+      }
     });
   }
+  function _escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
   async function _prepareShareFile(url, name) {
     if (!_isNative() || !url) return;
-    if (_sharePrep && _sharePrep.url === url) { _revealShareButtons(); return; }   // already cached
+    if (_sharePrep && _sharePrep.url === url) { _setShareState('ready'); return; }   // already cached
     const Filesystem = _capPlugin('Filesystem');
-    if (!Filesystem) return;
+    if (!Filesystem) { _setShareState('ready'); return; }
     try {
       const safe = _safeShareName(name);
       await Filesystem.downloadFile({ url: _withToken(url), path: safe, directory: 'CACHE' });
       const { uri } = await Filesystem.getUri({ directory: 'CACHE', path: safe });
       _sharePrep = { url, uri };
-      _revealShareButtons();   // only show Share once the file is cached => instant tap
-    } catch (_) { /* silent: this is a background warm-up, not user-initiated */ }
+    } catch (_) { /* silent: this is a background warm-up; tap still downloads on demand */ }
+    _setShareState('ready');   // ready either way - a tap downloads on demand if not warmed
   }
 
   async function nativeShareVideo(url, name) {
@@ -1089,7 +1270,7 @@
     if (!Share || !url || _sharing) return;
     _sharing = true;
     const btns = [document.getElementById('burnShareBtn'), document.getElementById('shareBtn')].filter(Boolean);
-    const labels = btns.map(b => b.textContent);
+    const labels = btns.map(b => b.innerHTML);
     try {
       let uri = (_sharePrep && _sharePrep.url === url) ? _sharePrep.uri : null;
       if (!uri && Filesystem) {                 // not warmed yet - fetch now
@@ -1111,19 +1292,22 @@
       }
     } finally {
       _sharing = false;
-      btns.forEach((b, i) => { b.disabled = false; b.textContent = labels[i]; });
+      btns.forEach((b, i) => { b.disabled = false; b.innerHTML = labels[i]; });
     }
   }
-  // On native, warm the shareable file when a result is ready; the Share button
-  // stays HIDDEN until the file is cached (_prepareShareFile reveals it), so it's
-  // never visible-but-not-ready. Kept hidden here to clear any prior reveal.
+  // On native, reveal the Share button the moment a result exists - in a
+  // 'loading' state (spinner) while the file caches in the background, so it
+  // appears instantly instead of after a multi-second warm-up. A tap works even
+  // mid-load (nativeShareVideo downloads on demand). Cleared to hidden with no
+  // result.
   function _maybeShowShare() {
     if (!_isNative()) return;
-    ['burnShareBtn', 'shareBtn'].forEach(id => {
-      const b = document.getElementById(id);
-      if (b) b.style.display = 'none';
-    });
-    if (resultDownloadUrl) _prepareShareFile(resultDownloadUrl, resultName);
+    if (resultDownloadUrl) {
+      _setShareState('loading');
+      _prepareShareFile(resultDownloadUrl, resultName);
+    } else {
+      _setShareState('hidden');
+    }
   }
   ['burnShareBtn', 'shareBtn'].forEach(id => {
     const b = document.getElementById(id);
@@ -1179,15 +1363,32 @@
       e.preventDefault(); e.stopPropagation();
       pickNativeFile();
     }, true);
-    // Keep the brand splash up until the UI has actually painted (config sets
-    // launchAutoHide:false), so a slow first load shows branding, not a blank
-    // screen. Hide after two frames = first real paint.
+    // Native uploads run in a background foreground-service uploader that
+    // survives the app being minimized/closed, so the "keep the window open"
+    // remarks (correct only for the web JS upload) are wrong here - hide them.
+    { const kf = document.getElementById('checklistKeepOpen'); if (kf) kf.style.display = 'none'; }
+
+    // Show the brand animation as the loading screen, then hand off to the app.
+    // Hide the native splash once our video overlay is up so there's no flash of
+    // blank screen; the video plays (~2.5s), then fades out.
     const SplashScreen = _capPlugin('SplashScreen');
-    if (SplashScreen) {
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        try { SplashScreen.hide(); } catch (_) {}
-      }));
-    }
+    _runAppLoader(() => {
+      if (SplashScreen) { try { SplashScreen.hide(); } catch (_) {} }
+    });
+  }
+
+  // Show the brand badge + spinner over the app (matching the native splash),
+  // then fade it away. onReady fires as soon as the overlay is visible (so the
+  // native splash can hide behind it with no flash). Brief dwell, then fade.
+  function _runAppLoader(onReady) {
+    const loader = document.getElementById('appLoader');
+    if (!loader) { if (onReady) onReady(); return; }
+    loader.classList.add('show');
+    if (onReady) onReady();
+    setTimeout(() => {
+      loader.classList.add('fade-out');
+      setTimeout(() => { loader.classList.remove('show', 'fade-out'); }, 500);
+    }, 2000);   // dwell so the badge + spinner register, then fade
   }
 
   async function handleFile(file) {
@@ -2381,7 +2582,7 @@
     document.getElementById('uploadBarFill').style.width = '0%';
     document.getElementById('uploadBarPct').textContent = '0%';
     { const e = document.getElementById('uploadEta'); if (e) e.textContent = ''; }
-    { const n = document.getElementById('uploadNote'); if (n) n.style.display = 'block'; }
+    { const n = document.getElementById('uploadNote'); if (n) n.style.display = _isNative() ? 'none' : 'block'; }
 
     runBtn.disabled = true;
     runBtn.style.display = 'none';
@@ -5186,11 +5387,16 @@
     if (!authToken) { showAuthView(); return; }
     try {
       const r = await fetch(`${API_BASE}/auth/me`, { headers: { 'Authorization': 'Bearer ' + authToken } });
-      if (!r.ok) throw new Error('unauthorized');
-      quotaInfo = await r.json();   // reuse for the quota pill - no second /auth/me
+      // ONLY a real 401 means the session is invalid/expired - log out then.
+      if (r.status === 401) { _sessionExpired(); return; }
+      if (r.ok) quotaInfo = await r.json();   // reuse for the quota pill
+      // Any transient failure (network blip, cold-start timeout, 5xx) must NOT
+      // wipe a valid 30-day session - stay signed in and show the app; showApp()
+      // refreshes quota on its own, and a later genuine 401 still bounces to login.
       showApp();
     } catch {
-      _sessionExpired();
+      // Network error reaching /auth/me at launch - keep the session, show the app.
+      showApp();
     }
   })();
 
@@ -5201,10 +5407,12 @@
     document.getElementById('enhanceVideoDesc').innerHTML = t(_EV_DESCS[_enhanceVideoMode()]);
     updateTimeEstimate();
     if (burnMode && !runBtn.disabled) updateBurnBtn();
-    if (authMode === 'register') {
-      document.getElementById('authSubmitBtn').textContent = t('auth.register');
-      document.getElementById('authModeBtn').textContent = t('auth.toSignin');
-    }
+    // Auth buttons (both steps) re-label on language switch (flow-aware).
+    _syncAuthSubmitLabel();
+    { const b = document.getElementById('authVerifyBtn'); if (b) b.textContent = t('auth.verify'); }
+    { const c = document.getElementById('authCodeHint');
+      if (c && _authEmail && document.getElementById('authStepCode').style.display !== 'none')
+        c.textContent = t('auth.codeHint', { email: _authEmail }); }
     const ap = document.getElementById('schedAutoPublish');
     if (ap && ap.checked) document.getElementById('autoPublishDesc').textContent = t('sched.apOn');
     const sb = document.getElementById('suggestCaptionBtn');

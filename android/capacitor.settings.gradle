@@ -20,5 +20,8 @@ project(':capacitor-splash-screen').projectDir = new File('../node_modules/@capa
 include ':capawesome-capacitor-file-picker'
 project(':capawesome-capacitor-file-picker').projectDir = new File('../node_modules/@capawesome/capacitor-file-picker/android')
 
+include ':capgo-capacitor-social-login'
+project(':capgo-capacitor-social-login').projectDir = new File('../node_modules/@capgo/capacitor-social-login/android')
+
 include ':capgo-capacitor-uploader'
 project(':capgo-capacitor-uploader').projectDir = new File('../node_modules/@capgo/capacitor-uploader/android')

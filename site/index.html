@@ -32,6 +32,17 @@
 </head>
 <body>
 
+<!-- ── App loading screen (native app only): the brand badge + a loading spinner
+     on the app background, matching the native splash for a seamless handoff,
+     then a fade-out. Revealed by app.js on native; hidden so the web is
+     untouched. ── -->
+<div id="appLoader" aria-hidden="true">
+  <div class="app-loader-inner">
+    <img class="app-loader-logo" src="img/logo.svg" alt="" />
+    <span class="app-loader-spinner spinner"></span>
+  </div>
+</div>
+
 <!-- ── Boho decorative background: 2 soft organic blobs + 1 wandering contour.
      Fixed, behind all content, RTL-anchored via logical inset props. ── -->
 <div class="boho-bg" aria-hidden="true">
@@ -115,41 +126,68 @@
       <p class="options-title" data-i18n="auth.title">Sign In</p>
     </div>
     <form id="authForm" style="padding-top:14px" novalidate>
-      <label class="sched-label" id="authEmailLabel" data-i18n="auth.email">Email</label>
-      <input type="email" id="authEmail" name="username" class="sched-input" style="width:100%" autocomplete="username" />
-      <div class="field-err" id="authEmailErr"></div>
-      <div id="authPasswordRow">
-        <label class="sched-label" data-i18n="auth.password">Password</label>
-        <div class="pw-wrap">
-          <input type="password" id="authPassword" name="password" class="sched-input" style="width:100%" autocomplete="current-password" />
-          <button type="button" class="pw-toggle" onclick="togglePw('authPassword', this)" aria-label="Show password">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-          </button>
+      <!-- Landing: pick a lane. Existing users sign in (Google or email code);
+           new users create an account (Google or email code, + invite + terms). -->
+      <div id="authChoice">
+        <button type="button" class="run-btn" id="authChoiceExisting" data-i18n="auth.existingUser">I have an account</button>
+        <button type="button" class="action-btn" style="margin-top:10px" id="authChoiceNew" data-i18n="auth.newUser">I'm new here - create account</button>
+      </div>
+
+      <!-- Step 1 (both flows): Google or email. The register flow additionally
+           shows the invite + terms block up front. -->
+      <div id="authStepEmail" style="display:none">
+        <div id="authNewFields" style="display:none">
+          <p class="auth-hint" id="authNewHint" data-i18n="auth.newHere">Enter your invite code and accept the terms, then continue with Google or email.</p>
+          <div id="authInviteRow" style="margin-top:12px">
+            <label class="sched-label" data-i18n="auth.invite">Invite code</label>
+            <input type="text" id="authInvite" class="sched-input" style="width:100%" autocomplete="off" />
+            <div class="field-err" id="authInviteErr"></div>
+          </div>
+          <label class="remember-row" id="authTermsRow" style="margin-top:12px;margin-bottom:14px;align-items:flex-start">
+            <input type="checkbox" id="authTermsCheck">
+            <span data-i18n="auth.terms">I have read and agree to the <a href="/legal.html" target="_blank" rel="noopener">Privacy Policy &amp; Terms of Use</a></span>
+          </label>
         </div>
-        <div class="field-err" id="authPasswordErr"></div>
+
+        <!-- Continue with Google: native uses the SocialLogin plugin, web uses
+             Google Identity Services (renders its own button into #gsiButton). -->
+        <button type="button" class="google-btn" id="googleSignInBtn">
+          <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+          <span data-i18n="auth.google">Continue with Google</span>
+        </button>
+        <div id="gsiButton" style="display:none;margin-bottom:4px"></div>
+        <div class="auth-or"><span data-i18n="auth.or">or</span></div>
+
+        <label class="sched-label" id="authEmailLabel" data-i18n="auth.email">Email</label>
+        <input type="email" id="authEmail" name="email" class="sched-input" style="width:100%" autocomplete="email" inputmode="email" />
+        <div class="field-err" id="authEmailErr"></div>
+
+        <label class="remember-row" id="rememberRow">
+          <input type="checkbox" id="rememberMe" checked>
+          <span data-i18n="auth.remember">Remember me</span>
+        </label>
+
+        <div id="authError" class="sched-error" style="display:none;margin-top:12px"></div>
+        <div id="authInfo" class="sched-status ok" style="display:none;margin-top:12px"></div>
+
+        <!-- Label is flow-dependent (set in JS): login lane "Sign in with email",
+             register lane "Send code" - so no data-i18n here. -->
+        <button type="submit" class="run-btn" id="authSubmitBtn" style="margin-top:18px">Sign in with email</button>
+        <button type="button" class="link-btn" style="margin-top:10px" id="authBackToChoice" data-i18n="auth.back">Back</button>
       </div>
-      <label class="remember-row" id="authMarketingRow" style="display:none">
-        <input type="checkbox" id="authMarketing">
-        <span data-i18n="auth.marketing">Send me tips, product updates and offers by email</span>
-      </label>
-      <label class="remember-row" id="rememberRow">
-        <input type="checkbox" id="rememberMe" checked>
-        <span data-i18n="auth.remember">Remember me</span>
-      </label>
-      <div id="authInviteRow" style="display:none">
-        <label class="sched-label" data-i18n="auth.invite">Invite code</label>
-        <input type="text" id="authInvite" class="sched-input" style="width:100%" autocomplete="off" />
-        <div class="field-err" id="authInviteErr"></div>
+
+      <!-- Step 2: enter the 6-digit code from the email. -->
+      <div id="authStepCode" style="display:none">
+        <p class="auth-hint" id="authCodeHint" data-i18n="auth.codeHint">We emailed you a 6-digit code. Enter it below.</p>
+        <label class="sched-label" data-i18n="auth.code">Verification code</label>
+        <input type="text" id="authCode" class="sched-input auth-code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" />
+        <div class="field-err" id="authCodeErr"></div>
+        <div id="authCodeError" class="sched-error" style="display:none;margin-top:12px"></div>
+        <div id="authCodeInfo" class="sched-status ok" style="display:none;margin-top:12px"></div>
+        <button type="button" class="run-btn" id="authVerifyBtn" style="margin-top:18px" data-i18n="auth.verify">Sign in</button>
+        <button type="button" class="action-btn" style="margin-top:10px" id="authResendBtn" data-i18n="auth.resend">Resend code</button>
+        <button type="button" class="link-btn" style="margin-top:10px" id="authBackBtn" data-i18n="auth.changeEmail">Use a different email</button>
       </div>
-      <div id="authError" class="sched-error" style="display:none;margin-top:12px"></div>
-      <div id="authInfo" class="sched-status ok" style="display:none;margin-top:12px"></div>
-      <label class="remember-row" id="authTermsRow" style="display:none;margin-top:12px;align-items:flex-start">
-        <input type="checkbox" id="authTermsCheck">
-        <span data-i18n="auth.terms">I have read and agree to the <a href="/legal.html" target="_blank" rel="noopener">Privacy Policy &amp; Terms of Use</a></span>
-      </label>
-      <button type="submit" class="run-btn" id="authSubmitBtn" style="margin-top:18px" data-i18n="auth.signin">Sign in</button>
-      <button type="button" class="action-btn" style="margin-top:10px" id="authModeBtn" onclick="toggleAuthMode()" data-i18n="auth.toRegister">New here? Create an account</button>
-      <button type="button" class="link-btn" id="authForgotLink" style="margin-top:10px;display:none" onclick="showForgot()" data-i18n="auth.forgot">Forgot your password?</button>
     </form>
   </div>
   <p class="footer"><a class="footer-contact" href="mailto:yotamjacob@gmail.com" onclick="openContactModal();return false;" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" onclick="openLegalModal();return false;" data-i18n="footer.legal">פרטיות ותנאי שימוש</a> <a class="footer-contact" href="/delete-account.html" onclick="openLegalModal('/delete-account.html','footer.deleteData');return false;" data-i18n="footer.deleteData">מחיקת חשבון</a></p>
@@ -696,12 +734,12 @@
           <span class="ci-done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg></span>
         </div>
         <div class="check-body"><div class="check-row">
-          <span class="check-label" data-i18n="prog.finalize">Preparing download</span>
+          <span class="check-label" data-i18n="prog.finalize">Loading preview</span>
           <span class="check-time" id="checkFinalizeTime"></span>
         </div></div>
       </div>
 
-      <div class="checklist-footer" data-i18n="prog.keepOpen">Keep this page open while processing</div>
+      <div class="checklist-footer" id="checklistKeepOpen" data-i18n="prog.keepOpen">Keep this page open while processing</div>
     </div>
 
     <div class="status-done" id="statusDone">
@@ -1032,7 +1070,7 @@
 </script>
 <!-- WhatsApp feedback FAB: show the bubble on load (nudge), auto-collapse after
      a while, and let the user dismiss it for the session. Desktop re-reveals on
-     hover (CSS). The glowing button always stays. -->
+     hover (CSS). The button always stays. -->
 <script>
 (function(){
   var fab = document.getElementById('waFab');

@@ -22,6 +22,7 @@
     "@capacitor/share": "^8.0.1",
     "@capacitor/splash-screen": "^8.0.1",
     "@capawesome/capacitor-file-picker": "^8.0.3",
+    "@capgo/capacitor-social-login": "^8.3.36",
     "@capgo/capacitor-uploader": "^8.3.3"
   }
 }

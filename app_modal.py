@@ -18,6 +18,8 @@ import modal
 from pipeline_core import (
     light_image,
     jobs_store, progress_store, users_store, calls_store, quota_store, fcm_store,
+    codes_store, _normalize_email, _gen_login_code,
+    _verify_google_id_token, GOOGLE_WEB_CLIENT_ID,
     app, image, tmp_vol, TMP_DIR,
     _SAFE_KEY_RE, _SAFE_DOWNLOAD_KEY_RE, _check_rate_limit, _get_client_ip,
     throttle_store, _throttle_allowed, _throttle_record_fail, _throttle_clear,
@@ -33,6 +35,25 @@ from pipeline_core import (
 # Public base URLs used to build email links. SITE_URL can be overridden via
 # env once a custom domain is set; the API base is stable.
 API_BASE_URL = "https://yotamjacob--hebrew-video-pipeline-api.modal.run"
+
+
+def _code_email_html(code: str) -> str:
+    """Branded HTML for the passwordless login code (on-brand terracotta/sand)."""
+    return (
+        "<div style='font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;"
+        "background:#E8DFD3;padding:32px;text-align:center'>"
+        "<div style='max-width:440px;margin:0 auto;background:#F4ECE0;border:1.5px solid #DDD2C0;"
+        "border-radius:20px;padding:32px 28px'>"
+        "<div style='font-weight:800;font-size:20px;color:#C4703F;margin-bottom:14px'>פייפליין</div>"
+        "<h2 style='color:#3E3A34;font-size:19px;margin:0 0 10px'>Your login code</h2>"
+        "<p style='color:#6B6455;font-size:14px;line-height:1.6;margin:0 0 22px'>"
+        "Enter this code in the app to sign in. It expires in 10 minutes.</p>"
+        f"<div style='display:inline-block;background:#fff;border:1.5px solid #DDD2C0;border-radius:14px;"
+        f"padding:14px 28px;font-size:34px;font-weight:800;letter-spacing:10px;color:#3E3A34'>{code}</div>"
+        "<p style='color:#9A927F;font-size:12px;margin:22px 0 0'>"
+        "If you didn't request this, you can ignore this email.</p>"
+        "</div></div>"
+    )
 from pipeline_fns import process_video, burn_captions_fn, backup_dicts, restore_dicts, build_caption_ass
 from broll_fns import analyze_stock_broll, search_stock_clips
 from content_fns import generate_hook_options, generate_caption_options
@@ -78,11 +99,31 @@ def api():
         if scope["type"] != "http":
             return
 
-        async def send_error(msg: str, status: int = 500):
-            body = json.dumps({"error": msg}).encode()
+        async def send_error(msg: str, status: int = 500, code: str = None, **extra):
+            # `code` is a machine-readable id so the frontend can translate the
+            # message (i18n); `extra` carries structured params (e.g. retry_min).
+            payload = {"error": msg}
+            if code:
+                payload["code"] = code
+            payload.update(extra)
+            body = json.dumps(payload).encode()
             await send({"type": "http.response.start", "status": status,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})
+
+        def _resolve_account_key(nident, raw):
+            """Return the users_store key of an existing account for this email,
+            or None. Checks the normalized key, the raw lowercased key (legacy /
+            pre-normalization accounts), then the email reverse index — so an
+            alias never spawns a second account for the same person."""
+            for k in (nident, raw):
+                if isinstance(users_store.get(k), dict):
+                    return k
+            for k in (f"email:{raw}", f"email:{nident}"):
+                idx = users_store.get(k)
+                if isinstance(idx, str) and isinstance(users_store.get(idx), dict):
+                    return idx
+            return None
 
         method = scope["method"]
         path   = scope["path"]
@@ -105,11 +146,20 @@ def api():
             await send({"type": "http.response.body", "body": body})
             return
 
-        # ── Auth: register (invite-gated) / login ──
-        if path in ("/auth/register", "/auth/register/", "/auth/login", "/auth/login/") and method == "POST":
+        # ── Password registration is RETIRED (2026-07-13) ──
+        # New accounts are created only via verified email codes (/auth/request-
+        # code + /auth/verify-code) or Google — closing the "any email + shared
+        # invite = unlimited free-credit accounts" hole. Password /auth/login
+        # stays as a dormant fallback for legacy accounts.
+        if path in ("/auth/register", "/auth/register/") and method == "POST":
+            await send_error("Registration has moved - sign in with your email and the 6-digit code we send you.", 410)
+            return
+
+        # ── Auth: login (legacy password fallback) ──
+        if path in ("/auth/login", "/auth/login/") and method == "POST":
             _ip = _get_client_ip(scope)
             if not _check_rate_limit(_ip):
-                await send_error("Rate limit exceeded. Try again in a minute.", 429)
+                await send_error("Rate limit exceeded. Try again in a minute.", 429, code="rate_limited")
                 return
             import os, secrets as _secrets, time as _time
             _now = _time.time()
@@ -215,6 +265,246 @@ def api():
             await send({"type": "http.response.body", "body": body})
             return
 
+        # ── Passwordless login: request a 6-digit code by email (public) ──
+        if path in ("/auth/request-code", "/auth/request-code/") and method == "POST":
+            import os, time as _time
+            _ip = _get_client_ip(scope)
+            if not _check_rate_limit(_ip):
+                await send_error("Rate limit exceeded. Try again in a minute.", 429, code="rate_limited")
+                return
+            _now = _time.time()
+            try:
+                data = json.loads((await _read_body(receive)).decode("utf-8"))
+            except Exception:
+                await send_error("Invalid request body", 400)
+                return
+            _raw = (data.get("email") or "").strip().lower()
+            if not _raw or len(_raw) > 254 or ":" in _raw or not _EMAIL_RE.match(_raw):
+                await send_error("A valid email address is required", 400, code="invalid_email")
+                return
+            ident = _normalize_email(_raw)
+            is_new = _resolve_account_key(ident, _raw) is None
+            # Explicit flow from the two-panel UI: 'login' (existing user) or
+            # 'register' (new user). A mismatch is answered up front - no code is
+            # sent - so an existing email can't "register" a duplicate and a
+            # nonexistent email gets a clear "no account" instead of a silent code.
+            _mode = (data.get("mode") or "").strip().lower()
+            if _mode == "login" and is_new:
+                _nb = json.dumps({"error": "No account found for this email.", "no_account": True}).encode()
+                await send({"type": "http.response.start", "status": 403,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": _nb})
+                return
+            if _mode == "register" and not is_new:
+                _nb = json.dumps({"error": "This email already has an account.", "exists": True}).encode()
+                await send({"type": "http.response.start", "status": 409,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": _nb})
+                return
+            # NEW accounts still need a valid invite (kept as an extra gate) and
+            # Terms acceptance; existing accounts skip both (they're already in).
+            if is_new:
+                _ok, _retry = _throttle_allowed(throttle_store, f"invite:{_ip}", _now)
+                if not _ok:
+                    await send_error(f"Too many attempts. Try again in {_retry // 60 + 1} min.", 429,
+                                     code="throttled", retry_min=_retry // 60 + 1)
+                    return
+                if (data.get("invite") or "").strip().casefold() != os.environ.get("INVITE_CODE", "").strip().casefold():
+                    _throttle_record_fail(throttle_store, f"invite:{_ip}", _now)
+                    await send_error("Invalid invite code", 403, code="invalid_invite")
+                    return
+                _throttle_clear(throttle_store, f"invite:{_ip}")
+                if not data.get("terms_accepted"):
+                    await send_error("You must accept the Privacy Policy and Terms of Use", 400, code="terms_required")
+                    return
+            # Throttle code SENDS per email + per IP so an inbox can't be spammed.
+            _oke, _ree = _throttle_allowed(throttle_store, f"code:{ident}", _now)
+            _oki, _rii = _throttle_allowed(throttle_store, f"codeip:{_ip}", _now)
+            if not (_oke and _oki):
+                await send_error(f"Too many code requests. Try again in {max(_ree, _rii) // 60 + 1} min.", 429,
+                                 code="throttled", retry_min=max(_ree, _rii) // 60 + 1)
+                return
+            _throttle_record_fail(throttle_store, f"code:{ident}", _now)
+            _throttle_record_fail(throttle_store, f"codeip:{_ip}", _now)
+            _code = _gen_login_code()
+            _csalt, _chash = _hash_password(_code)
+            codes_store[ident] = {"salt": _csalt, "hash": _chash, "exp": _now + 600,
+                                  "attempts": 0, "is_new": is_new,
+                                  "terms_ts": (_now if is_new else None), "raw": _raw}
+            try:
+                _send_email(_raw, f"{_code} is your Pipeline login code", _code_email_html(_code))
+            except Exception as _mail_err:
+                print(f"[email] login code send failed: {_mail_err}")
+            body = json.dumps({"ok": True, "is_new": is_new}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── Passwordless login: verify the code → session token (public) ──
+        if path in ("/auth/verify-code", "/auth/verify-code/") and method == "POST":
+            import os, secrets as _secrets, time as _time
+            _ip = _get_client_ip(scope)
+            if not _check_rate_limit(_ip):
+                await send_error("Rate limit exceeded. Try again in a minute.", 429, code="rate_limited")
+                return
+            _now = _time.time()
+            try:
+                data = json.loads((await _read_body(receive)).decode("utf-8"))
+            except Exception:
+                await send_error("Invalid request body", 400)
+                return
+            _raw  = (data.get("email") or "").strip().lower()
+            _code = (data.get("code") or "").strip()
+            if not _EMAIL_RE.match(_raw) or not _code.isdigit() or len(_code) != 6:
+                await send_error("Enter the 6-digit code from your email.", 400, code="code_format")
+                return
+            ident = _normalize_email(_raw)
+            # Throttle verify attempts per email AND per IP (guessing defense).
+            _okv, _rev = _throttle_allowed(throttle_store, f"codev:{ident}", _now)
+            _oki, _rii = _throttle_allowed(throttle_store, f"codevip:{_ip}", _now)
+            if not (_okv and _oki):
+                await send_error(f"Too many attempts. Try again in {max(_rev, _rii) // 60 + 1} min.", 429,
+                                 code="throttled", retry_min=max(_rev, _rii) // 60 + 1)
+                return
+            crec = codes_store.get(ident)
+            if not isinstance(crec, dict) or crec.get("exp", 0) < _now:
+                _throttle_record_fail(throttle_store, f"codev:{ident}", _now)
+                _throttle_record_fail(throttle_store, f"codevip:{_ip}", _now)
+                await send_error("This code has expired. Request a new one.", 400, code="code_expired")
+                return
+            # Per-code attempt cap so a single live code can't be brute-forced.
+            crec["attempts"] = crec.get("attempts", 0) + 1
+            if crec["attempts"] > 5:
+                codes_store.pop(ident, None)
+                await send_error("Too many wrong tries. Request a new code.", 400, code="code_tries")
+                return
+            codes_store[ident] = crec
+            if not _verify_password(_code, crec["salt"], crec["hash"]):
+                _throttle_record_fail(throttle_store, f"codev:{ident}", _now)
+                _throttle_record_fail(throttle_store, f"codevip:{_ip}", _now)
+                await send_error("Incorrect code. Try again.", 401, code="code_incorrect")
+                return
+            # Correct — consume the code and clear throttles.
+            codes_store.pop(ident, None)
+            _throttle_clear(throttle_store, f"codev:{ident}")
+            _throttle_clear(throttle_store, f"codevip:{_ip}")
+            _throttle_clear(throttle_store, f"code:{ident}")
+            # Find-or-create the account, keyed by the NORMALIZED email.
+            _acct_key = _resolve_account_key(ident, _raw)
+            if _acct_key:
+                rec = users_store.get(_acct_key)
+                rec["email_verified"] = True
+                if not rec.get("email"):
+                    rec["email"] = _raw
+                users_store[_acct_key] = rec
+                new_uid = rec["uid"]
+                _uname = rec.get("email") or _acct_key
+            else:
+                new_uid = _secrets.token_hex(16)
+                users_store[ident] = {"uid": new_uid, "created": _now, "email": _raw,
+                                      "email_verified": True, "auth": "code",
+                                      "terms_accepted_ts": crec.get("terms_ts") or _now,
+                                      "video_limit": DEFAULT_VIDEO_LIMIT, "videos_used": 0}
+                users_store[f"uid:{new_uid}"] = ident
+                users_store[f"email:{ident}"] = ident
+                if _raw != ident:
+                    users_store[f"email:{_raw}"] = ident   # also index the raw form
+                _uname = _raw
+            token = _sign_token(new_uid, os.environ["AUTH_SECRET"])
+            body = json.dumps({"token": token, "username": _uname}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── Google Sign-In: verify the ID token → session token (public) ──
+        # Same normalized-email keying as the code flow, so signing in with
+        # Google and with a code for the same address land on ONE account (no
+        # double credits). NEW accounts require the invite + Terms (the consent
+        # screen is published, so Google no longer gates signups); the response
+        # carries `need_invite:true` so the app reveals those fields and retries.
+        if path in ("/auth/google", "/auth/google/") and method == "POST":
+            import os, secrets as _secrets, time as _time
+            _ip = _get_client_ip(scope)
+            if not _check_rate_limit(_ip):
+                await send_error("Rate limit exceeded. Try again in a minute.", 429, code="rate_limited")
+                return
+            _now = _time.time()
+            try:
+                data = json.loads((await _read_body(receive)).decode("utf-8"))
+            except Exception:
+                await send_error("Invalid request body", 400)
+                return
+            claims = _verify_google_id_token(data.get("id_token") or data.get("credential") or "")
+            _raw = ((claims.get("email") if claims else "") or "").strip().lower()
+            if not claims or not _EMAIL_RE.match(_raw):
+                await send_error("Google sign-in failed. Please try again.", 401, code="google_failed")
+                return
+            ident = _normalize_email(_raw)
+            _sub = claims.get("sub")
+            _acct_key = _resolve_account_key(ident, _raw)
+            # Two-panel UI: in the "existing user" panel a Google account with no
+            # record gets a clear "no account" answer instead of the invite dance.
+            # (register + existing account just signs in - it's the same person,
+            # Google already verified the email.)
+            if (data.get("mode") or "").strip().lower() == "login" and not _acct_key:
+                _nb = json.dumps({"error": "No account found for this Google account.", "no_account": True}).encode()
+                await send({"type": "http.response.start", "status": 403,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": _nb})
+                return
+            if _acct_key:
+                rec = users_store.get(_acct_key)
+                rec["email_verified"] = True
+                if not rec.get("email"):
+                    rec["email"] = _raw
+                if _sub:
+                    rec["google_sub"] = _sub
+                users_store[_acct_key] = rec
+                new_uid = rec["uid"]
+                _uname = rec.get("email") or _acct_key
+            else:
+                # NEW account via Google. The consent screen is PUBLISHED (Google
+                # no longer restricts who can sign in), so gate new signups with
+                # the invite + Terms just like the email-code path. `need_invite`
+                # tells the app to reveal those fields and retry.
+                _iok, _iretry = _throttle_allowed(throttle_store, f"invite:{_ip}", _now)
+                if not _iok:
+                    await send_error(f"Too many attempts. Try again in {_iretry // 60 + 1} min.", 429,
+                                     code="throttled", retry_min=_iretry // 60 + 1)
+                    return
+                if (data.get("invite") or "").strip().casefold() != os.environ.get("INVITE_CODE", "").strip().casefold():
+                    _throttle_record_fail(throttle_store, f"invite:{_ip}", _now)
+                    _nb = json.dumps({"error": "Enter your invite code to create an account.", "need_invite": True, "code": "invalid_invite"}).encode()
+                    await send({"type": "http.response.start", "status": 403,
+                                "headers": CORS + [(b"content-type", b"application/json")]})
+                    await send({"type": "http.response.body", "body": _nb})
+                    return
+                if not data.get("terms_accepted"):
+                    _nb = json.dumps({"error": "Please accept the Privacy Policy and Terms of Use.", "need_invite": True, "code": "terms_required"}).encode()
+                    await send({"type": "http.response.start", "status": 400,
+                                "headers": CORS + [(b"content-type", b"application/json")]})
+                    await send({"type": "http.response.body", "body": _nb})
+                    return
+                _throttle_clear(throttle_store, f"invite:{_ip}")
+                new_uid = _secrets.token_hex(16)
+                users_store[ident] = {"uid": new_uid, "created": _now, "email": _raw,
+                                      "email_verified": True, "auth": "google", "google_sub": _sub,
+                                      "terms_accepted_ts": _now,
+                                      "video_limit": DEFAULT_VIDEO_LIMIT, "videos_used": 0}
+                users_store[f"uid:{new_uid}"] = ident
+                users_store[f"email:{ident}"] = ident
+                if _raw != ident:
+                    users_store[f"email:{_raw}"] = ident
+                _uname = _raw
+            token = _sign_token(new_uid, os.environ["AUTH_SECRET"])
+            body = json.dumps({"token": token, "username": _uname}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
         # ── Email verification (public link from the verification email) ──
         if path in ("/auth/verify", "/auth/verify/") and method == "GET":
             import os as _os
@@ -249,7 +539,7 @@ def api():
         if path in ("/auth/forgot", "/auth/forgot/") and method == "POST":
             import os as _os
             if not _check_rate_limit(_get_client_ip(scope)):
-                await send_error("Rate limit exceeded. Try again in a minute.", 429)
+                await send_error("Rate limit exceeded. Try again in a minute.", 429, code="rate_limited")
                 return
             try:
                 _d = json.loads((await _read_body(receive)).decode("utf-8"))
@@ -542,7 +832,7 @@ def api():
         # ── Schedule a post (spawn) ──
         if path in ("/schedule", "/schedule/") and method == "POST":
             if not _check_rate_limit(_get_client_ip(scope)):
-                await send_error("Rate limit exceeded. Try again in a minute.", 429)
+                await send_error("Rate limit exceeded. Try again in a minute.", 429, code="rate_limited")
                 return
             if not oauth_store.get(f"tokens:{uid}"):
                 await send_error("not_connected", 400)
@@ -1429,7 +1719,7 @@ def api():
         # Stock B-roll analysis — spawn Claude + Pexels/Pixabay search
         if path in ("/stock-broll", "/stock-broll/") and method == "POST":
             if not _check_rate_limit(_get_client_ip(scope)):
-                await send_error("Rate limit exceeded. Try again in a minute.", 429)
+                await send_error("Rate limit exceeded. Try again in a minute.", 429, code="rate_limited")
                 return
             body = await _read_body(receive)
             data = json.loads(body.decode("utf-8"))
@@ -1521,7 +1811,7 @@ def api():
         # Hook generation
         if path in ("/generate-hook", "/generate-hook/") and method == "POST":
             if not _check_rate_limit(_get_client_ip(scope)):
-                await send_error("Rate limit exceeded. Try again in a minute.", 429)
+                await send_error("Rate limit exceeded. Try again in a minute.", 429, code="rate_limited")
                 return
             body = await _read_body(receive)
             data = json.loads(body.decode("utf-8"))
@@ -1569,7 +1859,7 @@ def api():
         # Caption generation (suggested social caption from transcript)
         if path in ("/generate-caption", "/generate-caption/") and method == "POST":
             if not _check_rate_limit(_get_client_ip(scope)):
-                await send_error("Rate limit exceeded. Try again in a minute.", 429)
+                await send_error("Rate limit exceeded. Try again in a minute.", 429, code="rate_limited")
                 return
             body = await _read_body(receive)
             data = json.loads(body.decode("utf-8"))

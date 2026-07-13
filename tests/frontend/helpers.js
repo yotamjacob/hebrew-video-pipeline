@@ -22,6 +22,10 @@ async function bootApp(page, { me } = {}) {
   await page.route(/fonts\.googleapis\.com/, r =>
     r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
   await page.route(/fonts\.gstatic\.com/, r => r.abort());
+  // Google Identity Services loads on the login view (web) - stub the CDN so the
+  // suite never hits the real endpoint.
+  await page.route(/accounts\.google\.com\/gsi/, r =>
+    r.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
   await page.addInitScript(() => localStorage.setItem('hebpipe_token', 'test-token'));
   const mePayload = JSON.stringify(me || { username: 'tester', role: 'user', videos_used: 0, video_limit: -1 });
   await page.route(/\/auth\/me/, r =>

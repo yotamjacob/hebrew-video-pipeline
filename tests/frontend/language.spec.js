@@ -42,16 +42,18 @@ test('login view is translated too', async ({ page }) => {
   await page.route(/fonts\.googleapis\.com/, r =>
     r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
   await page.route(/fonts\.gstatic\.com/, r => r.abort());
+  await page.route(/accounts\.google\.com\/gsi/, r =>
+    r.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
   await page.goto('/');
   await page.waitForSelector('#authView', { state: 'visible' });
   await expect(page.locator('#langToggle')).toBeVisible();
-  // Hebrew by default
-  await expect(page.locator('#authSubmitBtn')).toHaveText('התחברות');
-  await expect(page.locator('#authModeBtn')).toHaveText('חדשים כאן? צרו חשבון');
+  // Hebrew by default (choice landing: existing user / new user)
+  await expect(page.locator('#authView .options-title')).toHaveText('התחברות');
+  await expect(page.locator('#authChoiceExisting')).toHaveText('יש לי חשבון');
   // …and English after toggling
   await page.click('#langToggle');
-  await expect(page.locator('#authSubmitBtn')).toHaveText('Sign in');
-  await expect(page.locator('#authModeBtn')).toHaveText('New here? Create an account');
+  await expect(page.locator('#authView .options-title')).toHaveText('Sign In');
+  await expect(page.locator('#authChoiceExisting')).toHaveText('I have an account');
 });
 
 test('state-driven labels re-render on language switch', async ({ page }) => {

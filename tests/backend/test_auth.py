@@ -16,7 +16,10 @@ _auth = _extract_fn(MODAL_SRC, "_hash_password", "_verify_password",
                     "_sign_media_token", "_verify_media_token",
                     "_sign_scoped_token", "_verify_scoped_token",
                     "_user_prefix", "_owned_key",
+                    "_normalize_email", "_gen_login_code",
                     extra_ns=_ns)
+_normalize_email = _auth["_normalize_email"]
+_gen_login_code  = _auth["_gen_login_code"]
 _hash_password    = _auth["_hash_password"]
 _verify_password  = _auth["_verify_password"]
 _sign_token       = _auth["_sign_token"]
@@ -177,3 +180,32 @@ def test_scoped_and_session_tokens_disjoint():
     # A media token (scope "m") isn't a verify token either.
     media = _sign_media_token(UID, SECRET, now=1000)
     assert _verify_scoped_token(media, "verify", SECRET, now=1000) is None
+
+
+# ── Email normalization (anti multi-signup / free-credit farming) ────────────
+
+def test_normalize_email_gmail_dots_and_plus_collapse():
+    # All of these reach the SAME Gmail inbox → must map to one account key.
+    canon = _normalize_email("john.doe@gmail.com")
+    assert canon == "johndoe@gmail.com"
+    for variant in ["johndoe@gmail.com", "j.o.h.n.d.o.e@gmail.com",
+                    "johndoe+promo@gmail.com", "JohnDoe@Gmail.com",
+                    "  johndoe@gmail.com  ", "john.doe+test123@googlemail.com"]:
+        assert _normalize_email(variant) == canon, variant
+
+
+def test_normalize_email_non_gmail_keeps_local_part():
+    # Non-Gmail providers may treat dots as significant → do NOT strip them,
+    # but still drop +tag and lowercase/trim.
+    assert _normalize_email("First.Last@Outlook.com") == "first.last@outlook.com"
+    assert _normalize_email("first.last+tag@outlook.com") == "first.last@outlook.com"
+
+
+def test_normalize_email_googlemail_aliases_to_gmail():
+    assert _normalize_email("a@googlemail.com") == "a@gmail.com"
+
+
+def test_gen_login_code_is_six_digits():
+    for _ in range(200):
+        c = _gen_login_code()
+        assert len(c) == 6 and c.isdigit()
