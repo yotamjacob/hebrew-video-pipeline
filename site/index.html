@@ -202,27 +202,6 @@
   <p class="footer"><a class="footer-contact" href="mailto:yotamjacob@gmail.com" onclick="openContactModal();return false;" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" onclick="openLegalModal();return false;" data-i18n="footer.legal">פרטיות ותנאי שימוש</a> <a class="footer-contact" href="/delete-account.html" onclick="openLegalModal('/delete-account.html','footer.deleteData');return false;" data-i18n="footer.deleteData">מחיקת חשבון</a></p>
 </div>
 
-<!-- ── Reset password (opened from the email link, ?reset=token) ── -->
-<div class="container" id="resetView" style="display:none">
-  <div class="card">
-    <div class="card-header" style="cursor:default">
-      <p class="options-title" data-i18n="reset.title">Set a new password</p>
-    </div>
-    <div style="padding-top:14px">
-      <label class="sched-label" data-i18n="auth.password">Password</label>
-      <div class="pw-wrap">
-        <input type="password" id="resetPassword" class="sched-input" style="width:100%" autocomplete="new-password" />
-        <button type="button" class="pw-toggle" onclick="togglePw('resetPassword', this)" aria-label="Show password">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-        </button>
-      </div>
-      <div id="resetError" class="sched-error" style="display:none;margin-top:12px"></div>
-      <div id="resetInfo" class="sched-status ok" style="display:none;margin-top:12px"></div>
-      <button class="run-btn" id="resetSubmitBtn" style="margin-top:18px" onclick="resetSubmit()" data-i18n="reset.submit">Save new password</button>
-    </div>
-  </div>
-  <p class="footer"><a class="footer-contact" href="mailto:yotamjacob@gmail.com" onclick="openContactModal();return false;" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" onclick="openLegalModal();return false;" data-i18n="footer.legal">פרטיות ותנאי שימוש</a> <a class="footer-contact" href="/delete-account.html" onclick="openLegalModal('/delete-account.html','footer.deleteData');return false;" data-i18n="footer.deleteData">מחיקת חשבון</a></p>
-</div>
 
 <div class="container" id="pipelineView" style="display:none">
 

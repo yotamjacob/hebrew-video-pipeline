@@ -3,13 +3,21 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.2.1';
+  const APP_VERSION = '1.2.2';
   document.querySelectorAll('p.footer').forEach(f => {
     const v = document.createElement('span');
     v.className = 'footer-version';
     v.textContent = 'v' + APP_VERSION;
     f.appendChild(v);
   });
+
+  // WhatsApp FAB: prefill the chat with a language-appropriate opener so the
+  // user doesn't face an empty message box. Re-applied on language switch.
+  function _syncWaLink() {
+    const a = document.querySelector('.wa-fab-btn');
+    if (a) a.href = 'https://wa.me/972528828232?text=' + encodeURIComponent(t('wa.prefill'));
+  }
+  _syncWaLink();
   // Google Sign-In OAuth Web client ID (PUBLIC - ships in the app + web page).
   // Used as the native plugin's serverClientId and the web GIS client_id; the
   // backend verifies the returned ID token against this same audience.
@@ -106,18 +114,6 @@
     return url + (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(tok);
   }
 
-  // Show/hide password toggle (eye icon).
-  const _EYE = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
-  const _EYE_OFF = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20C5 20 1 12 1 12a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
-  function togglePw(id, btn) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const reveal = el.type === 'password';
-    el.type = reveal ? 'text' : 'password';
-    btn.innerHTML = reveal ? _EYE_OFF : _EYE;
-    btn.setAttribute('aria-label', t(reveal ? 'auth.hidePw' : 'auth.showPw'));
-  }
-
   function _sessionExpired() {
     _clearToken();
     showAuthView();
@@ -166,7 +162,6 @@
     if (emailInput && !emailInput.value) {
       emailInput.value = localStorage.getItem('hebpipe_email') || '';
     }
-    document.getElementById('resetView').style.display = 'none';
     document.getElementById('tabsBar').style.display = 'none';
     const vb = document.getElementById('verifyBanner');
     if (vb) vb.style.display = 'none';
@@ -184,7 +179,6 @@
   function showApp() {
     _hideBootLoader();
     document.getElementById('authView').style.display = 'none';
-    document.getElementById('resetView').style.display = 'none';
     document.getElementById('tabsBar').style.display = 'flex';
     document.getElementById('logoutTab').style.display = 'inline-block';
     document.getElementById('pipelineView').style.display = 'block';
@@ -232,46 +226,6 @@
       document.getElementById('verifyBannerMsg').textContent = t('verify.sendFailed');
     } finally {
       btn.disabled = false;
-    }
-  }
-
-  // ── Password reset (opened via ?reset=token from the email) ──
-  function showResetView(token) {
-    _hideBootLoader();
-    window._resetToken = token;
-    document.getElementById('authView').style.display = 'none';
-    document.getElementById('tabsBar').style.display = 'none';
-    document.getElementById('logoutTab').style.display = 'none';
-    ['pipelineView', 'historyView', 'guideView', 'adminView'].forEach(id => {
-      const el = document.getElementById(id); if (el) el.style.display = 'none';
-    });
-    document.getElementById('resetView').style.display = 'block';
-  }
-
-  async function resetSubmit() {
-    const btn = document.getElementById('resetSubmitBtn');
-    const errEl = document.getElementById('resetError');
-    const infoEl = document.getElementById('resetInfo');
-    const pw = document.getElementById('resetPassword').value;
-    errEl.style.display = 'none'; infoEl.style.display = 'none';
-    if (pw.length < 8) { errEl.textContent = t('reset.tooShort'); errEl.style.display = 'block'; return; }
-    _btnBusy(btn, true);
-    try {
-      const r = await fetch(`${API_BASE}/auth/reset`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: window._resetToken, password: pw }),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || t('auth.errStatus', { status: r.status }));
-      _btnBusy(btn, false);
-      infoEl.textContent = t('reset.done');
-      infoEl.style.display = 'block';
-      // Drop the token from the URL and return to sign-in shortly.
-      setTimeout(() => { history.replaceState(null, '', location.pathname); showAuthView(); }, 1800);
-    } catch (e) {
-      errEl.textContent = e.message || String(e);
-      errEl.style.display = 'block';
-      _btnBusy(btn, false);
     }
   }
 
@@ -5453,9 +5407,6 @@
 
   // ── Session boot ──
   (async function initAuth() {
-    // A password-reset link takes priority over any existing session.
-    const resetTok = new URLSearchParams(location.search).get('reset');
-    if (resetTok) { showResetView(resetTok); return; }
     if (!authToken) { showAuthView(); return; }
     try {
       const r = await fetch(`${API_BASE}/auth/me`, { headers: { 'Authorization': 'Bearer ' + authToken } });
@@ -5481,6 +5432,7 @@
     if (burnMode && !runBtn.disabled) updateBurnBtn();
     // Auth buttons (both steps) re-label on language switch (flow-aware).
     _syncAuthSubmitLabel();
+    _syncWaLink();
     { const b = document.getElementById('authVerifyBtn'); if (b) b.textContent = t('auth.verify'); }
     { const c = document.getElementById('authCodeHint');
       if (c && _authEmail && document.getElementById('authStepCode').style.display !== 'none')

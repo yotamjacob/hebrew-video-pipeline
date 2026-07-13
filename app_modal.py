@@ -27,7 +27,7 @@ from pipeline_core import (
     _hash_password, _verify_password, _sign_token, _verify_token,
     _sign_media_token, _verify_media_token, MEDIA_TOKEN_TTL_SECONDS,
     _EMAIL_RE, _sign_scoped_token, _verify_scoped_token, _send_email, _email_html,
-    EMAIL_VERIFY_TTL_SECONDS, PASSWORD_RESET_TTL_SECONDS,
+    EMAIL_VERIFY_TTL_SECONDS,
     _user_prefix, _owned_key, _broll_item_safe,
     DEFAULT_VIDEO_LIMIT, _quota_state, _quota_allows, _count_quota_used,
 )
@@ -539,65 +539,11 @@ def api():
             await send({"type": "http.response.body", "body": page})
             return
 
-        # ── Password reset: request a link (public) ──
-        if path in ("/auth/forgot", "/auth/forgot/") and method == "POST":
-            import os as _os
-            if not _check_rate_limit(_get_client_ip(scope)):
-                await send_error("Rate limit exceeded. Try again in a minute.", 429, code="rate_limited")
-                return
-            try:
-                _d = json.loads((await _read_body(receive)).decode("utf-8"))
-            except Exception:
-                _d = {}
-            _ident = (_d.get("identifier") or "").strip().lower()
-            # Accept either a username or an email; resolve to a user record.
-            _uname = None
-            if _ident:
-                if users_store.contains(_ident):
-                    _uname = _ident
-                else:
-                    _uname = users_store.get(f"email:{_ident}")
-            _rec = users_store.get(_uname) if _uname else None
-            if _rec and _rec.get("email"):
-                _site = _os.environ.get("SITE_URL", "https://hebrew-pipeline.app")
-                _rt = _sign_scoped_token(_rec["uid"], "reset", _os.environ["AUTH_SECRET"], PASSWORD_RESET_TTL_SECONDS)
-                _send_email(_rec["email"], "Reset your password - פייפליין",
-                            _email_html("Reset your password",
-                                        "Tap below to choose a new password. This link expires in an hour. If you didn't ask for this, ignore this email.",
-                                        "Reset password", f"{_site}/?reset={_rt}"))
-            # Always 200 — never reveal whether an account exists.
-            await send({"type": "http.response.start", "status": 200,
-                        "headers": CORS + [(b"content-type", b"application/json")]})
-            await send({"type": "http.response.body", "body": b'{"ok":true}'})
-            return
-
-        # ── Password reset: set a new password with a valid token (public) ──
-        if path in ("/auth/reset", "/auth/reset/") and method == "POST":
-            import os as _os
-            try:
-                _d = json.loads((await _read_body(receive)).decode("utf-8"))
-            except Exception:
-                _d = {}
-            _rtok = _d.get("token") or ""
-            _newpw = _d.get("password") or ""
-            _ruid = _verify_scoped_token(_rtok, "reset", _os.environ["AUTH_SECRET"]) if _rtok else None
-            if not _ruid:
-                await send_error("This reset link is invalid or expired.", 400)
-                return
-            if len(_newpw) < 8:
-                await send_error("Password must be at least 8 characters", 400)
-                return
-            _runame = users_store.get(f"uid:{_ruid}")
-            _rrec = users_store.get(_runame) if _runame else None
-            if not _rrec:
-                await send_error("This reset link is invalid or expired.", 400)
-                return
-            _salt, _ph = _hash_password(_newpw)
-            _rrec["salt"], _rrec["pw"] = _salt, _ph
-            users_store[_runame] = _rrec
-            await send({"type": "http.response.start", "status": 200,
-                        "headers": CORS + [(b"content-type", b"application/json")]})
-            await send({"type": "http.response.body", "body": b'{"ok":true}'})
+        # ── Password reset routes REMOVED (2026-07-13): auth is passwordless
+        # (email codes / Google), so there are no passwords to reset. Old
+        # /auth/forgot + /auth/reset now 410 via the fallthrough below.
+        if path in ("/auth/forgot", "/auth/forgot/", "/auth/reset", "/auth/reset/") and method == "POST":
+            await send_error("Passwords are gone - sign in with your email code or Google.", 410)
             return
 
         # ── Session guard — every route below requires a valid token. ──

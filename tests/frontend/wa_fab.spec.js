@@ -5,7 +5,8 @@ test.beforeEach(async ({ page }) => { await bootApp(page); });
 
 test('WhatsApp feedback FAB links to the right number and shows the annotation', async ({ page }) => {
   const link = page.locator('.wa-fab-btn');
-  await expect(link).toHaveAttribute('href', 'https://wa.me/972528828232');
+  // href now carries a language-appropriate prefilled message (?text=...).
+  await expect(link).toHaveAttribute('href', /^https:\/\/wa\.me\/972528828232\?text=.+/);
   await expect(link).toHaveAttribute('target', '_blank');
   // The feedback annotation bubble is present.
   await expect(page.locator('#waFabBubble')).toBeVisible();
