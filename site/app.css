@@ -1745,11 +1745,17 @@
 }
 
 /* ── Language toggle (hero corner, visible on every view) ── */
-.lang-toggle {
+/* Top-corner actions: language toggle + logout, side by side. */
+.hero-actions {
   position: absolute;
   top: 14px;
   inset-inline-end: 14px;
-  z-index: 5;
+  z-index: 6;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.lang-toggle {
   appearance: none;
   background: var(--white);
   border: 1px solid var(--line);
@@ -1820,9 +1826,10 @@
 .mc-chip.connected:hover::after { opacity: 1; }
 
 .logout-btn {
-  display: inline-block; margin-inline-start: 8px; padding: 6px 12px;
-  border-radius: 999px; border: 1.5px solid var(--purple-100);
-  background: var(--white); font-size: 0.85rem; cursor: pointer; font-family: inherit;
+  display: inline-block; padding: 6px 14px;
+  border-radius: 999px; border: 1px solid var(--line);
+  background: var(--white); color: var(--purple-700);
+  font-size: 0.74rem; font-weight: 700; cursor: pointer; font-family: 'Assistant', sans-serif;
 }
 .logout-btn:hover { background: #F5E7DC; border-color: #E3C2A8; }
 

@@ -58,7 +58,10 @@
 </div>
 
 <div class="hero">
-  <button id="langToggle" class="lang-toggle" onclick="toggleLang()" data-i18n="lang.switch">עברית</button>
+  <div class="hero-actions">
+    <button id="langToggle" class="lang-toggle" onclick="toggleLang()" data-i18n="lang.switch">עברית</button>
+    <button id="logoutTab" class="logout-btn" style="display:none" onclick="logout()" data-i18n="tab.logout">התנתקות</button>
+  </div>
   <div class="hero-overlay">
     <div id="heroGreeting" class="hero-greeting" style="display:none"></div>
     <div class="hero-title-row">
@@ -92,7 +95,6 @@
 <div class="quota-pill-row">
   <button id="metricoolChip" class="mc-chip" style="display:none" onclick="onMetricoolChip()"></button>
   <div id="quotaPill" class="quota-pill" style="display:none"></div>
-  <button id="logoutTab" class="logout-btn" style="display:none" onclick="logout()" data-i18n="tab.logout">התנתקות</button>
 </div>
 </div>
 
