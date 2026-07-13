@@ -186,7 +186,6 @@
     'hook.top':          { en: 'Top', he: 'למעלה' },
     'hook.bottom':       { en: 'Bottom', he: 'למטה' },
     'hook.saveLoad':     { en: 'Save / Load Template', he: 'שמירה / טעינה של תבנית' },
-    'hook.willBurn':     { en: 'Hook will be included when you burn the video below.', he: 'ההוק ייכלל כשתצרבו את הסרטון למטה.' },
 
     // ── Run / burn / result ──
     'run.pipeline':     { en: 'Run Pipeline', he: 'הפעלת העיבוד' },

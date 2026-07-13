@@ -1450,6 +1450,11 @@
       inset-inline-end: 10px; width: min(150px, 40vw) !important;
       z-index: 45; border-radius: 12px;
       box-shadow: 0 10px 26px -10px rgba(62,58,52,0.6);
+      animation: pipFlyIn 0.28s cubic-bezier(0.2, 0.8, 0.3, 1);
+    }
+    @keyframes pipFlyIn {
+      from { transform: scale(0.55) translateY(-14px); opacity: 0.3; }
+      to   { transform: none; opacity: 1; }
     }
     .player-outer.is-stuck .player-controls { display: none; }
     /* B-roll preview overlays: cover the frame during their moment window. */

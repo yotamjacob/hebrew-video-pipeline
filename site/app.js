@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.4.0';
+  const APP_VERSION = '1.4.1';
   document.querySelectorAll('p.footer').forEach(f => {
     const v = document.createElement('span');
     v.className = 'footer-version';
@@ -748,21 +748,53 @@
   // Prefetch the cut-video blob the moment processing finishes (video_key known)
   // so the editor's preview is ready instantly instead of downloading on open.
   let _previewBlobPromise    = null;
+  let _previewBlobKey        = null;   // remembered so a failed prefetch can be retried
   function _prefetchPreviewBlob(key) {
-    if (!key || String(key).endsWith('.m4a')) { _previewBlobPromise = null; return; }  // audio has no video preview
+    if (!key || String(key).endsWith('.m4a')) { _previewBlobPromise = null; _previewBlobKey = null; return; }  // audio has no video preview
+    _previewBlobKey = key;
     _previewBlobPromise = (async () => {
       const resp = await apiFetch(_withToken(`${API_BASE}/download/${key}`));
       if (!resp.ok) throw new Error('download ' + resp.status);
-      return URL.createObjectURL(new Blob([await resp.arrayBuffer()], { type: 'video/mp4' }));
+      const buf = await resp.arrayBuffer();
+      if (!buf || buf.byteLength < 1024) throw new Error('preview blob truncated (' + (buf ? buf.byteLength : 0) + ' bytes)');
+      return URL.createObjectURL(new Blob([buf], { type: 'video/mp4' }));
     })().catch(e => { console.error('preview prefetch failed', e); return null; });
   }
-  // Block (as a visible "almost ready" step, part of processing) until the
-  // preview blob has downloaded, so the editor's Play is instant. Bounded so a
-  // slow/failed download never hangs the flow (player falls back to streaming).
+  // Confirm the blob URL actually DECODES as video (metadata parses) - a
+  // truncated/HTML-error blob would otherwise show a dead black player.
+  function _probeVideoURL(url, timeoutMs = 15000) {
+    return new Promise((resolve) => {
+      const v = document.createElement('video');
+      const done = (ok) => { v.removeAttribute('src'); try { v.load(); } catch (_) {} resolve(ok); };
+      const tm = setTimeout(() => done(false), timeoutMs);
+      v.onloadedmetadata = () => { clearTimeout(tm); done(true); };
+      v.onerror = () => { clearTimeout(tm); done(false); };
+      v.preload = 'metadata';
+      v.src = url;
+    });
+  }
+  // Block (as a visible "Loading preview" step, part of processing) until the
+  // preview blob has downloaded AND validated as decodable. One retry on
+  // failure (the FIRST /download read after a burn/cut can stall on a cold
+  // volume). Bounded so a hopeless network never hangs the flow - the player
+  // still falls back to streaming.
   async function _ensurePreviewReady() {
     if (isAudioInput || !_previewBlobPromise) return;
     _stepActivate('finalize');
-    try { await Promise.race([_previewBlobPromise, new Promise(r => setTimeout(r, 30000))]); } catch (_) {}
+    const bounded = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r(undefined), ms))]);
+    try {
+      let url = await bounded(_previewBlobPromise, 90000);
+      if (url && !(await _probeVideoURL(url))) {
+        console.warn('preview blob failed validation - refetching');
+        try { URL.revokeObjectURL(url); } catch (_) {}
+        url = null;
+      }
+      if (!url && _previewBlobKey) {
+        _prefetchPreviewBlob(_previewBlobKey);   // retry once
+        url = await bounded(_previewBlobPromise, 60000);
+        if (url && !(await _probeVideoURL(url))) { try { URL.revokeObjectURL(url); } catch (_) {} _previewBlobPromise = Promise.resolve(null); }
+      }
+    } catch (_) {}
     _stepDone('finalize');
   }
   let _playerDispW           = 0;   // detected display width (accounts for browser rotation)
@@ -3571,31 +3603,49 @@
   }
 
   // ── Sticky preview: dock + shrink the player once its sentinel scrolls out ──
-  let _stickyObs = null;
+  let _stickyObs = null, _stickyCardObs = null;
+  let _sentinelAboveTop = false, _editorInView = true;
+  function _applyStickyState(player) {
+    // Float ONLY while the user is inside the editor area: the sentinel has
+    // scrolled past the top AND part of the editor card is still on screen.
+    // Scrolling above the card, or past it (burn button / status), un-floats.
+    const stick = _sentinelAboveTop && _editorInView;
+    if (stick === player.classList.contains('is-stuck')) return;
+    if (stick) {
+      // Reserve the full-size slot BEFORE the wrap goes position:fixed, so
+      // the layout doesn't shift (a shift would re-trigger the observer and
+      // oscillate the docked state forever).
+      player.style.minHeight = player.getBoundingClientRect().height + 'px';
+      player.classList.add('is-stuck');
+    } else {
+      player.classList.remove('is-stuck');
+      player.style.minHeight = '';
+    }
+    // The wrap resizes → rescale the caption + hook overlays.
+    requestAnimationFrame(() => { updatePreviewCaption(); });
+  }
   function initStickyPlayer() {
     const sentinel = document.getElementById('playerStickySentinel');
     const player   = document.getElementById('captionPlayer');
+    const card     = document.getElementById('captionEditorCard');
     if (!sentinel || !player || _stickyObs) return;
     const topbar = document.querySelector('.app-topbar');
     const tbH = topbar ? topbar.offsetHeight : 52;
     document.documentElement.style.setProperty('--topbar-h', tbH + 'px');
     _stickyObs = new IntersectionObserver(([entry]) => {
-      const stick = !entry.isIntersecting;
-      if (stick === player.classList.contains('is-stuck')) return;
-      if (stick) {
-        // Reserve the full-size slot BEFORE the wrap goes position:fixed, so
-        // the layout doesn't shift (a shift would re-trigger the observer and
-        // oscillate the docked state forever).
-        player.style.minHeight = player.getBoundingClientRect().height + 'px';
-        player.classList.add('is-stuck');
-      } else {
-        player.classList.remove('is-stuck');
-        player.style.minHeight = '';
-      }
-      // The wrap resizes → rescale the caption + hook overlays.
-      requestAnimationFrame(() => { updatePreviewCaption(); });
+      // "Past the top" specifically - a sentinel below the viewport (page
+      // scrolled ABOVE the editor) must not float the player.
+      _sentinelAboveTop = !entry.isIntersecting && entry.boundingClientRect.top < tbH + 6;
+      _applyStickyState(player);
     }, { rootMargin: `-${tbH + 6}px 0px 0px 0px`, threshold: 0 });
     _stickyObs.observe(sentinel);
+    if (card) {
+      _stickyCardObs = new IntersectionObserver(([entry]) => {
+        _editorInView = entry.isIntersecting;
+        _applyStickyState(player);
+      }, { rootMargin: `-${tbH + 6}px 0px 0px 0px`, threshold: 0 });
+      _stickyCardObs.observe(card);
+    }
   }
 
   document.getElementById('fontSelect')?.addEventListener('change', e => {
