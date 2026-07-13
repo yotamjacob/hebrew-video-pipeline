@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.3.0';
+  const APP_VERSION = '1.3.1';
   document.querySelectorAll('p.footer').forEach(f => {
     const v = document.createElement('span');
     v.className = 'footer-version';
@@ -2469,19 +2469,31 @@
   const findBrollBtn = document.getElementById('findBrollBtn');
   findBrollBtn.addEventListener('click', () => triggerStockBroll());
 
-  // Caption preview / burn font size slider
+  // Caption preview / burn font size dropdown (burn px; preview scales it).
   const fontSizeSlider = document.getElementById('captionFontSizeSlider');
 
+  // Snap an arbitrary px value (legacy slider persistence, tests) to the
+  // nearest dropdown option so select.value never silently becomes ''.
+  function _snapSizeOption(sel, px) {
+    const vals = Array.from(sel.options).map(o => parseInt(o.value, 10));
+    return vals.reduce((a, b) => Math.abs(b - px) < Math.abs(a - px) ? b : a, vals[0]);
+  }
+
   fontSizeSlider.addEventListener('input', () => {
-    captionFontSize = parseInt(fontSizeSlider.value, 10);
+    captionFontSize = parseInt(fontSizeSlider.value, 10) || 48;
+    localStorage.setItem('captionFontSize', captionFontSize);
+    updatePreviewCaption();
+  });
+  fontSizeSlider.addEventListener('change', () => {
+    captionFontSize = parseInt(fontSizeSlider.value, 10) || 48;
     localStorage.setItem('captionFontSize', captionFontSize);
     updatePreviewCaption();
   });
 
   (function initPreviewFontSize() {
     const saved = parseInt(localStorage.getItem('captionFontSize') || '48', 10);
-    captionFontSize = saved;
-    fontSizeSlider.value = saved;
+    captionFontSize = _snapSizeOption(fontSizeSlider, saved);
+    fontSizeSlider.value = captionFontSize;
   })();
 
   // Kick off a browser-native download of a server URL. The /download route
@@ -3143,6 +3155,7 @@
       }
       _playerDispW = vw;
       videoOrientation = _orientationFor(vw, vh);
+      _syncHookSizeLabels();
       // Seek to the first caption so a subtitle is visible immediately. The
       // frame at t=0 almost always sits in the lead-in silence (no caption),
       // which made the overlay look broken until the user scrubbed/played.
@@ -3321,6 +3334,21 @@
     const s = parseFloat(document.getElementById('hookStartSec')?.value || '0') || 0;
     const d = parseFloat(document.getElementById('hookDurationSec')?.value || '3') || 3;
     return [s, s + d];
+  }
+
+  // Relabel the hook-size options with the real BURN pixel size for the
+  // loaded video (fs = min(w,h) * 0.075 * pct). Values stay % for templates.
+  function _syncHookSizeLabels() {
+    const sel = document.getElementById('hookFontSize');
+    const vid = document.getElementById('cutVideo');
+    if (!sel) return;
+    const vw = (vid && vid.videoWidth)  || 1080;
+    const vh = (vid && vid.videoHeight) || 1920;
+    const base = Math.min(vw, vh) * 0.075;
+    Array.from(sel.options).forEach(o => {
+      const pct = parseInt(o.value, 10);
+      o.textContent = Math.round(base * pct / 100) + ' px';
+    });
   }
 
   function updatePlayerHook() {
@@ -3869,6 +3897,8 @@
     };
   }
   function _applyHookDesign(d) {
+    { const sel = document.getElementById('hookFontSize');
+      if (sel && d.fontSize != null) d = { ...d, fontSize: String(_snapSizeOption(sel, parseInt(d.fontSize, 10) || 100)) }; }
     const map = {
       hookFont: d.font, hookFontColor: d.fontColor, hookBgColor: d.bgColor,
       hookBgOpacity: d.bgOpacity, hookFontSize: d.fontSize,
@@ -4161,6 +4191,7 @@
     optionsEl.style.display  = 'block';
     const firstShow = controlsEl.style.display === 'none';
     controlsEl.style.display = 'block';
+    _syncHookSizeLabels();
     if (firstShow) _hookSettingListeners();
     drawHookPreview();
 

@@ -454,13 +454,29 @@
       </div>
       <div class="caption-controls size-controls">
         <label class="ctrl-label" for="captionFontSizeSlider" data-i18n="capedit.size">Size</label>
-        <span class="fs-lbl fs-lbl-sm" aria-hidden="true">A</span>
-        <input type="range" id="captionFontSizeSlider"
-          min="24" max="150" step="1" value="48"
-          aria-label="Caption text size in burned video"
-          data-i18n-aria-label="capedit.sizeTitle"
-          aria-valuemin="24" aria-valuemax="150">
-        <span class="fs-lbl fs-lbl-lg" aria-hidden="true">A</span>
+        <!-- px in the BURNED video (the preview scales it to the player). The id
+             predates the dropdown - kept so JS/tests stay stable. -->
+        <select id="captionFontSizeSlider" class="font-select" style="max-width:130px"
+          aria-label="Caption text size in burned video" data-i18n-aria-label="capedit.sizeTitle">
+          <option value="24">24 px</option>
+          <option value="28">28 px</option>
+          <option value="32">32 px</option>
+          <option value="36">36 px</option>
+          <option value="40">40 px</option>
+          <option value="44">44 px</option>
+          <option value="48" selected>48 px</option>
+          <option value="52">52 px</option>
+          <option value="56">56 px</option>
+          <option value="60">60 px</option>
+          <option value="64">64 px</option>
+          <option value="72">72 px</option>
+          <option value="80">80 px</option>
+          <option value="90">90 px</option>
+          <option value="100">100 px</option>
+          <option value="115">115 px</option>
+          <option value="130">130 px</option>
+          <option value="150">150 px</option>
+        </select>
       </div>
 
       <div class="cap-hint-row">
@@ -532,9 +548,23 @@
               oninput="document.getElementById('hookBorderSizeVal').textContent=this.value+'px'" style="width:100%;margin-top:4px">
           </label>
           <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px;grid-column:1/-1">
-            <span><span data-i18n="hook.textSize">Text size:</span> <span id="hookFontSizeVal">100%</span></span>
-            <input type="range" id="hookFontSize" min="50" max="200" value="100" step="5"
-              oninput="document.getElementById('hookFontSizeVal').textContent=this.value+'%'" style="width:100%;margin-top:4px">
+            <span data-i18n="hook.textSize">Text size:</span>
+            <!-- Values are % of the base hook size (kept for saved templates);
+                 labels are relabeled to real burn px once the video's
+                 dimensions are known (_syncHookSizeLabels). -->
+            <select id="hookFontSize" style="padding:6px 8px;border-radius:8px;border:1.5px solid var(--purple-200);font-size:0.85rem">
+              <option value="50">50%</option>
+              <option value="60">60%</option>
+              <option value="70">70%</option>
+              <option value="80">80%</option>
+              <option value="90">90%</option>
+              <option value="100" selected>100%</option>
+              <option value="115">115%</option>
+              <option value="130">130%</option>
+              <option value="150">150%</option>
+              <option value="175">175%</option>
+              <option value="200">200%</option>
+            </select>
           </label>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
