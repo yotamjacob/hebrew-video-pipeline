@@ -155,8 +155,10 @@ fcm_store   = modal.Dict.from_name("hebpipe-fcm", create_if_missing=True)     # 
 codes_store = modal.Dict.from_name("hebpipe-codes", create_if_missing=True)   # normalized email → {salt, hash, exp, attempts, is_new, terms_ts} for passwordless login
 
 
-def _send_fcm(uid, title, body):
-    """Best-effort 'video ready' push to a user's devices via FCM HTTP v1.
+def _send_fcm(uid, title, body, kind="video_ready"):
+    """Best-effort push to a user's devices via FCM HTTP v1.
+    `kind` rides in the data payload so the app can route the tap:
+    video_ready → History tab; edit_ready → stay on the resumed editor.
     No-op unless the hebpipe-fcm secret (FCM_SERVICE_ACCOUNT = the Firebase
     service-account JSON) is configured. Prunes tokens the server rejects."""
     import os
@@ -183,6 +185,7 @@ def _send_fcm(uid, title, body):
             r = _rq.post(url, headers=headers, timeout=15, json={"message": {
                 "token": tkn,
                 "notification": {"title": title, "body": body},
+                "data": {"kind": kind},
                 # Target the client-created no-vibration channel (user request).
                 "android": {"priority": "high",
                             "notification": {"channel_id": "video_ready"}},

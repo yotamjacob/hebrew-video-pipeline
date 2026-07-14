@@ -99,9 +99,18 @@ test('large native chunked path shows the keep-open note', async ({ page }) => {
                       body: Buffer.alloc(LOCAL_FILE_BYTES, 3) });
   });
   await primeNativePick(page, 200 * 1024 * 1024);
+  // The note is visible only WHILE uploading (hidden again on completion), so
+  // record its appearance with an observer instead of racing the fast mock.
+  await page.evaluate(() => {
+    window.__noteShown = false;
+    const n = document.getElementById('uploadNote');
+    new MutationObserver(() => {
+      if (n.style.display !== 'none') window.__noteShown = true;
+    }).observe(n, { attributes: true, attributeFilter: ['style'] });
+  });
   await page.click('#runBtn');
-  await expect(page.locator('#uploadNote')).toBeVisible({ timeout: 10_000 });
   await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
+  expect(await page.evaluate(() => window.__noteShown)).toBe(true);
 });
 
 test('small native file keeps the background stream uploader', async ({ page }) => {

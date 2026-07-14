@@ -1099,6 +1099,20 @@ def process_video(
                 prune_volume()
             except Exception:
                 pass
+        else:
+            # A burn will follow (captions/B-roll flow) - the user may have
+            # backgrounded the app during processing, so tell them the editor
+            # is ready NOW rather than waiting for them to check. kind
+            # "edit_ready" keeps the notification tap on the resumed editor
+            # (video_ready taps jump to History instead).
+            try:
+                _uid = video_key[1:33] if _UID_PREFIX_RE.match(video_key or "") else None
+                if _uid:
+                    _send_fcm(_uid, "הסרטון מוכן לעריכה",
+                              "העיבוד הסתיים - היכנסו לערוך כתוביות ולסיים את הסרטון.",
+                              kind="edit_ready")
+            except Exception:
+                pass
         if upload_key is not None:
             try:
                 progress_store.pop(upload_key)

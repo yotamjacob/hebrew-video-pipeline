@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.8.0';
+  const APP_VERSION = '1.9.0';
   document.querySelectorAll('p.footer').forEach(f => {
     const v = document.createElement('span');
     v.className = 'footer-version';
@@ -187,6 +187,14 @@
     if (quotaInfo) { updateQuotaUI(); updateVerifyBanner(); } else refreshQuota();
     restoreTab();
     if (typeof _initPush === 'function') _initPush();
+    // AUTO-resume a saved background job - no banner tap required. Opening the
+    // app (e.g. from the "ready to edit" push) lands straight back in the
+    // flow; when processing finished while away, the poll returns instantly
+    // and the editor + preview load immediately.
+    if (!window.__resumeStarted && loadSavedJob()) {
+      window.__resumeStarted = true;
+      setTimeout(() => { resumeSavedJob().catch(e => console.warn('auto-resume failed', e)); }, 50);
+    }
   }
 
   // ── Email verification nudge (non-blocking) ──
@@ -781,11 +789,19 @@
     if (!key || String(key).endsWith('.m4a')) { _previewBlobPromise = null; _previewBlobKey = null; return; }  // audio has no video preview
     _previewBlobKey = key;
     _previewBlobPromise = (async () => {
-      const resp = await apiFetch(_withToken(`${API_BASE}/download/${key}`));
-      if (!resp.ok) throw new Error('download ' + resp.status);
-      const buf = await resp.arrayBuffer();
-      if (!buf || buf.byteLength < 1024) throw new Error('preview blob truncated (' + (buf ? buf.byteLength : 0) + ' bytes)');
-      return URL.createObjectURL(new Blob([buf], { type: 'video/mp4' }));
+      // Parallel byte ranges (2-3x a single stream) - this download is the
+      // longest pole between "processing finished" and "editor ready", both on
+      // a fresh run and when resuming after reopening the app.
+      let blob = null;
+      try { blob = await _rangeFetchBlob(`${API_BASE}/download/${key}`); }
+      catch (_) { /* range hiccup - single stream below */ }
+      if (!blob) {
+        const resp = await apiFetch(_withToken(`${API_BASE}/download/${key}`));
+        if (!resp.ok) throw new Error('download ' + resp.status);
+        blob = await resp.blob();
+      }
+      if (!blob || blob.size < 1024) throw new Error('preview blob truncated (' + (blob ? blob.size : 0) + ' bytes)');
+      return URL.createObjectURL(blob);
     })().catch(e => { console.error('preview prefetch failed', e); return null; });
   }
   // Confirm the blob URL actually DECODES as video (metadata parses) - a
@@ -842,7 +858,11 @@
 
   // ── Background-job persistence (survives tab close/reload on mobile) ──
   const JOB_KEY = 'hebpipe_job';
-  const JOB_TTL = 45 * 60 * 1000; // 45 min - Modal jobs expire after that
+  // A COMPLETED Modal result stays fetchable for ~a day, and the cut video
+  // survives on the volume for 48h - so a user who gets the "ready to edit"
+  // push and opens the app hours later must still land in their editor. (The
+  // old 45-min TTL silently dropped the job and orphaned the processed video.)
+  const JOB_TTL = 24 * 60 * 60 * 1000;
 
   function saveJob(type, callId, extra) {
     localStorage.setItem(JOB_KEY, JSON.stringify({ type, callId, ts: Date.now(), ...extra }));
@@ -1577,7 +1597,13 @@
       Push.addListener('registrationError', (e) => console.warn('push reg error', e));
       // Tapping the "video ready" notification opens the app (default) and jumps
       // to History where the finished video is.
-      Push.addListener('pushNotificationActionPerformed', () => {
+      Push.addListener('pushNotificationActionPerformed', (action) => {
+        // Route by the push's kind: a finished VIDEO lives in History, but an
+        // edit_ready push (processing done, captions await) must leave the
+        // user on the auto-resumed editor - hijacking to History would hide it.
+        const kind = action && action.notification && action.notification.data
+          && action.notification.data.kind;
+        if (kind === 'edit_ready') return;
         try { if (typeof switchTab === 'function') switchTab('history'); } catch (_) {}
       });
       await Push.register();
@@ -4021,11 +4047,9 @@
   }
 
 
-  // Init: check for a saved background job and show reconnect banner
-  (function checkSavedJob() {
-    const job = loadSavedJob();
-    if (job) document.getElementById('reconnectBanner').style.display = 'flex';
-  })();
+  // Saved background jobs auto-resume from showApp() - no banner tap needed.
+  // The #reconnectBanner markup stays as the manual fallback surface (shown
+  // only if an auto-resume attempt errors out mid-flight).
 
   // Service Worker - takes over polling only when the tab goes to the background
   if ('serviceWorker' in navigator) {
