@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.0';
+  const APP_VERSION = '1.10.1';
   document.querySelectorAll('p.footer').forEach(f => {
     const v = document.createElement('span');
     v.className = 'footer-version';
@@ -1672,12 +1672,13 @@
       // Tapping the "video ready" notification opens the app (default) and jumps
       // to History where the finished video is.
       Push.addListener('pushNotificationActionPerformed', (action) => {
-        // Route by the push's kind: a finished VIDEO lives in History, but an
-        // edit_ready push (processing done, captions await) must leave the
-        // user on the auto-resumed editor - hijacking to History would hide it.
+        // Route by the push's kind: only a finished VIDEO lives in History.
+        // edit_ready (captions await) and processing (still running) must
+        // leave the user on the auto-resumed flow - hijacking to History
+        // would hide it.
         const kind = action && action.notification && action.notification.data
           && action.notification.data.kind;
-        if (kind === 'edit_ready') return;
+        if (kind !== 'video_ready') return;
         try { if (typeof switchTab === 'function') switchTab('history'); } catch (_) {}
       });
       await Push.register();

@@ -687,6 +687,20 @@ def process_video(
     elif not video_bytes:
         raise ValueError("No video data provided")
 
+    # One continuous notification story (user request): the upload progress
+    # notification vanishes at completion, and THIS takes over the same slot -
+    # a tagged "processing…" push that the completion push later REPLACES in
+    # place (same tag). Foregrounded apps don't display FCM notifications, so
+    # a user watching the checklist never sees it. Best-effort.
+    try:
+        _uid0 = upload_key[1:33] if upload_key and _UID_PREFIX_RE.match(upload_key) else None
+        if _uid0:
+            _send_fcm(_uid0, "מעבד את הסרטון...",
+                      "העיבוד רץ בשרת - אפשר לסגור את האפליקציה, נעדכן כשיסתיים.",
+                      kind="processing", tag="hebpipe-job")
+    except Exception:
+        pass
+
     def extract_audio(video, out_wav):
         run(["ffmpeg", "-y", "-i", str(video),
              "-vn", "-af", "loudnorm", "-acodec", "pcm_s16le", "-ar", "48000", "-ac", "1",
@@ -1110,7 +1124,7 @@ def process_video(
                 if _uid:
                     _send_fcm(_uid, "הסרטון מוכן לעריכה",
                               "העיבוד הסתיים - היכנסו לערוך כתוביות ולסיים את הסרטון.",
-                              kind="edit_ready")
+                              kind="edit_ready", tag="hebpipe-job")
             except Exception:
                 pass
         if upload_key is not None:
@@ -1586,7 +1600,8 @@ def _record_job(output_key, source_name, out_path):
     # "Your video is ready" push (best-effort; no-op unless FCM is configured).
     uid = output_key[1:33] if _UID_PREFIX_RE.match(output_key) else None
     if uid:
-        _send_fcm(uid, "הסרטון שלך מוכן", "העריכה הסתיימה - הסרטון מוכן להורדה ולשיתוף.")
+        _send_fcm(uid, "הסרטון שלך מוכן", "העריכה הסתיימה - הסרטון מוכן להורדה ולשיתוף.",
+                  kind="video_ready", tag="hebpipe-job")
 
 
 def prune_volume():

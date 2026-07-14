@@ -161,10 +161,13 @@ pending_store = modal.Dict.from_name("hebpipe-pending", create_if_missing=True)
 codes_store = modal.Dict.from_name("hebpipe-codes", create_if_missing=True)   # normalized email → {salt, hash, exp, attempts, is_new, terms_ts} for passwordless login
 
 
-def _send_fcm(uid, title, body, kind="video_ready"):
+def _send_fcm(uid, title, body, kind="video_ready", tag=None):
     """Best-effort push to a user's devices via FCM HTTP v1.
     `kind` rides in the data payload so the app can route the tap:
-    video_ready → History tab; edit_ready → stay on the resumed editor.
+    video_ready → History tab; edit_ready/processing → stay on the resumed
+    flow. `tag`: Android REPLACES a notification bearing the same tag, so the
+    pipeline's pushes ("מעבד…" → "מוכן") occupy ONE notification slot that
+    updates in place instead of stacking.
     No-op unless the hebpipe-fcm secret (FCM_SERVICE_ACCOUNT = the Firebase
     service-account JSON) is configured. Prunes tokens the server rejects."""
     import os
@@ -194,7 +197,8 @@ def _send_fcm(uid, title, body, kind="video_ready"):
                 "data": {"kind": kind},
                 # Target the client-created no-vibration channel (user request).
                 "android": {"priority": "high",
-                            "notification": {"channel_id": "video_ready"}},
+                            "notification": {"channel_id": "video_ready",
+                                             **({"tag": tag} if tag else {})}},
             }})
             if r.status_code in (400, 404):   # unregistered / invalid token
                 dead.append(tkn)
