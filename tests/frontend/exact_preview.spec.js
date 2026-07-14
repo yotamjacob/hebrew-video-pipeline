@@ -29,6 +29,26 @@ test('exact overlay hides while the video plays (approximate preview shows)', as
   await expect(page.locator('#exactCap')).toBeHidden();
 });
 
+test('DOM caption/hook overlays fade while the exact still shows (no doubled text)', async ({ page }) => {
+  await runFullUpload(page, { captions: DEFAULT_CAPTIONS });
+  await page.evaluate(() => document.getElementById('cutVideo').dispatchEvent(new Event('pause')));
+  await expect(page.locator('#exactCap')).toBeVisible({ timeout: 5000 });
+  // The still already CONTAINS the caption+hook - the DOM overlays must not
+  // draw the same text on top of it (two engines never align → glitchy doubles).
+  await expect(page.locator('#playerWrap')).toHaveClass(/exact-showing/);
+  const capOpacity = await page.evaluate(() =>
+    getComputedStyle(document.getElementById('playerCap')).opacity);
+  expect(capOpacity).toBe('0');
+  // Any edit hides the still and restores the live overlays instantly.
+  await page.locator('#captionFontSizeSlider').evaluate(el => {
+    el.value = '64'; el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await expect(page.locator('#exactCap')).toBeHidden();
+  const capOpacityAfter = await page.evaluate(() =>
+    getComputedStyle(document.getElementById('playerCap')).opacity);
+  expect(capOpacityAfter).toBe('1');
+});
+
 test('selecting a hook renders the exact frame on the main player', async ({ page }) => {
   await runFullUpload(page, { captions: DEFAULT_CAPTIONS });
   await page.click('#tabBtnHook');

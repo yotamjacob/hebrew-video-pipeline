@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.7.1';
+  const APP_VERSION = '1.7.2';
   document.querySelectorAll('p.footer').forEach(f => {
     const v = document.createElement('span');
     v.className = 'footer-version';
@@ -3321,7 +3321,21 @@
   }
 
   // Hide the exact still → reveal the instant approximate preview (during motion/edits).
-  function _hideExactCap() { const i = document.getElementById('exactCap'); if (i) i.style.display = 'none'; }
+  // While the exact still is displayed, the DOM caption/hook overlays must NOT
+  // draw on top of it - the still already contains them (libass render), and
+  // the two text engines never align pixel-perfectly, so both visible at once
+  // reads as glitchy doubled text. Opacity (not visibility) keeps the overlays
+  // touchable: grabbing one to drag immediately hides the still and restores
+  // them for live feedback.
+  function _setExactShowing(on) {
+    const wrap = document.getElementById('playerWrap');
+    if (wrap) wrap.classList.toggle('exact-showing', !!on);
+  }
+  function _hideExactCap() {
+    const i = document.getElementById('exactCap');
+    if (i) i.style.display = 'none';
+    _setExactShowing(false);
+  }
 
   // Fetch + show the exact caption frame for the current (paused) time.
   function scheduleExactCap() {
@@ -3342,6 +3356,7 @@
         if (!vid.paused) { URL.revokeObjectURL(url); return; }   // started playing meanwhile
         if (_exactCapURL) URL.revokeObjectURL(_exactCapURL);
         _exactCapURL = url; img.src = url; img.style.display = 'block';
+        _setExactShowing(true);
       } catch (e) { /* keep the approximate preview */ }
     }, 400);
   }
@@ -3360,6 +3375,7 @@
     if (_exactHookURL) { URL.revokeObjectURL(_exactHookURL); _exactHookURL = null; }
     { const el = document.getElementById('exactCap');
       if (el) { el.style.display = 'none'; el.removeAttribute('src'); } }
+    _setExactShowing(false);
   }
 
   function _safePlay(vid) {
@@ -3780,6 +3796,9 @@
     // Opening the hook tab with a hook selected: land the playhead inside the
     // hook window so the user immediately SEES what they're editing.
     if (name === 'hook') {
+      // Options rendered while this tab was hidden measured scrollHeight 0 -
+      // now that they're visible, size each text field to its real content.
+      document.querySelectorAll('.hook-text-input').forEach(_autosizeHookText);
       const hw = _hookWindow();
       const vid = document.getElementById('cutVideo');
       if (hw && vid && (vid.currentTime < hw[0] || vid.currentTime > hw[1])) {
@@ -4444,6 +4463,16 @@
     }
   }
 
+  // Grow a hook textarea to fit its text. Guard scrollHeight 0: options are
+  // often rendered while the hook TAB is hidden (auto-generation runs in the
+  // background) and a hidden element measures 0 - writing that would collapse
+  // the field to an empty strip. The CSS min-height keeps one line visible
+  // regardless; the real measure runs again when the tab opens.
+  function _autosizeHookText(ta) {
+    ta.style.height = 'auto';
+    if (ta.scrollHeight > 0) ta.style.height = ta.scrollHeight + 'px';
+  }
+
   function renderHookOptions(hooks) {
     selectedHookIdx = -1;
     const optionsEl  = document.getElementById('hookOptions');
@@ -4481,8 +4510,7 @@
       ta.title = t('hook.clickEdit');
       ta.setAttribute('aria-label', t('hook.clickEdit'));
       ta.addEventListener('input', () => {
-        ta.style.height = 'auto';
-        ta.style.height = ta.scrollHeight + 'px';
+        _autosizeHookText(ta);
         drawHookPreview();
         _hideExactHook(); scheduleExactHook();
       });
@@ -4521,10 +4549,7 @@
       optionsEl.appendChild(card);
 
       // Auto-size textarea once it's in the DOM
-      requestAnimationFrame(() => {
-        ta.style.height = 'auto';
-        ta.style.height = ta.scrollHeight + 'px';
-      });
+      requestAnimationFrame(() => _autosizeHookText(ta));
     });
 
     optionsEl.style.display  = 'block';

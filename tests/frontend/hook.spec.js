@@ -94,6 +94,23 @@ test('poll endpoint receives the hook call_id', async ({ page }) => {
   expect(pollUrls[0]).toContain('mock-hook-call-id');
 });
 
+test('hook text fields stay readable when options render in a hidden tab', async ({ page }) => {
+  const { DEFAULT_HOOKS } = require('./helpers');
+  await runFullUpload(page);
+  // Render the options while the CAPTIONS tab is active (exactly what the
+  // background auto-generation does) - the hidden fields measure scrollHeight
+  // 0 and used to collapse into thin, text-hiding strips.
+  await page.evaluate(hooks => renderHookOptions(hooks), DEFAULT_HOOKS);
+  await page.click('#tabBtnHook');
+  const heights = await page.$$eval('.hook-text-input', els =>
+    els.map(el => ({ h: el.clientHeight, hasText: !!el.value.trim() })));
+  expect(heights.length).toBeGreaterThan(0);
+  for (const { h, hasText } of heights) {
+    expect(hasText).toBe(true);
+    expect(h).toBeGreaterThan(28);   // at least one full text line visible
+  }
+});
+
 test('hook option text is editable and the edit reaches the burn payload', async ({ page }) => {
   await runFullUpload(page);
   await page.click('#tabBtnHook');
