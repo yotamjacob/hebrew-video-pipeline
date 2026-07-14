@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Flat brand-sand splash. The old pre-rendered PNGs (down to 320x480) were
+     CENTER_CROP-upscaled to fill modern screens, so the mark rendered soft and
+     looked nothing like the in-app loader. A flat colour + the plugin's
+     terracotta spinner flows seamlessly into the brand loading animation. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="#E8DFD3" />
+</shape>

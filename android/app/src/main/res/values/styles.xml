@@ -29,6 +29,10 @@
         <!-- Android 12+ system splash: sand brand background instead of the
              theme default (which went BLACK in dark mode). -->
         <item name="windowSplashScreenBackground">#E8DFD3</item>
+        <!-- No icon on the system splash: the scaled launcher icon rendered
+             soft and clashed with the in-app brand loader. A plain sand flash
+             (~0.5s, the OS minimum) flows straight into the animated loader. -->
+        <item name="windowSplashScreenAnimatedIcon">@android:color/transparent</item>
         <!-- Same bar treatment during launch so there is no white flash. -->
         <item name="android:statusBarColor">#E8DFD3</item>
         <item name="android:windowLightStatusBar">true</item>
