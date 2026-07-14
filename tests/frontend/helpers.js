@@ -81,6 +81,12 @@ async function mockAllApis(page, {
                         body: JSON.stringify({ error: `Server error ${processStatus}` }) });
   });
 
+  // Deferred-spawn status - polled after a deferred upload completes (the
+  // server spawns the job inside the final upload request).
+  await page.route(/\/process_pending\//, r =>
+    r.fulfill({ status: 200, contentType: 'application/json',
+                body: JSON.stringify({ call_id: 'mock-process-call-id' }) }));
+
   // Process poll - resolves immediately with captions
   await page.route(`${API_BASE}/process_poll/**`, r =>
     r.fulfill({ status: 200, contentType: 'application/json',

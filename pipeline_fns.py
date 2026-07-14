@@ -10,7 +10,7 @@ from pipeline_core import (
     WHISPER_MODEL, WHISPER_INITIAL_PROMPT, tmp_vol, TMP_DIR, _fix_rtl_punct,
     _rtl_ass_text, _censor_caption_text, _RLE, _PDF, _SAFE_KEY_RE,
     _BROLL_KEY_RE, _is_allowed_broll_url,
-    jobs_store, JOB_RETENTION_DAYS, SCRATCH_RETENTION_HOURS,
+    jobs_store, JOB_RETENTION_DAYS, SCRATCH_RETENTION_HOURS, pending_store,
     progress_store, calls_store, CALL_RETENTION_SECONDS, _UID_PREFIX_RE,
     quota_store, _usage_since, _send_email, _email_html, SONNET_MODEL,
     _send_fcm,
@@ -1595,6 +1595,18 @@ def prune_volume():
     import time
     from pathlib import Path
     now = time.time()
+    # Deferred-spawn bookkeeping: registrations whose upload never finished and
+    # consumed done-markers both expire with the 48h scratch window.
+    try:
+        for key in list(pending_store.keys()):
+            meta = pending_store.get(key) or {}
+            if now - (meta.get("ts") or 0) > SCRATCH_RETENTION_HOURS * 3600:
+                try:
+                    pending_store.pop(key)
+                except Exception:
+                    pass
+    except Exception:
+        pass
     try:
         for key in list(jobs_store.keys()):
             meta = jobs_store.get(key) or {}

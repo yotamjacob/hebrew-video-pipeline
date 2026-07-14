@@ -18,6 +18,7 @@ import modal
 from pipeline_core import (
     light_image,
     jobs_store, progress_store, users_store, calls_store, quota_store, fcm_store,
+    pending_store,
     codes_store, _normalize_email, _gen_login_code,
     _verify_google_id_token, GOOGLE_WEB_CLIENT_ID,
     app, image, tmp_vol, TMP_DIR,
@@ -588,6 +589,74 @@ def api():
             meta = calls_store.get(call_id)
             return bool(meta) and meta.get("uid") == uid
 
+        def _spawn_pending_job(full_key):
+            """Claim + spawn the DEFERRED processing job for a completed upload.
+
+            Called from the upload endpoints the moment the last byte lands, so
+            processing starts even when the app was closed mid-upload (its JS -
+            which used to do the spawn - is frozen then). The atomic pop is the
+            claim: two racing completion signals can't double-spawn/double-bill.
+            Returns the call_id, or None when there is nothing (left) to spawn.
+            """
+            import time as _time
+            try:
+                rec = pending_store.pop(full_key)
+            except KeyError:
+                return None
+            except Exception:
+                return None
+            if not isinstance(rec, dict) or "params" not in rec:
+                return None
+            if rec.get("uid") != uid:      # uploader must be the registrant
+                try:
+                    pending_store[full_key] = rec
+                except Exception:
+                    pass
+                return None
+            try:
+                tmp_vol.commit()           # flush chunks before the worker reads
+                call = process_video.spawn(upload_key=full_key,
+                                           key_prefix=rec.get("uprefix", uprefix),
+                                           **rec["params"])
+            except Exception as e:
+                print(f"[pending] spawn failed for {full_key!r}: {e!r}")
+                try:
+                    pending_store[full_key] = rec   # restore so a retry can claim
+                except Exception:
+                    pass
+                return None
+            try:
+                calls_store[call.object_id] = {"uid": rec["uid"], "ts": _time.time()}
+            except Exception:
+                pass
+            if not rec.get("is_admin") and rec.get("uname"):
+                try:
+                    quota_store[f"{rec['uid']}:{call.object_id}"] = _time.time()
+                    _urec = users_store.get(rec["uname"])
+                    if isinstance(_urec, dict):
+                        _urec["videos_used"] = int(_urec.get("videos_used") or 0) + 1
+                        users_store[rec["uname"]] = _urec
+                except Exception:
+                    pass
+            try:
+                pending_store["done:" + full_key] = {
+                    "call_id": call.object_id, "uid": rec["uid"], "ts": _time.time()}
+            except Exception:
+                pass
+            print(f"[pending] spawned {call.object_id} for {full_key!r}")
+            return call.object_id
+
+        def _pending_complete(full_key, total_chunks):
+            """True when every chunk of a deferred upload is on the volume."""
+            from pathlib import Path as _Path
+            try:
+                if not total_chunks:
+                    return False
+                present = len(list(_Path(TMP_DIR).glob(f"{full_key}_chunk_*")))
+                return present >= int(total_chunks)
+            except Exception:
+                return False
+
         def _user_by_uid():
             """(username, record) for the authenticated uid.
 
@@ -875,8 +944,17 @@ def api():
             # asyncio.to_thread so the blocking FUSE write doesn't freeze the event loop
             # (which would serialize all concurrent chunk requests despite max_inputs=20)
             await asyncio.to_thread(chunk_path.write_bytes, chunk_bytes)
-            # No commit here — all chunks are committed once in /process before job spawn
-            body = json.dumps({"ok": True}).encode()
+            # No commit here — all chunks are committed once at spawn time.
+            # Deferred job registered for this upload? Spawn processing the
+            # moment the LAST chunk lands - the app may be closed by now.
+            spawned_call = None
+            try:
+                _pend = pending_store.get(f"{uprefix}{key}")
+                if isinstance(_pend, dict) and _pending_complete(f"{uprefix}{key}", _pend.get("total_chunks")):
+                    spawned_call = await asyncio.to_thread(_spawn_pending_job, f"{uprefix}{key}")
+            except Exception as e:
+                print(f"[pending] chunk-complete check failed: {e!r}")
+            body = json.dumps({"ok": True, **({"call_id": spawned_call} if spawned_call else {})}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})
@@ -914,7 +992,47 @@ def api():
                         break
             finally:
                 await asyncio.to_thread(fh.close)
-            body = json.dumps({"ok": True}).encode()
+            # Deferred job registered? The whole file just landed (single
+            # stream) - spawn processing NOW, app state irrelevant. This is
+            # what lets a user close the app mid-upload and still get the
+            # "ready to edit" push when processing completes.
+            spawned_call = None
+            try:
+                if isinstance(pending_store.get(f"{uprefix}{key}"), dict):
+                    spawned_call = await asyncio.to_thread(_spawn_pending_job, f"{uprefix}{key}")
+            except Exception as e:
+                print(f"[pending] stream-complete spawn failed: {e!r}")
+            body = json.dumps({"ok": True, **({"call_id": spawned_call} if spawned_call else {})}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # Deferred-job status: the client (fresh page or resumed app) asks what
+        # became of its pre-registered processing job. done → {call_id};
+        # registered but upload incomplete → {pending: true}; unknown → 404.
+        if path in ("/process_pending", "/process_pending/") and method == "GET":
+            qs  = parse_qs(scope.get("query_string", b"").decode())
+            key = qs.get("key", [""])[0]
+            if not key or not _SAFE_KEY_RE.match(key):
+                await send_error("Invalid or missing key", 400)
+                return
+            full_key = uprefix + key
+            done = pending_store.get("done:" + full_key)
+            if isinstance(done, dict) and done.get("uid") == uid:
+                body = json.dumps({"call_id": done["call_id"]}).encode()
+            elif isinstance(pending_store.get(full_key), dict):
+                # Belt-and-braces: if every chunk is already here (the upload
+                # finished but its completion-side spawn failed transiently),
+                # spawn now instead of reporting pending forever.
+                _pend = pending_store.get(full_key)
+                spawned = None
+                if _pend and _pend.get("uid") == uid and _pending_complete(full_key, _pend.get("total_chunks")):
+                    spawned = await asyncio.to_thread(_spawn_pending_job, full_key)
+                body = json.dumps({"call_id": spawned} if spawned else {"pending": True}).encode()
+            else:
+                await send_error("no pending job", 404)
+                return
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})
@@ -992,11 +1110,47 @@ def api():
                 if not _quota_allows(is_admin, used, limit):
                     await send_error("limit_reached", 402)
                     return
+            # DEFERRED registration: called BEFORE the upload with the same
+            # params. The upload endpoints spawn the job server-side the moment
+            # the last byte lands, so processing starts even if the app (whose
+            # JS used to do this spawn) is closed by then. Quota is CHECKED here
+            # (fail fast, before any bytes fly) but CONSUMED at the real spawn.
+            if qs.get("defer", ["false"])[0].lower() == "true":
+                if not upload_key or not _SAFE_KEY_RE.match(upload_key):
+                    await send_error("Invalid key", 400)
+                    return
+                try:
+                    total_chunks = max(1, min(10000, int(qs.get("total_chunks", ["1"])[0])))
+                except (ValueError, TypeError):
+                    total_chunks = 1
+                pending_store[uprefix + upload_key] = {
+                    "params": {
+                        "filename": filename, "cut_silences": cut_silences,
+                        "burn_captions": burn_captions, "min_silence": min_silence,
+                        "padding": padding, "enhance_audio": enhance_audio,
+                        "transcribe_for_broll": transcribe_for_broll,
+                        "enhance_video": enhance_video, "is_audio": is_audio,
+                    },
+                    "uid": uid, "uname": uname, "is_admin": is_admin,
+                    "uprefix": uprefix, "total_chunks": total_chunks,
+                    "ts": _time.time(),
+                }
+                body = json.dumps({"pending": True}).encode()
+                await send({"type": "http.response.start", "status": 202,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": body})
+                return
             try:
                 if upload_key:
                     if not _SAFE_KEY_RE.match(upload_key):
                         await send_error("Invalid key", 400)
                         return
+                    # An unconsumed deferred registration for this key would
+                    # double-spawn when a late chunk arrives - claim it away.
+                    try:
+                        pending_store.pop(uprefix + upload_key)
+                    except Exception:
+                        pass
                     # Flush all chunks to persistent storage before spawning the worker
                     tmp_vol.commit()
                     call = process_video.spawn(

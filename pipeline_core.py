@@ -152,6 +152,12 @@ users_store = modal.Dict.from_name("hebpipe-users", create_if_missing=True)   # 
 calls_store = modal.Dict.from_name("hebpipe-calls", create_if_missing=True)   # call_id  → {uid, ts}
 quota_store = modal.Dict.from_name("hebpipe-quota", create_if_missing=True)   # f"{uid}:{call_id}" → ts (one unique entry per consumed credit)
 fcm_store   = modal.Dict.from_name("hebpipe-fcm", create_if_missing=True)     # uid → [device FCM tokens] for "video ready" push notifications
+# Deferred processing jobs: full upload key → {params, uid, uname, uprefix,
+# total_chunks, ts} registered BEFORE the upload, so the SERVER spawns
+# process_video the moment the last byte lands - the app may be closed by then
+# (its JS is frozen; a client-side spawn would wait for a reopen). After the
+# spawn the entry moves to "done:<key>" → {call_id, uid, ts} for the client.
+pending_store = modal.Dict.from_name("hebpipe-pending", create_if_missing=True)
 codes_store = modal.Dict.from_name("hebpipe-codes", create_if_missing=True)   # normalized email → {salt, hash, exp, attempts, is_new, terms_ts} for passwordless login
 
 

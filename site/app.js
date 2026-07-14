@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.9.0';
+  const APP_VERSION = '1.10.0';
   document.querySelectorAll('p.footer').forEach(f => {
     const v = document.createElement('span');
     v.className = 'footer-version';
@@ -880,11 +880,85 @@
     } catch { clearSavedJob(); return null; }
   }
 
+  // After a deferred upload completes in THIS session, the server has already
+  // spawned processing (inside the final upload request) - fetch the call id.
+  // Brief retries cover the tiny race between the last chunk's response and
+  // the done-marker write.
+  async function _awaitPendingSpawn(key, timeoutMs = 90_000) {
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+      let resp = null;
+      try { resp = await apiFetch(`${API_BASE}/process_pending/?key=${encodeURIComponent(key)}`); } catch (_) {}
+      if (resp && resp.ok) {
+        const d = await resp.json().catch(() => ({}));
+        if (d.call_id) return d.call_id;
+      } else if (resp && resp.status === 404) {
+        throw new Error(t('err.spawn', { status: 404 }));
+      }
+      await new Promise(r => setTimeout(r, 1500));
+    }
+    throw new Error(t('err.spawn', { status: 0 }));
+  }
+
+  // Resume flavour: the app reopened with a job registered but no call id yet.
+  // Either the native background uploader is STILL uploading (wait - watch the
+  // landed bytes grow), processing was spawned while we were away (call id
+  // arrives on the first poll), or the upload died with the app (bytes frozen
+  // → give up and tell the user to re-pick; their chunks resume).
+  async function _awaitPendingResume(key, timeoutMs = 10 * 60_000) {
+    const t0 = Date.now();
+    let lastBytes = -1, stale = 0;
+    while (Date.now() - t0 < timeoutMs) {
+      let resp = null;
+      try { resp = await apiFetch(`${API_BASE}/process_pending/?key=${encodeURIComponent(key)}`); } catch (_) {}
+      if (resp && resp.ok) {
+        const d = await resp.json().catch(() => ({}));
+        if (d.call_id) return d.call_id;
+      } else if (resp && resp.status === 404) {
+        throw new Error('pending job gone');
+      }
+      try {
+        const c = await apiFetch(`${API_BASE}/upload_check/?key=${encodeURIComponent(key)}`);
+        if (c.ok) {
+          const { bytes } = await c.json();
+          stale = bytes > lastBytes ? 0 : stale + 1;
+          lastBytes = Math.max(lastBytes, bytes);
+        }
+      } catch (_) {}
+      if (stale >= 20) throw new Error('upload stalled');   // ~60s with no new bytes
+      await new Promise(r => setTimeout(r, 3000));
+    }
+    throw new Error('pending resume timeout');
+  }
+
   async function resumeSavedJob() {
     const job = loadSavedJob();
     document.getElementById('reconnectBanner').style.display = 'none';
     if (!job) return;
     document.getElementById('startOverBtn').style.display = '';
+
+    if (job.type === 'pending') {
+      // Registered before the upload; the call id may exist by now (server
+      // spawned while the app was away) or the background upload may still be
+      // running. Resolve it, then continue as a normal process resume.
+      statusCard.classList.add('visible');
+      expandCard('statusBody');
+      checklistEl.style.display = 'block';
+      statusDone.classList.remove('visible');
+      statusError.classList.remove('visible');
+      _resetChecklist();
+      _stepActivate('upload');
+      try {
+        job.callId = await _awaitPendingResume(job.key);
+        saveJob('process', job.callId, { filename: job.filename, key: job.key });
+        job.type = 'process';
+      } catch (e) {
+        console.warn('pending resume failed:', e && e.message);
+        clearSavedJob();
+        showError(t('resume.uploadIncomplete'));
+        return;
+      }
+    }
 
     if (job.type === 'process') {
       // Reconnect: real progress from the poll tells us which step is running
@@ -1218,11 +1292,11 @@
 
   // Upload a native file path via the background uploader. Resolves with the
   // upload key (same key the /process call expects). Rejects on failure.
-  function nativeUpload(desc, onProgress) {
+  function nativeUpload(desc, onProgress, presetKey) {
     return new Promise((resolve, reject) => {
       const Uploader = _capPlugin('Uploader');
       if (!Uploader) { reject(new Error('Uploader plugin unavailable')); return; }
-      const key = crypto.randomUUID().replace(/-/g, '');
+      const key = presetKey || crypto.randomUUID().replace(/-/g, '');
       const expected = desc.size || 0;
       let handle = null, settled = false, reconciling = false;
       const _buzz = () => {
@@ -2021,29 +2095,61 @@
           }
         }
       };
-      // Native app: background uploader (survives minimize) for normal files;
-      // LARGE files use the chunked resumable uploader instead - the stream
-      // uploader's retry-from-zero threw away 300+ MB on a single wifi blip.
-      // Web: JS chunked upload always.
-      let uploadKey;
+      // Resolve the upload PATH + KEY up front so processing can be
+      // PRE-REGISTERED (deferred spawn): the server starts the job the moment
+      // the last byte lands - even if the app is closed by then (its frozen JS
+      // used to be the thing doing the spawn, so processing silently waited
+      // for a reopen). Path selection: native LARGE files use the chunked
+      // resumable uploader (the stream uploader's retry-from-zero threw away
+      // 300+ MB on a single wifi blip); native small files keep the
+      // background-surviving stream uploader; web is chunked always.
+      let _upMode = 'chunked', _upMeta = selectedFile, _upBlob = stableBlob;
       if (nativeUploadDesc && (nativeUploadDesc.size || 0) >= _nativeChunkedMin()) {
-        let nblob = null;
-        try { nblob = await _nativeFileBlob(nativeUploadDesc); }
-        catch (e) { console.warn('native chunked path unavailable, using stream uploader:', e && e.message); }
-        if (nblob) {
-          // The JS uploader freezes while backgrounded - surface the keep-open
-          // note for this path (normally hidden on native).
-          { const n = document.getElementById('uploadNote'); if (n) n.style.display = 'block'; }
-          uploadKey = await chunkedUpload(
-            { name: nativeUploadDesc.name, size: nblob.size, lastModified: 0 },
-            nblob, _onUpProgress);
-        } else {
-          uploadKey = await nativeUpload(nativeUploadDesc, _onUpProgress);
+        try {
+          _upBlob = await _nativeFileBlob(nativeUploadDesc);
+          _upMeta = { name: nativeUploadDesc.name, size: _upBlob.size, lastModified: 0 };
+        } catch (e) {
+          console.warn('native chunked path unavailable, using stream uploader:', e && e.message);
+          _upMode = 'stream';
         }
       } else if (nativeUploadDesc) {
-        uploadKey = await nativeUpload(nativeUploadDesc, _onUpProgress);
+        _upMode = 'stream';
+      }
+      const uploadKey = _upMode === 'stream'
+        ? crypto.randomUUID().replace(/-/g, '')
+        : _resumeUploadKey(_upMeta);
+      params.set('key', uploadKey);
+
+      // Pre-register the job (defer=true): quota is checked NOW (fail fast,
+      // before any bytes fly), the spawn happens server-side at upload
+      // completion. Any registration failure other than the quota gate falls
+      // back to the classic post-upload spawn (older backend, network blip).
+      const _totalChunks = _upMode === 'stream' ? 1
+        : Math.max(1, Math.ceil(((_upBlob && _upBlob.size) || _upMeta.size || 1) / CHUNK_SIZE));
+      let deferred = false;
+      {
+        let dr = null;
+        try {
+          dr = await apiFetch(`${API_BASE}/process/?${params}&defer=true&total_chunks=${_totalChunks}`,
+                              { method: 'POST' });
+        } catch (_) {}
+        if (dr && dr.status === 202) deferred = true;
+        else if (dr && dr.status === 402) {
+          const body = await dr.json().catch(() => ({}));
+          throw new Error(body.error || t('err.spawn', { status: 402 }));
+        }
+      }
+      if (deferred) saveJob('pending', null, { filename: selectedFile.name, key: uploadKey });
+
+      if (_upMode === 'stream') {
+        await nativeUpload(nativeUploadDesc, _onUpProgress, uploadKey);
       } else {
-        uploadKey = await chunkedUpload(selectedFile, stableBlob, _onUpProgress);
+        if (nativeUploadDesc) {
+          // The JS uploader freezes while backgrounded - surface the keep-open
+          // note for this path (normally hidden on native).
+          const n = document.getElementById('uploadNote'); if (n) n.style.display = 'block';
+        }
+        await chunkedUpload(_upMeta, _upBlob, _onUpProgress, uploadKey);
       }
       _stepDone('upload');
       document.getElementById('uploadBarRow').style.display = 'none';
@@ -2053,17 +2159,22 @@
 
       currentUploadKey = uploadKey;
 
-      // Phase 2: spawn processing job (tiny request - just params, no body)
+      // Phase 2: the job's call id. Deferred: the server spawned it inside the
+      // final upload request - just fetch the id. Fallback: classic spawn.
       runStartTime = Date.now();
       showProcessing();
-      params.set('key', uploadKey);
       _setStage('spawn');
-      const spawnResp = await apiFetch(`${API_BASE}/process/?${params}`, { method: 'POST' });
-      if (spawnResp.status !== 202) {
-        const body = await spawnResp.json().catch(() => ({}));
-        throw new Error(body.error || t('err.spawn', {status: spawnResp.status}));
+      let call_id;
+      if (deferred) {
+        call_id = await _awaitPendingSpawn(uploadKey);
+      } else {
+        const spawnResp = await apiFetch(`${API_BASE}/process/?${params}`, { method: 'POST' });
+        if (spawnResp.status !== 202) {
+          const body = await spawnResp.json().catch(() => ({}));
+          throw new Error(body.error || t('err.spawn', {status: spawnResp.status}));
+        }
+        ({ call_id } = await spawnResp.json());
       }
-      const { call_id } = await spawnResp.json();
       refreshQuota();
 
       // Poll until processing is done - returns JSON {captions, video_key}
@@ -2416,7 +2527,15 @@
     if (_snapshotId) { _idbDel(_snapshotId); _snapshotId = null; }
   }
 
-  async function chunkedUpload(file, source, onProgress) {
+  // The upload key this file WILL use: a prior in-progress upload's key (so
+  // its chunks resume) or a fresh one. Needed before the upload starts so the
+  // deferred processing job can be registered against it.
+  function _resumeUploadKey(file) {
+    const saved = _loadResume(file);
+    return (saved && saved.key) || crypto.randomUUID().replace(/-/g, '');
+  }
+
+  async function chunkedUpload(file, source, onProgress, presetKey) {
     // `source` is the stable byte snapshot (see snapshotFile); slice bytes from
     // it, never from the raw File, so a cloud-synced original can't go stale
     // mid-upload. Falls back to the File itself if no snapshot was taken.
@@ -2424,8 +2543,9 @@
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     // Reuse a prior in-progress upload for this exact file if one exists.
     const saved = _loadResume(file);
-    const key = (saved && saved.key) || crypto.randomUUID().replace(/-/g, '');
-    const completed = new Set((saved && saved.completed || []).filter(i => i < totalChunks));
+    const key = presetKey || (saved && saved.key) || crypto.randomUUID().replace(/-/g, '');
+    // Saved chunk indices only apply when they belong to THIS key.
+    const completed = new Set((saved && saved.key === key && saved.completed || []).filter(i => i < totalChunks));
     if (completed.size) console.info(`Upload resume: ${completed.size}/${totalChunks} chunks already sent`);
     // Per-chunk loaded bytes - summed for accurate progress across concurrent
     // chunks (each in-flight chunk contributes its own live byte count).

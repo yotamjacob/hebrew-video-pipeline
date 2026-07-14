@@ -281,6 +281,7 @@
     'hist.deleteBody': { en: '“{name}” will be removed from history and can no longer be downloaded.', he: '"{name}" יוסר מההיסטוריה ולא ניתן יהיה להוריד אותו יותר.' },
     'hist.loadFailed': { en: "Couldn't load history. Pull to refresh or try again later.", he: 'טעינת ההיסטוריה נכשלה. נסו לרענן או חזרו מאוחר יותר.' },
     'hist.deleteFailed': { en: 'Could not delete the video - try again.', he: 'מחיקת הסרטון נכשלה - נסו שוב.' },
+    'resume.uploadIncomplete': { en: 'The upload did not finish - select the file again and it will resume from where it stopped.', he: 'ההעלאה לא הסתיימה - בחרו שוב את הקובץ והיא תמשיך מאיפה שנעצרה.' },
 
     // ── Confirm dialog / modals ──
     'confirm.burnTitle': { en: 'Ready to burn?', he: 'מוכנים לצרוב?' },
