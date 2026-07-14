@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.5.0';
+  const APP_VERSION = '1.6.0';
   document.querySelectorAll('p.footer').forEach(f => {
     const v = document.createElement('span');
     v.className = 'footer-version';
@@ -1381,23 +1381,86 @@
       btns.forEach((b, i) => { b.disabled = false; b.innerHTML = labels[i]; });
     }
   }
-  // On native, reveal the Share button the moment a result exists - in a
-  // 'loading' state (spinner) while the file caches in the background, so it
-  // appears instantly instead of after a multi-second warm-up. A tap works even
-  // mid-load (nativeShareVideo downloads on demand). Cleared to hidden with no
-  // result.
+  // ── Web share (browser): the OS share sheet via the Web Share API ──
+  // Mobile browsers (Android Chrome, iOS Safari) can share a video FILE; the
+  // button only shows where the capability probe passes. The file is pre-cached
+  // in memory when the button appears, because navigator.share() must run
+  // within the tap's transient activation (~seconds) - fetching a large video
+  // on demand would expire it and throw NotAllowedError.
+  let _webShareFile = null;   // { url, file } once the finished video is cached
+  function _canWebShareFiles() {
+    try {
+      return !!(navigator.canShare &&
+                navigator.canShare({ files: [new File([''], 'v.mp4', { type: 'video/mp4' })] }));
+    } catch (_) { return false; }
+  }
+  async function _fetchShareBlob(url) {
+    // Fast path: the preview player already downloaded this exact file.
+    if (_previewBlobPromise && videoKey && _downloadKeyOf(url) === videoKey) {
+      try {
+        const objURL = await _previewBlobPromise;
+        if (objURL) return await (await fetch(objURL)).blob();   // in-memory, no network
+      } catch (_) { /* fall through to the network */ }
+    }
+    const resp = await fetch(_withToken(url));
+    if (!resp.ok) throw new Error('share download ' + resp.status);
+    return await resp.blob();
+  }
+  async function _prepareWebShareFile(url, name) {
+    if (_webShareFile && _webShareFile.url === url) { _setShareState('ready'); return; }
+    try {
+      const blob = await _fetchShareBlob(url);
+      _webShareFile = { url, file: new File([blob], _safeShareName(name), { type: 'video/mp4' }) };
+    } catch (_) { /* background warm-up only; a tap still tries on demand */ }
+    _setShareState('ready');
+  }
+  async function webShareVideo(url, name) {
+    if (!url || _sharing) return;
+    _sharing = true;
+    const btns = [document.getElementById('burnShareBtn'), document.getElementById('shareBtn')].filter(Boolean);
+    const labels = btns.map(b => b.innerHTML);
+    try {
+      let file = (_webShareFile && _webShareFile.url === url) ? _webShareFile.file : null;
+      if (!file) {                              // not warmed yet - fetch now
+        btns.forEach(b => { b.disabled = true; b.textContent = t('share.preparing'); });
+        file = new File([await _fetchShareBlob(url)], _safeShareName(name), { type: 'video/mp4' });
+        _webShareFile = { url, file };
+      }
+      await navigator.share({ files: [file], title: name, text: t('share.text') });
+    } catch (e) {
+      const msg = (e && (e.name + ' ' + e.message)) || '';
+      if (!/abort|cancel/i.test(msg) && !document.hidden) {
+        console.error('web share failed', e);
+        try { celebrateToast(t('share.failed')); } catch (_) {}
+      }
+    } finally {
+      _sharing = false;
+      btns.forEach((b, i) => { b.disabled = false; b.innerHTML = labels[i]; });
+    }
+  }
+
+  // Reveal the Share button the moment a result exists - native always (OS
+  // share sheet via the Share plugin), web wherever the Web Share API can share
+  // files. Shows in a 'loading' state (spinner) while the file caches in the
+  // background, so it appears instantly instead of after the warm-up. A tap
+  // works even mid-load (both paths download on demand). Hidden with no result.
   function _maybeShowShare() {
-    if (!_isNative()) return;
-    if (resultDownloadUrl) {
+    if (!resultDownloadUrl) { _setShareState('hidden'); return; }
+    if (_isNative()) {
       _setShareState('loading');
       _prepareShareFile(resultDownloadUrl, resultName);
+    } else if (_canWebShareFiles()) {
+      _setShareState('loading');
+      _prepareWebShareFile(resultDownloadUrl, resultName);
     } else {
       _setShareState('hidden');
     }
   }
   ['burnShareBtn', 'shareBtn'].forEach(id => {
     const b = document.getElementById(id);
-    if (b) b.addEventListener('click', () => nativeShareVideo(resultDownloadUrl, resultName));
+    if (b) b.addEventListener('click', () => _isNative()
+      ? nativeShareVideo(resultDownloadUrl, resultName)
+      : webShareVideo(resultDownloadUrl, resultName));
   });
 
   // Register this device for "your video is ready" push notifications. Native
@@ -1816,6 +1879,7 @@
 
     resultBlob = null;
     resultDownloadUrl = null;
+    _webShareFile = null;   // free the previous video's cached share file
     showUploadProgress();
 
     const aggr = AGGR_MAP[aggrSlider.value - 1];
@@ -1943,6 +2007,7 @@
     videoKey = null;
     resultBlob = null;
     resultDownloadUrl = null;
+    _webShareFile = null;
     _resetExactPreview();
     { const el = document.getElementById('captionEditorCard'); if (el) el.style.display = 'none'; }
     document.getElementById('reprocessBtn').style.display = 'none';
@@ -4303,23 +4368,32 @@
       check.innerHTML = ICON.check;
       card.appendChild(check);
 
-      // Editable textarea for hook text
+      // Editable hook text: rendered as an OBVIOUS input (bordered field +
+      // pencil icon) - the old dashed underline read as decoration and testers
+      // didn't realize the text was editable at all.
+      const wrap = document.createElement('div');
+      wrap.className = 'hook-edit-wrap';
+      wrap.dir = 'rtl';   // hook text is Hebrew - pencil pins to the LEFT (away
+                          // from the text start) in both UI languages
       const ta = document.createElement('textarea');
       ta.id = `hookText${i}`;
+      ta.className = 'hook-text-input';
       ta.value = h.text;
-      ta.style.cssText = 'width:100%;border:none;border-bottom:1.5px dashed var(--purple-300);background:transparent;resize:none;overflow:hidden;font-family:inherit;font-size:1.05rem;font-weight:700;direction:rtl;text-align:right;color:var(--text);padding:0 0 2px;margin:0 0 6px;cursor:text;line-height:1.4;display:block;outline:none;transition:border-color 0.15s;';
       ta.rows = 1;
       ta.title = t('hook.clickEdit');
-      ta.addEventListener('focus', () => { ta.style.borderBottomColor = 'var(--purple-500)'; });
-      ta.addEventListener('blur',  () => { ta.style.borderBottomColor = 'var(--purple-300)'; });
+      ta.setAttribute('aria-label', t('hook.clickEdit'));
       ta.addEventListener('input', () => {
         ta.style.height = 'auto';
         ta.style.height = ta.scrollHeight + 'px';
         drawHookPreview();
         _hideExactHook(); scheduleExactHook();
       });
-
-      card.appendChild(ta);
+      const pencil = document.createElement('span');
+      pencil.className = 'hook-edit-pencil';
+      pencil.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3.5l3.5 3.5L8 19.5 4 20l.5-4z"/></svg>';
+      wrap.appendChild(ta);
+      wrap.appendChild(pencil);
+      card.appendChild(wrap);
       if (h.rationale) {
         const rationale = document.createElement('p');
         rationale.className = 'hook-tip';
@@ -5546,10 +5620,32 @@
       const ok = await showConfirmModal(t('hist.deleteTitle'),
         t('hist.deleteBody', {name: job.name}), t('confirm.delete'));
       if (!ok) return;
+      // Remove the card in place - no full-tab reload (a reload refetched the
+      // whole list + every thumbnail and reset the scroll position).
+      del.disabled = true;
       try {
-        await apiFetch(`${API_BASE}/jobs/${job.key}/`, { method: 'DELETE' });
-      } catch (_) {}
-      loadHistory();
+        const resp = await apiFetch(`${API_BASE}/jobs/${job.key}/`, { method: 'DELETE' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        card.style.overflow = 'hidden';
+        card.style.transition = 'opacity 0.18s, max-height 0.25s 0.1s, margin 0.25s 0.1s, padding 0.25s 0.1s';
+        card.style.maxHeight = card.offsetHeight + 'px';
+        requestAnimationFrame(() => {
+          card.style.opacity = '0';
+          card.style.maxHeight = '0'; card.style.marginBottom = '0';
+          card.style.paddingTop = '0'; card.style.paddingBottom = '0';
+        });
+        setTimeout(() => {
+          card.remove();
+          const list = document.getElementById('historyList');
+          if (list && !list.children.length) {
+            const empty = document.getElementById('historyEmpty');
+            if (empty) { empty.textContent = t('hist.empty'); empty.style.display = ''; }
+          }
+        }, 400);
+      } catch (_) {
+        del.disabled = false;
+        celebrateToast(t('hist.deleteFailed'));
+      }
     };
     // Scheduling posts a video to social platforms - not applicable to audio.
     if (isAudio) actions.append(dl, del);

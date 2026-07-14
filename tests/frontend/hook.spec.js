@@ -94,6 +94,23 @@ test('poll endpoint receives the hook call_id', async ({ page }) => {
   expect(pollUrls[0]).toContain('mock-hook-call-id');
 });
 
+test('hook option text is editable and the edit reaches the burn payload', async ({ page }) => {
+  await runFullUpload(page);
+  await page.click('#tabBtnHook');
+  await page.click('#generateHookBtn');
+  await page.waitForSelector('#hookOptions', { state: 'visible', timeout: 8_000 });
+  await page.click('#hookOption0');
+
+  const ta = page.locator('#hookText0');
+  await expect(page.locator('#hookOption0 .hook-edit-pencil')).toBeVisible();   // edit affordance
+  await ta.click();
+  await ta.fill('טקסט חדש שערכתי');
+  await expect(ta).toHaveValue('טקסט חדש שערכתי');
+
+  const payload = await page.evaluate(() => _hookPreviewPayload());
+  expect(payload.text).toBe('טקסט חדש שערכתי');
+});
+
 test('burn sends the exact hook lines the preview wrapped (WYSIWYG)', async ({ page }) => {
   // The burn must reproduce the preview's wrapping verbatim (not re-wrap in
   // libass), so the frontend sends the canvas-computed lines in hook.lines.
