@@ -45,6 +45,35 @@ test('hook API sends captions_json and video_key', async ({ page }) => {
   expect(capturedBody).toHaveProperty('video_key', 'mock-video-key_cut.mp4');
 });
 
+test('a network blip on the hook spawn retries and succeeds (no Failed to fetch)', async ({ page }) => {
+  await runFullUpload(page);
+  // First two attempts die at the network layer (what a phone backgrounding /
+  // wifi blip looks like); the third goes through to the mock.
+  let attempts = 0;
+  await page.route(`${require('./helpers').API_BASE}/generate-hook/`, async route => {
+    attempts++;
+    if (attempts <= 2) return route.abort('connectionfailed');
+    return route.fallback();
+  });
+  await page.click('#tabBtnHook');
+  await page.click('#generateHookBtn');
+  await page.waitForSelector('#hookOptions', { state: 'visible', timeout: 15_000 });
+  expect(attempts).toBe(3);
+  await expect(page.locator('#hookError')).toBeHidden();
+});
+
+test('a dead network on the hook spawn shows a human message, not Failed to fetch', async ({ page }) => {
+  await runFullUpload(page);
+  await page.route(`${require('./helpers').API_BASE}/generate-hook/`, r => r.abort('connectionfailed'));
+  await page.click('#tabBtnHook');
+  await page.click('#generateHookBtn');
+  const errEl = page.locator('#hookError');
+  await expect(errEl).toBeVisible({ timeout: 20_000 });
+  const txt = await errEl.textContent();
+  expect(txt).not.toMatch(/failed to fetch/i);
+  expect(txt).toMatch(/connection|network|החיבור|רשת/i);
+});
+
 test('hook generation 500 error shows error message in hook section', async ({ page }) => {
   // Process succeeds but hook returns 500
   await runFullUpload(page, { hookStatus: 500 });

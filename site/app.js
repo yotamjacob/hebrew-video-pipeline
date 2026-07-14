@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.1';
+  const APP_VERSION = '1.10.2';
   document.querySelectorAll('p.footer').forEach(f => {
     const v = document.createElement('span');
     v.className = 'footer-version';
@@ -145,6 +145,29 @@
       throw new Error(t('auth.sessionExpired'));
     }
     return resp;
+  }
+
+  // apiFetch + retry for SPAWN requests (hooks / B-roll / burn): a pure
+  // network failure (fetch TypeError - connection blip, network switch, the
+  // OS killing the request on backgrounding) retries with backoff, parking
+  // until the page is visible again. Server replies (4xx/5xx) are answers,
+  // not blips - they surface immediately. Payloads with a long transcript
+  // take seconds to send on a weak uplink, which makes these requests the
+  // most blip-prone in the app ("Failed to fetch" on 10-minute videos).
+  async function apiFetchRetry(url, opts = {}, attempts = 3) {
+    for (let i = 0; ; i++) {
+      try {
+        return await apiFetch(url, opts);
+      } catch (e) {
+        const isNetBlip = e instanceof TypeError;
+        if (!isNetBlip || i >= attempts - 1) {
+          throw isNetBlip ? new Error(t('err.netBlip')) : e;
+        }
+        console.warn(`spawn fetch blip (attempt ${i + 1}/${attempts}):`, e && e.message);
+        if (typeof _whenVisible === 'function') await _whenVisible();
+        await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+      }
+    }
   }
 
   function _hideBootLoader() { const bl = document.getElementById('bootLoader'); if (bl) bl.style.display = 'none'; }
@@ -1672,14 +1695,12 @@
       // Tapping the "video ready" notification opens the app (default) and jumps
       // to History where the finished video is.
       Push.addListener('pushNotificationActionPerformed', (action) => {
-        // Route by the push's kind: only a finished VIDEO lives in History.
-        // edit_ready (captions await) and processing (still running) must
-        // leave the user on the auto-resumed flow - hijacking to History
-        // would hide it.
-        const kind = action && action.notification && action.notification.data
-          && action.notification.data.kind;
-        if (kind !== 'video_ready') return;
-        try { if (typeof switchTab === 'function') switchTab('history'); } catch (_) {}
+        // Every pipeline push lands on the CREATION tab: a finished video's
+        // next step is share/schedule (right there in the success banner), and
+        // processing/edit_ready taps continue the auto-resumed flow. Forcing
+        // the tab guards against restoreTab() reopening History/Guide from a
+        // previous session.
+        try { if (typeof switchTab === 'function') switchTab('pipeline'); } catch (_) {}
       });
       await Push.register();
     } catch (e) { console.warn('push init failed', e); }
@@ -4603,7 +4624,7 @@
     selectedHookIdx       = -1;
 
     try {
-      const resp = await apiFetch(`${API_BASE}/generate-hook/`, {
+      const resp = await apiFetchRetry(`${API_BASE}/generate-hook/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ captions_json: JSON.stringify(captions), video_key: videoKey }),
@@ -4783,7 +4804,7 @@
     const stockTimer = setInterval(() => { stockElapsedEl.textContent = formatTime(++stockSecs); }, 1000);
 
     try {
-      const resp = await apiFetch(`${API_BASE}/stock-broll/`, {
+      const resp = await apiFetchRetry(`${API_BASE}/stock-broll/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ captions_json: JSON.stringify(captions), video_key: videoKey || '', orientation: videoOrientation }),
@@ -5155,7 +5176,7 @@
             broll_duration_seconds: momentCtx.broll_duration_seconds || 3.0,
           })
         : '';
-      const resp = await apiFetch(`${API_BASE}/stock-broll-clips/`, {
+      const resp = await apiFetchRetry(`${API_BASE}/stock-broll-clips/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ search_query: searchQuery, page: page || 2, moment_context: ctxPayload, orientation: videoOrientation }),
@@ -5503,7 +5524,7 @@
 
       pollController = new AbortController();
       _setStage('burn');
-      const spawnResp = await apiFetch(burnUrl.toString(), {
+      const spawnResp = await apiFetchRetry(burnUrl.toString(), {
         method: 'POST',
         body: JSON.stringify({ captions: edited, broll: allBroll, caption_style: _captionStylePayload(), ...(hookPayload ? { hook: hookPayload } : {}) }),
         headers: { 'Content-Type': 'application/json' },

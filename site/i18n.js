@@ -282,6 +282,7 @@
     'hist.loadFailed': { en: "Couldn't load history. Pull to refresh or try again later.", he: 'טעינת ההיסטוריה נכשלה. נסו לרענן או חזרו מאוחר יותר.' },
     'hist.deleteFailed': { en: 'Could not delete the video - try again.', he: 'מחיקת הסרטון נכשלה - נסו שוב.' },
     'resume.uploadIncomplete': { en: 'The upload did not finish - select the file again and it will resume from where it stopped.', he: 'ההעלאה לא הסתיימה - בחרו שוב את הקובץ והיא תמשיך מאיפה שנעצרה.' },
+    'err.netBlip': { en: 'The connection dropped mid-request - check your network and try again.', he: 'החיבור נקטע באמצע הבקשה - בדקו את הרשת ונסו שוב.' },
 
     // ── Confirm dialog / modals ──
     'confirm.burnTitle': { en: 'Ready to burn?', he: 'מוכנים לצרוב?' },
