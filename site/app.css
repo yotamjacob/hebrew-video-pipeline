@@ -399,6 +399,29 @@
     }
     .link-btn:hover { color: var(--purple-700); }
 
+    /* Wrong-lane auth error CTA: a real button inside the error box that jumps
+       the user straight to the right lane (create account / sign in). */
+    .lane-switch-btn {
+      display: block; width: 100%; margin-top: 10px; padding: 10px 14px;
+      border: none; border-radius: 10px; cursor: pointer; font-family: inherit;
+      background: var(--terracotta); color: var(--white);
+      font-size: 0.88rem; font-weight: 700;
+    }
+    .lane-switch-btn:hover { filter: brightness(1.06); }
+
+    /* Auth back button: a visible bordered button (was an easy-to-miss text
+       link) with a leading back arrow that flips in RTL. */
+    .auth-back-btn {
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+      width: 100%; margin-top: 12px; padding: 10px 6px; min-height: 42px;
+      background: var(--purple-50); border: 1.5px solid var(--purple-200);
+      border-radius: 10px; color: var(--purple-600);
+      font-size: 0.85rem; font-weight: 700; cursor: pointer; font-family: inherit;
+    }
+    .auth-back-btn:hover { background: var(--purple-100); color: var(--purple-700); }
+    .auth-back-btn svg { flex-shrink: 0; }
+    [dir="rtl"] .auth-back-btn svg { transform: scaleX(-1); }
+
     /* Show/hide password toggle */
     .pw-wrap { position: relative; }
     .pw-wrap .sched-input { padding-inline-end: 42px; }
@@ -612,10 +635,6 @@
       border-radius: 2px; transition: width 0.3s ease;
     }
     .upload-bar-pct { font-size: 0.72rem; font-weight: 600; color: var(--purple-600); min-width: 28px; }
-
-    .checklist-footer {
-      padding: 10px 0 4px; font-size: 0.75rem; color: var(--muted); text-align: center;
-    }
 
     /* Done */
     .status-done { display: none; flex-direction: column; align-items: center; gap: 16px; padding: 28px 20px; }
@@ -1450,11 +1469,8 @@
       inset-inline-end: 10px; width: min(150px, 40vw) !important;
       z-index: 45; border-radius: 12px;
       box-shadow: 0 10px 26px -10px rgba(62,58,52,0.6);
-      animation: pipFlyIn 0.28s cubic-bezier(0.2, 0.8, 0.3, 1);
-    }
-    @keyframes pipFlyIn {
-      from { transform: scale(0.55) translateY(-14px); opacity: 0.3; }
-      to   { transform: none; opacity: 1; }
+      /* Entry/exit motion is a JS FLIP transform (_flipPlayerWrap): it flies
+         the wrap from its real previous position to the corner and back. */
     }
     .player-outer.is-stuck .player-controls { display: none; }
     /* B-roll preview overlays: cover the frame during their moment window. */

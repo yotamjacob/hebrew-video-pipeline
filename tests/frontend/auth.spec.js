@@ -73,6 +73,60 @@ test('login lane sends mode=login; unknown email shows "no account"', async ({ p
   expect(sentBody.mode).toBe('login');
 });
 
+test('"no account" error offers a CTA that switches to the register lane in place', async ({ page }) => {
+  const bodies = [];
+  await page.route(/\/auth\/request-code/, (route, request) => {
+    bodies.push(JSON.parse(request.postData()));
+    return bodies.length === 1
+      ? route.fulfill({ status: 403, contentType: 'application/json',
+                        body: JSON.stringify({ error: 'No account found for this email.', no_account: true }) })
+      : route.fulfill({ status: 200, contentType: 'application/json',
+                        body: JSON.stringify({ ok: true, is_new: true }) });
+  });
+  await page.goto('/');
+  await page.click('#authChoiceExisting');
+  await page.fill('#authEmail', 'stranger@example.com');
+  await page.click('#authSubmitBtn');
+  // The error is actionable: a real button, not just "go back" prose.
+  const cta = page.locator('#authError .lane-switch-btn');
+  await expect(cta).toBeVisible();
+  await cta.click();
+  // One click lands in the register lane with the typed email preserved.
+  await expect(page.locator('#authNewFields')).toBeVisible();
+  await expect(page.locator('#authError')).toBeHidden();
+  await expect(page.locator('#authEmail')).toHaveValue('stranger@example.com');
+  // And the next submit really registers (mode=register).
+  await page.fill('#authInvite', 'the-invite');
+  await page.check('#authTermsCheck');
+  await page.click('#authSubmitBtn');
+  await expect(page.locator('#authStepCode')).toBeVisible();
+  expect(bodies[1].mode).toBe('register');
+});
+
+test('"already has an account" error in the register lane switches back to sign-in', async ({ page }) => {
+  await page.route(/\/auth\/request-code/, (route, request) => {
+    const body = JSON.parse(request.postData());
+    return body.mode === 'register'
+      ? route.fulfill({ status: 409, contentType: 'application/json',
+                        body: JSON.stringify({ error: 'This email already has an account.', exists: true }) })
+      : route.fulfill({ status: 200, contentType: 'application/json',
+                        body: JSON.stringify({ ok: true, is_new: false }) });
+  });
+  await page.goto('/');
+  await page.click('#authChoiceNew');
+  await page.fill('#authEmail', 'alina@example.com');
+  await page.fill('#authInvite', 'the-invite');
+  await page.check('#authTermsCheck');
+  await page.click('#authSubmitBtn');
+  const cta = page.locator('#authError .lane-switch-btn');
+  await expect(cta).toBeVisible();
+  await cta.click();
+  await expect(page.locator('#authNewFields')).toBeHidden();   // login lane now
+  await expect(page.locator('#authEmail')).toHaveValue('alina@example.com');
+  await page.click('#authSubmitBtn');
+  await expect(page.locator('#authStepCode')).toBeVisible();
+});
+
 test('a wrong code shows the server error, app stays hidden', async ({ page }) => {
   await _mockCode(page, { verifyStatus: 401,
                           verifyBody: JSON.stringify({ error: 'Incorrect code. Try again.' }) });

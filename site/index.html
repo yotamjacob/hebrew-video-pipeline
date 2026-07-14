@@ -182,7 +182,10 @@
         <!-- Label is flow-dependent (set in JS): login lane "Sign in with email",
              register lane "Send code" - so no data-i18n here. -->
         <button type="submit" class="run-btn" id="authSubmitBtn" style="margin-top:18px">Sign in with email</button>
-        <button type="button" class="link-btn" style="margin-top:10px" id="authBackToChoice" data-i18n="auth.back">Back</button>
+        <button type="button" class="auth-back-btn" id="authBackToChoice">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+          <span data-i18n="auth.back">Back to sign-in options</span>
+        </button>
       </div>
 
       <!-- Step 2: enter the 6-digit code from the email. -->
@@ -195,7 +198,10 @@
         <div id="authCodeInfo" class="sched-status ok" style="display:none;margin-top:12px"></div>
         <button type="button" class="run-btn" id="authVerifyBtn" style="margin-top:18px" data-i18n="auth.verify">Sign in</button>
         <button type="button" class="action-btn" style="margin-top:10px" id="authResendBtn" data-i18n="auth.resend">Resend code</button>
-        <button type="button" class="link-btn" style="margin-top:10px" id="authBackBtn" data-i18n="auth.changeEmail">Use a different email</button>
+        <button type="button" class="auth-back-btn" id="authBackBtn">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+          <span data-i18n="auth.changeEmail">Use a different email</span>
+        </button>
       </div>
     </form>
   </div>
@@ -778,7 +784,6 @@
         </div></div>
       </div>
 
-      <div class="checklist-footer" id="checklistKeepOpen" data-i18n="prog.keepOpen">Keep this page open while processing</div>
     </div>
 
     <div class="status-done" id="statusDone">

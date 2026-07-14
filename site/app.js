@@ -353,6 +353,24 @@
     document.getElementById(flow === 'register' ? 'authInvite' : 'authEmail').focus();
   }
 
+  // Wrong-lane errors ("no account yet" / "already has an account") are the
+  // most common dead end for new users, so they get a real CTA button that
+  // jumps straight to the right lane - not just text telling them to go back.
+  // The typed email survives the switch (same input), and a pending native
+  // Google token is kept so they don't have to pick their account again.
+  function _laneSwitchErr(errEl, targetFlow) {
+    const msgKey = targetFlow === 'register' ? 'auth.noAccount'    : 'auth.emailTaken';
+    const ctaKey = targetFlow === 'register' ? 'auth.noAccountCta' : 'auth.emailTakenCta';
+    errEl.innerHTML = '<span>' + _escapeHtml(t(msgKey)) + '</span>' +
+      '<button type="button" class="lane-switch-btn">' + _escapeHtml(t(ctaKey)) + '</button>';
+    errEl.style.display = 'block';
+    errEl.querySelector('.lane-switch-btn').addEventListener('click', () => {
+      const keepGoogle = _pendingGoogleToken;
+      _enterAuthFlow(targetFlow);
+      _pendingGoogleToken = keepGoogle;
+    });
+  }
+
   // Reset the auth view. A device that remembers its email skips the landing
   // straight into the existing-user panel; anyone else picks a lane first.
   function applyAuthMode() {
@@ -431,7 +449,12 @@
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       const data = await resp.json().catch(() => ({}));
-      // Wrong lane, bad invite, throttle, etc - all translated to the UI language.
+      // Wrong lane gets an actionable CTA that switches lanes in place.
+      if (!resp.ok && data && (data.no_account || data.exists)) {
+        _laneSwitchErr(errEl, data.no_account ? 'register' : 'login');
+        return;
+      }
+      // Bad invite, throttle, etc - all translated to the UI language.
       if (!resp.ok) throw new Error(_authErrMsg(data, resp.status));
       // Code sent → step 2.
       _authEmail = email;
@@ -497,11 +520,16 @@
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
       const errEl = document.getElementById('authError');
-      // Wrong lane: this Google account has no record yet → point at "I'm new".
+      // Wrong lane: this Google account has no record yet → one-click switch
+      // to the register lane (the pending token survives the switch).
       if (data.no_account) {
         _pendingGoogleToken = idToken;   // native: reuse after switching lanes
-        errEl.textContent = t('auth.noAccount');
-        errEl.style.display = 'block';
+        _laneSwitchErr(errEl, 'register');
+        return;
+      }
+      if (data.exists) {
+        _pendingGoogleToken = idToken;
+        _laneSwitchErr(errEl, 'login');
         return;
       }
       // Register lane with a missing/wrong invite or unchecked Terms.
@@ -1421,10 +1449,6 @@
       e.preventDefault(); e.stopPropagation();
       pickNativeFile();
     }, true);
-    // Native uploads run in a background foreground-service uploader that
-    // survives the app being minimized/closed, so the "keep the window open"
-    // remarks (correct only for the web JS upload) are wrong here - hide them.
-    { const kf = document.getElementById('checklistKeepOpen'); if (kf) kf.style.display = 'none'; }
 
     // Show the brand animation as the loading screen, then hand off to the app.
     // Hide the native splash once our video overlay is up so there's no flash of
@@ -3605,22 +3629,50 @@
   // ── Sticky preview: dock + shrink the player once its sentinel scrolls out ──
   let _stickyObs = null, _stickyCardObs = null;
   let _sentinelAboveTop = false, _editorInView = true;
+  // FLIP the wrap between its two layouts: snapshot where it WAS, apply the
+  // layout change, then transition a transform from the old spot to the new
+  // one - so docking/undocking flies smoothly across the screen instead of
+  // teleporting (the old keyframe just scaled in place at the corner).
+  function _flipPlayerWrap(wrap, mutate) {
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce || !wrap.getBoundingClientRect) { mutate(); return; }
+    const from = wrap.getBoundingClientRect();
+    mutate();
+    const to = wrap.getBoundingClientRect();
+    if (!from.width || !to.width) return;
+    const dx = from.left - to.left, dy = from.top - to.top, s = from.width / to.width;
+    if (Math.abs(dx) < 2 && Math.abs(dy) < 2 && Math.abs(s - 1) < 0.02) return;
+    wrap.style.transition = 'none';
+    wrap.style.transformOrigin = 'top left';
+    wrap.style.transform = `translate(${dx}px, ${dy}px) scale(${s})`;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      wrap.style.transition = 'transform 0.35s cubic-bezier(0.2, 0.8, 0.3, 1)';
+      wrap.style.transform = '';
+    }));
+    const done = () => { wrap.style.transition = ''; wrap.style.transformOrigin = ''; wrap.removeEventListener('transitionend', done); };
+    wrap.addEventListener('transitionend', done);
+    setTimeout(done, 500);   // backstop: transitionend can be swallowed by a mid-flight retoggle
+  }
+
   function _applyStickyState(player) {
     // Float ONLY while the user is inside the editor area: the sentinel has
     // scrolled past the top AND part of the editor card is still on screen.
     // Scrolling above the card, or past it (burn button / status), un-floats.
     const stick = _sentinelAboveTop && _editorInView;
     if (stick === player.classList.contains('is-stuck')) return;
-    if (stick) {
-      // Reserve the full-size slot BEFORE the wrap goes position:fixed, so
-      // the layout doesn't shift (a shift would re-trigger the observer and
-      // oscillate the docked state forever).
-      player.style.minHeight = player.getBoundingClientRect().height + 'px';
-      player.classList.add('is-stuck');
-    } else {
-      player.classList.remove('is-stuck');
-      player.style.minHeight = '';
-    }
+    const wrap = player.querySelector('.player-wrap');
+    _flipPlayerWrap(wrap || player, () => {
+      if (stick) {
+        // Reserve the full-size slot BEFORE the wrap goes position:fixed, so
+        // the layout doesn't shift (a shift would re-trigger the observer and
+        // oscillate the docked state forever).
+        player.style.minHeight = player.getBoundingClientRect().height + 'px';
+        player.classList.add('is-stuck');
+      } else {
+        player.classList.remove('is-stuck');
+        player.style.minHeight = '';
+      }
+    });
     // The wrap resizes → rescale the caption + hook overlays.
     requestAnimationFrame(() => { updatePreviewCaption(); });
   }
