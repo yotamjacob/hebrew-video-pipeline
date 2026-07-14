@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.7.2';
+  const APP_VERSION = '1.8.0';
   document.querySelectorAll('p.footer').forEach(f => {
     const v = document.createElement('span');
     v.className = 'footer-version';
@@ -1174,6 +1174,28 @@
     apiFetch(API_BASE + '/warmup/').catch(() => {});
   }
 
+  // Native LARGE files skip the background uploader: it sends the whole file
+  // as ONE request whose retry starts from byte zero, so a single wifi blip at
+  // 90% of a 500 MB upload throws everything away (observed in the field). The
+  // chunked JS uploader retries per-1MB chunk and RESUMES, at the cost of
+  // needing the app foregrounded - the right trade for files this size.
+  // Small files keep the background-surviving native path.
+  const NATIVE_CHUNKED_MIN = 150 * 1024 * 1024;
+  function _nativeChunkedMin() { return window.__NATIVE_CHUNKED_MIN || NATIVE_CHUNKED_MIN; }
+
+  // Read a native picked file as a Blob via the WebView's local-file scheme
+  // (disk-backed, so a 500 MB file doesn't sit in JS heap). Throws if the
+  // path/provider can't be served - callers fall back to the stream uploader.
+  async function _nativeFileBlob(desc) {
+    const src = (window.Capacitor && window.Capacitor.convertFileSrc)
+      ? window.Capacitor.convertFileSrc(desc.path) : desc.path;
+    const resp = await fetch(src);
+    if (!resp.ok) throw new Error('local file read ' + resp.status);
+    const blob = await resp.blob();
+    if (!blob.size) throw new Error('local file read empty');
+    return blob;
+  }
+
   // Upload a native file path via the background uploader. Resolves with the
   // upload key (same key the /process call expects). Rejects on failure.
   function nativeUpload(desc, onProgress) {
@@ -1973,10 +1995,30 @@
           }
         }
       };
-      // Native app: background uploader (survives minimize). Web: JS chunked upload.
-      const uploadKey = await (nativeUploadDesc
-        ? nativeUpload(nativeUploadDesc, _onUpProgress)
-        : chunkedUpload(selectedFile, stableBlob, _onUpProgress));
+      // Native app: background uploader (survives minimize) for normal files;
+      // LARGE files use the chunked resumable uploader instead - the stream
+      // uploader's retry-from-zero threw away 300+ MB on a single wifi blip.
+      // Web: JS chunked upload always.
+      let uploadKey;
+      if (nativeUploadDesc && (nativeUploadDesc.size || 0) >= _nativeChunkedMin()) {
+        let nblob = null;
+        try { nblob = await _nativeFileBlob(nativeUploadDesc); }
+        catch (e) { console.warn('native chunked path unavailable, using stream uploader:', e && e.message); }
+        if (nblob) {
+          // The JS uploader freezes while backgrounded - surface the keep-open
+          // note for this path (normally hidden on native).
+          { const n = document.getElementById('uploadNote'); if (n) n.style.display = 'block'; }
+          uploadKey = await chunkedUpload(
+            { name: nativeUploadDesc.name, size: nblob.size, lastModified: 0 },
+            nblob, _onUpProgress);
+        } else {
+          uploadKey = await nativeUpload(nativeUploadDesc, _onUpProgress);
+        }
+      } else if (nativeUploadDesc) {
+        uploadKey = await nativeUpload(nativeUploadDesc, _onUpProgress);
+      } else {
+        uploadKey = await chunkedUpload(selectedFile, stableBlob, _onUpProgress);
+      }
       _stepDone('upload');
       document.getElementById('uploadBarRow').style.display = 'none';
       { const n = document.getElementById('uploadNote'); if (n) n.style.display = 'none'; }
