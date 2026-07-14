@@ -3,7 +3,8 @@
   "appName": "Pipeline",
   "webDir": "site",
   "server": {
-    "androidScheme": "https"
+    "androidScheme": "https",
+    "url": "https://hebrew-pipeline.app"
   },
   "android": {
     "allowMixedContent": false
