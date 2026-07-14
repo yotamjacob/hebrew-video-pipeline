@@ -15,6 +15,12 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- Status bar: brand sand with DARK icons. Without windowLightStatusBar
+             the bar was white with white icons - clock/battery invisible. -->
+        <item name="android:statusBarColor">#E8DFD3</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#E8DFD3</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
 
 
@@ -23,5 +29,10 @@
         <!-- Android 12+ system splash: sand brand background instead of the
              theme default (which went BLACK in dark mode). -->
         <item name="windowSplashScreenBackground">#E8DFD3</item>
+        <!-- Same bar treatment during launch so there is no white flash. -->
+        <item name="android:statusBarColor">#E8DFD3</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#E8DFD3</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>

@@ -401,6 +401,15 @@
 
     /* Wrong-lane auth error CTA: a real button inside the error box that jumps
        the user straight to the right lane (create account / sign in). */
+    /* Small restore-defaults button (caption + hook style editors) */
+    .style-reset-btn {
+      display: inline-flex; align-items: center; padding: 6px 14px;
+      border-radius: 9px; border: 1.5px solid var(--purple-300);
+      background: var(--purple-50); color: var(--purple-700);
+      font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: inherit;
+    }
+    .style-reset-btn:hover { background: var(--purple-100); }
+
     .lane-switch-btn {
       display: block; width: 100%; margin-top: 10px; padding: 10px 14px;
       border: none; border-radius: 10px; cursor: pointer; font-family: inherit;

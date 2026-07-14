@@ -45,8 +45,10 @@ test('web with Web Share files support: button appears and shares a File', async
   await burnToBanner(page);
   const btn = page.locator('#burnShareBtn');
   await expect(btn).toBeVisible({ timeout: 5_000 });
-  // Wait for the warm-up to settle so the tap is the instant path.
-  await expect(btn).not.toHaveClass(/share-loading/, { timeout: 8_000 });
+  // The button must be READY immediately - plain label, enabled, no spinner
+  // phase (it used to sit in a loading state for the whole warm-up download).
+  await expect(btn).toBeEnabled();
+  await expect(btn).not.toContainText('...');
   await btn.click();
   const shared = await page.evaluate(() => window.__shared);
   expect(shared.files).toBe(1);

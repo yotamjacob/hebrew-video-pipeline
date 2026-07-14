@@ -514,6 +514,10 @@
         </label>
       </div>
 
+      <div style="text-align:center;margin-bottom:12px">
+        <button type="button" id="capStyleResetBtn" class="style-reset-btn btn-refresh-icon" onclick="resetCaptionStyle()" data-i18n="style.resetBtn">Restore default style</button>
+      </div>
+
       <div class="cap-hint-row">
         <p style="font-size:0.78rem;color:var(--muted);margin:0" data-i18n="capedit.hint">Edit captions below, then burn.</p>
         <button id="capUndoBtn" class="cap-undo-btn" onclick="undoCaptions()" disabled data-i18n-title="capedit.undo" title="Undo"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 7 4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-1"/></svg><span data-i18n="capedit.undo">Undo</span></button>
@@ -622,7 +626,8 @@
             <span style="font-size:0.75rem;color:var(--muted)" data-i18n="hook.bottom">Bottom</span>
           </div>
         </label>
-        <div style="display:flex;gap:8px;align-items:center;justify-content:center;margin-bottom:12px">
+        <div style="display:flex;gap:8px;align-items:center;justify-content:center;margin-bottom:12px;flex-wrap:wrap">
+          <button type="button" id="hookStyleResetBtn" class="style-reset-btn btn-refresh-icon" onclick="resetHookStyle()" data-i18n="style.resetBtn">Restore default style</button>
           <button onclick="openHookTemplateModal()"
             style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:9px;border:1.5px solid var(--purple-300);background:var(--purple-50);color:var(--purple-700);font-size:0.8rem;font-weight:600;cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h12l4 4v12H4z"/><path d="M8 4v5h7M8 20v-6h8v6"/></svg><span data-i18n="hook.saveLoad">Save / Load Template</span></button>
         </div>

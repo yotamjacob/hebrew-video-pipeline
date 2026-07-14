@@ -194,11 +194,16 @@
     'run.burn':         { en: 'Burn &amp; Download', he: 'צריבה והורדה' },
     'burn.success':     { en: 'Your video is downloading. If it did not start, tap Download again.', he: 'הסרטון שלכם יורד. אם ההורדה לא התחילה, הקישו על הורדה חוזרת.' },
     'burn.downloadAgain': { en: 'Download again', he: 'הורדה חוזרת' },
+    'style.resetBtn':      { en: 'Restore default style', he: 'איפוס לעיצוב ברירת המחדל' },
+    'style.resetTitle':    { en: 'Restore default style?', he: 'לאפס לעיצוב ברירת המחדל?' },
+    'style.resetCapBody':  { en: 'Font, size, colors and position will return to their defaults. Your caption text is not affected.', he: 'הגופן, הגודל, הצבעים והמיקום יחזרו לברירת המחדל. טקסט הכתוביות לא ישתנה.' },
+    'style.resetHookBody': { en: 'Font, colors, size, position and timing will return to their defaults. The hook text stays.', he: 'הגופן, הצבעים, הגודל, המיקום והתזמון יחזרו לברירת המחדל. טקסט ההוק נשאר.' },
+    'style.resetOk':       { en: 'Reset', he: 'איפוס' },
     'share.btn':    { en: 'Share video', he: 'שיתוף הסרטון' },
     'share.text':   { en: 'Made with Pipeline', he: 'נערך בפייפליין' },
     'share.dialog': { en: 'Share video', he: 'שיתוף הסרטון' },
     'share.preparing': { en: 'Preparing video to share...', he: 'מכין את הסרטון לשיתוף...' },
-    'share.loading': { en: 'Loading share button...', he: 'טוען כפתור שיתוף...' },
+    'share.again':  { en: 'The video is ready - tap Share again.', he: 'הסרטון מוכן - הקישו שוב על שיתוף.' },
     'share.failed': { en: 'Could not share the video. You can download it instead.', he: 'לא ניתן היה לשתף את הסרטון. אפשר להוריד אותו במקום.' },
 
     // ── Schedule card ──

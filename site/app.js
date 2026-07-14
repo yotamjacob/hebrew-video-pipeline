@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.6.0';
+  const APP_VERSION = '1.7.0';
   document.querySelectorAll('p.footer').forEach(f => {
     const v = document.createElement('span');
     v.className = 'footer-version';
@@ -1256,34 +1256,21 @@
   // moment the video is ready (_prepareShareFile) - so tapping Share is instant
   // instead of a multi-second "preparing" wait. Native only.
   let _sharing = false;
-  let _sharePrep = null;   // { url, uri } once the finished file is cached locally
+  let _sharePrep = null;         // { url, uri } once the finished file is cached locally
+  let _sharePrepPromise = null;  // in-flight warm-up (native) - a tap awaits this
   function _safeShareName(name) { return (name || 'video.mp4').replace(/[^\w.\-]+/g, '_'); }
 
-  // Share buttons have three visual states: hidden, 'loading' (visible with a
-  // spinner + "loading share button" - the finished file is still being cached,
-  // but a tap already works via the on-tap fallback), and 'ready' (plain label,
-  // instant tap). Showing 'loading' immediately means the button appears at once
-  // instead of after the multi-second warm-up download.
+  // Share buttons are 'ready' the MOMENT a result exists - no spinner phase.
+  // The file warm-up (caching the finished video locally) runs silently in the
+  // background; a tap that lands mid-warm-up awaits the SAME in-flight download
+  // (showing "preparing..." on the button) instead of starting a second one.
   function _setShareState(state) {
     ['burnShareBtn', 'shareBtn'].forEach(id => {
       const b = document.getElementById(id);
       if (!b) return;
-      if (state === 'hidden') { b.style.display = 'none'; b.classList.remove('share-loading'); return; }
+      if (state === 'hidden') { b.style.display = 'none'; return; }
       b.style.display = '';
-      if (state === 'loading') {
-        b.classList.add('share-loading');
-        b.innerHTML = '<span class="spinner" style="width:14px;height:14px;margin-inline-end:8px"></span>' +
-                      _escapeHtml(t('share.loading')) +
-                      ' <span class="share-prep-pct"></span>';
-      } else { // ready
-        b.classList.remove('share-loading');
-        b.textContent = t('share.btn');
-      }
-    });
-  }
-  function _setSharePct(pct) {
-    document.querySelectorAll('.share-prep-pct').forEach(el => {
-      el.textContent = pct != null ? `${pct}%` : '';
+      b.textContent = t('share.btn');
     });
   }
   function _escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -1311,10 +1298,9 @@
 
   async function _prepareShareFile(url, name) {
     if (!_isNative() || !url) return;
-    if (_sharePrep && _sharePrep.url === url) { _setShareState('ready'); return; }   // already cached
+    if (_sharePrep && _sharePrep.url === url) return;   // already cached
     const Filesystem = _capPlugin('Filesystem');
-    if (!Filesystem) { _setShareState('ready'); return; }
-    let progHandle = null;
+    if (!Filesystem) return;
     try {
       const safe = _safeShareName(name);
       // Fast path: the preview player already downloaded this exact file into a
@@ -1333,21 +1319,11 @@
         } catch (_) { /* fall through to the network download */ }
       }
       if (!reused) {
-        // Real download - surface live progress on the button so it's not an
-        // opaque spinner.
-        try {
-          progHandle = await Filesystem.addListener('progress', (p) => {
-            if (p && p.contentLength > 0) _setSharePct(Math.min(99, Math.round(p.bytes * 100 / p.contentLength)));
-          });
-        } catch (_) {}
-        await Filesystem.downloadFile({ url: _withToken(url), path: safe, directory: 'CACHE', progress: true });
+        await Filesystem.downloadFile({ url: _withToken(url), path: safe, directory: 'CACHE' });
       }
       const { uri } = await Filesystem.getUri({ directory: 'CACHE', path: safe });
       _sharePrep = { url, uri };
-    } catch (_) { /* silent: this is a background warm-up; tap still downloads on demand */ }
-    if (progHandle) { try { progHandle.remove(); } catch (_) {} }
-    _setSharePct(null);
-    _setShareState('ready');   // ready either way - a tap downloads on demand if not warmed
+    } catch (_) { /* silent: this is a background warm-up; a tap retries on demand */ }
   }
 
   async function nativeShareVideo(url, name) {
@@ -1359,8 +1335,16 @@
     const labels = btns.map(b => b.innerHTML);
     try {
       let uri = (_sharePrep && _sharePrep.url === url) ? _sharePrep.uri : null;
-      if (!uri && Filesystem) {                 // not warmed yet - fetch now
+      if (!uri) {
         btns.forEach(b => { b.disabled = true; b.textContent = t('share.preparing'); });
+        // A background warm-up may already be downloading this exact file -
+        // wait for IT rather than racing a duplicate download.
+        if (_sharePrepPromise) {
+          try { await _sharePrepPromise; } catch (_) {}
+          uri = (_sharePrep && _sharePrep.url === url) ? _sharePrep.uri : null;
+        }
+      }
+      if (!uri && Filesystem) {                 // no warm-up ran (or it failed) - fetch now
         const safe = _safeShareName(name);
         await Filesystem.downloadFile({ url: _withToken(url), path: safe, directory: 'CACHE' });
         uri = (await Filesystem.getUri({ directory: 'CACHE', path: safe })).uri;
@@ -1406,30 +1390,41 @@
     if (!resp.ok) throw new Error('share download ' + resp.status);
     return await resp.blob();
   }
+  let _webSharePrepPromise = null;   // in-flight web warm-up - a tap awaits this
   async function _prepareWebShareFile(url, name) {
-    if (_webShareFile && _webShareFile.url === url) { _setShareState('ready'); return; }
+    if (_webShareFile && _webShareFile.url === url) return;
     try {
       const blob = await _fetchShareBlob(url);
       _webShareFile = { url, file: new File([blob], _safeShareName(name), { type: 'video/mp4' }) };
     } catch (_) { /* background warm-up only; a tap still tries on demand */ }
-    _setShareState('ready');
   }
   async function webShareVideo(url, name) {
     if (!url || _sharing) return;
     _sharing = true;
     const btns = [document.getElementById('burnShareBtn'), document.getElementById('shareBtn')].filter(Boolean);
     const labels = btns.map(b => b.innerHTML);
+    let waited = false;   // the tap had to wait → the browser may void its activation
     try {
       let file = (_webShareFile && _webShareFile.url === url) ? _webShareFile.file : null;
-      if (!file) {                              // not warmed yet - fetch now
+      if (!file) {                              // not warmed yet - wait for / run the fetch
+        waited = true;
         btns.forEach(b => { b.disabled = true; b.textContent = t('share.preparing'); });
-        file = new File([await _fetchShareBlob(url)], _safeShareName(name), { type: 'video/mp4' });
-        _webShareFile = { url, file };
+        if (_webSharePrepPromise) { try { await _webSharePrepPromise; } catch (_) {} }
+        file = (_webShareFile && _webShareFile.url === url) ? _webShareFile.file : null;
+        if (!file) {
+          file = new File([await _fetchShareBlob(url)], _safeShareName(name), { type: 'video/mp4' });
+          _webShareFile = { url, file };
+        }
       }
       await navigator.share({ files: [file], title: name, text: t('share.text') });
     } catch (e) {
       const msg = (e && (e.name + ' ' + e.message)) || '';
-      if (!/abort|cancel/i.test(msg) && !document.hidden) {
+      if (/abort|cancel/i.test(msg) || document.hidden) { /* user backed out */ }
+      else if (waited && /NotAllowed/i.test(msg)) {
+        // The wait outlived the tap's transient activation. The file IS cached
+        // now, so the next tap shares instantly - say so instead of "failed".
+        try { celebrateToast(t('share.again')); } catch (_) {}
+      } else {
         console.error('web share failed', e);
         try { celebrateToast(t('share.failed')); } catch (_) {}
       }
@@ -1441,17 +1436,20 @@
 
   // Reveal the Share button the moment a result exists - native always (OS
   // share sheet via the Share plugin), web wherever the Web Share API can share
-  // files. Shows in a 'loading' state (spinner) while the file caches in the
-  // background, so it appears instantly instead of after the warm-up. A tap
-  // works even mid-load (both paths download on demand). Hidden with no result.
+  // files. The button is READY immediately (no spinner phase - it used to sit
+  // in a "loading" state for the whole warm-up download, ~30s for a big video);
+  // the warm-up runs silently and a tap that lands before it finishes awaits
+  // the same in-flight download. Hidden with no result.
   function _maybeShowShare() {
     if (!resultDownloadUrl) { _setShareState('hidden'); return; }
     if (_isNative()) {
-      _setShareState('loading');
-      _prepareShareFile(resultDownloadUrl, resultName);
+      _setShareState('ready');
+      _sharePrepPromise = _prepareShareFile(resultDownloadUrl, resultName)
+        .finally(() => { _sharePrepPromise = null; });
     } else if (_canWebShareFiles()) {
-      _setShareState('loading');
-      _prepareWebShareFile(resultDownloadUrl, resultName);
+      _setShareState('ready');
+      _webSharePrepPromise = _prepareWebShareFile(resultDownloadUrl, resultName)
+        .finally(() => { _webSharePrepPromise = null; });
     } else {
       _setShareState('hidden');
     }
@@ -2647,6 +2645,46 @@
       el.style.background = ''; el.style.padding = '';
     }
   }
+  // ── Restore-to-default: caption styling + hook styling ──────────────────
+  // Small reset buttons in both editors; confirmation first (a stray tap
+  // shouldn't wipe a carefully tuned style). Text/selection are untouched.
+  async function resetCaptionStyle() {
+    const ok = await showConfirmModal(t('style.resetTitle'), t('style.resetCapBody'), t('style.resetOk'));
+    if (!ok) return;
+    captionFont = 'Heebo';
+    { const fs = document.getElementById('fontSelect'); if (fs) fs.value = 'Heebo'; }
+    captionFontSize = 48;
+    fontSizeSlider.value = '48';
+    captionMarginPct = 0.08;
+    const defs = { capFontColor: '#FFFFFF', capBorderColor: '#000000', capBorderSize: 2,
+                   capBgColor: '#000000', capBgOpacity: 0 };
+    for (const [id, v] of Object.entries(defs)) {
+      const el = document.getElementById(id); if (el) el.value = v;
+    }
+    { const e = document.getElementById('capBorderSizeVal'); if (e) e.textContent = '2px'; }
+    { const e = document.getElementById('capBgOpacityVal'); if (e) e.textContent = '0%'; }
+    try {
+      localStorage.setItem('captionFontSize', '48');
+      localStorage.removeItem('captionStyle');
+    } catch (_) {}
+    updatePreviewCaption();
+  }
+  async function resetHookStyle() {
+    const ok = await showConfirmModal(t('style.resetTitle'), t('style.resetHookBody'), t('style.resetOk'));
+    if (!ok) return;
+    const defs = { hookFont: 'Heebo', hookFontColor: '#FFFFFF', hookBgColor: '#000000',
+                   hookBgOpacity: 60, hookBorderColor: '#000000', hookBorderSize: 0,
+                   hookFontSize: 100, hookPosition: 10, hookStartSec: 0, hookDurationSec: 3 };
+    for (const [id, v] of Object.entries(defs)) {
+      const el = document.getElementById(id); if (el) el.value = v;
+    }
+    { const e = document.getElementById('hookBgOpacityVal'); if (e) e.textContent = '60%'; }
+    { const e = document.getElementById('hookBorderSizeVal'); if (e) e.textContent = '0px'; }
+    drawHookPreview();
+    updatePlayerHook();
+    _hideExactHook(); scheduleExactHook();
+  }
+
   (function initCaptionStyle() {
     // Persist per device, like font + size.
     try {
