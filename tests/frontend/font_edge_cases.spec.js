@@ -178,6 +178,8 @@ for (const orientation of ['portrait', 'landscape']) {
       for (const pct of [50, 200]) {
         await setHookControl(page, 'hookFontSize', pct);
         const { cssFs, wrapW, wrapH } = await page.evaluate(() => {
+          updatePlayerHook();   // recompute against the CURRENT wrap box (late
+                                // metadata can resize the wrap under load)
           const wrap = document.getElementById('playerWrap');
           return {
             cssFs: parseFloat(getComputedStyle(document.getElementById('playerHook')).fontSize),

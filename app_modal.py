@@ -88,7 +88,9 @@ def api():
         (b"access-control-allow-origin",  b"*"),
         (b"access-control-allow-methods", b"GET, POST, PUT, DELETE, OPTIONS"),
         (b"access-control-allow-headers", b"*"),
-        (b"access-control-expose-headers", b"content-disposition"),
+        # content-range + content-length let the frontend's parallel range
+        # downloader (share warm-up) read the file size from a 206 reply.
+        (b"access-control-expose-headers", b"content-disposition, content-range, content-length, accept-ranges"),
     ]
 
     async def _read_body(receive):
@@ -1480,10 +1482,11 @@ def api():
                 with open(file_path, "rb") as f:
                     f.seek(start)
                     remaining = content_length
-                    # Range replies (206, preview seeking) stay small so playback
-                    # starts fast; a full attachment download (200) uses a bigger
+                    # Small range replies (preview seeking) use a small chunk so
+                    # playback starts fast; full downloads (200) AND the share
+                    # warm-up's big parallel ranges (multi-MB 206s) use a bigger
                     # chunk to cut per-chunk await overhead and lift throughput.
-                    CHUNK = (1024 * 1024) if status == 200 else (256 * 1024)
+                    CHUNK = (1024 * 1024) if (status == 200 or content_length > 2 * 1024 * 1024) else (256 * 1024)
                     while remaining > 0:
                         chunk = f.read(min(CHUNK, remaining))
                         if not chunk:

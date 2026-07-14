@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.7.0';
+  const APP_VERSION = '1.7.1';
   document.querySelectorAll('p.footer').forEach(f => {
     const v = document.createElement('span');
     v.className = 'footer-version';
@@ -1296,6 +1296,48 @@
   // The /download/<key> segment identifies the file regardless of query params.
   function _downloadKeyOf(url) { const m = /\/download\/([^/?]+)/.exec(url || ''); return m ? m[1] : null; }
 
+  // ── Parallel range download (share warm-up) ─────────────────────────────
+  // A single-stream fetch rarely saturates a wifi link; fetching the file in
+  // N concurrent byte ranges typically lands 2-3x the throughput, so the share
+  // file is ready in a fraction of the time. The backend /download route
+  // serves arbitrary Range spans (206 + Content-Range, exposed via CORS).
+  // Falls back to plain fetch when the server answers 200 (no range support).
+  // maxBytes: throw early (before buffering the tail) so callers with a RAM
+  // budget can fall back to a disk-streaming path instead.
+  const _RANGE_CONC = 4;
+  function _rangeChunkBytes() { return window.__RANGE_CHUNK || 8 * 1024 * 1024; }
+  async function _rangeFetchBlob(url, { maxBytes = Infinity } = {}) {
+    const tokUrl = _withToken(url);
+    const CHUNK = _rangeChunkBytes();
+    const first = await fetch(tokUrl, { headers: { 'Range': `bytes=0-${CHUNK - 1}` } });
+    if (first.status !== 206) {
+      if (!first.ok) throw new Error('share download ' + first.status);
+      return await first.blob();               // server ignored Range - single stream
+    }
+    const m = /\/(\d+)\s*$/.exec(first.headers.get('Content-Range') || '');
+    const total = m ? parseInt(m[1], 10) : NaN;
+    if (total > maxBytes) throw new Error('file too large for in-memory download');
+    const firstBuf = await first.arrayBuffer();
+    if (!total || firstBuf.byteLength >= total) return new Blob([firstBuf], { type: 'video/mp4' });
+    const parts = [firstBuf];
+    const jobs = [];
+    for (let off = firstBuf.byteLength; off < total; off += CHUNK) {
+      jobs.push({ idx: parts.length, start: off, end: Math.min(off + CHUNK, total) - 1 });
+      parts.push(null);
+    }
+    let next = 0;
+    async function worker() {
+      while (next < jobs.length) {
+        const j = jobs[next++];
+        const r = await fetch(tokUrl, { headers: { 'Range': `bytes=${j.start}-${j.end}` } });
+        if (r.status !== 206) throw new Error('range fetch ' + r.status);
+        parts[j.idx] = await r.arrayBuffer();
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(_RANGE_CONC, jobs.length) }, worker));
+    return new Blob(parts, { type: 'video/mp4' });
+  }
+
   async function _prepareShareFile(url, name) {
     if (!_isNative() || !url) return;
     if (_sharePrep && _sharePrep.url === url) return;   // already cached
@@ -1319,11 +1361,25 @@
         } catch (_) { /* fall through to the network download */ }
       }
       if (!reused) {
-        await Filesystem.downloadFile({ url: _withToken(url), path: safe, directory: 'CACHE' });
+        await _downloadToCache(Filesystem, url, safe);
       }
       const { uri } = await Filesystem.getUri({ directory: 'CACHE', path: safe });
       _sharePrep = { url, uri };
     } catch (_) { /* silent: this is a background warm-up; a tap retries on demand */ }
+  }
+
+  // Fetch a server file into the app cache: parallel byte ranges (2-3x faster
+  // than the plugin's single stream) for files that fit a sane RAM budget,
+  // falling back to the plugin's disk-streaming download for huge files or any
+  // range failure.
+  const _SHARE_RAM_LIMIT = 200 * 1024 * 1024;
+  async function _downloadToCache(Filesystem, url, safe) {
+    try {
+      const blob = await _rangeFetchBlob(url, { maxBytes: _SHARE_RAM_LIMIT });
+      await _writeBlobToCache(Filesystem, blob, safe);
+      return;
+    } catch (_) { /* too large / range hiccup - stream to disk below */ }
+    await Filesystem.downloadFile({ url: _withToken(url), path: safe, directory: 'CACHE' });
   }
 
   async function nativeShareVideo(url, name) {
@@ -1346,7 +1402,7 @@
       }
       if (!uri && Filesystem) {                 // no warm-up ran (or it failed) - fetch now
         const safe = _safeShareName(name);
-        await Filesystem.downloadFile({ url: _withToken(url), path: safe, directory: 'CACHE' });
+        await _downloadToCache(Filesystem, url, safe);
         uri = (await Filesystem.getUri({ directory: 'CACHE', path: safe })).uri;
         _sharePrep = { url, uri };
       }
@@ -1386,6 +1442,10 @@
         if (objURL) return await (await fetch(objURL)).blob();   // in-memory, no network
       } catch (_) { /* fall through to the network */ }
     }
+    // Parallel ranges first (2-3x a single stream); plain fetch as fallback.
+    try {
+      return await _rangeFetchBlob(url);
+    } catch (_) { /* range hiccup - single stream below */ }
     const resp = await fetch(_withToken(url));
     if (!resp.ok) throw new Error('share download ' + resp.status);
     return await resp.blob();
