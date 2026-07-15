@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.2';
+  const APP_VERSION = '1.10.3';
   document.querySelectorAll('p.footer').forEach(f => {
     const v = document.createElement('span');
     v.className = 'footer-version';
@@ -849,8 +849,10 @@
     if (isAudioInput || !_previewBlobPromise) return;
     _stepActivate('finalize');
     const bounded = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r(undefined), ms))]);
+    const _w1 = (window.__PREVIEW_READY_WAIT_MS != null) ? window.__PREVIEW_READY_WAIT_MS : 90000;   // test seam
+    const _w2 = (window.__PREVIEW_READY_WAIT_MS != null) ? window.__PREVIEW_READY_WAIT_MS : 60000;
     try {
-      let url = await bounded(_previewBlobPromise, 90000);
+      let url = await bounded(_previewBlobPromise, _w1);
       if (url && !(await _probeVideoURL(url))) {
         console.warn('preview blob failed validation - refetching');
         try { URL.revokeObjectURL(url); } catch (_) {}
@@ -858,7 +860,7 @@
       }
       if (!url && _previewBlobKey) {
         _prefetchPreviewBlob(_previewBlobKey);   // retry once
-        url = await bounded(_previewBlobPromise, 60000);
+        url = await bounded(_previewBlobPromise, _w2);
         if (url && !(await _probeVideoURL(url))) { try { URL.revokeObjectURL(url); } catch (_) {} _previewBlobPromise = Promise.resolve(null); }
       }
     } catch (_) {}
@@ -1445,10 +1447,15 @@
   // budget can fall back to a disk-streaming path instead.
   const _RANGE_CONC = 4;
   function _rangeChunkBytes() { return window.__RANGE_CHUNK || 8 * 1024 * 1024; }
+  // Per-request timeout: a stalled socket must FAIL (so callers hit their
+  // single-stream / streaming fallbacks) instead of hanging the whole fetch.
+  function _rangeTimeoutSig() {
+    try { return AbortSignal.timeout(60_000); } catch (_) { return undefined; }
+  }
   async function _rangeFetchBlob(url, { maxBytes = Infinity } = {}) {
     const tokUrl = _withToken(url);
     const CHUNK = _rangeChunkBytes();
-    const first = await fetch(tokUrl, { headers: { 'Range': `bytes=0-${CHUNK - 1}` } });
+    const first = await fetch(tokUrl, { headers: { 'Range': `bytes=0-${CHUNK - 1}` }, signal: _rangeTimeoutSig() });
     if (first.status !== 206) {
       if (!first.ok) throw new Error('share download ' + first.status);
       return await first.blob();               // server ignored Range - single stream
@@ -1468,7 +1475,7 @@
     async function worker() {
       while (next < jobs.length) {
         const j = jobs[next++];
-        const r = await fetch(tokUrl, { headers: { 'Range': `bytes=${j.start}-${j.end}` } });
+        const r = await fetch(tokUrl, { headers: { 'Range': `bytes=${j.start}-${j.end}` }, signal: _rangeTimeoutSig() });
         if (r.status !== 206) throw new Error('range fetch ' + r.status);
         parts[j.idx] = await r.arrayBuffer();
       }
@@ -3625,24 +3632,58 @@
       if (bigPlay && vid.paused) bigPlay.style.opacity = '1';
     }, { once: true });
     (async () => {
-      try {
-        // Reuse the blob prefetched when processing finished (instant if ready);
-        // otherwise fetch it now.
-        let objURL = _previewBlobPromise ? await _previewBlobPromise : null;
-        if (!objURL) {
-          const resp = await apiFetch(_withToken(`${API_BASE}/download/${videoKey}`));
-          if (!resp.ok) throw new Error('download ' + resp.status);
-          objURL = URL.createObjectURL(new Blob([await resp.arrayBuffer()], { type: 'video/mp4' }));
-        }
-        if (!_playerSetupDone) return;   // player was reset while fetching
+      // Reuse the blob prefetched when processing finished (instant if ready) -
+      // but WAIT BOUNDED. The checklist's "Loading preview" step already gives
+      // the download 90s; if it's still not here, the connection is struggling
+      // and an unbounded await left the player spinning forever (field report).
+      // Streaming starts playing after a few hundred KB instead.
+      const bounded = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r(null), ms))]);
+      const waitMs = (window.__PREVIEW_BLOB_WAIT_MS != null) ? window.__PREVIEW_BLOB_WAIT_MS : 20_000;
+      let objURL = null;
+      try { objURL = _previewBlobPromise ? await bounded(_previewBlobPromise, waitMs) : null; }
+      catch (_) {}
+      if (!_playerSetupDone) return;   // player was reset while fetching
+      if (objURL) {
         if (_previewObjURL) { try { URL.revokeObjectURL(_previewObjURL); } catch (_) {} }
         _previewObjURL = objURL;
         vid.src = _previewObjURL;
-      } catch (e) {
-        console.error('preview blob fetch failed, streaming instead', e);
-        if (_playerSetupDone) vid.src = _withToken(`${API_BASE}/download/${videoKey}`);
+      } else {
+        console.warn('preview blob not ready in time - streaming instead');
+        vid.src = _withToken(`${API_BASE}/download/${videoKey}`);
       }
     })();
+
+    // A failed source (stalled network, corrupt blob, expired token) must
+    // never strand the spinner: first failure retries as a live stream, a
+    // second shows a tappable retry instead of spinning forever.
+    if (!vid._errWired) {
+      vid._errWired = true;
+      let srcErrors = 0;
+      vid.addEventListener('error', () => {
+        if (!_playerSetupDone || !videoKey) return;
+        srcErrors++;
+        if (srcErrors <= 1) {
+          console.warn('player source failed - falling back to streaming');
+          vid.src = _withToken(`${API_BASE}/download/${videoKey}`);
+          try { vid.load(); } catch (_) {}
+          return;
+        }
+        if (loadingEl) {
+          loadingEl.style.display = 'flex';
+          loadingEl.textContent = t('capedit.previewFailed');
+          loadingEl.style.cursor = 'pointer';
+          loadingEl.onclick = () => {
+            srcErrors = 0;
+            loadingEl.onclick = null;
+            loadingEl.style.cursor = '';
+            loadingEl.innerHTML = '<span class="player-spinner" aria-hidden="true"></span><span>' +
+                                  _escapeHtml(t('capedit.previewLoading')) + '</span>';
+            vid.src = _withToken(`${API_BASE}/download/${videoKey}`);
+            try { vid.load(); } catch (_) {}
+          };
+        }
+      });
+    }
 
     vid.addEventListener('loadedmetadata', () => {
       const wrap = document.getElementById('playerWrap');
