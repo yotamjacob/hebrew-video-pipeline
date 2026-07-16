@@ -168,3 +168,32 @@ def _check_rate_limit(ip):
         fn = self._fresh()
         result = fn("5.5.5.5")
         assert isinstance(result, bool)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Deferred-spawn done-marker invalidation (source-level tripwire)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestDoneMarkerInvalidation:
+    """A re-run of the same file reuses its signature-derived upload key, and
+    /process_pending checks the "done:" marker FIRST - so a stale marker from
+    a previous run short-circuits every resume poll to the OLD call_id and
+    serves a result rendered with the OLD toggles (the "silences cut although
+    the toggle is off" bug). Registration (defer) and the direct spawn must
+    both pop the old marker. Route bodies are closures inside api() and can't
+    be extracted as functions, so this guards the source directly."""
+
+    POP = 'pending_store.pop("done:" + uprefix + upload_key)'
+
+    def test_done_marker_popped_at_registration_and_direct_spawn(self):
+        assert MODAL_SRC.count(self.POP) >= 2, (
+            "both the defer registration and the direct /process spawn must "
+            "pop the previous run's done-marker")
+
+    def test_registration_pop_precedes_registration_write(self):
+        # Pop BEFORE the new registration exists: once the registration is
+        # written, a concurrent /process_pending poll must never see the old
+        # done-marker.
+        first_pop = MODAL_SRC.index(self.POP)
+        reg_write = MODAL_SRC.index("pending_store[uprefix + upload_key] = {")
+        assert first_pop < reg_write

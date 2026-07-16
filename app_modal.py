@@ -1134,6 +1134,17 @@ def api():
                     total_chunks = max(1, min(10000, int(qs.get("total_chunks", ["1"])[0])))
                 except (ValueError, TypeError):
                     total_chunks = 1
+                # A re-run of the SAME file reuses its signature-derived upload
+                # key. Kill any done-marker from the previous run BEFORE the new
+                # registration exists - /process_pending checks "done:" first,
+                # so a stale one short-circuits every resume/reconnect poll to
+                # the OLD call_id and serves the old result rendered with the
+                # OLD toggles (e.g. silences cut although the toggle is now
+                # off), while the new job spawns and burns a credit unseen.
+                try:
+                    pending_store.pop("done:" + uprefix + upload_key)
+                except Exception:
+                    pass
                 pending_store[uprefix + upload_key] = {
                     "params": {
                         "filename": filename, "cut_silences": cut_silences,
@@ -1158,8 +1169,14 @@ def api():
                         return
                     # An unconsumed deferred registration for this key would
                     # double-spawn when a late chunk arrives - claim it away.
+                    # Same for a previous run's done-marker (see the defer
+                    # branch above): this spawn supersedes the old story.
                     try:
                         pending_store.pop(uprefix + upload_key)
+                    except Exception:
+                        pass
+                    try:
+                        pending_store.pop("done:" + uprefix + upload_key)
                     except Exception:
                         pass
                     # Flush all chunks to persistent storage before spawning the worker
