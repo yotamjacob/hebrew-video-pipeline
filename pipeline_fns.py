@@ -687,16 +687,17 @@ def process_video(
     elif not video_bytes:
         raise ValueError("No video data provided")
 
-    # One continuous notification story (user request): the upload progress
-    # notification vanishes at completion, and THIS takes over the same slot -
-    # a tagged "processing…" push that the completion push later REPLACES in
-    # place (same tag). Foregrounded apps don't display FCM notifications, so
-    # a user watching the checklist never sees it. Best-effort.
+    # Push story is EXACTLY TWO messages (user request, 2026-07-16): this one =
+    # "upload done" (process_video starting means the last byte landed), and one
+    # completion push (edit_ready / video_ready below). Same tag, so the second
+    # REPLACES this in the shade. The post-burn push was removed - the export
+    # runs while the user is in the editor. Foregrounded apps don't display FCM
+    # notifications, so a user watching the checklist never sees it. Best-effort.
     try:
         _uid0 = upload_key[1:33] if upload_key and _UID_PREFIX_RE.match(upload_key) else None
         if _uid0:
-            _send_fcm(_uid0, "מעבד את הסרטון...",
-                      "העיבוד רץ בשרת - אפשר לסגור את האפליקציה, נעדכן כשיסתיים.",
+            _send_fcm(_uid0, "ההעלאה הסתיימה",
+                      "מעבד את הסרטון בשרת - אפשר לסגור את האפליקציה, נעדכן כשיהיה מוכן.",
                       kind="processing", tag="hebpipe-job")
     except Exception:
         pass
@@ -1567,7 +1568,7 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
         out_path = Path(TMP_DIR) / output_key
         shutil.copy(video_out, out_path)
         try:
-            _record_job(output_key, source_name, out_path)
+            _record_job(output_key, source_name, out_path, notify=False)
             prune_volume()
         except Exception as _je:
             print(f"[jobs] record/prune skipped: {_je!r}")
@@ -1579,8 +1580,14 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
 # ---------------------------------------------------------------------------
 # Job history + volume retention
 # ---------------------------------------------------------------------------
-def _record_job(output_key, source_name, out_path):
-    """Add a burned output to the History manifest."""
+def _record_job(output_key, source_name, out_path, notify=True):
+    """Add a burned output to the History manifest.
+
+    `notify=False` for burn results: the push story is capped at two messages
+    (upload done + processing done), and a burn is started from inside the
+    editor - its completion is announced by the in-app success banner, not a
+    third push. Terminal cut-only jobs keep notify=True: for them THIS is the
+    "processing done" message (no edit_ready fired)."""
     import time
     duration = 0.0
     try:
@@ -1599,8 +1606,8 @@ def _record_job(output_key, source_name, out_path):
     }
     # "Your video is ready" push (best-effort; no-op unless FCM is configured).
     uid = output_key[1:33] if _UID_PREFIX_RE.match(output_key) else None
-    if uid:
-        _send_fcm(uid, "הסרטון שלך מוכן", "העריכה הסתיימה - הסרטון מוכן להורדה ולשיתוף.",
+    if uid and notify:
+        _send_fcm(uid, "הסרטון שלך מוכן", "העיבוד הסתיים - הסרטון מוכן להורדה ולשיתוף.",
                   kind="video_ready", tag="hebpipe-job")
 
 

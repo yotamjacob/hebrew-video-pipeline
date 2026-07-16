@@ -1356,18 +1356,33 @@
       const _finish = () => { settled = true; cleanup(); _buzz(); onProgress(1); resolve(key); };
       // While the app is backgrounded the WebView is frozen, so the uploader's
       // 'completed' event can be MISSED and the promise would hang forever. On
-      // return to foreground, confirm with the server whether the whole file
-      // landed (chunk 0000 size == file size) and finish the flow if so.
+      // return to foreground, confirm with the server whether the upload landed.
+      // AUTHORITATIVE check first: a call_id on /process_pending means the last
+      // byte arrived and processing was spawned - and unlike the chunk-bytes
+      // check, the done-marker OUTLIVES the chunk files (processing deletes
+      // them at reassembly, so a user who reopens after the "ready" push would
+      // see upload_check report 0 bytes forever - the stuck-at-5% bug). The
+      // byte check remains as the in-flight fallback (also refreshes the bar),
+      // and must not gate the pending check on `expected` (a picker that
+      // reports no size would otherwise disable reconciliation entirely).
       async function reconcile() {
-        if (settled || reconciling || !expected) return;
+        if (settled || reconciling) return;
         reconciling = true;
         try {
           for (let i = 0; i < 30 && !settled; i++) {
             try {
+              const pr = await apiFetch(`${API_BASE}/process_pending/?key=${key}`);
+              if (pr.ok) {
+                const d = await pr.json().catch(() => ({}));
+                if (d.call_id) { _finish(); return; }
+              }
+            } catch (_) {}
+            try {
               const r = await apiFetch(`${API_BASE}/upload_check/?key=${key}`);
-              if (r.ok) {
+              if (r.ok && expected) {
                 const { bytes } = await r.json();
                 if (bytes >= expected) { _finish(); return; }
+                if (bytes > 0) onProgress(Math.min(0.99, bytes / expected));
               }
             } catch (_) {}
             await new Promise(res => setTimeout(res, 2500));

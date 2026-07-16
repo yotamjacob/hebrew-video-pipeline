@@ -17,9 +17,11 @@ const { API_BASE, mockAllApis, selectFile, bootApp } = require('./helpers');
 
 const LOCAL_FILE_BYTES = 3 * 1024 * 1024;   // 3 chunks on the chunked path
 
-/** Boot with a Capacitor shim whose Uploader records stream-upload attempts. */
-async function bootNative(page, { withUploader = true } = {}) {
-  await page.addInitScript(({ withUploader }) => {
+/** Boot with a Capacitor shim whose Uploader records stream-upload attempts.
+ * fireCompleted=false simulates a webview that was FROZEN while the native
+ * uploader finished - the 'completed' event is lost and never reaches JS. */
+async function bootNative(page, { withUploader = true, fireCompleted = true } = {}) {
+  await page.addInitScript(({ withUploader, fireCompleted }) => {
     window.__streamUploads = [];
     const Plugins = {};
     if (withUploader) {
@@ -27,7 +29,7 @@ async function bootNative(page, { withUploader = true } = {}) {
         addListener: (name, cb) => { window.__upCb = cb; return { remove() {} }; },
         startUpload: (opts) => {
           window.__streamUploads.push(opts.serverUrl);
-          setTimeout(() => window.__upCb && window.__upCb(
+          if (fireCompleted) setTimeout(() => window.__upCb && window.__upCb(
             { name: 'completed', payload: { statusCode: 200 } }), 50);
           return Promise.resolve({ id: 'up1' });
         },
@@ -38,7 +40,7 @@ async function bootNative(page, { withUploader = true } = {}) {
       Plugins,
       convertFileSrc: p => '/__native_file__',
     };
-  }, { withUploader });
+  }, { withUploader, fireCompleted });
   await bootApp(page);
 }
 
@@ -125,6 +127,26 @@ test('small native file keeps the background stream uploader', async ({ page }) 
   expect(streams).toHaveLength(1);
   expect(streams[0]).toContain('/upload_stream');
   expect(chunkPosts.length).toBe(0);
+});
+
+test("a lost 'completed' event recovers via the pending check on foreground return", async ({ page }) => {
+  // The stuck-at-5% bug: the webview froze mid-upload, the native uploader
+  // finished, the server spawned AND processed (deleting the chunks at
+  // reassembly), and the 'completed' event never reached JS. upload_check
+  // reports 0 bytes forever - only /process_pending's call_id (the done-marker
+  // outlives the chunks) can prove the upload landed. The visibilitychange
+  // reconcile must settle on it and carry the flow to the editor.
+  await bootNative(page, { fireCompleted: false });
+  await mockAllApis(page);                                    // process_pending → call_id
+  await page.route(/\/upload_check\//, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"bytes":0}' }));
+  await mockLocalFile(page);
+  await primeNativePick(page, 512 * 1024);                    // stream path
+  await page.click('#runBtn');
+  // Simulate the tap-on-notification thaw: page becomes visible again.
+  await page.waitForTimeout(500);
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
 });
 
 test('unreadable local file falls back to the stream uploader', async ({ page }) => {
