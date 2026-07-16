@@ -10,6 +10,7 @@ from pipeline_core import (
     app, tmp_vol, TMP_DIR,
     SONNET_MODEL,
     _sanitize_transcript,
+    _anthropic_client, _plain_anthropic_errors,
 )
 from stock_helpers import (
     fetch_pexels, fetch_pixabay, sample_frames, extract_disqualify_clause,
@@ -183,6 +184,7 @@ def _process_moment(m: dict, pexels_key: str, pixabay_key: str, client,
         modal.Secret.from_name("pixabay-secret"),
     ],
 )
+@_plain_anthropic_errors
 def analyze_stock_broll(captions_json: str, video_key: str = "",
                         orientation: str = "portrait") -> list:
     import json, os
@@ -208,9 +210,8 @@ def analyze_stock_broll(captions_json: str, video_key: str = "",
         lines.append(f"[{ms}:{ss:04.1f}–{me}:{se:04.1f}] {cap['text']}")
     transcript = _sanitize_transcript("\n".join(lines))
 
-    import anthropic as _anthropic
     from pathlib import Path as _Path
-    client = _anthropic.Anthropic(api_key=anthropic_key)
+    client = _anthropic_client(api_key=anthropic_key)
 
     # --- Video context pass (Phase 2) ---
     # Sample frames from the user's video and ask Sonnet to characterise its
@@ -783,6 +784,7 @@ def analyze_stock_broll(captions_json: str, video_key: str = "",
         modal.Secret.from_name("pixabay-secret"),
     ],
 )
+@_plain_anthropic_errors
 def search_stock_clips(search_query: str, page: int = 2, moment_context: str = "",
                        orientation: str = "portrait") -> list:
     """Fetch a fresh page of clips for 'Find different clips', with Haiku scoring when context is provided."""
@@ -808,8 +810,7 @@ def search_stock_clips(search_query: str, page: int = 2, moment_context: str = "
             ctx = {"label": moment_context}
         broll_dur   = float(ctx.get("broll_duration_seconds", 3.0))
         strict_eval = ctx.get("strict_eval_prompt") or search_query
-        import anthropic as _anthropic
-        ac = _anthropic.Anthropic(api_key=anthropic_key) if anthropic_key else None
+        ac = _anthropic_client(api_key=anthropic_key) if anthropic_key else None
         clips = [add_clip_window(c, broll_dur) for c in score_clips(clips, strict_eval, ac)]
 
     return clips

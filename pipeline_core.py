@@ -706,6 +706,38 @@ def _throttle_clear(store, key: str):
         pass
 
 
+def _anthropic_client(api_key=None, max_retries=5):
+    """Anthropic client hardened for transient API failures: 429/5xx/529
+    ("Overloaded") retry with the SDK's exponential backoff. The SDK default
+    of 2 retries gave up during a real 529 burst (2026-07-16) and failed the
+    user's hook + B-roll jobs."""
+    import os
+    import anthropic
+    return anthropic.Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY", ""),
+                               max_retries=max_retries)
+
+
+def _plain_anthropic_errors(fn):
+    """Re-raise Anthropic SDK exceptions escaping a Modal worker as PLAIN
+    RuntimeErrors. The SDK's exceptions carry live httpx request/response
+    objects that fail to deserialize on the calling side - the client then
+    sees "Could not deserialize remote exception due to local error" instead
+    of the real cause. The "ai_busy:<code>" message is matched by the frontend
+    and shown as a friendly "AI overloaded - try again in a minute"."""
+    import functools
+
+    @functools.wraps(fn)
+    def _wrapped(*args, **kwargs):
+        import anthropic
+        try:
+            return fn(*args, **kwargs)
+        except anthropic.APIStatusError as e:
+            raise RuntimeError(f"ai_busy:{e.status_code}") from None
+        except anthropic.APIError as e:
+            raise RuntimeError(f"ai_busy:{type(e).__name__}") from None
+    return _wrapped
+
+
 def _poll_fn_call(fn_call):
     """Non-blocking poll of a Modal FunctionCall.
 

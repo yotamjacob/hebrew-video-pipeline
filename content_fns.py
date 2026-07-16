@@ -8,6 +8,7 @@ from pipeline_core import (
     light_image,
     app, image, tmp_vol, TMP_DIR,
     SONNET_MODEL,
+    _anthropic_client, _plain_anthropic_errors,
 )
 from stock_helpers import sample_frames
 
@@ -21,11 +22,12 @@ from stock_helpers import sample_frames
     volumes={TMP_DIR: tmp_vol},
     secrets=[modal.Secret.from_name("anthropic-secret")],
 )
+@_plain_anthropic_errors
 def generate_hook_options(captions_json: str, video_key: str = "") -> dict:
-    import os, json, base64 as _b64, anthropic as _anthropic
+    import json, base64 as _b64
     from pathlib import Path
 
-    client = _anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+    client = _anthropic_client()
     captions = json.loads(captions_json)
     transcript = " ".join(c.get("text", "") for c in captions).strip()
     if not transcript:
@@ -92,11 +94,12 @@ def generate_hook_options(captions_json: str, video_key: str = "") -> dict:
     volumes={TMP_DIR: tmp_vol},
     secrets=[modal.Secret.from_name("anthropic-secret")],
 )
+@_plain_anthropic_errors
 def generate_caption_options(captions_json: str, video_key: str = "", platforms: str = "") -> dict:
-    import os, json, base64 as _b64, anthropic as _anthropic
+    import json, base64 as _b64
     from pathlib import Path
 
-    client = _anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+    client = _anthropic_client()
     captions = json.loads(captions_json)
     transcript = " ".join(c.get("text", "") for c in captions).strip()
     if not transcript:

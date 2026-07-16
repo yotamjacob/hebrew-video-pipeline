@@ -4714,6 +4714,15 @@
     if (contact && contact.style.display !== 'none') closeContactModal();
   });
 
+  // Transient AI-service failures (Anthropic 529 "Overloaded", 429, 5xx) reach
+  // the client as "ai_busy:<code>" (workers re-raise them as plain errors -
+  // the raw SDK exceptions aren't picklable across Modal and used to surface
+  // as "Could not deserialize remote exception..."). Show a human message.
+  function _friendlyGenError(msg) {
+    return /ai_busy|overloaded|deserialize remote exception/i.test(msg || '')
+      ? t('err.aiBusy') : (msg || '');
+  }
+
   async function triggerGenerateHook(opts = {}) {
     const background = !!opts.background;   // auto-run: no confirm, no pipeline lock
     if (!videoKey || !captionsData.length) return;
@@ -4769,7 +4778,8 @@
             break;
           }
           if (poll.status === 202) { await new Promise(r => setTimeout(r, 3000)); retries = 0; continue; }
-          throw new Error(`Server error ${poll.status}`);
+          const errBody = await poll.json().catch(() => ({}));
+          throw new Error(errBody.error || `Server error ${poll.status}`);
         } catch (e) {
           if (!e.message.startsWith('Server error') && ++retries <= 3) {
             await new Promise(r => setTimeout(r, 2000)); continue;
@@ -4779,7 +4789,7 @@
       }
     } catch (e) {
       if (!hookGenAborted) {
-        errEl.textContent   = t('hook.failed', {msg: e.message.slice(0, 120)});
+        errEl.textContent   = t('hook.failed', {msg: _friendlyGenError(e.message).slice(0, 120)});
         errEl.style.display = 'block';
       }
     } finally {
@@ -4995,7 +5005,7 @@
       clearInterval(stockTimer);
       console.error('Stock B-roll error:', e.message);
       status.style.display = 'none';
-      list.innerHTML = `<p style="color:var(--red);font-size:0.85rem;padding:8px 0">${t('stock.failedRetry', {msg: e.message.slice(0, 160)})} <button onclick="triggerStockBroll()" style="margin-left:8px;font-size:0.8rem;padding:3px 10px;border-radius:6px;border:1px solid var(--red);background:none;color:var(--red);cursor:pointer">${t('stock.retry')}</button></p>`;
+      list.innerHTML = `<p style="color:var(--red);font-size:0.85rem;padding:8px 0">${t('stock.failedRetry', {msg: _friendlyGenError(e.message).slice(0, 160)})} <button onclick="triggerStockBroll()" style="margin-left:8px;font-size:0.8rem;padding:3px 10px;border-radius:6px;border:1px solid var(--red);background:none;color:var(--red);cursor:pointer">${t('stock.retry')}</button></p>`;
     } finally {
       bumpPending(-1);
       if (!background) {

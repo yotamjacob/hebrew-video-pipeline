@@ -1015,7 +1015,7 @@ def process_video(
                 if _os.environ.get("ANTHROPIC_API_KEY"):
                     _t0 = _time.time()
                     _texts = [w.text for seg_words, _e in whisper_segs for w in seg_words]
-                    _fixed = proofread_words(_texts, _anthropic.Anthropic(), SONNET_MODEL)
+                    _fixed = proofread_words(_texts, _anthropic.Anthropic(max_retries=5), SONNET_MODEL)
                     _n, _it = 0, iter(_fixed)
                     for seg_words, _e in whisper_segs:
                         for w in seg_words:

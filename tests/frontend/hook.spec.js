@@ -45,6 +45,23 @@ test('hook API sends captions_json and video_key', async ({ page }) => {
   expect(capturedBody).toHaveProperty('video_key', 'mock-video-key_cut.mp4');
 });
 
+test('an AI-overloaded failure (529) shows the friendly message, not a raw 500', async ({ page }) => {
+  // Workers re-raise Anthropic API errors as plain "ai_busy:<code>" (the raw
+  // SDK exceptions aren't picklable across Modal and surfaced as "Could not
+  // deserialize remote exception..."). The poll body must reach the user as
+  // the human i18n message.
+  await runFullUpload(page);
+  await page.route(new RegExp('/generate-hook-poll/'), r =>
+    r.fulfill({ status: 500, contentType: 'application/json',
+                body: '{"error":"ai_busy:529"}' }));
+  await page.click('#tabBtnHook');
+  await page.click('#generateHookBtn');
+  const err = page.locator('#hookError');
+  await expect(err).toBeVisible({ timeout: 15_000 });
+  await expect(err).toContainText(/עמוס כרגע|overloaded/i);
+  await expect(err).not.toContainText(/500|deserialize|ai_busy/);
+});
+
 test('a network blip on the hook spawn retries and succeeds (no Failed to fetch)', async ({ page }) => {
   await runFullUpload(page);
   // First two attempts die at the network layer (what a phone backgrounding /
