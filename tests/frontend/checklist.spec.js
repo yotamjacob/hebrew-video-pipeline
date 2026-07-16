@@ -11,6 +11,23 @@ test('checklist shows the real backend step times on completion', async ({ page 
   await expect(page.locator('#checkCutTime')).toHaveText('0:20');
 });
 
+test("cut step is labeled 'transcribe' when Cut silences is toggled off", async ({ page }) => {
+  // The worker's 'cut' stage also covers transcription (captions need it), so
+  // it runs even with the toggle off - labeled "Cut silences" it read as the
+  // toggle being ignored. The label must follow what the run actually does.
+  await mockAllApis(page);
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  const label = page.locator('#checkCut .check-label');
+  // Toggle off → transcription label.
+  await page.evaluate(() => {
+    const el = document.getElementById('cutSilences');
+    el.checked = false; el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.click('#runBtn');
+  await expect(label).toHaveText('תמלול הדיבור');
+});
+
 test('live progress from process_poll drives step transitions', async ({ page }) => {
   await mockAllApis(page);
   // First two polls: still running, enhance finished for real in 8s, cut active.

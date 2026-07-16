@@ -259,6 +259,7 @@
     'prog.upload':      { en: 'Upload video', he: 'העלאת הסרטון' },
     'prog.enhance':     { en: 'Enhance audio', he: 'שיפור אודיו' },
     'prog.cut':         { en: 'Cut silences', he: 'חיתוך שתיקות' },
+    'prog.transcribe':  { en: 'Transcribe speech', he: 'תמלול הדיבור' },
     'prog.upscale':     { en: 'AI upscale', he: 'שדרוג AI' },
     'prog.broll':       { en: 'Find B-roll moments', he: 'איתור רגעים לבי-רול' },
     'prog.hook':        { en: 'Generate hook options', he: 'יצירת אפשרויות הוק' },

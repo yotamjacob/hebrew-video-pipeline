@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.4';
+  const APP_VERSION = '1.10.5';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -3146,6 +3146,22 @@
       if (t) t.textContent = '';
     });
     stepEndSecs = {};
+    _syncCutStepLabel();
+  }
+
+  // The worker's 'cut' stage covers transcription TOO (captions need it), so
+  // with "Cut silences" toggled OFF the step still runs - labeled "Cut
+  // silences" it read as the toggle being ignored (field report, v1.10.4:
+  // the audit log proved cut_silences=false end-to-end while the user watched
+  // a step called 'removing silences'). Label it by what it actually does.
+  // Sets data-i18n too so a language switch re-translates the right key.
+  function _syncCutStepLabel() {
+    const el = checkItems.cut && checkItems.cut.querySelector('.check-label');
+    if (!el) return;
+    const cutOn = !!document.getElementById('cutSilences')?.checked;
+    const key = cutOn ? 'prog.cut' : 'prog.transcribe';
+    el.setAttribute('data-i18n', key);
+    el.textContent = t(key);
   }
 
   // ── State display ──────────────────────────────────────────────────────────
