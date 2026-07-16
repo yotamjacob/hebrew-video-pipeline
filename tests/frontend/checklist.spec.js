@@ -28,6 +28,24 @@ test("cut step is labeled 'transcribe' when Cut silences is toggled off", async 
   await expect(label).toHaveText('תמלול הדיבור');
 });
 
+test('rows for disabled tools are hidden from the checklist', async ({ page }) => {
+  // Cut + captions off (audio enhance still on): no transcription runs, so
+  // neither a cut nor a transcribe row may appear; enhance stays listed.
+  await mockAllApis(page);
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.evaluate(() => {
+    for (const id of ['cutSilences', 'burnCaptions']) {
+      const el = document.getElementById(id);
+      el.checked = false; el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  await page.click('#runBtn');
+  await expect(page.locator('#statusChecklist')).toBeVisible();
+  await expect(page.locator('#checkCut')).toBeHidden();
+  await expect(page.locator('#checkEnhance')).toBeVisible();
+});
+
 test('live progress from process_poll drives step transitions', async ({ page }) => {
   await mockAllApis(page);
   // First two polls: still running, enhance finished for real in 8s, cut active.

@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.5';
+  const APP_VERSION = '1.10.6';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -3147,6 +3147,16 @@
     });
     stepEndSecs = {};
     _syncCutStepLabel();
+    // Only list the steps this run will actually execute - a row for a
+    // disabled tool reads as that tool running (user request, v1.10.5).
+    // Safe for resumed jobs too: _stepActivate re-reveals any row the
+    // backend's real progress reports.
+    const _cutOn  = !!document.getElementById('cutSilences')?.checked;
+    const _capsOn = !!document.getElementById('burnCaptions')?.checked;
+    if (!(_cutOn || _capsOn || isAudioInput) && checkItems.cut)
+      checkItems.cut.style.display = 'none';
+    if (!document.getElementById('enhanceAudio')?.checked && checkItems.enhance)
+      checkItems.enhance.style.display = 'none';
   }
 
   // The worker's 'cut' stage covers transcription TOO (captions need it), so
