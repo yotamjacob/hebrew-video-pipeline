@@ -132,6 +132,15 @@ def api():
                     return idx
             return None
 
+        def _signup_src(data):
+            """Sanitized campaign source. The site captures ?src=/?utm_source=
+            from a shared link (e.g. /?src=linkedin) and sends it with account
+            creation; recorded on NEW records only and surfaced in /admin/users
+            so each campaign's signups are attributable."""
+            import re as _re
+            s = str(data.get("src") or "").strip().lower()[:32]
+            return s if _re.fullmatch(r"[a-z0-9_-]+", s) else None
+
         method = scope["method"]
         path   = scope["path"]
 
@@ -412,6 +421,7 @@ def api():
                 users_store[ident] = {"uid": new_uid, "created": _now, "email": _raw,
                                       "email_verified": True, "auth": "code",
                                       "terms_accepted_ts": crec.get("terms_ts") or _now,
+                                      "signup_src": _signup_src(data),
                                       "video_limit": DEFAULT_VIDEO_LIMIT, "videos_used": 0}
                 users_store[f"uid:{new_uid}"] = ident
                 users_store[f"email:{ident}"] = ident
@@ -499,6 +509,7 @@ def api():
                 users_store[ident] = {"uid": new_uid, "created": _now, "email": _raw,
                                       "email_verified": True, "auth": "google", "google_sub": _sub,
                                       "terms_accepted_ts": _now,
+                                      "signup_src": _signup_src(data),
                                       "video_limit": DEFAULT_VIDEO_LIMIT, "videos_used": 0}
                 users_store[f"uid:{new_uid}"] = ident
                 users_store[f"email:{ident}"] = ident
@@ -1221,6 +1232,7 @@ def api():
                 out.append({"username": _u, "role": "admin" if _adm else "user",
                             "videos_used": _used,
                             "video_limit": None if _adm else _limit,
+                            "src": _r.get("signup_src"),
                             "created": _r.get("created")})
             out.sort(key=lambda r: r.get("created") or 0)
             body = json.dumps({"users": out}).encode()

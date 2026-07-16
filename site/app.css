@@ -252,6 +252,17 @@
       border: 1.5px solid var(--purple-100);
       color: var(--purple-800);
     }
+    /* WhatsApp unlock CTA - shown when the trial quota is exhausted (notice
+       block + error card). WhatsApp green like the feedback FAB. */
+    .wa-cta {
+      display: inline-flex; align-items: center; gap: 7px;
+      margin-top: 10px; padding: 8px 16px; border-radius: 999px;
+      background: #25D366; color: #fff; text-decoration: none;
+      font-size: 0.85rem; font-weight: 600; font-family: inherit;
+      box-shadow: 0 3px 10px rgba(37, 211, 102, 0.35);
+    }
+    .wa-cta:hover { filter: brightness(1.05); }
+    .wa-cta svg { width: 17px; height: 17px; flex-shrink: 0; }
 
     /* ── Options ── */
     .options-title {
@@ -2029,6 +2040,12 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .admin-used { flex: 0 0 auto; font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+/* Campaign attribution badge (?src= the account signed up through). */
+.admin-src {
+  display: inline-block; margin: 0 6px; padding: 1px 8px; border-radius: 999px;
+  background: var(--purple-50); border: 1px solid var(--purple-100);
+  color: var(--purple-800); font-size: 0.68rem; font-weight: 600; vertical-align: 1px;
+}
 /* Controls: uniform-height pills that wrap together, never a lone stranded item. */
 .admin-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .admin-controls > * { height: 38px; box-sizing: border-box; }

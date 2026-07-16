@@ -57,6 +57,38 @@ test('existing user: email-code login stores the token and reveals the app', asy
   expect(stored).toBe('fresh-token');
 });
 
+test('?src= campaign link is captured, persisted, and sent with the code verify', async ({ page }) => {
+  let verifyBody = null;
+  await page.route(/\/auth\/request-code/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json',
+                body: JSON.stringify({ ok: true, is_new: false }) }));
+  await page.route(/\/auth\/verify-code/, (route, request) => {
+    verifyBody = JSON.parse(request.postData());
+    return route.fulfill({ status: 200, contentType: 'application/json',
+                           body: JSON.stringify({ token: 'fresh-token', username: 'lead@example.com' }) });
+  });
+  await page.route(/\/warmup/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' }));
+
+  // Mixed case in the link is normalized; the value survives in localStorage
+  // so a later visit (invite by DM, email round-trip) still attributes.
+  await page.goto('/?src=LinkedIn');
+  expect(await page.evaluate(() => localStorage.getItem('hebpipe_src'))).toBe('linkedin');
+  await page.click('#authChoiceExisting');
+  await page.fill('#authEmail', 'lead@example.com');
+  await page.click('#authSubmitBtn');
+  await expect(page.locator('#authStepCode')).toBeVisible();
+  await page.fill('#authCode', '424242');
+  await page.click('#authVerifyBtn');
+  await expect(page.locator('#pipelineView')).toBeVisible();
+  expect(verifyBody.src).toBe('linkedin');
+});
+
+test('a garbage ?src= value is ignored', async ({ page }) => {
+  await page.goto('/?src=<script>x</script>');
+  expect(await page.evaluate(() => localStorage.getItem('hebpipe_src'))).toBe(null);
+});
+
 test('login lane sends mode=login; unknown email shows "no account"', async ({ page }) => {
   let sentBody = null;
   await page.route(/\/auth\/request-code/, (route, request) => {

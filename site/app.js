@@ -93,6 +93,21 @@
     localStorage.removeItem('hebpipe_pw');
   }
 
+  // ── Signup source attribution ──
+  // A campaign link (/?src=linkedin, ?utm_source= also accepted) is captured at
+  // load and persisted - the visitor often creates the account on a LATER visit
+  // (invite arrives by DM, email-code round-trip) and the query string is long
+  // gone by then. Sent with account creation; the backend records it on NEW
+  // records only, so signing in never overwrites an existing attribution.
+  try {
+    const _sp = new URLSearchParams(location.search);
+    const _src = (_sp.get('src') || _sp.get('utm_source') || '').trim().toLowerCase().slice(0, 32);
+    if (/^[a-z0-9_-]+$/.test(_src)) localStorage.setItem('hebpipe_src', _src);
+  } catch (_) {}
+  function _signupSrc() {
+    try { return localStorage.getItem('hebpipe_src') || undefined; } catch (_) { return undefined; }
+  }
+
   // Short-lived, GET-only token used in media URLs (img/video src, downloads)
   // so the long-lived session token never rides in a query string / browser
   // history. Falls back to the session token until the first one arrives.
@@ -517,7 +532,7 @@
     try {
       const resp = await fetch(`${API_BASE}/auth/verify-code`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: _authEmail, code }),
+        body: JSON.stringify({ email: _authEmail, code, src: _signupSrc() }),
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(_authErrMsg(data, resp.status));
@@ -539,7 +554,7 @@
   // code flow (backend normalizes the email), so Google + code = one account.
   let _pendingGoogleToken = null;   // native: reuse the ID token across a lane switch / invite fix
   async function _exchangeGoogleToken(idToken) {
-    const body = { id_token: idToken, mode: _authFlow };
+    const body = { id_token: idToken, mode: _authFlow, src: _signupSrc() };
     if (_authFlow === 'register') {
       body.invite = document.getElementById('authInvite').value.trim();
       body.terms_accepted = document.getElementById('authTermsCheck').checked;
@@ -2081,7 +2096,7 @@
   async function run(isRetry = false) {
     if (!selectedFile || blocked) return;
     if (_quotaExhausted()) {
-      showBlockNotice(t('quota.pillZero'), t('quota.exhausted'));
+      showQuotaExhausted();
       return;
     }
     if (!(await _confirmQuotaUse())) return;
@@ -2261,7 +2276,7 @@
   async function rerun() {
     if (!currentUploadKey || !selectedFile) return;
     if (_quotaExhausted()) {
-      showBlockNotice(t('quota.pillZero'), t('quota.exhausted'));
+      showQuotaExhausted();
       return;
     }
     if (!(await _confirmQuotaUse())) return;
@@ -3243,8 +3258,21 @@
   }
 
   function showError(msg) {
-    if (/limit_reached/.test(msg)) msg = t('quota.exhausted');
+    const isQuota = /limit_reached/.test(msg);
+    if (isQuota) msg = t('quota.exhausted');
     if (/no_audio/.test(msg)) msg = t('err.noAudio');
+    // Quota exhaustion isn't a malfunction - offer the WhatsApp unlock CTA
+    // right in the error card (hidden again on any other error).
+    const waCta = document.getElementById('errorWaCta');
+    if (waCta) {
+      if (isQuota) {
+        waCta.querySelector('span').textContent = t('quota.waCta');
+        waCta.href = _quotaWaUrl();
+        waCta.style.display = 'inline-flex';
+      } else {
+        waCta.style.display = 'none';
+      }
+    }
     // A failed job refunds its credit server-side; re-pull usage so the pill
     // reflects the refund (harmless no-op when nothing was charged).
     refreshQuota();
@@ -3379,7 +3407,25 @@
   function showBlockNotice(title, body) {
     document.getElementById('noticeBlockTitle').textContent = title;
     document.getElementById('noticeBlockBody').textContent  = body;
+    const _cta = document.getElementById('noticeBlockCta');
+    if (_cta) _cta.style.display = 'none';   // only showQuotaExhausted reveals it
     noticeBlock.classList.add('visible');
+  }
+  // Quota exhausted = a warm lead, not a dead end: the notice carries a
+  // WhatsApp CTA (same number as the feedback FAB) with a prefilled message
+  // so asking for more videos is one tap.
+  const WA_NUMBER = '972528828232';
+  function _quotaWaUrl() {
+    return `https://wa.me/${WA_NUMBER}?text=` + encodeURIComponent(t('quota.waMsg'));
+  }
+  function showQuotaExhausted() {
+    showBlockNotice(t('quota.pillZero'), t('quota.exhausted'));
+    const cta = document.getElementById('noticeBlockCta');
+    if (cta) {
+      cta.querySelector('span').textContent = t('quota.waCta');
+      cta.href = _quotaWaUrl();
+      cta.style.display = 'inline-flex';
+    }
   }
   function showWarnNotice(title, body) {
     document.getElementById('noticeWarnTitle').textContent = title;
@@ -5806,6 +5852,14 @@
       star.title = 'admin';
       star.innerHTML = ICON.star;
       name.appendChild(star);
+    }
+    // Campaign attribution badge (?src= link the account signed up through).
+    if (u.src) {
+      const srcTag = document.createElement('span');
+      srcTag.className = 'admin-src';
+      srcTag.textContent = u.src;
+      srcTag.title = t('admin.srcTip');
+      name.appendChild(srcTag);
     }
     name.title = u.username;
     // Header line: email (grows, ellipsis-safe) + usage count pinned opposite.

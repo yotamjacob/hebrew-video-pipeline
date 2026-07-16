@@ -29,7 +29,11 @@ test('pill turns red and run is blocked when the limit is used up', async ({ pag
   await page.waitForSelector('#runBtn:not([disabled])');
   await page.click('#runBtn');
   await expect(page.locator('#noticeBlock')).toBeVisible();
-  await expect(page.locator('#noticeBlockBody')).toContainText('צרו קשר עם מנהל האפליקציה');
+  await expect(page.locator('#noticeBlockBody')).toContainText('שלחו לי הודעה בוואטסאפ');
+  // The notice carries a one-tap WhatsApp CTA with a prefilled message.
+  const cta = page.locator('#noticeBlockCta');
+  await expect(cta).toBeVisible();
+  await expect(cta).toHaveAttribute('href', /wa\.me\/972528828232\?text=/);
   expect(processCalled).toBe(false);
 });
 
@@ -46,7 +50,11 @@ test('server 402 limit_reached maps to the friendly message', async ({ page }) =
   await page.waitForSelector('#runBtn:not([disabled])');
   await page.click('#runBtn');
   await page.click('#confirmOk');   // quota confirmation modal
-  await expect(page.locator('#errorMsg')).toContainText('צרו קשר עם מנהל האפליקציה', { timeout: 10_000 });
+  await expect(page.locator('#errorMsg')).toContainText('שלחו לי הודעה בוואטסאפ', { timeout: 10_000 });
+  // The error card shows the WhatsApp unlock CTA too.
+  const waCta = page.locator('#errorWaCta');
+  await expect(waCta).toBeVisible();
+  await expect(waCta).toHaveAttribute('href', /wa\.me\/972528828232\?text=/);
 });
 
 test('a failed job refreshes the quota pill so a refunded credit shows', async ({ page }) => {
@@ -75,6 +83,8 @@ test('a failed job refreshes the quota pill so a refunded credit shows', async (
   // no_audio maps to the friendly Hebrew message, and the pill shows the refund.
   await expect(page.locator('#errorMsg')).toContainText('אין פס קול');
   await expect(pill).toHaveText('נשארו 4 מתוך 5 סרטוני ניסיון');
+  // The WhatsApp unlock CTA is quota-only - hidden on a regular error.
+  await expect(page.locator('#errorWaCta')).toBeHidden();
 });
 
 test('non-admin confirms before spending a trial video; cancel spends nothing', async ({ page }) => {
@@ -124,7 +134,7 @@ test('admin sees no pill and gets the admin tab with user limit controls', async
     r.fulfill({ status: 200, contentType: 'application/json',
                 body: JSON.stringify({ users: [
                   { username: 'boss',   role: 'admin', videos_used: 0, video_limit: null, created: 1 },
-                  { username: 'tester', role: 'user',  videos_used: 2, video_limit: 5,    created: 2 },
+                  { username: 'tester', role: 'user',  videos_used: 2, video_limit: 5,    created: 2, src: 'linkedin' },
                 ] }) }));
   const limitPosts = [];
   await page.route(`${API_BASE}/admin/limit`, async (route, request) => {
@@ -143,6 +153,9 @@ test('admin sees no pill and gets the admin tab with user limit controls', async
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toContainText('boss');
   await expect(rows.nth(0).locator('.admin-star svg')).toBeVisible();   // admin marker is an SVG star, not an emoji
+  // Campaign attribution badge shows the signup source (?src= link).
+  await expect(rows.nth(1).locator('.admin-src')).toHaveText('linkedin');
+  await expect(rows.nth(0).locator('.admin-src')).toHaveCount(0);       // no src recorded → no badge
   // Bump tester's limit to 50 (they paid)
   const input = rows.nth(1).locator('.admin-limit-input');
   await input.fill('50');

@@ -452,7 +452,9 @@
     // ── Quota / admin ──
     'quota.pill':       { en: '{left} of {limit} trial videos left', he: 'נשארו {left} מתוך {limit} סרטוני ניסיון' },
     'quota.pillZero':   { en: 'Trial videos used up', he: 'מכסת סרטוני הניסיון נוצלה' },
-    'quota.exhausted':  { en: 'You have used all your trial videos. Contact the app admin to unlock more.', he: 'ניצלתם את כל סרטוני הניסיון. צרו קשר עם מנהל האפליקציה לפתיחת מכסה נוספת.' },
+    'quota.exhausted':  { en: 'You have used all your free trial videos. Want more? Send me a WhatsApp message and I will unlock extra videos for you.', he: 'ניצלתם את כל סרטוני הניסיון. רוצים עוד? שלחו לי הודעה בוואטסאפ ואפתח לכם סרטונים נוספים.' },
+    'quota.waCta':      { en: 'Message on WhatsApp', he: 'שליחת הודעה בוואטסאפ' },
+    'quota.waMsg':      { en: 'Hi! I used up my free trial videos on Pipeline and I would love to get more', he: 'היי! ניצלתי את סרטוני הניסיון בפייפליין ואשמח לקבל עוד' },
     'tab.admin':        { en: 'Admin', he: 'ניהול' },
 
     // ── Guide tab ──
@@ -490,6 +492,7 @@
     'admin.loading':    { en: 'Loading…', he: 'טוען…' },
     'admin.loadFailed': { en: 'Could not load users - try again.', he: 'טעינת המשתמשים נכשלה - נסו שוב.' },
     'admin.used':       { en: 'used {used}', he: 'בשימוש: {used}' },
+    'admin.srcTip':     { en: 'Signup source', he: 'מקור ההרשמה' },
     'admin.unlimited':  { en: 'unlimited', he: 'בלי הגבלה' },
     'admin.save':       { en: 'Save', he: 'שמירה' },
     'admin.saveFailed': { en: 'Failed', he: 'נכשל' },
