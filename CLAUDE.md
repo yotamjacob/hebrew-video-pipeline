@@ -62,6 +62,8 @@ modal serve app_modal.py                                  # live dev
 npx vercel deploy --prod
 ```
 
+**Version stamp on EVERY site deploy** — bump `APP_VERSION` at the top of `site/app.js` before `vercel deploy --prod` and tell the user the new version; it renders in every footer (`.footer-version`) + `window.__APP_VERSION`. The Android app loads this frontend remotely (`capacitor.config.json` `server.url`), so the footer tag is the only on-device proof of which build is running. Backend-only changes: no bump, say so. Test: `tests/frontend/version_tag.spec.js`.
+
 ## Non-Obvious Details
 
 **ffmpeg binary selection** — prefers Homebrew `ffmpeg-full` (`/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg`) over generic `ffmpeg` because `ffmpeg-full` includes libass (needed for burning subtitles).
