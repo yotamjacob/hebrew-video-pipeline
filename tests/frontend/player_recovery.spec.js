@@ -51,6 +51,40 @@ test('stalled preview prefetch falls back to streaming (spinner clears)', async 
   expect(dims.h).toBeGreaterThan(0);   // metadata arrived via streaming
 });
 
+test('long video: player streams within seconds, then upgrades to the blob', async ({ page }) => {
+  // Stream-first (2026-07-16): the editor must never wait minutes for the
+  // full cut video to download. When the prefetch is slower than the grace
+  // window, the player starts on the remote streaming URL, and once the
+  // background blob lands it hot-swaps (paused) to the zero-latency copy.
+  await page.addInitScript(() => { window.__PREVIEW_BLOB_WAIT_MS = 300; window.__PREVIEW_READY_WAIT_MS = 300; });
+  await bootApp(page);
+  await mockAllApis(page);
+  const buf = fs.readFileSync(MP4);
+  await page.route(`${API_BASE}/download/**`, async (route, request) => {
+    // The JS prefetch (bounded first range) is SLOW - like a big file on a
+    // phone link; the media element's open-ended range is served instantly.
+    if ((request.headers()['range'] || '') !== 'bytes=0-') await new Promise(r => setTimeout(r, 3000));
+    await route.fulfill({ status: 200,
+      headers: { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes',
+                 'Content-Length': String(buf.length) }, body: buf });
+  });
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])', { timeout: 10_000 });
+  await page.click('#runBtn');
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
+  // Phase 1: streaming source, spinner cleared, metadata decoded.
+  await page.waitForFunction(() => {
+    const v = document.getElementById('cutVideo');
+    return v && v.src && !v.src.startsWith('blob:') && v.videoHeight > 0;
+  }, { timeout: 15_000 });
+  await expect(page.locator('#playerLoading')).toBeHidden({ timeout: 15_000 });
+  // Phase 2: the background prefetch lands → the paused player upgrades.
+  await page.waitForFunction(() => {
+    const v = document.getElementById('cutVideo');
+    return v && v.src.startsWith('blob:');
+  }, { timeout: 20_000 });
+});
+
 test('a source that keeps failing shows a tappable retry, not an eternal spinner', async ({ page }) => {
   await page.addInitScript(() => { window.__PREVIEW_BLOB_WAIT_MS = 500; window.__PREVIEW_READY_WAIT_MS = 500; });
   await bootApp(page);

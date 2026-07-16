@@ -855,31 +855,49 @@
       v.src = url;
     });
   }
-  // Block (as a visible "Loading preview" step, part of processing) until the
-  // preview blob has downloaded AND validated as decodable. One retry on
-  // failure (the FIRST /download read after a burn/cut can stall on a cold
-  // volume). Bounded so a hopeless network never hangs the flow - the player
-  // still falls back to streaming.
+  // "Loading preview" checklist step - a SHORT head start only (2026-07-16).
+  // Small clips land the blob within the grace window, so their player still
+  // opens on the instant in-memory copy. Long videos (a 9-min cut is hundreds
+  // of MB) no longer hold the checklist for the FULL download - the old
+  // 90s+60s block plus the player's own wait kept the user staring at
+  // spinners for minutes. The editor opens immediately; the player STREAMS
+  // from the server (byte-range 206) within seconds and hot-swaps to the
+  // downloaded blob when the background prefetch lands (_armPreviewBlobUpgrade).
   async function _ensurePreviewReady() {
     if (isAudioInput || !_previewBlobPromise) return;
     _stepActivate('finalize');
     const bounded = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r(undefined), ms))]);
-    const _w1 = (window.__PREVIEW_READY_WAIT_MS != null) ? window.__PREVIEW_READY_WAIT_MS : 90000;   // test seam
-    const _w2 = (window.__PREVIEW_READY_WAIT_MS != null) ? window.__PREVIEW_READY_WAIT_MS : 60000;
-    try {
-      let url = await bounded(_previewBlobPromise, _w1);
-      if (url && !(await _probeVideoURL(url))) {
-        console.warn('preview blob failed validation - refetching');
-        try { URL.revokeObjectURL(url); } catch (_) {}
-        url = null;
-      }
-      if (!url && _previewBlobKey) {
-        _prefetchPreviewBlob(_previewBlobKey);   // retry once
-        url = await bounded(_previewBlobPromise, _w2);
-        if (url && !(await _probeVideoURL(url))) { try { URL.revokeObjectURL(url); } catch (_) {} _previewBlobPromise = Promise.resolve(null); }
-      }
-    } catch (_) {}
+    const _w = (window.__PREVIEW_READY_WAIT_MS != null) ? window.__PREVIEW_READY_WAIT_MS : 2500;   // test seam
+    try { await bounded(_previewBlobPromise, _w); } catch (_) {}
     _stepDone('finalize');
+  }
+  // Hot-swap the STREAMING player onto the downloaded blob once the background
+  // prefetch lands - streaming starts in seconds but seeks pay a network
+  // round-trip; the in-memory blob scrubs with zero latency. The swap waits
+  // for a paused moment (most editing time) so playback is never interrupted,
+  // restores the playhead, and only applies if this player setup is still the
+  // live one for the same video.
+  function _armPreviewBlobUpgrade(vid) {
+    const promise = _previewBlobPromise;
+    const keyAtArm = videoKey;
+    if (!promise) return;
+    promise.then(async (url) => {
+      if (!url) return;
+      if (!_playerSetupDone || videoKey !== keyAtArm || (vid.src || '').startsWith('blob:')) return;
+      if (!(await _probeVideoURL(url))) { console.warn('preview blob failed validation - staying on stream'); return; }
+      const doSwap = () => {
+        if (!_playerSetupDone || videoKey !== keyAtArm || (vid.src || '').startsWith('blob:')) return;
+        const at = vid.currentTime || 0;
+        if (_previewObjURL) { try { URL.revokeObjectURL(_previewObjURL); } catch (_) {} }
+        _previewObjURL = url;
+        vid.src = url;
+        vid.addEventListener('loadedmetadata', () => {
+          try { vid.currentTime = at; } catch (_) {}
+        }, { once: true });
+      };
+      if (vid.paused) doSwap();
+      else vid.addEventListener('pause', doSwap, { once: true });
+    }).catch(() => {});
   }
   let _playerDispW           = 0;   // detected display width (accounts for browser rotation)
   let videoOrientation       = 'portrait'; // 'portrait' | 'landscape' | 'square' - drives B-roll orientation
@@ -3693,13 +3711,15 @@
       if (bigPlay && vid.paused) bigPlay.style.opacity = '1';
     }, { once: true });
     (async () => {
-      // Reuse the blob prefetched when processing finished (instant if ready) -
-      // but WAIT BOUNDED. The checklist's "Loading preview" step already gives
-      // the download 90s; if it's still not here, the connection is struggling
-      // and an unbounded await left the player spinning forever (field report).
-      // Streaming starts playing after a few hundred KB instead.
+      // STREAM-FIRST (2026-07-16). Waiting for the whole cut video to download
+      // into a blob kept the spinner up for MINUTES on long videos; the server
+      // supports byte-range streaming, so the remote URL plays within seconds.
+      // A short bounded wait still catches an already-landed blob (small clip,
+      // resume) so those keep the instant zero-latency player from the start;
+      // otherwise stream now and hot-swap to the blob when the background
+      // prefetch finishes.
       const bounded = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r(null), ms))]);
-      const waitMs = (window.__PREVIEW_BLOB_WAIT_MS != null) ? window.__PREVIEW_BLOB_WAIT_MS : 20_000;
+      const waitMs = (window.__PREVIEW_BLOB_WAIT_MS != null) ? window.__PREVIEW_BLOB_WAIT_MS : 1500;
       let objURL = null;
       try { objURL = _previewBlobPromise ? await bounded(_previewBlobPromise, waitMs) : null; }
       catch (_) {}
@@ -3709,8 +3729,9 @@
         _previewObjURL = objURL;
         vid.src = _previewObjURL;
       } else {
-        console.warn('preview blob not ready in time - streaming instead');
+        console.info('preview: streaming now, blob upgrade armed');
         vid.src = _withToken(`${API_BASE}/download/${videoKey}`);
+        _armPreviewBlobUpgrade(vid);
       }
     })();
 
