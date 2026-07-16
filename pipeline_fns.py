@@ -1310,17 +1310,42 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
         f"Style: Default,{font},{font_size},"
         f"{_cs_primary},&H000000FF,{_cs_outline_col},{_cs_back},"
-        f"-1,0,0,0,100,100,0,0,{_cs_border_style},{_cs_outline_w},0,2,"
+        f"0,0,0,0,100,100,0,0,{_cs_border_style},{_cs_outline_w},0,2,"
         f"{margin_h},{margin_h},{margin_v},1\n"
         + hook_style_line +
         "\n[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     )
-    lines = [
-        f"Dialogue: 0,{seconds_to_ass(c['start'])},{seconds_to_ass(c['end'])},"
-        f"Default,,0,0,0,,{_rtl_ass_text(c['text'])}\n"
-        for c in captions
-    ]
+    # Faux-bold weight parity (2026-07-16): libass renders the variable Google
+    # fonts at ~400 (Bold is a no-op on them - the style's Bold is 0 so a
+    # future real bold face can't double-thicken), while every editor preview
+    # draws captions at CSS weight 700 - so the exact paused frame looked like
+    # a DIFFERENT font. Same deterministic fix as the hook: a fill-colored
+    # outline thickens the glyphs (advance widths unchanged → wrapping
+    # untouched). The user's border moves to an UNDER layer whose outline is
+    # border+boost, keeping its visible thickness around the thicker glyph
+    # identical; in box mode (BorderStyle=4) the top layer's pad box is
+    # alpha'd out so the background box isn't drawn twice.
+    def _cap_bgr(hx: str) -> str:
+        h = hx.lstrip("#")
+        if len(h) == 3:
+            h = "".join(ch * 2 for ch in h)
+        return f"{h[4:6]}{h[2:4]}{h[0:2]}".upper()
+    _boost = round(font_size * 0.035, 2)
+    _fill_bgr = _cap_bgr(_cs.get("font_color", "#FFFFFF"))
+    lines = []
+    for c in captions:
+        t0, t1 = seconds_to_ass(c["start"]), seconds_to_ass(c["end"])
+        txt = _rtl_ass_text(c["text"])
+        top = f"\\bord{_boost}\\3c&H{_fill_bgr}&"
+        if _cs_outline_w > 0 or _cs_border_style == 4:
+            lines.append(f"Dialogue: 0,{t0},{t1},Default,,0,0,0,,"
+                         f"{{\\bord{_cs_outline_w + _boost:.2f}}}{txt}\n")
+            if _cs_border_style == 4:
+                top += "\\4a&HFF&"
+            lines.append(f"Dialogue: 1,{t0},{t1},Default,,0,0,0,,{{{top}}}{txt}\n")
+        else:
+            lines.append(f"Dialogue: 0,{t0},{t1},Default,,0,0,0,,{{{top}}}{txt}\n")
     return header + "".join(lines) + hook_event_lines
 
 

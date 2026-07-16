@@ -448,3 +448,41 @@ class TestCaptionStyle:
         parts = line.split(',')
         assert parts[15] == '1'
         assert parts[6] == '&H80000000'             # historical BackColour untouched
+
+
+class TestCaptionFauxBold:
+    """libass renders the variable Google fonts at ~400 while every editor
+    preview draws captions at CSS 700 - the paused exact frame looked like a
+    different font. Captions get the hook's faux-bold treatment: a fill-colored
+    outline thickens the glyphs (top layer), the user's border moves to an
+    under layer at border+boost so its visible thickness is unchanged, and in
+    box mode the top layer's pad box is alpha'd out (single background box).
+    Verified pixel-wise against real libass renders (2026-07-16)."""
+
+    def _events(self, cs=None):
+        ass = TestCaptionStyle()._build(cs)
+        return [l for l in ass.splitlines() if l.startswith('Dialogue:')]
+
+    def test_default_border_renders_two_layers(self):
+        evs = self._events(None)                    # border_size default = 2
+        assert len(evs) == 2
+        assert evs[0].startswith('Dialogue: 0,') and '\\bord3.68' in evs[0]   # 2 + 48*0.035
+        assert evs[1].startswith('Dialogue: 1,') and '\\bord1.68' in evs[1]
+        assert '\\3c&HFFFFFF&' in evs[1]            # fill-colored outline = weight
+
+    def test_zero_border_is_single_faux_bold_layer(self):
+        evs = self._events({'border_size': 0})
+        assert len(evs) == 1
+        assert '\\bord1.68' in evs[0] and '\\3c&HFFFFFF&' in evs[0]
+
+    def test_box_mode_top_layer_hides_its_pad_box(self):
+        evs = self._events({'bg_opacity': 0.5})
+        assert len(evs) == 2
+        assert '\\4a&HFF&' in evs[1]                # box drawn once (under layer)
+        assert '\\4a' not in evs[0]
+
+    def test_style_bold_is_zero(self):
+        # A future real bold face must not double-thicken on top of the
+        # faux-bold outline (same reasoning as the hook style).
+        line = TestCaptionStyle()._style_line(TestCaptionStyle()._build(None))
+        assert line.split(',')[7] == '0'
