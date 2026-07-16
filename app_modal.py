@@ -1109,6 +1109,12 @@ def api():
             is_audio             = qs.get("is_audio", ["false"])[0].lower() == "true"
             min_silence          = float(qs.get("min_silence", ["0.5"])[0])
             padding              = float(qs.get("padding",     ["0.2"])[0])
+            # Audit what the CLIENT sent (raw), next to what we parsed - the
+            # worker logs its own [params] line, so one run splits sender vs
+            # worker for "toggle ignored" field reports.
+            print(f"[process] key={upload_key} defer={qs.get('defer', ['-'])[0]} "
+                  f"raw_cut={qs.get('cut_silences', ['<absent>'])[0]} parsed_cut={cut_silences} "
+                  f"burn={burn_captions} is_audio={is_audio}")
 
             import os as _os, time as _time
             uname, urec = _user_by_uid()

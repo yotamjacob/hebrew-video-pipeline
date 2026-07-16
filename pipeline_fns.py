@@ -662,6 +662,13 @@ def process_video(
     import time as _time
     from pathlib import Path
 
+    # One-line audit of the received toggles - the definitive record of what
+    # this job was ASKED to do (field reports of "it cut although the toggle
+    # was off" need this to split sender vs worker).
+    print(f"[params] key={upload_key} cut_silences={cut_silences} burn_captions={burn_captions} "
+          f"enhance_audio={enhance_audio} enhance_video={enhance_video} is_audio={is_audio} "
+          f"min_silence={min_silence} padding={padding} broll={transcribe_for_broll}")
+
     # Real per-stage timing, published to progress_store so /process_poll can
     # report live progress and the site checklist shows actual numbers.
     _stage_start = {}
@@ -1045,6 +1052,9 @@ def process_video(
             if cut_silences and whisper_segs
             else [KeepSegment(0.0, duration, flat_words)]
         )
+        _kept = sum(s.end - s.start for s in segs)
+        print(f"[cut] cut_silences={cut_silences} segments={len(segs)} "
+              f"kept={_kept:.1f}s of {duration:.1f}s")
 
         captions_list = []
         if (burn_captions or transcribe_for_broll or is_audio) and flat_words:
