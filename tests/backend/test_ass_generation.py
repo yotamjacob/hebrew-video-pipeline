@@ -190,10 +190,13 @@ class TestASSPlayResEqualsVideoHeight:
 
     def test_fontsize_uses_font_size_variable(self):
         snippet = _extract_snippet(MODAL_SRC, "build_caption_ass")
-        # Style line must use {font_size}, not a literal
-        assert "{font_size}" in snippet, (
-            "ASS Fontsize must come from the font_size parameter, not a literal"
+        # Style line must use the libass-compensated size derived from the
+        # font_size parameter (render_fs = font_size × per-family line-metric
+        # factor), never a literal. See _LIBASS_FONT_SCALE in the builder.
+        assert "{render_fs}" in snippet, (
+            "ASS Fontsize must come from render_fs (compensated font_size), not a literal"
         )
+        assert "_LIBASS_FONT_SCALE" in snippet
 
     def test_no_extra_font_size_scaling(self):
         snippet = _extract_snippet(MODAL_SRC, "burn_captions_fn")
@@ -464,16 +467,19 @@ class TestCaptionFauxBold:
         return [l for l in ass.splitlines() if l.startswith('Dialogue:')]
 
     def test_default_border_renders_two_layers(self):
+        # Heebo at nominal 48 renders at 71 (48 × 1.469 line-metric factor);
+        # boost = round(71 × 0.035, 2) = 2.49.
         evs = self._events(None)                    # border_size default = 2
         assert len(evs) == 2
-        assert evs[0].startswith('Dialogue: 0,') and '\\bord3.68' in evs[0]   # 2 + 48*0.035
-        assert evs[1].startswith('Dialogue: 1,') and '\\bord1.68' in evs[1]
+        assert evs[0].startswith('Dialogue: 0,') and '\\bord4.49' in evs[0]   # 2 + boost
+        assert evs[1].startswith('Dialogue: 1,') and '\\bord2.49' in evs[1]
         assert '\\3c&HFFFFFF&' in evs[1]            # fill-colored outline = weight
+        assert all('\\q2' in e for e in evs)        # pre-wrapped - libass must not re-wrap
 
     def test_zero_border_is_single_faux_bold_layer(self):
         evs = self._events({'border_size': 0})
         assert len(evs) == 1
-        assert '\\bord1.68' in evs[0] and '\\3c&HFFFFFF&' in evs[0]
+        assert '\\bord2.49' in evs[0] and '\\3c&HFFFFFF&' in evs[0]
 
     def test_box_mode_top_layer_hides_its_pad_box(self):
         evs = self._events({'bg_opacity': 0.5})

@@ -1157,6 +1157,25 @@ def process_video(
 def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captions, hook,
                       caption_style=None):
     font_size = max(12, min(200, int(font_size)))
+    # libass sizes glyphs by the font's LINE metrics (hhea ascent-descent),
+    # while CSS font-size uses the em square - so at the same nominal size
+    # libass renders (asc-desc)/upem SMALLER (Heebo: /1.469 ≈ 32% smaller;
+    # measured pixel-wise vs Chrome, 2026-07-16 - the "font changes when the
+    # preview pauses" report). Scale the ASS Fontsize by the per-family
+    # factor so the burn (and the exact preview frame - same builder) renders
+    # captions at the size every editor preview shows. Factor = (hhea.ascent
+    # - hhea.descent) / unitsPerEm of the family's Google-Fonts TTF; MUST
+    # mirror LIBASS_FONT_SCALE in site/app.js; recompute when adding a font.
+    # The WRAP estimate (char_w below) stays on the NOMINAL size: with
+    # compensation, libass advances equal the CSS advances of the nominal
+    # size, which is what char_w models. Defined in-function so the AST test
+    # extraction stays self-contained.
+    _LIBASS_FONT_SCALE = {
+        "Heebo": 1.469, "Assistant": 1.308, "Frank Ruhl Libre": 1.291,
+        "Secular One": 1.455, "Rubik": 1.185, "Suez One": 1.306,
+        "Karantina": 1.012, "Playpen Sans Hebrew": 1.530, "Miriam Libre": 1.313,
+    }
+    render_fs = max(12, int(round(font_size * _LIBASS_FONT_SCALE.get(font, 1.0))))
     # Caption styling (hook-parity): text colour, outline colour/width and an
     # optional background box. Defaults reproduce the historical style EXACTLY
     # (white text, black outline 2, no box), so omitting caption_style is a
@@ -1304,7 +1323,7 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
     if _cs_bg_op > 0:
         _cs_border_style = 4
         _cs_back = hex_to_ass(_cs.get("bg_color", "#000000"), int(round((1.0 - _cs_bg_op) * 255)))[:-1]
-        _cs_outline_w = max(_cs_outline_w, max(1, round(font_size * 0.12)))
+        _cs_outline_w = max(_cs_outline_w, max(1, round(render_fs * 0.12)))
     else:
         _cs_border_style = 1
         _cs_back = "&H80000000"
@@ -1318,7 +1337,7 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
         "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Default,{font},{font_size},"
+        f"Style: Default,{font},{render_fs},"
         f"{_cs_primary},&H000000FF,{_cs_outline_col},{_cs_back},"
         f"0,0,0,0,100,100,0,0,{_cs_border_style},{_cs_outline_w},0,2,"
         f"{margin_h},{margin_h},{margin_v},1\n"
@@ -1341,16 +1360,19 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
         if len(h) == 3:
             h = "".join(ch * 2 for ch in h)
         return f"{h[4:6]}{h[2:4]}{h[0:2]}".upper()
-    _boost = round(font_size * 0.035, 2)
+    _boost = round(render_fs * 0.035, 2)
     _fill_bgr = _cap_bgr(_cs.get("font_color", "#FFFFFF"))
+    # {\q2}: captions are pre-wrapped by _rewrap_cap - libass must NEVER
+    # re-wrap them (the char_w estimate can run slightly under the real
+    # advance; a reflow would diverge from the preview's line breaks).
     lines = []
     for c in captions:
         t0, t1 = seconds_to_ass(c["start"]), seconds_to_ass(c["end"])
         txt = _rtl_ass_text(c["text"])
-        top = f"\\bord{_boost}\\3c&H{_fill_bgr}&"
+        top = f"\\q2\\bord{_boost}\\3c&H{_fill_bgr}&"
         if _cs_outline_w > 0 or _cs_border_style == 4:
             lines.append(f"Dialogue: 0,{t0},{t1},Default,,0,0,0,,"
-                         f"{{\\bord{_cs_outline_w + _boost:.2f}}}{txt}\n")
+                         f"{{\\q2\\bord{_cs_outline_w + _boost:.2f}}}{txt}\n")
             if _cs_border_style == 4:
                 top += "\\4a&HFF&"
             lines.append(f"Dialogue: 1,{t0},{t1},Default,,0,0,0,,{{{top}}}{txt}\n")

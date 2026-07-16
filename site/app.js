@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.6';
+  const APP_VERSION = '1.10.7';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -3541,12 +3541,24 @@
   }
 
   // ── Caption preview & positioning ──
+  // Line-advance factors - MUST mirror _LIBASS_FONT_SCALE in pipeline_fns.py.
+  // libass renders the ASS Fontsize scaled by the font's line metrics; the
+  // burn compensates glyph SIZE with this factor, which makes its multi-line
+  // advance = factor × nominal size - so the DOM overlay's line-height uses
+  // the same factor to keep 2-line captions identical to the burn.
+  const LIBASS_FONT_SCALE = {
+    'Heebo': 1.469, 'Assistant': 1.308, 'Frank Ruhl Libre': 1.291,
+    'Secular One': 1.455, 'Rubik': 1.185, 'Suez One': 1.306,
+    'Karantina': 1.012, 'Playpen Sans Hebrew': 1.530, 'Miriam Libre': 1.313,
+  };
+
   function updatePreviewCaption() {
     // Called by font/size/position sliders - refreshes player caption overlay immediately
     const capEl = document.getElementById('playerCap');
     const vid   = document.getElementById('cutVideo');
     if (!capEl) return;
     capEl.style.fontFamily = `'${captionFont}', sans-serif`;
+    capEl.style.lineHeight = String(LIBASS_FONT_SCALE[captionFont] || 1.35);
     capEl.style.bottom     = (captionMarginPct * 100) + '%';
     // Colours apply regardless of whether the video's metadata is ready yet
     // (fallback scale until the real display width is known).
