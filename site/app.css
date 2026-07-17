@@ -1572,8 +1572,12 @@
       white-space: pre; word-break: normal; line-height: 1.35;
       pointer-events: auto; cursor: grab; touch-action: none;
       user-select: none; -webkit-user-select: none; z-index: 3;
-      -webkit-text-stroke: 0.5px rgba(0,0,0,0.85);
-      text-shadow: 2px 2px 0 rgba(0,0,0,0.75);
+      /* Match libass: the outline is drawn UNDER the fill and grows outward -
+         a centered stroke eats the fill at small preview scales (glyphs went
+         dark, reading as a "different font" vs the burn/exact frame). */
+      paint-order: stroke fill;
+      -webkit-text-stroke: 1px rgba(0,0,0,0.85);
+      text-shadow: none;
     }
     #playerBigPlay {
       position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;

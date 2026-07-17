@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.7';
+  const APP_VERSION = '1.10.8';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -2961,11 +2961,16 @@
     return `rgba(${r},${g},${b},${alpha})`;
   }
   // Apply the style to the live caption overlay (scale = player px per burn px).
+  // Stroke is DOUBLED because CSS centers it on the glyph contour while the
+  // fill (paint-order: stroke fill) covers the inner half - the visible
+  // outward outline then equals libass's border_size, and the white core is
+  // never eaten (it was, at phone scale - read as a font change on pause).
   function _applyCapStyleColors(el, scale) {
     const cs = _captionStylePayload();
     el.style.color = cs.font_color;
+    el.style.paintOrder = 'stroke fill';
     el.style.webkitTextStroke = cs.border_size > 0
-      ? `${Math.max(0.5, cs.border_size * scale)}px ${cs.border_color}` : '';
+      ? `${Math.max(1, cs.border_size * 2 * scale)}px ${cs.border_color}` : '';
     el.style.textShadow = 'none';
     if (cs.bg_opacity > 0) {
       el.style.background = _hexToRgba(cs.bg_color, cs.bg_opacity);
