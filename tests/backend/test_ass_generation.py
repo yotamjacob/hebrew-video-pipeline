@@ -453,42 +453,26 @@ class TestCaptionStyle:
         assert parts[6] == '&H80000000'             # historical BackColour untouched
 
 
-class TestCaptionFauxBold:
-    """libass renders the variable Google fonts at ~400 while every editor
-    preview draws captions at CSS 700 - the paused exact frame looked like a
-    different font. Captions get the hook's faux-bold treatment: a fill-colored
-    outline thickens the glyphs (top layer), the user's border moves to an
-    under layer at border+boost so its visible thickness is unchanged, and in
-    box mode the top layer's pad box is alpha'd out (single background box).
-    Verified pixel-wise against real libass renders (2026-07-16)."""
+class TestCaptionRealBold:
+    """Weight parity is REAL bold (2026-07-17): the images install static
+    Regular+Bold instances (the same fonts.gstatic files the browser loads via
+    the css2 link) and the caption Style sets Bold=-1 so fontconfig resolves
+    the true 700. No faux-bold layering: one Dialogue event per caption, with
+    {\\q2} so libass never re-wraps the pre-wrapped lines. The old fill-colored
+    outline overshot true 700 ("bulky with a thick border" on pause)."""
 
     def _events(self, cs=None):
         ass = TestCaptionStyle()._build(cs)
         return [l for l in ass.splitlines() if l.startswith('Dialogue:')]
 
-    def test_default_border_renders_two_layers(self):
-        # Heebo at nominal 48 renders at 71 (48 × 1.469 line-metric factor);
-        # boost = round(71 × 0.035, 2) = 2.49.
-        evs = self._events(None)                    # border_size default = 2
-        assert len(evs) == 2
-        assert evs[0].startswith('Dialogue: 0,') and '\\bord4.49' in evs[0]   # 2 + boost
-        assert evs[1].startswith('Dialogue: 1,') and '\\bord2.49' in evs[1]
-        assert '\\3c&HFFFFFF&' in evs[1]            # fill-colored outline = weight
-        assert all('\\q2' in e for e in evs)        # pre-wrapped - libass must not re-wrap
+    def test_single_event_per_caption_with_q2(self):
+        for cs in (None, {'border_size': 0}, {'bg_opacity': 0.5}):
+            evs = self._events(cs)
+            assert len(evs) == 1, f"style {cs}: expected ONE event, got {len(evs)}"
+            assert '{\\q2}' in evs[0]
+            assert '\\bord' not in evs[0] and '\\3c' not in evs[0], (
+                "faux-bold override tags must be gone - weight comes from Bold=-1")
 
-    def test_zero_border_is_single_faux_bold_layer(self):
-        evs = self._events({'border_size': 0})
-        assert len(evs) == 1
-        assert '\\bord2.49' in evs[0] and '\\3c&HFFFFFF&' in evs[0]
-
-    def test_box_mode_top_layer_hides_its_pad_box(self):
-        evs = self._events({'bg_opacity': 0.5})
-        assert len(evs) == 2
-        assert '\\4a&HFF&' in evs[1]                # box drawn once (under layer)
-        assert '\\4a' not in evs[0]
-
-    def test_style_bold_is_zero(self):
-        # A future real bold face must not double-thicken on top of the
-        # faux-bold outline (same reasoning as the hook style).
+    def test_style_bold_is_true(self):
         line = TestCaptionStyle()._style_line(TestCaptionStyle()._build(None))
-        assert line.split(',')[7] == '0'
+        assert line.split(',')[7] == '-1'   # real bold via the installed 700 faces

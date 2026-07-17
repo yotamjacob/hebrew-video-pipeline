@@ -1597,6 +1597,9 @@
       paint-order: stroke fill;
       -webkit-text-stroke: 1px rgba(0,0,0,0.85);
       text-shadow: none;
+      /* libass never synthesizes bold: single-weight fonts (Secular One,
+         Suez One) burn at 400, so the overlay must not fake a 700 either. */
+      font-synthesis: none;
     }
     #playerBigPlay {
       position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;

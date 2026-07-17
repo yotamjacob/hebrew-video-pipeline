@@ -1339,45 +1339,28 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
         f"Style: Default,{font},{render_fs},"
         f"{_cs_primary},&H000000FF,{_cs_outline_col},{_cs_back},"
-        f"0,0,0,0,100,100,0,0,{_cs_border_style},{_cs_outline_w},0,2,"
+        f"-1,0,0,0,100,100,0,0,{_cs_border_style},{_cs_outline_w},0,2,"
         f"{margin_h},{margin_h},{margin_v},1\n"
         + hook_style_line +
         "\n[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     )
-    # Faux-bold weight parity (2026-07-16): libass renders the variable Google
-    # fonts at ~400 (Bold is a no-op on them - the style's Bold is 0 so a
-    # future real bold face can't double-thicken), while every editor preview
-    # draws captions at CSS weight 700 - so the exact paused frame looked like
-    # a DIFFERENT font. Same deterministic fix as the hook: a fill-colored
-    # outline thickens the glyphs (advance widths unchanged → wrapping
-    # untouched). The user's border moves to an UNDER layer whose outline is
-    # border+boost, keeping its visible thickness around the thicker glyph
-    # identical; in box mode (BorderStyle=4) the top layer's pad box is
-    # alpha'd out so the background box isn't drawn twice.
-    def _cap_bgr(hx: str) -> str:
-        h = hx.lstrip("#")
-        if len(h) == 3:
-            h = "".join(ch * 2 for ch in h)
-        return f"{h[4:6]}{h[2:4]}{h[0:2]}".upper()
-    _boost = round(render_fs * 0.035, 2)
-    _fill_bgr = _cap_bgr(_cs.get("font_color", "#FFFFFF"))
+    # Weight parity is REAL bold now (2026-07-17): the images install static
+    # Regular+Bold instances (see _FONT_CMDS in pipeline_core) - the same
+    # fonts.gstatic files the css2 <link> serves the browser - and Style
+    # Bold=-1 resolves the true 700 via fontconfig. The old faux-bold
+    # (fill-colored outline layers) overshot real 700 and read as "bulky with
+    # a thick border" next to the overlay. Single-weight fonts (Secular One,
+    # Suez One) stay regular on BOTH sides (libass doesn't synthesize;
+    # #playerCap sets font-synthesis: none).
     # {\q2}: captions are pre-wrapped by _rewrap_cap - libass must NEVER
     # re-wrap them (the char_w estimate can run slightly under the real
     # advance; a reflow would diverge from the preview's line breaks).
-    lines = []
-    for c in captions:
-        t0, t1 = seconds_to_ass(c["start"]), seconds_to_ass(c["end"])
-        txt = _rtl_ass_text(c["text"])
-        top = f"\\q2\\bord{_boost}\\3c&H{_fill_bgr}&"
-        if _cs_outline_w > 0 or _cs_border_style == 4:
-            lines.append(f"Dialogue: 0,{t0},{t1},Default,,0,0,0,,"
-                         f"{{\\q2\\bord{_cs_outline_w + _boost:.2f}}}{txt}\n")
-            if _cs_border_style == 4:
-                top += "\\4a&HFF&"
-            lines.append(f"Dialogue: 1,{t0},{t1},Default,,0,0,0,,{{{top}}}{txt}\n")
-        else:
-            lines.append(f"Dialogue: 0,{t0},{t1},Default,,0,0,0,,{{{top}}}{txt}\n")
+    lines = [
+        f"Dialogue: 0,{seconds_to_ass(c['start'])},{seconds_to_ass(c['end'])},"
+        f"Default,,0,0,0,,{{\\q2}}{_rtl_ass_text(c['text'])}\n"
+        for c in captions
+    ]
     return header + "".join(lines) + hook_event_lines
 
 

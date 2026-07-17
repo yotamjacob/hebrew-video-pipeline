@@ -11,6 +11,38 @@ import modal
 # ---------------------------------------------------------------------------
 # Modal image
 # ---------------------------------------------------------------------------
+# Static per-weight caption fonts (fonts.gstatic instances, pinned). REAL Bold
+# faces matter: libass cannot embolden variable fonts and does NOT synthesize
+# bold from a lone Regular - the old `[wght]` variable TTFs rendered every
+# "bold" caption at ~400, so the burn/exact frame never matched the browser
+# overlay's true 700 ("bulky vs thin" reports, 2026-07-17). With these
+# installed, caption Style Bold=-1 resolves the real 700 via fontconfig -
+# identical instances to what the css2 <link> serves the browser.
+# Single-weight display fonts (Secular One, Suez One) have no bold anywhere;
+# the overlay disables synthetic bold (font-synthesis: none) to match.
+# Shared by ALL THREE images below - keep it one list.
+_FONT_DIR = "/usr/local/share/fonts/hebrew"
+_FONT_CMDS = [
+    f"mkdir -p {_FONT_DIR}",
+    f'wget -q "https://fonts.gstatic.com/s/heebo/v28/NGSpv5_NC0k9P_v6ZUCbLRAHxK1EiSyccg.ttf" -O {_FONT_DIR}/Heebo-Regular.ttf',
+    f'wget -q "https://fonts.gstatic.com/s/heebo/v28/NGSpv5_NC0k9P_v6ZUCbLRAHxK1Ebiuccg.ttf" -O {_FONT_DIR}/Heebo-Bold.ttf',
+    f'wget -q "https://fonts.gstatic.com/s/assistant/v24/2sDPZGJYnIjSi6H75xkZZE1I0yCmYzzQtuZnEGE.ttf" -O {_FONT_DIR}/Assistant-Regular.ttf',
+    f'wget -q "https://fonts.gstatic.com/s/assistant/v24/2sDPZGJYnIjSi6H75xkZZE1I0yCmYzzQtgFgEGE.ttf" -O {_FONT_DIR}/Assistant-Bold.ttf',
+    f'wget -q "https://fonts.gstatic.com/s/frankruhllibre/v23/j8_96_fAw7jrcalD7oKYNX0QfAnPcbzNEEB7OoicBw7FYVqQ.ttf" -O {_FONT_DIR}/FrankRuhlLibre-Regular.ttf',
+    f'wget -q "https://fonts.gstatic.com/s/frankruhllibre/v23/j8_96_fAw7jrcalD7oKYNX0QfAnPcbzNEEB7OoicBw4iZlqQ.ttf" -O {_FONT_DIR}/FrankRuhlLibre-Bold.ttf',
+    f'wget -q "https://fonts.gstatic.com/s/rubik/v31/iJWZBXyIfDnIV5PNhY1KTN7Z-Yh-B4i1UA.ttf" -O {_FONT_DIR}/Rubik-Regular.ttf',
+    f'wget -q "https://fonts.gstatic.com/s/rubik/v31/iJWZBXyIfDnIV5PNhY1KTN7Z-Yh-4I-1UA.ttf" -O {_FONT_DIR}/Rubik-Bold.ttf',
+    f'wget -q "https://fonts.gstatic.com/s/miriamlibre/v19/DdT0798HsHwubBAqfkcBTL_1a7sPlXcE8PJjH9P3k9s.ttf" -O {_FONT_DIR}/MiriamLibre-Regular.ttf',
+    f'wget -q "https://fonts.gstatic.com/s/miriamlibre/v19/DdT0798HsHwubBAqfkcBTL_1a7sPlXcE8PJjHzTwk9s.ttf" -O {_FONT_DIR}/MiriamLibre-Bold.ttf',
+    f'wget -q "https://fonts.gstatic.com/s/playpensanshebrew/v8/lJws-okuj29wT-AN6RvLx8QqjkKhL7eAjoL9jK7L4vstDnnp55C6.ttf" -O {_FONT_DIR}/PlaypenSansHebrew-Regular.ttf',
+    f'wget -q "https://fonts.gstatic.com/s/playpensanshebrew/v8/lJws-okuj29wT-AN6RvLx8QqjkKhL7eAjoL9jK7L4vstDnkO4JC6.ttf" -O {_FONT_DIR}/PlaypenSansHebrew-Bold.ttf',
+    f'wget -q "https://fonts.gstatic.com/s/karantina/v13/buE0po24ccnh31GVMABJ8A.ttf" -O {_FONT_DIR}/Karantina-Regular.ttf',
+    f'wget -q "https://fonts.gstatic.com/s/karantina/v13/buExpo24ccnh31GVMABxTC8f-A.ttf" -O {_FONT_DIR}/Karantina-Bold.ttf',
+    f'wget -q "https://fonts.gstatic.com/s/secularone/v14/8QINdiTajsj_87rMuMdKypDl.ttf" -O {_FONT_DIR}/SecularOne-Regular.ttf',
+    f'wget -q "https://fonts.gstatic.com/s/suezone/v15/taiJGmd_EZ6rqscQgNFJ.ttf" -O {_FONT_DIR}/SuezOne-Regular.ttf',
+    f"fc-cache -f {_FONT_DIR}",
+]
+
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg", "git", "libsndfile1", "fontconfig", "wget")
@@ -31,22 +63,7 @@ image = (
         "anthropic>=0.40.0",
         "google-auth",   # FCM "video ready" push (HTTP v1 send)
     )
-    .run_commands(
-        "mkdir -p /usr/local/share/fonts/hebrew",
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/heebo/Heebo%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/Heebo.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/assistant/Assistant%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/Assistant.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/frankruhllibre/FrankRuhlLibre%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/FrankRuhlLibre.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/secularone/SecularOne-Regular.ttf" -O /usr/local/share/fonts/hebrew/SecularOne.ttf',
-        # Extra caption-editor faces (must stay in sync with site/index.html's
-        # <select id="fontSelect"> and the Google Fonts <link> — preview == burn).
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/rubik/Rubik%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/Rubik.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/suezone/SuezOne-Regular.ttf" -O /usr/local/share/fonts/hebrew/SuezOne.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/karantina/Karantina-Regular.ttf" -O /usr/local/share/fonts/hebrew/Karantina.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/playpensanshebrew/PlaypenSansHebrew%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/PlaypenSansHebrew.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/miriamlibre/MiriamLibre%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/MiriamLibre.ttf',
-        "apt-get install -y fonts-noto-hinted",
-        "fc-cache -f /usr/local/share/fonts/hebrew",
-    )
+    .run_commands("apt-get install -y fonts-noto-hinted", *_FONT_CMDS)
     # Local backend modules must be shipped explicitly (Modal 1.x no longer automounts imports)
     .add_local_python_source(
         "pipeline_core", "pipeline_fns", "stock_helpers",
@@ -60,20 +77,7 @@ burn_image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg", "fontconfig", "wget")
     .pip_install("requests", "google-auth")   # google-auth: FCM "video ready" push
-    .run_commands(
-        "mkdir -p /usr/local/share/fonts/hebrew",
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/heebo/Heebo%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/Heebo.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/assistant/Assistant%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/Assistant.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/frankruhllibre/FrankRuhlLibre%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/FrankRuhlLibre.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/secularone/SecularOne-Regular.ttf" -O /usr/local/share/fonts/hebrew/SecularOne.ttf',
-        # Extra caption-editor faces (keep in sync with the full image + frontend).
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/rubik/Rubik%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/Rubik.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/suezone/SuezOne-Regular.ttf" -O /usr/local/share/fonts/hebrew/SuezOne.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/karantina/Karantina-Regular.ttf" -O /usr/local/share/fonts/hebrew/Karantina.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/playpensanshebrew/PlaypenSansHebrew%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/PlaypenSansHebrew.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/miriamlibre/MiriamLibre%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/MiriamLibre.ttf',
-        "fc-cache -f /usr/local/share/fonts/hebrew",
-    )
+    .run_commands(*_FONT_CMDS)
     .add_local_python_source(
         "pipeline_core", "pipeline_fns", "stock_helpers",
         "broll_fns", "content_fns", "metricool_fns",
@@ -89,21 +93,8 @@ light_image = (
     .pip_install("requests", "anthropic>=0.40.0", "fastapi", "python-multipart", "boto3",
                  "google-auth")   # verify Google Sign-In ID tokens (/auth/google)
     # Hebrew caption/hook fonts so /preview_frame renders the WYSIWYG editor
-    # preview through libass with the SAME faces the burn uses (keep in sync
-    # with burn_image + the full image + site/index.html's #fontSelect).
-    .run_commands(
-        "mkdir -p /usr/local/share/fonts/hebrew",
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/heebo/Heebo%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/Heebo.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/assistant/Assistant%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/Assistant.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/frankruhllibre/FrankRuhlLibre%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/FrankRuhlLibre.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/secularone/SecularOne-Regular.ttf" -O /usr/local/share/fonts/hebrew/SecularOne.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/rubik/Rubik%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/Rubik.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/suezone/SuezOne-Regular.ttf" -O /usr/local/share/fonts/hebrew/SuezOne.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/karantina/Karantina-Regular.ttf" -O /usr/local/share/fonts/hebrew/Karantina.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/playpensanshebrew/PlaypenSansHebrew%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/PlaypenSansHebrew.ttf',
-        'wget -q "https://github.com/google/fonts/raw/main/ofl/miriamlibre/MiriamLibre%5Bwght%5D.ttf" -O /usr/local/share/fonts/hebrew/MiriamLibre.ttf',
-        "fc-cache -f /usr/local/share/fonts/hebrew",
-    )
+    # preview through libass with the SAME faces the burn uses (see _FONT_CMDS).
+    .run_commands(*_FONT_CMDS)
     .add_local_python_source(
         "pipeline_core", "pipeline_fns", "stock_helpers",
         "broll_fns", "content_fns", "metricool_fns",
