@@ -23,7 +23,12 @@
        blocked fonts.googleapis.com must never stall first paint or script execution
        (which previously hung the app on the native splash). display=swap already
        renders text in a fallback until each face arrives. -->
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@400;500&family=Assistant:wght@400;500;600&display=swap" media="print" onload="this.media='all'" />
+  <!-- MUST list EVERY family in CAPTION_FONTS (app.js) + the UI fonts: without
+       a registered @font-face, document.fonts.load() silently no-ops and the
+       caption overlay renders a FALLBACK font while the burn/exact frame shows
+       the real one ("the font changes when the preview pauses", 2026-07-17).
+       Guarded by tests/backend/test_font_link.py. -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;500;600;700&family=Frank+Ruhl+Libre:wght@400;500;700&family=Heebo:wght@400;700&family=Karantina:wght@400;700&family=Miriam+Libre:wght@400;700&family=Playpen+Sans+Hebrew:wght@400;700&family=Rubik:wght@400;700&family=Secular+One&family=Suez+One&display=swap" media="print" onload="this.media='all'" />
   <!-- Caption-editor fonts: preview must match the server-burned result (the same
        families are installed on the Modal burn image in pipeline_core.py). -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;700&family=Secular+One&family=Rubik:wght@400;700&family=Suez+One&family=Karantina:wght@400;700&family=Playpen+Sans+Hebrew:wght@500;700&family=Miriam+Libre:wght@400;700&display=swap" media="print" onload="this.media='all'" />
