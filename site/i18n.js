@@ -341,6 +341,8 @@
     'err.reconnect':     { en: 'Could not reconnect - job may have expired. Please start again.', he: 'החיבור מחדש נכשל - ייתכן שהעבודה פגה. התחילו מחדש.' },
     'err.spawn':         { en: 'Spawn failed ({status})', he: 'הפעלת העיבוד נכשלה ({status})' },
     'err.aiBusy':        { en: 'The AI service is momentarily overloaded - try again in a minute.', he: 'שירות ה-AI עמוס כרגע - נסו שוב בעוד דקה.' },
+    'update.available':  { en: 'A new version is ready', he: 'גרסה חדשה זמינה' },
+    'update.refresh':    { en: 'Refresh', he: 'רענון' },
     'err.downloadFailed': { en: 'Download failed', he: 'ההורדה נכשלה' },
     'err.chunk':         { en: 'Upload failed at chunk {i} ({status})', he: 'ההעלאה נכשלה במקטע {i} ({status})' },
     'err.chunkRetries':  { en: 'Upload failed at chunk {i} after {n} attempts ({status})', he: 'ההעלאה נכשלה במקטע {i} אחרי {n} ניסיונות ({status})' },

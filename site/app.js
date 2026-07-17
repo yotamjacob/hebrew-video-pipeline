@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.8';
+  const APP_VERSION = '1.10.9';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -60,6 +60,58 @@
     scissors: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><line x1="8.1" y1="7.6" x2="20" y2="18"/><line x1="8.1" y1="16.4" x2="20" y2="6"/></svg>',
     star:     '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3.4l2.47 5.01 5.53.8-4 3.9.94 5.5L12 16.9l-4.95 2.6.94-5.5-4-3.9 5.53-.8z"/></svg>',
   };
+
+  // ── Refresh-for-update ──
+  // The editor is a SPA: a long-lived tab (or the Android webview, which
+  // survives for days) keeps running the JS it booted with across deploys -
+  // a field lesson: several "bug still happening" reports were a stale tab.
+  // Poll the deployed app.js head for APP_VERSION; when it differs,
+  // auto-reload while nothing would be lost, else show a refresh pill.
+  const VERSION_CHECK_MS = (window.__VERSION_CHECK_MS != null) ? window.__VERSION_CHECK_MS : 10 * 60_000;
+  let _updateDismissed = null;   // version the user dismissed the pill for
+  function _safeToAutoReload() {
+    // Mirrors the beforeunload guard, plus "nothing selected yet".
+    const editing = document.getElementById('captionEditorCard')?.style.display !== 'none';
+    const brollWork = typeof stockBrollSelections === 'object'
+                      && Object.keys(stockBrollSelections).length > 0;
+    return !selectedFile && !isUploading && !pollController && !editing
+           && !resultBlob && !brollWork;
+  }
+  async function _checkDeployedVersion() {
+    try {
+      const r = await fetch('/app.js?vchk=' + Date.now(),
+                            { headers: { 'Range': 'bytes=0-2047' }, cache: 'no-store' });
+      if (!r.ok) return;
+      const m = /APP_VERSION = '([0-9.]+)'/.exec(await r.text());
+      if (!m || m[1] === APP_VERSION) return;
+      if (_safeToAutoReload()) { location.reload(); return; }
+      if (m[1] !== _updateDismissed) _showUpdatePill(m[1]);
+    } catch (_) {}
+  }
+  function _showUpdatePill(ver) {
+    if (document.getElementById('updatePill')) return;
+    const pill = document.createElement('div');
+    pill.id = 'updatePill';
+    pill.className = 'update-pill';
+    const txt = document.createElement('span');
+    txt.textContent = t('update.available');
+    const btn = document.createElement('button');
+    btn.className = 'update-pill-btn';
+    btn.textContent = t('update.refresh');
+    btn.onclick = () => location.reload();
+    const x = document.createElement('button');
+    x.className = 'update-pill-x';
+    x.setAttribute('aria-label', 'dismiss');
+    x.innerHTML = ICON.x;
+    x.onclick = () => { _updateDismissed = ver; pill.remove(); };
+    pill.append(txt, btn, x);
+    document.body.appendChild(pill);
+  }
+  setInterval(_checkDeployedVersion, VERSION_CHECK_MS);
+  // A thawed webview is the classic stale moment - check right then.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) _checkDeployedVersion();
+  });
 
   // Gates all user-facing email flows (verify nudge + password reset). Off
   // until a sending domain is verified in Resend — with the test sender,
