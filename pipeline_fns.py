@@ -1493,15 +1493,19 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             dst = tmp / f"broll_{idx}.mp4"
             vid_key      = item.get("video_key")
             download_url = item.get("download_url") or item.get("preview_url")
+            cached = None
             if vid_key:
                 # Defense in depth (the /burn route validates too): a broll key
                 # must match broll_<uuid>.mp4 — never an arbitrary path.
                 if not (isinstance(vid_key, str) and _BROLL_KEY_RE.match(vid_key)):
                     continue
-                src = Path(TMP_DIR) / vid_key
-                if not src.exists():
-                    continue
-                shutil.copy(src, dst)
+                _c = Path(TMP_DIR) / vid_key
+                # A missing cache is not fatal: re-fetch from the stock source
+                # below instead of silently dropping the insert (a re-edit from
+                # History can outlive the cached clip).
+                cached = _c if _c.exists() else None
+            if cached is not None:
+                shutil.copy(cached, dst)
             elif download_url:
                 # Defense in depth: only fetch trusted stock hosts (anti-SSRF).
                 if not _is_allowed_broll_url(download_url):
@@ -1608,7 +1612,17 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
         out_path = Path(TMP_DIR) / output_key
         shutil.copy(video_out, out_path)
         try:
-            _record_job(output_key, source_name, out_path, notify=False)
+            # Everything the editor needs to reopen this export (History → edit).
+            _record_job(output_key, source_name, out_path, notify=False, edit_state={
+                "src_key":       video_key,
+                "captions":      captions,
+                "hook":          hook,
+                "broll":         broll_items,
+                "font":          font,
+                "font_size":     font_size,
+                "margin_v_pct":  margin_v_pct,
+                "caption_style": caption_style,
+            })
             prune_volume()
         except Exception as _je:
             print(f"[jobs] record/prune skipped: {_je!r}")
@@ -1620,8 +1634,14 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
 # ---------------------------------------------------------------------------
 # Job history + volume retention
 # ---------------------------------------------------------------------------
-def _record_job(output_key, source_name, out_path, notify=True):
+def _record_job(output_key, source_name, out_path, notify=True, edit_state=None):
     """Add a burned output to the History manifest.
+
+    `edit_state` (burns only) is everything needed to REOPEN the editor on this
+    job later: the cut source key plus the captions/hook/B-roll/styling that
+    produced it. Captions are baked into the output permanently, so a re-edit
+    burns onto `src_key` again - which is why prune_volume protects that file
+    (and any cached B-roll clips) for as long as this record lives.
 
     `notify=False` for burn results: the push story is capped at two messages
     (upload done + processing done), and a burn is started from inside the
@@ -1638,12 +1658,15 @@ def _record_job(output_key, source_name, out_path, notify=True):
         duration = float(r.stdout.strip() or 0)
     except Exception:
         pass
-    jobs_store[output_key] = {
+    record = {
         "name": source_name or "video",
         "ts": time.time(),
         "size": out_path.stat().st_size,
         "duration": round(duration, 1),
     }
+    if edit_state:
+        record["edit"] = edit_state
+    jobs_store[output_key] = record
     # "Your video is ready" push (best-effort; no-op unless FCM is configured).
     uid = output_key[1:33] if _UID_PREFIX_RE.match(output_key) else None
     if uid and notify:
@@ -1677,6 +1700,18 @@ def prune_volume():
                 (Path(TMP_DIR) / (key + ".jpg")).unlink(missing_ok=True)  # thumbnail cache
                 jobs_store.pop(key)
         protected = set(jobs_store.keys())
+        # A re-editable job also needs its SOURCE alive: History → edit burns
+        # new captions onto the cut, which cannot be re-derived from the burned
+        # output. Same for cached B-roll clips it composited. Both are normally
+        # scratch (48h), so pin them for as long as the job record lives; they
+        # become sweepable again the moment the job expires above.
+        for _jk in list(jobs_store.keys()):
+            _edit = (jobs_store.get(_jk) or {}).get("edit") or {}
+            if _edit.get("src_key"):
+                protected.add(_edit["src_key"])
+            for _it in (_edit.get("broll") or []):
+                if isinstance(_it, dict) and _it.get("video_key"):
+                    protected.add(_it["video_key"])
         # Fail-safe: the scratch sweep deletes every unprotected file older than
         # SCRATCH_RETENTION_HOURS, using jobs_store as the sole source of truth
         # for "keep this". If jobs_store is unexpectedly empty (Dict lost /

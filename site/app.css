@@ -1663,6 +1663,21 @@
       display: flex; align-items: center; justify-content: space-between;
       gap: 10px; margin: 10px 0 4px;
     }
+    /* "You are editing a previous export" - only shown on the History re-edit path */
+    .history-edit-hint {
+      margin: 10px 0 0; padding: 8px 12px;
+      border-inline-start: 2.5px solid var(--terracotta);
+      background: var(--purple-50);
+      border-radius: 8px;
+      font-size: 0.78rem; color: var(--text);
+    }
+    /* B-roll kept from a re-edited export (no candidate cards to show) */
+    .broll-kept-note {
+      margin: 8px 0; padding: 8px 12px;
+      background: var(--purple-50);
+      border-radius: 8px;
+      font-size: 0.8rem; color: var(--muted);
+    }
     .cap-undo-btn {
       display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
       background: none; border: 1.5px solid var(--purple-200); color: var(--purple-700);

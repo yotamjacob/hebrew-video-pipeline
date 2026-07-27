@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.12';
+  const APP_VERSION = '1.10.13';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -3471,6 +3471,8 @@
     statusError.classList.remove('visible');
     document.getElementById('captionEditorCard').style.display = 'none';
     document.getElementById('captionsList').innerHTML = '';
+    { const _heh = document.getElementById('historyEditHint'); if (_heh) _heh.style.display = 'none'; }
+    historyEditName = '';
     document.getElementById('stockBrollList').innerHTML = '';
     stockBrollSelections = {};
     syncBrollPreviewPool();
@@ -5729,7 +5731,9 @@
 
     const edited = getCaptionsFromEditor();
 
-    const fname = selectedFile ? selectedFile.name : 'video.mp4';
+    // No File when the editor was reopened from History - keep the original
+    // name so the re-burn is recognisable in the list instead of "video.mp4".
+    const fname = selectedFile ? selectedFile.name : (historyEditName || 'video.mp4');
     const burnUrl = new URL(API_BASE + '/burn/');
     burnUrl.searchParams.set('video_key',  videoKey);
     burnUrl.searchParams.set('filename',   fname);
@@ -6246,12 +6250,149 @@
         celebrateToast(t('hist.deleteFailed'));
       }
     };
+    // Re-open a burned export in the editor. Only offered when the server says
+    // the job carries its editor state AND its cut source is still on the
+    // volume (jobs burned before this feature shipped never will).
+    let edit = null;
+    if (job.editable && !isAudio) {
+      edit = document.createElement('button');
+      edit.className = 'history-btn';
+      edit.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3.5l3.5 3.5L8 19.5 4 20l.5-4z"/></svg>';
+      edit.title = t('hist.edit');
+      edit.onclick = () => editFromHistory(job, edit);
+    }
+
     // Scheduling posts a video to social platforms - not applicable to audio.
     if (isAudio) actions.append(dl, del);
-    else         actions.append(sch, dl, del);
+    else         actions.append(...[edit, sch, dl, del].filter(Boolean));
 
     card.append(thumb, info, actions);
     return card;
+  }
+
+/* ── Re-edit a previous export ──────────────────────────────────────────────
+   Reopens the editor on a finished burn: the SAME cut source plus the captions,
+   hook, B-roll picks and styling that produced it. Captions are baked into the
+   output permanently, so the re-burn targets the stored `src_key`, which the
+   backend pins for the job's lifetime. Re-burning spends no credit (quota is
+   consumed at /process spawn), which is the point of this path over
+   re-uploading to fix a typo. */
+  let historyEditName = '';   // names the re-burn's History entry (no File here)
+
+  function _applyCaptionStyleValues(style) {
+    const map = { capFontColor:  style.font_color,
+                  capBorderColor: style.border_color,
+                  capBorderSize:  style.border_size,
+                  capBgColor:     style.bg_color,
+                  capBgOpacity:   style.bg_opacity != null ? Math.round(style.bg_opacity * 100) : null };
+    for (const [id, v] of Object.entries(map)) {
+      const el = document.getElementById(id);
+      if (el && v != null) el.value = v;
+    }
+    const bsv = document.getElementById('capBorderSizeVal');
+    if (bsv && style.border_size != null) bsv.textContent = style.border_size + 'px';
+    const bov = document.getElementById('capBgOpacityVal');
+    if (bov && style.bg_opacity != null) bov.textContent = Math.round(style.bg_opacity * 100) + '%';
+  }
+
+  // Only the CHOSEN hook is stored, so rebuild a one-option list and select it.
+  // Must run AFTER showCaptionEditor(), which clears any previous hook UI.
+  function _restoreHookState(hook) {
+    if (!hook || !hook.text) return;
+    renderHookOptions([{ text: hook.text, rationale: '' }]);
+    const set = (id, v) => {
+      const el = document.getElementById(id);
+      if (!el || v == null) return;
+      el.value = v;
+      // A <select> silently rejects a value with no matching <option>, leaving
+      // it blank and out of sync with what will burn. Snap to the nearest.
+      if (el.value === '' && el.tagName === 'SELECT' && el.options.length) {
+        const n = parseFloat(v);
+        el.value = String(isFinite(n) ? _snapSizeOption(el, n) : el.options[0].value);
+      }
+    };
+    set('hookFont',        hook.font);
+    set('hookFontColor',   hook.font_color);
+    set('hookBgColor',     hook.bg_color);
+    set('hookBgOpacity',   hook.bg_opacity != null ? Math.round(hook.bg_opacity * 100) : null);
+    set('hookFontSize',    hook.font_size_pct);
+    set('hookBorderColor', hook.border_color);
+    set('hookBorderSize',  hook.border_size);
+    set('hookStartSec',    hook.start_seconds);
+    set('hookDurationSec', hook.duration_seconds);
+    set('hookPosition',    hook.vertical_position);
+    _syncHookSizeLabels();
+    const card = document.getElementById('hookOption0');
+    if (card) card.classList.add('selected');
+    selectedHookIdx = 0;
+    drawHookPreview();
+    updatePlayerHook();
+  }
+
+  // The candidate cards came from an analysis we don't store, so show what was
+  // kept rather than a misleadingly empty B-roll tab. A fresh search replaces it.
+  function _renderKeptBroll(items) {
+    const list = document.getElementById('stockBrollList');
+    if (!list) return;
+    list.innerHTML = '';
+    if (!items.length) return;
+    const p = document.createElement('p');
+    p.className = 'broll-kept-note';
+    p.textContent = t('stock.keptFromExport', {n: items.length});
+    list.appendChild(p);
+  }
+
+  async function editFromHistory(job, btn) {
+    if (btn) { btn.disabled = true; btn.title = t('hist.editLoading'); }
+    try {
+      const resp = await apiFetch(`${API_BASE}/jobs/${job.key}/edit/`);
+      // 410 = the cut source was cleaned up; 404 = burned before this shipped.
+      if (resp.status === 410 || resp.status === 404) {
+        celebrateToast(t('hist.editGone'));
+        if (btn) btn.remove();
+        return;
+      }
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const st = await resp.json();
+
+      resetStatus();            // drop any stale checklist / editor / hook / B-roll
+      switchTab('pipeline');
+
+      historyEditName  = st.name || 'video';
+      isAudioInput     = false;   // only video burns are re-editable
+      applyAudioMode(false);
+      captionsData     = st.captions || [];
+      videoKey         = st.src_key;
+      cutFilename      = historyEditName.replace(/\.[^/.]+$/, '') + '_cut.mp4';
+      captionFont      = st.font || 'Heebo';
+      captionFontSize  = st.font_size || 48;
+      captionMarginPct = (st.margin_v_pct != null) ? st.margin_v_pct : 0.08;
+      { const fs = document.getElementById('fontSelect');  if (fs) fs.value = captionFont; }
+      // The size control is a <select> of discrete steps: snap so the UI and the
+      // value we burn with can never disagree.
+      { const ss = document.getElementById('captionFontSizeSlider');
+        if (ss) { captionFontSize = _snapSizeOption(ss, captionFontSize); ss.value = String(captionFontSize); } }
+      _applyCaptionStyleValues(st.caption_style || {});
+
+      // Picks ride along so the re-burn keeps them without re-running analysis.
+      stockBrollSelections = {};
+      (st.broll || []).forEach((it, i) => { stockBrollSelections[i] = it; });
+      syncBrollPreviewPool();
+
+      hasBurnedOnce = true;     // the action button reads "Re-burn & Download"
+      _prefetchPreviewBlob(videoKey);
+      await showCaptionEditor();
+      _renderKeptBroll(st.broll || []);
+      _restoreHookState(st.hook || {});
+      updateBurnBtn();
+      { const h = document.getElementById('historyEditHint'); if (h) h.style.display = 'block'; }
+    } catch (e) {
+      console.error('History edit failed:', e && e.message);
+      _reportError('history-edit', e && e.message);
+      celebrateToast(t('hist.editFailed'));
+    } finally {
+      if (btn) { btn.disabled = false; btn.title = t('hist.edit'); }
+    }
   }
 
 /* ── Schedule this video (Metricool handoff helper) ── */

@@ -1552,7 +1552,10 @@ def api():
                     meta = jobs_store.get(key) or {}
                     jobs.append({"key": key, "name": meta.get("name", "video"),
                                  "ts": meta.get("ts", 0), "size": meta.get("size", 0),
-                                 "duration": meta.get("duration", 0)})
+                                 "duration": meta.get("duration", 0),
+                                 # Burns recorded since the re-edit feature carry
+                                 # their editor state; older jobs never will.
+                                 "editable": bool(meta.get("edit"))})
                 jobs.sort(key=lambda j: j["ts"], reverse=True)
                 body = json.dumps({"jobs": jobs}).encode()
                 await send({"type": "http.response.start", "status": 200,
@@ -1560,6 +1563,55 @@ def api():
                 await send({"type": "http.response.body", "body": body})
             except Exception as e:
                 await send_error(str(e))
+            return
+
+        # ── Job history: reopen a burned export in the editor ──
+        # Returns the captions/hook/B-roll/styling that produced it plus the
+        # cut key to burn onto again. The source is pinned by prune_volume for
+        # the job's lifetime, but verify it anyway - a job recorded before that
+        # pin existed, or any manual cleanup, would leave the record orphaned.
+        if method == "GET" and path.startswith("/jobs/") and path.rstrip("/").endswith("/edit"):
+            from pathlib import Path as _Path
+            key = path.rstrip("/")[len("/jobs/"):-len("/edit")].rstrip("/")
+            if not key or not _SAFE_DOWNLOAD_KEY_RE.match(key):
+                await send_error("Invalid key", 400)
+                return
+            if not _owned_key(key, uid):
+                await send_error("Forbidden", 403)
+                return
+            meta = jobs_store.get(key) or {}
+            edit = meta.get("edit") or {}
+            if not edit:
+                await send_error("This export has no saved edit state", 404,
+                                 code="not_editable")
+                return
+            src_key = edit.get("src_key") or ""
+            if not src_key or not _owned_key(src_key, uid):
+                await send_error("Source unavailable", 410, code="source_gone")
+                return
+            try:
+                tmp_vol.reload()
+            except Exception:
+                pass
+            if not (_Path(TMP_DIR) / src_key).exists():
+                await send_error("Source video no longer available", 410,
+                                 code="source_gone")
+                return
+            body = json.dumps({
+                "key":           key,
+                "name":          meta.get("name", "video"),
+                "src_key":       src_key,
+                "captions":      edit.get("captions") or [],
+                "hook":          edit.get("hook") or {},
+                "broll":         edit.get("broll") or [],
+                "font":          edit.get("font") or "Heebo",
+                "font_size":     edit.get("font_size") or 48,
+                "margin_v_pct":  edit.get("margin_v_pct", 0.08),
+                "caption_style": edit.get("caption_style") or {},
+            }).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
             return
 
         # ── Job history: delete one entry + its file ──
