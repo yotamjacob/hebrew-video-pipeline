@@ -8,6 +8,18 @@ test.beforeEach(async ({ page }) => {
   await page.route(/fonts\.(googleapis|gstatic)\.com/, r => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
   // Stub the Google Identity Services CDN (loads on the login view on web).
   await page.route(/accounts\.google\.com\/gsi/, r => r.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
+  // showApp() fires these the instant a sign-in succeeds. Unmocked they reach
+  // the REAL api with a fake token, 401, and apiFetch's _sessionExpired tears
+  // the app view back down - so every "signs in, app shows" assertion here was
+  // racing a live network round-trip and lost on slow CI runners. Tests that
+  // want a 401 re-register their own handler (last route wins).
+  await page.route(/\/auth\/me/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json',
+                body: '{"username":"tester","role":"user","videos_used":0,"video_limit":-1,"email_verified":true}' }));
+  await page.route(/\/auth\/media-token/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"token":"m.test"}' }));
+  await page.route(/\/oauth\/status/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"connected":false}' }));
 });
 
 test('no session: the choice landing shows, app hidden', async ({ page }) => {
