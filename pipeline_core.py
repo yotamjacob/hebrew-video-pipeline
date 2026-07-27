@@ -143,6 +143,7 @@ users_store = modal.Dict.from_name("hebpipe-users", create_if_missing=True)   # 
 calls_store = modal.Dict.from_name("hebpipe-calls", create_if_missing=True)   # call_id  → {uid, ts}
 quota_store = modal.Dict.from_name("hebpipe-quota", create_if_missing=True)   # f"{uid}:{call_id}" → ts (one unique entry per consumed credit)
 fcm_store   = modal.Dict.from_name("hebpipe-fcm", create_if_missing=True)     # uid → [device FCM tokens] for "video ready" push notifications
+errors_store = modal.Dict.from_name("hebpipe-errors", create_if_missing=True)  # e:{ts}:{uid} → error report (admin alerting + /admin/errors)
 # Deferred processing jobs: full upload key → {params, uid, uname, uprefix,
 # total_chunks, ts} registered BEFORE the upload, so the SERVER spawns
 # process_video the moment the last byte lands - the app may be closed by then
@@ -197,6 +198,28 @@ def _send_fcm(uid, title, body, kind="video_ready", tag=None):
             fcm_store[uid] = [t for t in tokens if t not in dead]
     except Exception as e:
         print(f"[fcm] send failed: {e!r}")
+
+
+def _alert_admins(title, body):
+    """Best-effort FCM push to every ADMIN's devices - the immediate "a user
+    hit an error" signal on the owner's phone. Admins = records with
+    role=='admin' or usernames in the ADMIN_USERS env (hebpipe-auth secret).
+    Requires the hebpipe-fcm secret on the calling function; silent no-op
+    without it. Never raises."""
+    import os
+    try:
+        admin_names = {u.strip().lower()
+                       for u in (os.environ.get("ADMIN_USERS") or "").split(",") if u.strip()}
+        for k in users_store.keys():
+            if k.startswith("uid:") or k.startswith("email:"):
+                continue
+            r = users_store.get(k)
+            if not isinstance(r, dict):
+                continue
+            if r.get("role") == "admin" or k.lower() in admin_names:
+                _send_fcm(r.get("uid"), title, body, kind="admin_alert")
+    except Exception as e:
+        print(f"[alert] admin push failed: {e!r}")
 
 import re as _auth_re
 

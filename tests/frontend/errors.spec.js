@@ -178,3 +178,47 @@ test('full flow works on mobile viewport', async ({ page, browserName }) => {
   await input.fill('מבחן מובייל');
   await expect(input).toHaveValue('מבחן מובייל');
 });
+
+// ─── Error telemetry → immediate admin alert ────────────────────────────────
+
+test('a user-facing error posts an /error-report (owner gets pushed)', async ({ page }) => {
+  await mockAllApis(page, { processStatus: 500 });
+  let report = null;
+  await page.route(/\/error-report/, (route, request) => {
+    report = request.postDataJSON();
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+  });
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await page.waitForSelector('#errorMsg', { state: 'visible', timeout: 10_000 });
+  await page.waitForFunction(() => true);
+  await expect.poll(() => report, { timeout: 5_000 }).not.toBeNull();
+  expect(report.stage).toBeTruthy();
+  expect(report.message).toBeTruthy();
+  expect(report.version).toMatch(/^v\d+\.\d+\.\d+$/);
+});
+
+test('quota-exhausted is NOT reported as an error', async ({ page }) => {
+  await mockAllApis(page);
+  let reported = false;
+  await page.route(/\/error-report/, r => {
+    reported = true;
+    return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+  });
+  await page.route(/\/process\/[^_]/, (route, request) => {
+    if (request.method() !== 'POST') return route.continue();
+    return route.fulfill({ status: 402, contentType: 'application/json',
+                           body: '{"error":"limit_reached"}' });
+  });
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  // No quota confirm here: bootApp's default user is unlimited (video_limit -1),
+  // so the run spawns straight away and the SERVER's 402 is what we assert on.
+  await page.waitForSelector('#errorMsg', { state: 'visible', timeout: 10_000 });
+  await expect(page.locator('#errorMsg')).toContainText('סרטוני הניסיון');
+  await expect(page.locator('#errorWaCta')).toBeVisible();   // the quota surface, not a malfunction
+  await page.waitForTimeout(800);
+  expect(reported).toBe(false);
+});

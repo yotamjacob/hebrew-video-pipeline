@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.11';
+  const APP_VERSION = '1.10.12';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -3377,8 +3377,33 @@
     triggerDownload();
   }
 
+  // Fire-and-forget error telemetry: every user-facing error surface reports
+  // here, the backend stores it and pushes an IMMEDIATE FCM alert to the
+  // admin's devices - the owner knows about field failures as they happen.
+  // Deliberately plain fetch, NOT apiFetch: apiFetch turns a 401 into
+  // _sessionExpired(), which would tear the app back to the login view mid
+  // error-card - so merely REPORTING a failure could log the user out (an
+  // expired session, or an older backend without this route, both 401).
+  // Telemetry must never touch session state.
+  function _reportError(stage, msg) {
+    try {
+      if (!authToken) return;
+      fetch(`${API_BASE}/error-report/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authToken },
+        body: JSON.stringify({
+          stage: stage || flowStage || '?',
+          message: String(msg || '').slice(0, 400),
+          version: 'v' + APP_VERSION,
+          ua: navigator.userAgent.slice(0, 160),
+        }),
+      }).catch(() => {});
+    } catch (_) {}
+  }
+
   function showError(msg) {
     const isQuota = /limit_reached/.test(msg);
+    if (!isQuota) _reportError(flowStage, msg);   // quota-exhausted isn't a malfunction
     if (isQuota) msg = t('quota.exhausted');
     if (/no_audio/.test(msg)) msg = t('err.noAudio');
     // Quota exhaustion isn't a malfunction - offer the WhatsApp unlock CTA
@@ -4888,6 +4913,7 @@
       }
     } catch (e) {
       if (!hookGenAborted) {
+        _reportError('hook', e.message);
         errEl.textContent   = t('hook.failed', {msg: _friendlyGenError(e.message).slice(0, 120)});
         errEl.style.display = 'block';
       }
@@ -5103,6 +5129,7 @@
     } catch (e) {
       clearInterval(stockTimer);
       console.error('Stock B-roll error:', e.message);
+      _reportError('broll', e.message);
       status.style.display = 'none';
       list.innerHTML = `<p style="color:var(--red);font-size:0.85rem;padding:8px 0">${t('stock.failedRetry', {msg: _friendlyGenError(e.message).slice(0, 160)})} <button onclick="triggerStockBroll()" style="margin-left:8px;font-size:0.8rem;padding:3px 10px;border-radius:6px;border:1px solid var(--red);background:none;color:var(--red);cursor:pointer">${t('stock.retry')}</button></p>`;
     } finally {
@@ -5821,6 +5848,7 @@
         ].forEach(({ h, b }) => {
           if (h) { h.classList.remove('collapsed'); if (b) b.style.display = 'block'; }
         });
+        _reportError('burn', err.message);
         burnErrorEl.textContent = err.message.length > 200 ? err.message.slice(0, 200) + '…' : err.message;
         burnErrorEl.style.display = 'block';
       }

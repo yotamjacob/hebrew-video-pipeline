@@ -197,3 +197,47 @@ class TestDoneMarkerInvalidation:
         first_pop = MODAL_SRC.index(self.POP)
         reg_write = MODAL_SRC.index("pending_store[uprefix + upload_key] = {")
         assert first_pop < reg_write
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _alert_admins — admin selection for error-alert pushes
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestAlertAdmins:
+    """Error alerts push to ALL admins (role=='admin' or ADMIN_USERS env),
+    skip index entries and regular users, and never raise."""
+
+    def _run(self, users, admin_env=None, monkeypatch=None):
+        import os
+        sent = []
+        ns = {"users_store": users,
+              "_send_fcm": lambda uid, title, body, kind=None, tag=None: sent.append((uid, title, kind))}
+        fn = _extract_fn(MODAL_SRC, "_alert_admins", extra_ns=ns)["_alert_admins"]
+        if admin_env is not None:
+            monkeypatch.setenv("ADMIN_USERS", admin_env)
+        else:
+            monkeypatch.delenv("ADMIN_USERS", raising=False)
+        fn("t", "b")
+        return sent
+
+    def test_pushes_to_role_admin_only(self, monkeypatch):
+        users = {"boss@x.com": {"uid": "a" * 32, "role": "admin"},
+                 "user@x.com": {"uid": "b" * 32},
+                 "uid:" + "a" * 32: "boss@x.com",
+                 "email:user@x.com": "user@x.com"}
+        sent = self._run(users, None, monkeypatch)
+        assert [s[0] for s in sent] == ["a" * 32]
+        assert sent[0][2] == "admin_alert"
+
+    def test_admin_users_env_counts(self, monkeypatch):
+        users = {"legacy_admin": {"uid": "c" * 32}, "user@x.com": {"uid": "d" * 32}}
+        sent = self._run(users, "Legacy_Admin", monkeypatch)
+        assert [s[0] for s in sent] == ["c" * 32]
+
+    def test_never_raises_on_broken_store(self, monkeypatch):
+        class Broken:
+            def keys(self): raise RuntimeError("boom")
+        ns = {"users_store": Broken(), "_send_fcm": lambda *a, **k: None}
+        fn = _extract_fn(MODAL_SRC, "_alert_admins", extra_ns=ns)["_alert_admins"]
+        monkeypatch.delenv("ADMIN_USERS", raising=False)
+        fn("t", "b")   # must not raise

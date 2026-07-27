@@ -18,7 +18,7 @@ import modal
 from pipeline_core import (
     light_image,
     jobs_store, progress_store, users_store, calls_store, quota_store, fcm_store,
-    pending_store,
+    pending_store, errors_store, _alert_admins,
     codes_store, _normalize_email, _gen_login_code,
     _verify_google_id_token, GOOGLE_WEB_CLIENT_ID,
     app, image, tmp_vol, TMP_DIR,
@@ -77,7 +77,10 @@ from metricool_fns import (
 #   Returns: processed video bytes (video/mp4)
 # ---------------------------------------------------------------------------
 @app.function(image=light_image, timeout=900, volumes={TMP_DIR: tmp_vol},
-              secrets=[modal.Secret.from_name("hebpipe-auth")])
+              secrets=[modal.Secret.from_name("hebpipe-auth"),
+                       # FCM: admin error-alert pushes from /error-report and
+                       # the terminal-failure poll path.
+                       modal.Secret.from_name("hebpipe-fcm")])
 @modal.concurrent(max_inputs=50)   # headroom: chunk uploads + their CORS preflights + polls
 @modal.asgi_app()
 def api():
@@ -1094,6 +1097,70 @@ def api():
             await send({"type": "http.response.body", "body": body})
             return
 
+        # ── Client error report → stored + IMMEDIATE admin push ──
+        # The site posts here from every user-facing error surface, so the
+        # owner learns about field failures the moment they happen (FCM push
+        # to admin devices via the app) instead of waiting for a bug report.
+        if path in ("/error-report", "/error-report/") and method == "POST":
+            if not uid:
+                await send_error("unauthorized", 401)
+                return
+            if not _check_rate_limit(_get_client_ip(scope)):
+                await send_error("Rate limit exceeded", 429, code="rate_limited")
+                return
+            import time as _time
+            try:
+                data = json.loads((await _read_body(receive)).decode("utf-8"))
+            except Exception:
+                data = {}
+            stage = str(data.get("stage") or "?")[:40]
+            msg   = str(data.get("message") or "")[:400]
+            ver   = str(data.get("version") or "?")[:20]
+            _uname = users_store.get(f"uid:{uid}")
+            uname  = _uname if isinstance(_uname, str) else uid[:8]
+            rec = {"ts": _time.time(), "user": uname, "stage": stage,
+                   "message": msg, "version": ver,
+                   "ua": str(data.get("ua") or "")[:160]}
+            try:
+                errors_store[f"e:{int(_time.time() * 1000)}:{uid[:8]}"] = rec
+                _keys = sorted(k for k in errors_store.keys() if k.startswith("e:"))
+                for _k in _keys[:-300]:          # bound the store
+                    errors_store.pop(_k)
+            except Exception as _ee:
+                print(f"[errors] store failed: {_ee!r}")
+            _alert_admins("שגיאה אצל משתמש",
+                          f"{uname} | {stage} | {ver}\n{msg[:180]}")
+            body = json.dumps({"ok": True}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── Admin: recent error reports (newest first) ──
+        if path in ("/admin/errors", "/admin/errors/") and method == "GET":
+            import os as _os
+            uname, urec = _user_by_uid()
+            caller_admin, _, _ = _quota_state(urec, _os.environ.get("ADMIN_USERS"), uname)
+            if not caller_admin:
+                await send_error("Forbidden", 403)
+                return
+            out = []
+            try:
+                for _k in errors_store.keys():
+                    if not _k.startswith("e:"):
+                        continue
+                    _r = errors_store.get(_k)
+                    if isinstance(_r, dict):
+                        out.append(_r)
+            except Exception:
+                pass
+            out.sort(key=lambda r: r.get("ts") or 0, reverse=True)
+            body = json.dumps({"errors": out[:100]}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
         # Process endpoint — spawn job, return call_id immediately
         if path in ("/process", "/process/") and method == "POST":
             qs = parse_qs(scope.get("query_string", b"").decode())
@@ -1381,6 +1448,14 @@ def api():
                             users_store[_uname_r] = _urec_r
                     except Exception:
                         pass
+                # Immediate owner alert: a terminal JOB failure is the worst
+                # user experience - push it even if the user never reports.
+                try:
+                    _an = users_store.get(f"uid:{uid}")
+                    _alert_admins("עיבוד נכשל אצל משתמש",
+                                  f"{_an if isinstance(_an, str) else uid[:8]} | process failed\n{str(e)[:180]}")
+                except Exception:
+                    pass
                 await send_error(str(e))
             return
 

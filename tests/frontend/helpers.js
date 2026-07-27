@@ -54,6 +54,12 @@ async function mockAllApis(page, {
   await page.route(`${API_BASE}/warmup/`, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' }));
 
+  // Error telemetry - EVERY error surface posts here, so any test that asserts
+  // an error card must absorb it locally (unmocked it reaches the real API).
+  // Tests that inspect the report re-register their own handler (last wins).
+  await page.route(/\/error-report/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
+
   // Metricool status - checked when the schedule card reveals; unmocked it
   // would hit the real API with the fake test token, 401, and bounce the
   // whole app back to the login view mid-test
