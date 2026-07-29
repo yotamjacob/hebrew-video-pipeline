@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.17';
+  const APP_VERSION = '1.10.18';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -855,6 +855,7 @@
   const swResolvers   = new Map(); // callId -> resolve, for SW-won polls
   let currentPollInfo = null;       // { callId, pollUrl, deadline } while a poll is active
   let isUploading     = false;
+  let intentionalStartOver = false;
   const ACTIVE_NATIVE_UPLOAD_STORAGE = 'pipelineActiveNativeUpload';
   let activeNativeUploadId = null;
   let activeNativeUploadKey = null;
@@ -1433,14 +1434,14 @@
       // The foreground-service cancellation is authoritative for the user:
       // once it succeeds, Start Over must not be held hostage by a transient
       // cleanup failure (or a frontend/backend rolling-deploy mismatch).
-      try {
-        const response = await apiFetch(
-          `${API_BASE}/cancel_upload/?key=${encodeURIComponent(key)}`,
-          { method: 'POST', keepalive: true });
-        if (!response.ok) console.warn(`Upload cleanup failed (${response.status})`);
-      } catch (error) {
-        console.warn('Upload cleanup request failed', error);
-      }
+      // Fire-and-forget with keepalive so cleanup continues through the reload.
+      apiFetch(
+        `${API_BASE}/cancel_upload/?key=${encodeURIComponent(key)}`,
+        { method: 'POST', keepalive: true })
+        .then(response => {
+          if (!response.ok) console.warn(`Upload cleanup failed (${response.status})`);
+        })
+        .catch(error => console.warn('Upload cleanup request failed', error));
     }
     _forgetActiveNativeUpload(id);
   }
@@ -2438,7 +2439,10 @@
         }
       }
     } catch (err) {
-      if (err.name === 'AbortError') return;
+      // Android's upload service may report a user cancellation as either a
+      // `cancelled` event or a generic `failed` event. Start Over owns this
+      // cancellation, so never render that transient failure before reload.
+      if (err.name === 'AbortError' || intentionalStartOver) return;
       console.error('Process error:', err.message);
       // A network drop doesn't kill the server-side job - keep the saved job
       // so the Resume banner can reconnect to it on the next visit.
@@ -3070,9 +3074,11 @@
       t('confirm.startOk')
     );
     if (!confirmed) return;
+    intentionalStartOver = true;
     try {
       await _cancelActiveNativeUpload();
     } catch (error) {
+      intentionalStartOver = false;
       console.error('native upload cancellation failed', error);
       celebrateToast(t('upload.cancelFailed'), { kind: 'error', duration: 7000 });
       return;

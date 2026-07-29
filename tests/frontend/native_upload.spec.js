@@ -13,11 +13,23 @@ const { API_BASE, mockAllApis, selectFile, bootApp } = require('./helpers');
 /** Boot with a Capacitor shim whose Uploader records stream-upload attempts.
  * fireCompleted=false simulates a webview that was FROZEN while the native
  * uploader finished - the 'completed' event is lost and never reaches JS. */
-async function bootNative(page, { withUploader = true, fireCompleted = true } = {}) {
-  await page.addInitScript(({ withUploader, fireCompleted }) => {
+async function bootNative(page, {
+  withUploader = true,
+  fireCompleted = true,
+  cancelEventName = 'cancelled',
+} = {}) {
+  await page.addInitScript(({ withUploader, fireCompleted, cancelEventName }) => {
     window.__streamUploads = [];
     window.__ackEvents = [];
     window.__removedUploads = [];
+    document.addEventListener('DOMContentLoaded', () => {
+      const statusError = document.getElementById('statusError');
+      if (!statusError) return;
+      new MutationObserver(() => {
+        if (statusError.classList.contains('visible'))
+          localStorage.setItem('__testStatusErrorShown', '1');
+      }).observe(statusError, { attributes: true, attributeFilter: ['class'] });
+    });
     const Plugins = {};
     if (withUploader) {
       Plugins.Uploader = {
@@ -30,7 +42,9 @@ async function bootNative(page, { withUploader = true, fireCompleted = true } = 
           window.__removedUploads.push(id);
           localStorage.setItem('__testRemovedUpload', id);
           setTimeout(() => window.__upCb && window.__upCb(
-            { name: 'cancelled', id, eventId: `cancel-${id}`, payload: {} }), 0);
+            { name: cancelEventName, id, eventId: `cancel-${id}`,
+              payload: cancelEventName === 'failed'
+                ? { error: 'Cancelled by user' } : {} }), 0);
           return Promise.resolve();
         },
         startUpload: (opts) => {
@@ -47,7 +61,7 @@ async function bootNative(page, { withUploader = true, fireCompleted = true } = 
       Plugins,
       convertFileSrc: p => '/__native_file__',
     };
-  }, { withUploader, fireCompleted });
+  }, { withUploader, fireCompleted, cancelEventName });
   await bootApp(page);
 }
 
@@ -155,7 +169,9 @@ test("a stale persisted completion cannot finish the current upload", async ({ p
 });
 
 test('Start over stops the native foreground upload before reloading', async ({ page }) => {
-  await bootNative(page, { fireCompleted: false });
+  // Android may surface stopUpload as a generic failed event with this text,
+  // rather than the plugin's nominal `cancelled` event.
+  await bootNative(page, { fireCompleted: false, cancelEventName: 'failed' });
   await mockAllApis(page);
   await primeNativePick(page, 350 * 1024 * 1024);
   await page.click('#runBtn');
@@ -172,4 +188,6 @@ test('Start over stops the native foreground upload before reloading', async ({ 
     localStorage.getItem('__testRemovedUpload'))).toBe('up1');
   await expect.poll(() => page.evaluate(() =>
     localStorage.getItem('pipelineActiveNativeUpload'))).toBeNull();
+  expect(await page.evaluate(() =>
+    localStorage.getItem('__testStatusErrorShown'))).toBeNull();
 });
