@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.13';
+  const APP_VERSION = '1.10.14';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -1382,28 +1382,6 @@
     apiFetch(API_BASE + '/warmup/').catch(() => {});
   }
 
-  // Native LARGE files skip the background uploader: it sends the whole file
-  // as ONE request whose retry starts from byte zero, so a single wifi blip at
-  // 90% of a 500 MB upload throws everything away (observed in the field). The
-  // chunked JS uploader retries per-1MB chunk and RESUMES, at the cost of
-  // needing the app foregrounded - the right trade for files this size.
-  // Small files keep the background-surviving native path.
-  const NATIVE_CHUNKED_MIN = 150 * 1024 * 1024;
-  function _nativeChunkedMin() { return window.__NATIVE_CHUNKED_MIN || NATIVE_CHUNKED_MIN; }
-
-  // Read a native picked file as a Blob via the WebView's local-file scheme
-  // (disk-backed, so a 500 MB file doesn't sit in JS heap). Throws if the
-  // path/provider can't be served - callers fall back to the stream uploader.
-  async function _nativeFileBlob(desc) {
-    const src = (window.Capacitor && window.Capacitor.convertFileSrc)
-      ? window.Capacitor.convertFileSrc(desc.path) : desc.path;
-    const resp = await fetch(src);
-    if (!resp.ok) throw new Error('local file read ' + resp.status);
-    const blob = await resp.blob();
-    if (!blob.size) throw new Error('local file read empty');
-    return blob;
-  }
-
   // Upload a native file path via the background uploader. Resolves with the
   // upload key (same key the /process call expects). Rejects on failure.
   function nativeUpload(desc, onProgress, presetKey) {
@@ -2232,22 +2210,11 @@
       // PRE-REGISTERED (deferred spawn): the server starts the job the moment
       // the last byte lands - even if the app is closed by then (its frozen JS
       // used to be the thing doing the spawn, so processing silently waited
-      // for a reopen). Path selection: native LARGE files use the chunked
-      // resumable uploader (the stream uploader's retry-from-zero threw away
-      // 300+ MB on a single wifi blip); native small files keep the
-      // background-surviving stream uploader; web is chunked always.
+      // for a reopen). Every native pick uses Android's foreground-service
+      // uploader so the upload survives minimize/lock and owns a visible
+      // status-bar notification. Web uploads remain resumable and chunked.
       let _upMode = 'chunked', _upMeta = selectedFile, _upBlob = stableBlob;
-      if (nativeUploadDesc && (nativeUploadDesc.size || 0) >= _nativeChunkedMin()) {
-        try {
-          _upBlob = await _nativeFileBlob(nativeUploadDesc);
-          _upMeta = { name: nativeUploadDesc.name, size: _upBlob.size, lastModified: 0 };
-        } catch (e) {
-          console.warn('native chunked path unavailable, using stream uploader:', e && e.message);
-          _upMode = 'stream';
-        }
-      } else if (nativeUploadDesc) {
-        _upMode = 'stream';
-      }
+      if (nativeUploadDesc) _upMode = 'stream';
       const uploadKey = _upMode === 'stream'
         ? crypto.randomUUID().replace(/-/g, '')
         : _resumeUploadKey(_upMeta);
@@ -2277,11 +2244,6 @@
       if (_upMode === 'stream') {
         await nativeUpload(nativeUploadDesc, _onUpProgress, uploadKey);
       } else {
-        if (nativeUploadDesc) {
-          // The JS uploader freezes while backgrounded - surface the keep-open
-          // note for this path (normally hidden on native).
-          const n = document.getElementById('uploadNote'); if (n) n.style.display = 'block';
-        }
         await chunkedUpload(_upMeta, _upBlob, _onUpProgress, uploadKey);
       }
       _stepDone('upload');
