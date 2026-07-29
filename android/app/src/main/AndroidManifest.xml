@@ -39,6 +39,11 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Android 9 and older require this to save into public Downloads.
+         Android 10+ uses scoped storage and does not request it. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
     <!-- Background upload (@capgo/capacitor-uploader) runs a foreground service so
          a video keeps uploading when the app is minimized. Android 14+ requires a
          typed foreground-service permission. -->

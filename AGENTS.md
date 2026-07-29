@@ -26,8 +26,11 @@ regression coverage.
 6. Report what changed, what was verified, and whether deployment is still
    pending.
 
-Preserve unrelated working-tree changes. Do not deploy, push, or open a pull
-request unless the user requests that action.
+Preserve unrelated working-tree changes. The owner's standing preference is to
+commit each completed, tested change and push it directly to `main` so GitHub
+stays in sync throughout development. Do not open pull requests or feature
+branches unless requested. Vercel and Modal deployments still require an
+explicit request.
 
 End every change handoff with the exact frontend `APP_VERSION` and its state,
 for example: `Frontend version: v1.10.14 (local only; production unchanged)`.

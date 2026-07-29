@@ -208,6 +208,11 @@
     'download.saving':    { en: 'Saving video...', he: 'שומר את הסרטון...' },
     'download.savingPct': { en: 'Saving video... {pct}%', he: 'שומר את הסרטון... {pct}%' },
     'download.saved':     { en: 'Saved to Documents', he: 'הסרטון נשמר בתיקייה Documents' },
+    'download.starting':  { en: 'Starting download...', he: 'מתחיל את ההורדה...' },
+    'download.started':   { en: 'Downloading to Downloads — follow progress in notifications', he: 'הסרטון יורד לתיקיית ההורדות — אפשר לעקוב בהתראות' },
+    'download.notification': { en: 'Downloading Pipeline video', he: 'מוריד סרטון מפייפליין' },
+    'download.openFolder': { en: 'Open Downloads folder', he: 'פתיחת תיקיית ההורדות' },
+    'download.openFailed': { en: 'Could not open the Downloads folder', he: 'לא ניתן לפתוח את תיקיית ההורדות' },
 
     // ── Schedule card ──
     'sched.title':       { en: 'Schedule Video', he: 'תזמון סרטון' },

@@ -24,15 +24,19 @@ async function burnToBanner(page) {
 test('native: share button appears after burn', async ({ page }) => {
   await page.addInitScript(() => {
     window.__nativeDownloads = [];
+    window.__openDownloads = 0;
     window.Capacitor = {
       isNativePlatform: () => true,
       Plugins: {
-        Filesystem: {
-          addListener: async () => ({ remove() {} }),
-          downloadFile: async opts => {
+        NativeDownloader: {
+          download: async opts => {
             window.__nativeDownloads.push(opts);
-            return { path: `/Documents/${opts.path}` };
+            return { id: 42, filename: opts.filename, location: `Downloads/${opts.filename}` };
           },
+          openDownloads: async () => { window.__openDownloads += 1; },
+        },
+        Filesystem: {
+          downloadFile: async opts => ({ path: `/cache/${opts.path}` }),
           writeFile: async () => {},
           getUri: async ({ path }) => ({ uri: `content://cache/${path}` }),
         },
@@ -46,11 +50,22 @@ test('native: share button appears after burn', async ({ page }) => {
   const download = await page.evaluate(() => window.__nativeDownloads[0]);
   expect(download.url).toContain('/download/mock-output-key.mp4');
   expect(download.url).toContain('token=');
-  expect(download.path).toBe('test_edited.mp4');
-  expect(download.directory).toBe('DOCUMENTS');
-  expect(download.recursive).toBeUndefined();
-  expect(download.progress).toBe(true);
+  expect(download.filename).toBe('test_edited.mp4');
+  expect(download.mimeType).toBe('video/mp4');
+  expect(download.description).toBeTruthy();
   await expect(page.locator('#_dlFrame')).toHaveCount(0);
+
+  const openDownloads = page.locator('#burnOpenDownloadsBtn');
+  await expect(openDownloads).toBeVisible();
+  const followsDownloadButton = await page.evaluate(() => {
+    const downloadButton = document.getElementById('burnDownloadBtn');
+    const openButton = document.getElementById('burnOpenDownloadsBtn');
+    return Boolean(downloadButton.compareDocumentPosition(openButton)
+      & Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+  expect(followsDownloadButton).toBe(true);
+  await openDownloads.click();
+  await expect.poll(() => page.evaluate(() => window.__openDownloads)).toBe(1);
 });
 
 test('native: failed download shows a persistent red error toast', async ({ page }) => {
@@ -58,11 +73,11 @@ test('native: failed download shows a persistent red error toast', async ({ page
     window.Capacitor = {
       isNativePlatform: () => true,
       Plugins: {
-        Filesystem: {
-          addListener: async () => ({ remove() {} }),
-          downloadFile: async () => {
+        NativeDownloader: {
+          download: async () => {
             throw new Error('Parent directory does not exist');
           },
+          openDownloads: async () => {},
         },
       },
     };

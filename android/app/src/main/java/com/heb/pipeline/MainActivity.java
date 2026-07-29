@@ -9,6 +9,8 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(NativeDownloaderPlugin.class);
+
         // Pre-create the background-uploader's notification channel as LOW
         // (silent, no vibration) BEFORE Capacitor loads the @capgo uploader
         // plugin, which would otherwise create it at IMPORTANCE_DEFAULT and make

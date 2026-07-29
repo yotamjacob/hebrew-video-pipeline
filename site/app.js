@@ -2921,6 +2921,24 @@
 
   downloadBtn.addEventListener('click', triggerDownload);
   document.getElementById('burnDownloadBtn').addEventListener('click', triggerDownload);
+  const nativeDownloaderPlugin = _isNative() && _capPlugin('NativeDownloader');
+  const openDownloadsButtons = [
+    document.getElementById('openDownloadsBtn'),
+    document.getElementById('burnOpenDownloadsBtn'),
+  ].filter(Boolean);
+  if (nativeDownloaderPlugin && nativeDownloaderPlugin.openDownloads) {
+    openDownloadsButtons.forEach(button => {
+      button.style.display = '';
+      button.addEventListener('click', async () => {
+        try {
+          await nativeDownloaderPlugin.openDownloads();
+        } catch (error) {
+          console.error('open downloads failed', error);
+          celebrateToast(t('download.openFailed'), { kind: 'error', duration: 7000 });
+        }
+      });
+    });
+  }
   document.getElementById('startOverBtn').addEventListener('click', async () => {
     const confirmed = await showConfirmModal(
       t('confirm.startTitle'),
@@ -3070,13 +3088,10 @@
     });
   })();
 
-  // Save a finished file through Capacitor's native filesystem. Android
-  // WebViews do not reliably hand cross-origin iframe attachments to the
-  // system download manager: the ready card appeared, but no file was saved.
-  // Filesystem.downloadFile streams directly to public Documents without
-  // buffering the video in WebView memory. Keep the filename at the Documents
-  // root: the Android legacy implementation ignores downloadFile's recursive
-  // option and does not create nested parent directories.
+  // Save a finished file through Android's system DownloadManager. It streams
+  // directly into public Downloads and owns the familiar progress/completion
+  // notification. The Filesystem path below remains as compatibility for
+  // installed native shells that predate the NativeDownloader bridge.
   let _nativeDownloadBusy = false;
   let _nativeDownloadUrl = null;
   let _nativeDownloadTask = null;
@@ -3087,6 +3102,37 @@
       .trim();
     return (cleaned || 'video.mp4').slice(0, 180);
   }
+  async function _nativeSystemDownload(Downloader, url, name) {
+    if (_nativeDownloadBusy) return;
+    _nativeDownloadBusy = true;
+    const safe = _safeDownloadName(name);
+    const buttons = [downloadBtn, document.getElementById('burnDownloadBtn')].filter(Boolean);
+    const labels = buttons.map(button => button.innerHTML);
+    buttons.forEach(button => {
+      button.disabled = true;
+      button.textContent = t('download.starting');
+    });
+    try {
+      await Downloader.download({
+        url: _withToken(url),
+        filename: safe,
+        mimeType: 'video/mp4',
+        description: t('download.notification'),
+      });
+      celebrateToast(t('download.started'));
+    } catch (error) {
+      console.error('native system download failed', error);
+      _reportError('download', (error && error.message) || t('err.downloadFailed'));
+      celebrateToast(t('err.downloadFailed'), { kind: 'error', duration: 7000 });
+    } finally {
+      buttons.forEach((button, index) => {
+        button.disabled = false;
+        button.innerHTML = labels[index];
+      });
+      _nativeDownloadBusy = false;
+    }
+  }
+
   async function _nativeDocumentDownload(Filesystem, url, name) {
     if (_nativeDownloadBusy) return;
     _nativeDownloadBusy = true;
@@ -3132,8 +3178,9 @@
     }
   }
 
-  // Kick off a download of a server URL. Native Android uses the filesystem
-  // path above. Browsers use Content-Disposition through a hidden iframe, so
+  // Kick off a download of a server URL. Native Android uses DownloadManager
+  // (or the legacy Filesystem fallback). Browsers use Content-Disposition
+  // through a hidden iframe, so
   // the API can stream to disk without buffering a large Blob in page memory.
   // The media token rides in the query (`_withToken`), computed at call time so
   // it's always fresh. We load it in a hidden IFRAME rather than clicking an
@@ -3145,6 +3192,20 @@
   // the file downloads with no prompt. The server sets the filename from the
   // `filename` query param, so `name` isn't needed on the client.
   function _browserDownload(url, name) {
+    const Downloader = _isNative() && _capPlugin('NativeDownloader');
+    if (Downloader && Downloader.download) {
+      if (_nativeDownloadBusy) return;
+      _nativeDownloadUrl = url;
+      const task = _nativeSystemDownload(Downloader, url, name);
+      _nativeDownloadTask = task;
+      task.finally(() => {
+        if (_nativeDownloadTask === task) {
+          _nativeDownloadTask = null;
+          _nativeDownloadUrl = null;
+        }
+      });
+      return;
+    }
     const Filesystem = _isNative() && _capPlugin('Filesystem');
     if (Filesystem) {
       if (_nativeDownloadBusy) return;
