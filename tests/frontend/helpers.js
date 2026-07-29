@@ -69,6 +69,8 @@ async function mockAllApis(page, {
   // Cancel - always succeeds
   await page.route(`${API_BASE}/cancel/**`, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"cancelled"}' }));
+  await page.route(/\/cancel_upload\//, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"cancelled"}' }));
 
   // Chunked upload
   await page.route(`${API_BASE}/upload_chunk/**`, r =>

@@ -1097,6 +1097,44 @@ def api():
             await send({"type": "http.response.body", "body": body})
             return
 
+        # Cancel a pre-registered native stream upload before processing starts.
+        # The client stops Android's foreground service first, then calls this
+        # endpoint so no deferred job or partial staging file survives Start Over.
+        if path in ("/cancel_upload", "/cancel_upload/") and method in ("POST", "DELETE"):
+            qs = parse_qs(scope.get("query_string", b"").decode())
+            key = qs.get("key", [""])[0]
+            if not key or not _SAFE_KEY_RE.match(key):
+                await send_error("Invalid or missing key", 400)
+                return
+            full_key = uprefix + key
+            try:
+                pending_store.pop(full_key)
+            except Exception:
+                pass
+            try:
+                pending_store.pop("done:" + full_key)
+            except Exception:
+                pass
+            try:
+                progress_store.pop(full_key)
+            except Exception:
+                pass
+            from pathlib import Path as _Path
+            cleanup_paths = [
+                _Path(TMP_DIR) / f"{full_key}_chunk_0000",
+                *_Path(TMP_DIR).glob(f".{full_key}.*.uploading"),
+            ]
+            for cleanup_path in cleanup_paths:
+                try:
+                    await asyncio.to_thread(cleanup_path.unlink, missing_ok=True)
+                except Exception:
+                    pass
+            body = json.dumps({"status": "cancelled"}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
         # How many bytes of a streamed upload have landed (chunk 0000). Lets the
         # native client confirm a background upload finished even if its WebView
         # was frozen and missed the uploader's 'completed' event.

@@ -855,6 +855,18 @@
   const swResolvers   = new Map(); // callId -> resolve, for SW-won polls
   let currentPollInfo = null;       // { callId, pollUrl, deadline } while a poll is active
   let isUploading     = false;
+  const ACTIVE_NATIVE_UPLOAD_STORAGE = 'pipelineActiveNativeUpload';
+  let activeNativeUploadId = null;
+  let activeNativeUploadKey = null;
+  let activeNativeUploadReady = null;
+  try {
+    const savedActiveUpload = JSON.parse(
+      localStorage.getItem(ACTIVE_NATIVE_UPLOAD_STORAGE) || 'null');
+    if (savedActiveUpload && savedActiveUpload.id) {
+      activeNativeUploadId = savedActiveUpload.id;
+      activeNativeUploadKey = savedActiveUpload.key || null;
+    }
+  } catch (_) {}
   let runStartTime    = null;
   let captionFont      = 'Heebo';
   let captionMarginPct = 0.08;
@@ -1382,6 +1394,57 @@
     apiFetch(API_BASE + '/warmup/').catch(() => {});
   }
 
+  function _rememberActiveNativeUpload(id, key) {
+    activeNativeUploadId = id;
+    activeNativeUploadKey = key;
+    try {
+      localStorage.setItem(
+        ACTIVE_NATIVE_UPLOAD_STORAGE, JSON.stringify({ id, key }));
+    } catch (_) {}
+  }
+
+  function _forgetActiveNativeUpload(id) {
+    if (id && activeNativeUploadId && id !== activeNativeUploadId) return;
+    activeNativeUploadId = null;
+    activeNativeUploadKey = null;
+    activeNativeUploadReady = null;
+    try { localStorage.removeItem(ACTIVE_NATIVE_UPLOAD_STORAGE); } catch (_) {}
+  }
+
+  async function _cancelActiveNativeUpload() {
+    const Uploader = _isNative() && _capPlugin('Uploader');
+    let id = activeNativeUploadId;
+    let key = activeNativeUploadKey;
+    if (!id && activeNativeUploadReady) {
+      const started = await Promise.race([
+        activeNativeUploadReady,
+        new Promise(resolve => setTimeout(() => resolve(null), 4000)),
+      ]);
+      id = started && started.id;
+      key = started && started.key;
+    }
+    if (id) {
+      if (!Uploader || !Uploader.removeUpload) {
+        throw new Error('Uploader cancellation is unavailable');
+      }
+      await Uploader.removeUpload({ id });
+    }
+    if (key) {
+      // The foreground-service cancellation is authoritative for the user:
+      // once it succeeds, Start Over must not be held hostage by a transient
+      // cleanup failure (or a frontend/backend rolling-deploy mismatch).
+      try {
+        const response = await apiFetch(
+          `${API_BASE}/cancel_upload/?key=${encodeURIComponent(key)}`,
+          { method: 'POST', keepalive: true });
+        if (!response.ok) console.warn(`Upload cleanup failed (${response.status})`);
+      } catch (error) {
+        console.warn('Upload cleanup request failed', error);
+      }
+    }
+    _forgetActiveNativeUpload(id);
+  }
+
   // Upload a native file path via the background uploader. Resolves with the
   // upload key (same key the /process call expects). Rejects on failure.
   function nativeUpload(desc, onProgress, presetKey) {
@@ -1392,6 +1455,9 @@
       const expected = desc.size || 0;
       let handle = null, settled = false, reconciling = false, uploadId = null;
       const earlyEvents = [];
+      let resolveUploadReady;
+      const uploadReady = new Promise(resolve => { resolveUploadReady = resolve; });
+      activeNativeUploadReady = uploadReady;
       const _buzz = () => {
         // Native Haptics is reliable (no user-gesture requirement like
         // navigator.vibrate, which silently no-ops when the upload finishes
@@ -1406,7 +1472,10 @@
         try { handle && handle.remove(); } catch (_) {}
         document.removeEventListener('visibilitychange', _onVis);
       };
-      const _finish = () => { settled = true; cleanup(); _buzz(); onProgress(1); resolve(key); };
+      const _finish = () => {
+        settled = true; cleanup(); _forgetActiveNativeUpload(uploadId);
+        _buzz(); onProgress(1); resolve(key);
+      };
       // While the app is backgrounded the WebView is frozen, so the uploader's
       // 'completed' event can be MISSED and the promise would hang forever. On
       // return to foreground, confirm with the server whether the upload landed.
@@ -1459,7 +1528,8 @@
           earlyEvents.push(ev);
           return;
         }
-        const terminal = ev.name === 'completed' || ev.name === 'failed';
+        const terminal = ev.name === 'completed' || ev.name === 'failed'
+          || ev.name === 'cancelled';
         // The plugin persists terminal events until acknowledged and may replay
         // an OLD upload's completion when a new listener attaches. Never let a
         // stale id finish the current promise (the 350 MB upload raced ahead to
@@ -1475,12 +1545,19 @@
         } else if (ev.name === 'completed') {
           _acknowledge(ev);
           const sc = ev.payload && ev.payload.statusCode;
-          if (sc && sc >= 400) { settled = true; cleanup(); reject(new Error(t('err.chunk', { i: 0, status: sc }))); }
+          if (sc && sc >= 400) {
+            settled = true; cleanup(); _forgetActiveNativeUpload(uploadId);
+            reject(new Error(t('err.chunk', { i: 0, status: sc })));
+          }
           else _finish();
         } else if (ev.name === 'failed') {
           _acknowledge(ev);
-          settled = true; cleanup();
+          settled = true; cleanup(); _forgetActiveNativeUpload(uploadId);
           reject(new Error((ev.payload && ev.payload.error) || t('err.chunk', { i: 0, status: 0 })));
+        } else if (ev.name === 'cancelled') {
+          _acknowledge(ev);
+          settled = true; cleanup(); _forgetActiveNativeUpload(uploadId);
+          reject(new DOMException('Upload cancelled', 'AbortError'));
         }
       };
       const _listener = Uploader.addListener('events', _handleUploadEvent);
@@ -1503,12 +1580,21 @@
       }).then((result) => {
         uploadId = result && result.id;
         if (!uploadId && !settled) {
+          resolveUploadReady(null);
           settled = true; cleanup();
           reject(new Error('Uploader did not return an upload id'));
           return;
         }
+        _rememberActiveNativeUpload(uploadId, key);
+        resolveUploadReady({ id: uploadId, key });
         earlyEvents.splice(0).forEach(_handleUploadEvent);
-      }).catch((e) => { if (!settled) { settled = true; cleanup(); reject(e); } });
+      }).catch((e) => {
+        resolveUploadReady(null);
+        if (!settled) {
+          settled = true; cleanup(); _forgetActiveNativeUpload(uploadId);
+          reject(e);
+        }
+      });
     });
   }
 
@@ -2984,6 +3070,13 @@
       t('confirm.startOk')
     );
     if (!confirmed) return;
+    try {
+      await _cancelActiveNativeUpload();
+    } catch (error) {
+      console.error('native upload cancellation failed', error);
+      celebrateToast(t('upload.cancelFailed'), { kind: 'error', duration: 7000 });
+      return;
+    }
     if (currentCallId) apiFetch(`${API_BASE}/cancel/${currentCallId}/`, { keepalive: true }).catch(() => {});
     clearSavedJob();
     _intentionalNav = true;   // already confirmed in-app; skip the browser prompt

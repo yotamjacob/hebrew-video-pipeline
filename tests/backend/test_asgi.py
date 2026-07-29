@@ -66,6 +66,21 @@ class TestReceiveStreamUpload:
         assert validate < publish < spawn
 
 
+class TestCancelStreamUpload:
+    """Start Over must discard every server-side trace of a native upload."""
+
+    def test_cancel_route_cleans_registration_progress_and_partial_files(self):
+        route = MODAL_SRC[MODAL_SRC.index(
+            'if path in ("/cancel_upload", "/cancel_upload/")'):]
+        route = route[:route.index(
+            'if path in ("/upload_check", "/upload_check/")')]
+        assert "pending_store.pop(full_key)" in route
+        assert 'pending_store.pop("done:" + full_key)' in route
+        assert "progress_store.pop(full_key)" in route
+        assert 'f"{full_key}_chunk_0000"' in route
+        assert 'glob(f".{full_key}.*.uploading")' in route
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # _poll_fn_call
 # ─────────────────────────────────────────────────────────────────────────────

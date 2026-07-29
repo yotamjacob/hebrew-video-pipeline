@@ -17,12 +17,20 @@ async function bootNative(page, { withUploader = true, fireCompleted = true } = 
   await page.addInitScript(({ withUploader, fireCompleted }) => {
     window.__streamUploads = [];
     window.__ackEvents = [];
+    window.__removedUploads = [];
     const Plugins = {};
     if (withUploader) {
       Plugins.Uploader = {
         addListener: (name, cb) => { window.__upCb = cb; return { remove() {} }; },
         acknowledgeEvent: ({ eventId }) => {
           window.__ackEvents.push(eventId);
+          return Promise.resolve();
+        },
+        removeUpload: ({ id }) => {
+          window.__removedUploads.push(id);
+          localStorage.setItem('__testRemovedUpload', id);
+          setTimeout(() => window.__upCb && window.__upCb(
+            { name: 'cancelled', id, eventId: `cancel-${id}`, payload: {} }), 0);
           return Promise.resolve();
         },
         startUpload: (opts) => {
@@ -144,4 +152,24 @@ test("a stale persisted completion cannot finish the current upload", async ({ p
   });
   await expect.poll(() => page.evaluate(() => window.__ackEvents))
     .toContain('current-event');
+});
+
+test('Start over stops the native foreground upload before reloading', async ({ page }) => {
+  await bootNative(page, { fireCompleted: false });
+  await mockAllApis(page);
+  await primeNativePick(page, 350 * 1024 * 1024);
+  await page.click('#runBtn');
+  await expect.poll(() => page.evaluate(() => window.__streamUploads.length)).toBe(1);
+  await expect.poll(() => page.evaluate(() =>
+    JSON.parse(localStorage.getItem('pipelineActiveNativeUpload') || 'null')?.id
+  )).toBe('up1');
+
+  await page.click('#startOverBtn');
+  await page.click('#confirmOk');
+
+  // addInitScript runs again after reload, so use persisted test evidence.
+  await expect.poll(() => page.evaluate(() =>
+    localStorage.getItem('__testRemovedUpload'))).toBe('up1');
+  await expect.poll(() => page.evaluate(() =>
+    localStorage.getItem('pipelineActiveNativeUpload'))).toBeNull();
 });

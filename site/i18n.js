@@ -213,6 +213,7 @@
     'download.notification': { en: 'Downloading Pipeline video', he: 'מוריד סרטון מפייפליין' },
     'download.openFolder': { en: 'Open Downloads folder', he: 'פתיחת תיקיית ההורדות' },
     'download.openFailed': { en: 'Could not open the Downloads folder', he: 'לא ניתן לפתוח את תיקיית ההורדות' },
+    'upload.cancelFailed': { en: 'Could not stop the active upload', he: 'לא ניתן לעצור את ההעלאה הפעילה' },
 
     // ── Schedule card ──
     'sched.title':       { en: 'Schedule Video', he: 'תזמון סרטון' },
