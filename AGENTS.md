@@ -51,8 +51,8 @@ When the user asks to publish a completed fix:
 
 1. Confirm the intended diff and ensure relevant tests pass.
 2. Commit only the intended files with a descriptive message.
-3. Push the current feature branch and use a pull request unless the user
-   explicitly asks for a direct-to-main workflow.
+3. Push directly to `main` by default. Use a feature branch or pull request
+   only when the user explicitly requests one.
 4. For every frontend deployment, bump `APP_VERSION` in `site/app.js`, run the
    frontend tests, and deploy from the repository root with
    `npx vercel deploy --prod`.
