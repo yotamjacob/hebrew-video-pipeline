@@ -205,6 +205,9 @@
     'share.preparing': { en: 'Preparing video to share...', he: 'מכין את הסרטון לשיתוף...' },
     'share.again':  { en: 'The video is ready - tap Share again.', he: 'הסרטון מוכן - הקישו שוב על שיתוף.' },
     'share.failed': { en: 'Could not share the video. You can download it instead.', he: 'לא ניתן היה לשתף את הסרטון. אפשר להוריד אותו במקום.' },
+    'download.saving':    { en: 'Saving video...', he: 'שומר את הסרטון...' },
+    'download.savingPct': { en: 'Saving video... {pct}%', he: 'שומר את הסרטון... {pct}%' },
+    'download.saved':     { en: 'Saved to Documents/Pipeline', he: 'הסרטון נשמר בתיקייה Documents/Pipeline' },
 
     // ── Schedule card ──
     'sched.title':       { en: 'Schedule Video', he: 'תזמון סרטון' },

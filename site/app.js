@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.14';
+  const APP_VERSION = '1.10.15';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -1572,6 +1572,13 @@
     const Filesystem = _capPlugin('Filesystem');
     if (!Filesystem) return;
     try {
+      // The automatic save-to-Documents starts immediately before the share
+      // warm-up. Reuse that exact native stream instead of downloading a
+      // second full copy into CACHE at the same time.
+      if (_nativeDownloadTask && _nativeDownloadUrl === url) {
+        try { await _nativeDownloadTask; } catch (_) {}
+        if (_sharePrep && _sharePrep.url === url) return;
+      }
       const safe = _safeShareName(name);
       // Fast path: the preview player already downloaded this exact file into a
       // blob - write it to the cache locally (seconds) instead of a SECOND full
@@ -3063,9 +3070,70 @@
     });
   })();
 
-  // Kick off a browser-native download of a server URL. The /download route
-  // sends `Content-Disposition: attachment; filename=…`, so the browser streams
-  // it to disk (its own progress shelf) - far lighter than buffering a Blob.
+  // Save a finished file through Capacitor's native filesystem. Android
+  // WebViews do not reliably hand cross-origin iframe attachments to the
+  // system download manager: the ready card appeared, but no file was saved.
+  // Filesystem.downloadFile streams directly to public Documents/Pipeline
+  // without buffering the video in WebView memory.
+  let _nativeDownloadBusy = false;
+  let _nativeDownloadUrl = null;
+  let _nativeDownloadTask = null;
+  function _safeDownloadName(name) {
+    const cleaned = String(name || 'video.mp4')
+      .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_')
+      .replace(/^\.+/, '')
+      .trim();
+    return (cleaned || 'video.mp4').slice(0, 180);
+  }
+  async function _nativeDocumentDownload(Filesystem, url, name) {
+    if (_nativeDownloadBusy) return;
+    _nativeDownloadBusy = true;
+    const tokenUrl = _withToken(url);
+    const safe = _safeDownloadName(name);
+    const path = `Pipeline/${safe}`;
+    const buttons = [downloadBtn, document.getElementById('burnDownloadBtn')].filter(Boolean);
+    const labels = buttons.map(b => b.innerHTML);
+    buttons.forEach(b => { b.disabled = true; b.textContent = t('download.saving'); });
+    let progressHandle = null;
+    try {
+      if (Filesystem.addListener) {
+        progressHandle = await Filesystem.addListener('progress', p => {
+          if (p.url && p.url !== tokenUrl) return;
+          const pct = p.contentLength > 0 ? Math.min(100, Math.round(p.bytes * 100 / p.contentLength)) : 0;
+          buttons.forEach(b => { b.textContent = pct ? t('download.savingPct', { pct }) : t('download.saving'); });
+        });
+      }
+      await Filesystem.downloadFile({
+        url: tokenUrl,
+        path,
+        directory: 'DOCUMENTS',
+        recursive: true,
+        progress: true,
+      });
+      if (Filesystem.getUri) {
+        try {
+          const { uri } = await Filesystem.getUri({ directory: 'DOCUMENTS', path });
+          if (uri) _sharePrep = { url, uri };
+        } catch (_) { /* save succeeded; sharing can still build a cache copy */ }
+      }
+      celebrateToast(t('download.saved'));
+    } catch (e) {
+      console.error('native download failed', e);
+      _reportError('download', (e && e.message) || t('err.downloadFailed'));
+      celebrateToast(t('err.downloadFailed'));
+    } finally {
+      try {
+        const h = await Promise.resolve(progressHandle);
+        if (h && h.remove) await h.remove();
+      } catch (_) {}
+      buttons.forEach((b, i) => { b.disabled = false; b.innerHTML = labels[i]; });
+      _nativeDownloadBusy = false;
+    }
+  }
+
+  // Kick off a download of a server URL. Native Android uses the filesystem
+  // path above. Browsers use Content-Disposition through a hidden iframe, so
+  // the API can stream to disk without buffering a large Blob in page memory.
   // The media token rides in the query (`_withToken`), computed at call time so
   // it's always fresh. We load it in a hidden IFRAME rather than clicking an
   // <a>: the API is cross-origin (modal.run), so the anchor's `download` attr is
@@ -3076,6 +3144,20 @@
   // the file downloads with no prompt. The server sets the filename from the
   // `filename` query param, so `name` isn't needed on the client.
   function _browserDownload(url, name) {
+    const Filesystem = _isNative() && _capPlugin('Filesystem');
+    if (Filesystem) {
+      if (_nativeDownloadBusy) return;
+      _nativeDownloadUrl = url;
+      const task = _nativeDocumentDownload(Filesystem, url, name);
+      _nativeDownloadTask = task;
+      task.finally(() => {
+        if (_nativeDownloadTask === task) {
+          _nativeDownloadTask = null;
+          _nativeDownloadUrl = null;
+        }
+      });
+      return;
+    }
     let ifr = document.getElementById('_dlFrame');
     if (!ifr) {
       ifr = document.createElement('iframe');
@@ -6167,7 +6249,7 @@
     dl.onclick = () => {
       const stem = (job.name || 'video').replace(/\.[^/.]+$/, '');
       const fname = isAudio ? stem + '_clean.m4a' : stem + '_edited.mp4';
-      window.location.href = _withToken(`${API_BASE}/download/${job.key}/?filename=${encodeURIComponent(fname)}`);
+      _browserDownload(`${API_BASE}/download/${job.key}/?filename=${encodeURIComponent(fname)}`, fname);
     };
     const sch = document.createElement('button');
     sch.className = 'history-btn';

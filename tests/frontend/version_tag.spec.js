@@ -12,6 +12,23 @@ test('every footer shows the build tag and it matches APP_VERSION', async ({ pag
   for (let i = 0; i < await tags.count(); i++) {
     await expect(tags.nth(i)).toHaveText(version);
   }
+  // Keep the on-device build proof visually distinct from the muted footer:
+  // it should render as a bordered, semibold badge rather than faint text.
+  const badgeStyle = await tags.first().evaluate(el => {
+    const s = getComputedStyle(el);
+    return {
+      borderStyle: s.borderTopStyle,
+      borderRadius: s.borderRadius,
+      fontSize: parseFloat(s.fontSize),
+      fontWeight: Number(s.fontWeight),
+      background: s.backgroundColor,
+    };
+  });
+  expect(badgeStyle.borderStyle).toBe('solid');
+  expect(parseFloat(badgeStyle.borderRadius)).toBeGreaterThan(10);
+  expect(badgeStyle.fontSize).toBeGreaterThanOrEqual(11);
+  expect(badgeStyle.fontWeight).toBeGreaterThanOrEqual(600);
+  expect(badgeStyle.background).not.toBe('rgba(0, 0, 0, 0)');
 });
 
 // A long-lived tab keeps running the JS it booted with across deploys (field

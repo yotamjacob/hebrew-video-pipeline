@@ -23,11 +23,34 @@ async function burnToBanner(page) {
 
 test('native: share button appears after burn', async ({ page }) => {
   await page.addInitScript(() => {
-    window.Capacitor = { isNativePlatform: () => true, Plugins: {} };
+    window.__nativeDownloads = [];
+    window.Capacitor = {
+      isNativePlatform: () => true,
+      Plugins: {
+        Filesystem: {
+          addListener: async () => ({ remove() {} }),
+          downloadFile: async opts => {
+            window.__nativeDownloads.push(opts);
+            return { path: `/Documents/${opts.path}` };
+          },
+          writeFile: async () => {},
+          getUri: async ({ path }) => ({ uri: `content://cache/${path}` }),
+        },
+      },
+    };
   });
   await bootApp(page);
   await burnToBanner(page);
   await expect(page.locator('#burnShareBtn')).toBeVisible({ timeout: 5_000 });
+  await expect.poll(() => page.evaluate(() => window.__nativeDownloads.length)).toBe(1);
+  const download = await page.evaluate(() => window.__nativeDownloads[0]);
+  expect(download.url).toContain('/download/mock-output-key.mp4');
+  expect(download.url).toContain('token=');
+  expect(download.path).toBe('Pipeline/test_edited.mp4');
+  expect(download.directory).toBe('DOCUMENTS');
+  expect(download.recursive).toBe(true);
+  expect(download.progress).toBe(true);
+  await expect(page.locator('#_dlFrame')).toHaveCount(0);
 });
 
 test('web with Web Share files support: button appears and shares a File', async ({ page }) => {

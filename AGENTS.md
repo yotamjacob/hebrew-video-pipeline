@@ -29,6 +29,11 @@ regression coverage.
 Preserve unrelated working-tree changes. Do not deploy, push, or open a pull
 request unless the user requests that action.
 
+End every change handoff with the exact frontend `APP_VERSION` and its state,
+for example: `Frontend version: v1.10.14 (local only; production unchanged)`.
+This lets the user match the reported work to the version shown in the app
+footer.
+
 ## Test policy
 
 Use the commands documented in `CLAUDE.md`:
