@@ -16,14 +16,20 @@ const { API_BASE, mockAllApis, selectFile, bootApp } = require('./helpers');
 async function bootNative(page, { withUploader = true, fireCompleted = true } = {}) {
   await page.addInitScript(({ withUploader, fireCompleted }) => {
     window.__streamUploads = [];
+    window.__ackEvents = [];
     const Plugins = {};
     if (withUploader) {
       Plugins.Uploader = {
         addListener: (name, cb) => { window.__upCb = cb; return { remove() {} }; },
+        acknowledgeEvent: ({ eventId }) => {
+          window.__ackEvents.push(eventId);
+          return Promise.resolve();
+        },
         startUpload: (opts) => {
           window.__streamUploads.push(opts);
           if (fireCompleted) setTimeout(() => window.__upCb && window.__upCb(
-            { name: 'completed', payload: { statusCode: 200 } }), 50);
+            { name: 'completed', id: 'up1', eventId: 'evt-up1',
+              payload: { statusCode: 200 } }), 50);
           return Promise.resolve({ id: 'up1' });
         },
       };
@@ -71,6 +77,7 @@ test('large native file uses the notification-owning background uploader', async
   expect(streams[0].method).toBe('PUT');
   expect(streams[0].uploadType).toBe('binary');
   expect(streams[0].notificationTitle).toBeTruthy();
+  expect(streams[0].headers['X-Upload-Size']).toBe(String(200 * 1024 * 1024));
   expect(chunkPosts.length).toBe(0);
 });
 
@@ -104,4 +111,37 @@ test("a lost 'completed' event recovers via the pending check on foreground retu
   await page.waitForTimeout(500);
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
   await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
+});
+
+test("a stale persisted completion cannot finish the current upload", async ({ page }) => {
+  await bootNative(page, { fireCompleted: false });
+  await mockAllApis(page);
+  await primeNativePick(page, 350 * 1024 * 1024);
+  await page.click('#runBtn');
+  await expect.poll(() => page.evaluate(() => window.__streamUploads.length)).toBe(1);
+
+  // The plugin replays unacknowledged terminal events from earlier uploads.
+  // This old id must be cleared but must not advance the current run.
+  await page.evaluate(() => window.__upCb({
+    name: 'completed',
+    id: 'old-upload',
+    eventId: 'old-event',
+    payload: { statusCode: 200 },
+  }));
+  await expect.poll(() => page.evaluate(() => window.__ackEvents))
+    .toContain('old-event');
+  await page.waitForTimeout(400);
+  await expect(page.locator('#captionEditorCard')).toBeHidden();
+
+  await page.evaluate(() => window.__upCb({
+    name: 'completed',
+    id: 'up1',
+    eventId: 'current-event',
+    payload: { statusCode: 200 },
+  }));
+  await page.waitForSelector('#captionEditorCard', {
+    state: 'visible', timeout: 15_000,
+  });
+  await expect.poll(() => page.evaluate(() => window.__ackEvents))
+    .toContain('current-event');
 });

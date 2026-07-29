@@ -1390,7 +1390,8 @@
       if (!Uploader) { reject(new Error('Uploader plugin unavailable')); return; }
       const key = presetKey || crypto.randomUUID().replace(/-/g, '');
       const expected = desc.size || 0;
-      let handle = null, settled = false, reconciling = false;
+      let handle = null, settled = false, reconciling = false, uploadId = null;
+      const earlyEvents = [];
       const _buzz = () => {
         // Native Haptics is reliable (no user-gesture requirement like
         // navigator.vibrate, which silently no-ops when the upload finishes
@@ -1446,30 +1447,67 @@
       // addListener may return the handle directly OR a Promise<handle>
       // depending on the plugin/Capacitor version - normalize with
       // Promise.resolve so ".then is not a function" can't happen.
-      const _listener = Uploader.addListener('events', (ev) => {
-        if (!ev || settled) return;
+      const _acknowledge = (ev) => {
+        if (ev && ev.eventId && Uploader.acknowledgeEvent) {
+          Promise.resolve(Uploader.acknowledgeEvent({ eventId: ev.eventId }))
+            .catch(() => {});
+        }
+      };
+      const _handleUploadEvent = (ev) => {
+        if (!ev) return;
+        if (!uploadId) {
+          earlyEvents.push(ev);
+          return;
+        }
+        const terminal = ev.name === 'completed' || ev.name === 'failed';
+        // The plugin persists terminal events until acknowledged and may replay
+        // an OLD upload's completion when a new listener attaches. Never let a
+        // stale id finish the current promise (the 350 MB upload raced ahead to
+        // ffprobe at ~25%). Acknowledge terminal events so they are not replayed
+        // forever.
+        if (ev.id !== uploadId || settled) {
+          if (terminal) _acknowledge(ev);
+          return;
+        }
         if (ev.name === 'uploading') {
           const p = ev.payload && typeof ev.payload.percent === 'number' ? ev.payload.percent : 0;
           onProgress(Math.max(0, Math.min(1, p / 100)));
         } else if (ev.name === 'completed') {
+          _acknowledge(ev);
           const sc = ev.payload && ev.payload.statusCode;
           if (sc && sc >= 400) { settled = true; cleanup(); reject(new Error(t('err.chunk', { i: 0, status: sc }))); }
           else _finish();
         } else if (ev.name === 'failed') {
+          _acknowledge(ev);
           settled = true; cleanup();
           reject(new Error((ev.payload && ev.payload.error) || t('err.chunk', { i: 0, status: 0 })));
         }
-      });
-      Promise.resolve(_listener).then((h) => { handle = h; }).catch(() => {});
+      };
+      const _listener = Uploader.addListener('events', _handleUploadEvent);
+      Promise.resolve(_listener).then((h) => {
+        handle = h;
+        if (settled && handle && handle.remove) handle.remove();
+      }).catch(() => {});
       Uploader.startUpload({
         filePath: desc.path,
         serverUrl: `${API_BASE}/upload_stream/`,
         method: 'PUT',
         uploadType: 'binary',
         mimeType: desc.mimeType || 'application/octet-stream',
-        headers: Object.assign({ 'X-Upload-Key': key }, authToken ? { Authorization: 'Bearer ' + authToken } : {}),
+        headers: Object.assign(
+          { 'X-Upload-Key': key },
+          expected ? { 'X-Upload-Size': String(expected) } : {},
+          authToken ? { Authorization: 'Bearer ' + authToken } : {}),
         notificationTitle: t('upload.title') || 'Uploading video',
         maxRetries: 3,
+      }).then((result) => {
+        uploadId = result && result.id;
+        if (!uploadId && !settled) {
+          settled = true; cleanup();
+          reject(new Error('Uploader did not return an upload id'));
+          return;
+        }
+        earlyEvents.splice(0).forEach(_handleUploadEvent);
       }).catch((e) => { if (!settled) { settled = true; cleanup(); reject(e); } });
     });
   }

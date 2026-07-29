@@ -56,7 +56,7 @@ def _extract_fn(source: str, *names: str, extra_ns=None) -> dict:
     # Top-level defs only — nested helpers (e.g. a seconds_to_ass closure inside
     # another function) would extract with leading indentation and fail to exec.
     for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name in names:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in names:
             _exec_snippet(source, _node_start(node), node.end_lineno, ns)
             fns[node.name] = ns[node.name]
     return fns

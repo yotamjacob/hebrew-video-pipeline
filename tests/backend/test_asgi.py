@@ -15,9 +15,55 @@ from tests.backend.conftest import MODAL_SRC, _extract_fn
 # Extract helpers from app_modal.py without importing it
 # ─────────────────────────────────────────────────────────────────────────────
 
-_helpers = _extract_fn(MODAL_SRC, "_poll_fn_call", "_check_rate_limit")
+_helpers = _extract_fn(
+    MODAL_SRC, "_poll_fn_call", "_check_rate_limit", "_receive_stream_upload")
 _poll_fn_call     = _helpers["_poll_fn_call"]
 _check_rate_limit = _helpers["_check_rate_limit"]
+_receive_stream_upload = _helpers["_receive_stream_upload"]
+
+
+class TestReceiveStreamUpload:
+    """A transport disconnect must never look like a complete video upload."""
+
+    @staticmethod
+    def _run(messages, flush_bytes=4):
+        import asyncio
+        queued = list(messages)
+        written = []
+
+        async def receive():
+            return queued.pop(0)
+
+        async def write_chunk(data):
+            written.append(data)
+
+        result = asyncio.run(_receive_stream_upload(
+            receive, write_chunk, flush_bytes=flush_bytes))
+        return result, b"".join(written)
+
+    def test_clean_asgi_eof_completes_and_writes_every_byte(self):
+        result, written = self._run([
+            {"type": "http.request", "body": b"abc", "more_body": True},
+            {"type": "http.request", "body": b"def", "more_body": False},
+        ])
+        assert result == (True, 6)
+        assert written == b"abcdef"
+
+    def test_disconnect_is_incomplete_and_never_flushes_partial_tail(self):
+        result, written = self._run([
+            {"type": "http.request", "body": b"abc", "more_body": True},
+            {"type": "http.disconnect"},
+        ])
+        assert result == (False, 3)
+        assert written == b""
+
+    def test_stream_route_publishes_staging_file_only_after_validation(self):
+        route = MODAL_SRC[MODAL_SRC.index(
+            'if path in ("/upload_stream", "/upload_stream/")'):]
+        publish = route.index("_os.replace, staging_path, chunk_path")
+        validate = route.index("received_bytes != expected_bytes")
+        spawn = route.index("_spawn_pending_job")
+        assert validate < publish < spawn
 
 
 # ─────────────────────────────────────────────────────────────────────────────

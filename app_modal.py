@@ -38,6 +38,35 @@ from pipeline_core import (
 API_BASE_URL = "https://yotamjacob--hebrew-video-pipeline-api.modal.run"
 
 
+async def _receive_stream_upload(receive, write_chunk, flush_bytes=4 * 1024 * 1024):
+    """Copy one ASGI request body without mistaking a disconnect for EOF.
+
+    Returns (complete, bytes_received). Only an ``http.request`` message with
+    ``more_body=False`` is a successful end-of-file. Android's uploader retries
+    weak-network disconnects; publishing a disconnected attempt would expose a
+    truncated video to ffprobe while the retry was still uploading.
+    """
+    buffered = bytearray()
+    received = 0
+    while True:
+        message = await receive()
+        if message.get("type") == "http.disconnect":
+            return False, received
+        if message.get("type") != "http.request":
+            return False, received
+        body = message.get("body", b"")
+        if body:
+            buffered += body
+            received += len(body)
+        if len(buffered) >= flush_bytes:
+            await write_chunk(bytes(buffered))
+            buffered.clear()
+        if not message.get("more_body", False):
+            if buffered:
+                await write_chunk(bytes(buffered))
+            return True, received
+
+
 def _code_email_html(code: str) -> str:
     """Branded HTML for the passwordless login code (on-brand terracotta/sand)."""
     return (
@@ -974,13 +1003,10 @@ def api():
             await send({"type": "http.response.body", "body": body})
             return
 
-        # Stream upload — a single whole-file upload written straight to the
-        # Volume as chunk 0000, so the native background uploader (@capgo, raw
-        # binary body) can hand off a large file in one request and it survives
-        # the app being minimized. process_video's chunk glob finds this single
-        # chunk and reassembles it exactly like the web multi-chunk path — no
-        # worker change. The body is streamed to disk in ~4 MB flushes so a
-        # hundreds-of-MB upload never buffers in RAM (unlike _read_body).
+        # Stream upload — receive into a unique staging file and publish chunk
+        # 0000 atomically ONLY after a clean ASGI EOF and byte-count match. A
+        # weak-network retry sends `http.disconnect`; treating that as EOF used
+        # to spawn ffprobe on a partial MP4 while Android kept uploading.
         if path in ("/upload_stream", "/upload_stream/") and method in ("POST", "PUT"):
             qs  = parse_qs(scope.get("query_string", b"").decode())
             _uh = {bytes(k).lower(): bytes(v).decode() for k, v in scope.get("headers", [])}
@@ -989,23 +1015,42 @@ def api():
                 await send_error("Invalid or missing key", 400)
                 return
             from pathlib import Path as _Path
+            import os as _os
+            import uuid as _uuid
             chunk_path = _Path(TMP_DIR) / f"{uprefix}{key}_chunk_0000"
-            fh = await asyncio.to_thread(open, chunk_path, "wb")
+            staging_path = _Path(TMP_DIR) / (
+                f".{uprefix}{key}.{_uuid.uuid4().hex}.uploading")
+            expected_raw = _uh.get(b"x-upload-size") or _uh.get(b"content-length")
             try:
-                buf = bytearray()
-                FLUSH = 4 * 1024 * 1024
-                while True:
-                    msg = await receive()
-                    buf += msg.get("body", b"")
-                    if len(buf) >= FLUSH:
-                        data = bytes(buf); buf.clear()
+                expected_bytes = int(expected_raw) if expected_raw else None
+                if expected_bytes is not None and expected_bytes < 0:
+                    expected_bytes = None
+            except (TypeError, ValueError):
+                expected_bytes = None
+            try:
+                fh = await asyncio.to_thread(open, staging_path, "wb")
+                try:
+                    async def _write_upload(data):
                         await asyncio.to_thread(fh.write, data)
-                    if not msg.get("more_body", False):
-                        if buf:
-                            await asyncio.to_thread(fh.write, bytes(buf))
-                        break
-            finally:
-                await asyncio.to_thread(fh.close)
+                    complete, received_bytes = await _receive_stream_upload(
+                        receive, _write_upload)
+                finally:
+                    await asyncio.to_thread(fh.close)
+            except BaseException:
+                await asyncio.to_thread(staging_path.unlink, missing_ok=True)
+                raise
+            if not complete:
+                await asyncio.to_thread(staging_path.unlink, missing_ok=True)
+                print(f"[upload_stream] disconnected after {received_bytes} bytes "
+                      f"for {uprefix}{key}; waiting for Android retry")
+                return
+            if expected_bytes is not None and received_bytes != expected_bytes:
+                await asyncio.to_thread(staging_path.unlink, missing_ok=True)
+                await send_error(
+                    f"Incomplete upload: received {received_bytes} of "
+                    f"{expected_bytes} bytes", 409, code="upload_incomplete")
+                return
+            await asyncio.to_thread(_os.replace, staging_path, chunk_path)
             # Deferred job registered? The whole file just landed (single
             # stream) - spawn processing NOW, app state irrelevant. This is
             # what lets a user close the app mid-upload and still get the
