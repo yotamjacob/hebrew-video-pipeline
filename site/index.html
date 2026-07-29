@@ -674,9 +674,12 @@
     <button class="action-btn" id="burnShareBtn" style="width:100%;margin-top:8px;display:none" data-i18n="share.btn">Share video</button>
   </div>
 
-  <!-- Reusable celebration toast (edit-ready / schedule) — check + count-up stat -->
+  <!-- Reusable status toast — success check or error X -->
   <div id="celebrateToast" class="celebrate-toast" role="status" aria-live="polite">
-    <span class="celebrate-toast-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9"/></svg></span>
+    <span class="celebrate-toast-check">
+      <svg class="celebrate-toast-success-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9"/></svg>
+      <svg class="celebrate-toast-error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>
+    </span>
     <span class="celebrate-toast-text" id="celebrateToastText"></span>
   </div>
 

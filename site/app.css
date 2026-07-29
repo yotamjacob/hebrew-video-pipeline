@@ -971,6 +971,16 @@
     .celebrate-toast.show { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
     .celebrate-toast-check { color: var(--green); display: inline-flex; }
     .celebrate-toast-check svg { width: 1.3rem; height: 1.3rem; }
+    .celebrate-toast-error-icon { display: none; }
+    .celebrate-toast.error {
+      background: #FEF2F2;
+      border-color: #FCA5A5;
+      color: #991B1B;
+      box-shadow: 0 10px 30px rgba(153,27,27,0.18);
+    }
+    .celebrate-toast.error .celebrate-toast-check { color: var(--red); }
+    .celebrate-toast.error .celebrate-toast-success-icon { display: none; }
+    .celebrate-toast.error .celebrate-toast-error-icon { display: block; }
     .celebrate-toast-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
     /* ── Disabled option row (Veo) ── */

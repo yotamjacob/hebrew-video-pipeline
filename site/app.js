@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.15';
+  const APP_VERSION = '1.10.16';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -3073,8 +3073,10 @@
   // Save a finished file through Capacitor's native filesystem. Android
   // WebViews do not reliably hand cross-origin iframe attachments to the
   // system download manager: the ready card appeared, but no file was saved.
-  // Filesystem.downloadFile streams directly to public Documents/Pipeline
-  // without buffering the video in WebView memory.
+  // Filesystem.downloadFile streams directly to public Documents without
+  // buffering the video in WebView memory. Keep the filename at the Documents
+  // root: the Android legacy implementation ignores downloadFile's recursive
+  // option and does not create nested parent directories.
   let _nativeDownloadBusy = false;
   let _nativeDownloadUrl = null;
   let _nativeDownloadTask = null;
@@ -3090,7 +3092,7 @@
     _nativeDownloadBusy = true;
     const tokenUrl = _withToken(url);
     const safe = _safeDownloadName(name);
-    const path = `Pipeline/${safe}`;
+    const path = safe;
     const buttons = [downloadBtn, document.getElementById('burnDownloadBtn')].filter(Boolean);
     const labels = buttons.map(b => b.innerHTML);
     buttons.forEach(b => { b.disabled = true; b.textContent = t('download.saving'); });
@@ -3107,7 +3109,6 @@
         url: tokenUrl,
         path,
         directory: 'DOCUMENTS',
-        recursive: true,
         progress: true,
       });
       if (Filesystem.getUri) {
@@ -3120,7 +3121,7 @@
     } catch (e) {
       console.error('native download failed', e);
       _reportError('download', (e && e.message) || t('err.downloadFailed'));
-      celebrateToast(t('err.downloadFailed'));
+      celebrateToast(t('err.downloadFailed'), { kind: 'error', duration: 7000 });
     } finally {
       try {
         const h = await Promise.resolve(progressHandle);
@@ -3365,20 +3366,27 @@
     el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls);
     setTimeout(() => el.classList.remove(cls), 1300);
   }
-  // Edit-ready / schedule: a floating toast with a springy check + short text.
+  // Floating status toast. Errors use a distinct red treatment and remain
+  // visible longer so a transient failure cannot look like success.
   let _toastTimer = null;
-  function celebrateToast(text) {
+  function celebrateToast(text, { kind = 'success', duration = 2600 } = {}) {
     const el = document.getElementById('celebrateToast');
     if (!el) return;
     // Reparent to <body> so position:fixed is viewport-relative and z-index
     // wins outright — inside the in-flow container it was trapped in a lower
     // stacking context and rendered behind the sticky topbar.
     if (el.parentElement !== document.body) document.body.appendChild(el);
+    clearTimeout(_toastTimer);
+    el.classList.remove('show', 'error');
+    el.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    el.setAttribute('aria-live', kind === 'error' ? 'assertive' : 'polite');
+    if (kind === 'error') el.classList.add('error');
     document.getElementById('celebrateToastText').textContent = text;
     _pulse(el.querySelector('.celebrate-toast-check'), 'celebrate-check');
+    // Restart the entrance transition even if another toast was just visible.
+    void el.offsetWidth;
     el.classList.add('show');
-    clearTimeout(_toastTimer);
-    _toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+    _toastTimer = setTimeout(() => el.classList.remove('show'), duration);
   }
   // Export complete: animate the success banner in place + count up the payoff.
   function celebrateExport() {

@@ -46,11 +46,39 @@ test('native: share button appears after burn', async ({ page }) => {
   const download = await page.evaluate(() => window.__nativeDownloads[0]);
   expect(download.url).toContain('/download/mock-output-key.mp4');
   expect(download.url).toContain('token=');
-  expect(download.path).toBe('Pipeline/test_edited.mp4');
+  expect(download.path).toBe('test_edited.mp4');
   expect(download.directory).toBe('DOCUMENTS');
-  expect(download.recursive).toBe(true);
+  expect(download.recursive).toBeUndefined();
   expect(download.progress).toBe(true);
   await expect(page.locator('#_dlFrame')).toHaveCount(0);
+});
+
+test('native: failed download shows a persistent red error toast', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.Capacitor = {
+      isNativePlatform: () => true,
+      Plugins: {
+        Filesystem: {
+          addListener: async () => ({ remove() {} }),
+          downloadFile: async () => {
+            throw new Error('Parent directory does not exist');
+          },
+        },
+      },
+    };
+  });
+  await bootApp(page);
+  await burnToBanner(page);
+
+  const toast = page.locator('#celebrateToast');
+  await expect(toast).toHaveClass(/error/);
+  await expect(toast).toHaveClass(/show/);
+  await expect(toast).toHaveAttribute('role', 'alert');
+  await expect(toast.locator('.celebrate-toast-error-icon')).toBeVisible();
+  await expect(toast).toHaveCSS('color', 'rgb(153, 27, 27)');
+
+  await page.waitForTimeout(3000);
+  await expect(toast).toHaveClass(/show/);
 });
 
 test('web with Web Share files support: button appears and shares a File', async ({ page }) => {
