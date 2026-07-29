@@ -27,10 +27,11 @@ regression coverage.
    pending.
 
 Preserve unrelated working-tree changes. The owner's standing preference is to
-commit each completed, tested change and push it directly to `main` so GitHub
-stays in sync throughout development. Do not open pull requests or feature
-branches unless requested. Vercel and Modal deployments still require an
-explicit request.
+commit each completed, tested change, push it directly to `main`, and deploy
+the production Vercel frontend so GitHub and production stay in sync throughout
+development. Deploy the Modal backend too whenever a completed change affects
+backend behavior. Do not open pull requests or feature branches unless
+requested.
 
 End every change handoff with the exact frontend `APP_VERSION` and its state,
 for example: `Frontend version: v1.10.14 (local only; production unchanged)`.
@@ -55,7 +56,7 @@ before deployment.
 
 ## GitHub and Vercel
 
-When the user asks to publish a completed fix:
+After completing and testing a fix:
 
 1. Confirm the intended diff and ensure relevant tests pass.
 2. Commit only the intended files with a descriptive message.

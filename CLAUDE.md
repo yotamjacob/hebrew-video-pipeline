@@ -64,6 +64,12 @@ npx vercel deploy --prod
 
 **Version stamp on EVERY site deploy** — bump `APP_VERSION` at the top of `site/app.js` before `vercel deploy --prod` and tell the user the new version; it renders in every footer (`.footer-version`) + `window.__APP_VERSION`. The Android app loads this frontend remotely (`capacitor.config.json` `server.url`), so the footer tag is the only on-device proof of which build is running. Backend-only changes: no bump, say so. Test: `tests/frontend/version_tag.spec.js`.
 
+**Standing publish preference (2026-07-29)** — after every completed, tested
+fix, commit and push directly to GitHub `main`, then deploy the production
+Vercel frontend. If the fix changes backend behavior, deploy Modal before
+Vercel so the new frontend never targets an older API. No feature branches or
+PRs unless explicitly requested.
+
 ## Non-Obvious Details
 
 **ffmpeg binary selection** — prefers Homebrew `ffmpeg-full` (`/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg`) over generic `ffmpeg` because `ffmpeg-full` includes libass (needed for burning subtitles).
