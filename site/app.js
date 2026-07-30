@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.23';
+  const APP_VERSION = '1.10.24';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -392,10 +392,10 @@
       ? t('quota.pill', {left: left, limit: quotaInfo.video_limit})
       : t('quota.pillZero');
     pill.classList.toggle('quota-pill-empty', left === 0);
-    pill.classList.toggle('billing-enabled', left === 0);
-    pill.title = left === 0
-      ? (_billingAvailable() ? t('billing.open') : t('billing.openPlayStore'))
-      : '';
+    pill.classList.toggle('billing-enabled', _billingAvailable() || left === 0);
+    pill.title = _billingAvailable()
+      ? t('billing.open')
+      : (left === 0 ? t('billing.openPlayStore') : '');
     pill.style.display = '';
   }
 
@@ -1391,11 +1391,11 @@
   }
 
   function openQuotaPurchase() {
-    if (!_quotaExhausted()) return;
     if (_billingAvailable()) {
       openBillingModal();
       return;
     }
+    if (!_quotaExhausted()) return;
     const opened = window.open(PLAY_STORE_URL, '_blank', 'noopener');
     if (!opened) window.location.href = PLAY_STORE_URL;
   }

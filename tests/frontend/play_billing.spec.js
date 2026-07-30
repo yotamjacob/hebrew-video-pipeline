@@ -60,6 +60,27 @@ test('native exhausted state opens localized Google Play credit packs', async ({
   await expect(packs.nth(2)).toContainText('₪299.00');
 });
 
+test('native credit pill opens Play Billing before credits run out', async ({ page }) => {
+  await installBillingShim(page);
+  await bootApp(page, {
+    me: {
+      username: 'tester',
+      role: 'user',
+      videos_used: 2,
+      video_limit: 5,
+      billing_account_id: 'b'.repeat(64),
+    },
+  });
+
+  const pill = page.locator('#quotaPill');
+  await expect(pill).toContainText('נותרו 3 קרדיטים');
+  await expect(pill).toHaveClass(/billing-enabled/);
+  await expect(pill).toHaveAttribute('title', 'רכישת קרדיטים נוספים לסרטונים');
+  await pill.click();
+  await expect(page.locator('#billingOverlay')).toBeVisible();
+  await expect(page.locator('.billing-product')).toHaveCount(3);
+});
+
 test('web exhausted-credit actions open the Pipeline Play Store listing', async ({ page }) => {
   await page.addInitScript(() => {
     window.__openedPlayUrl = null;
