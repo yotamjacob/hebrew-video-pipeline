@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.20';
+  const APP_VERSION = '1.10.21';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -15,11 +15,12 @@
     f.appendChild(v);
   });
 
-  // WhatsApp FAB: prefill the chat with a language-appropriate opener so the
-  // user doesn't face an empty message box. Re-applied on language switch.
+  // Footer WhatsApp links: prefill the chat with a language-appropriate opener
+  // so the user doesn't face an empty message box. Re-applied on language switch.
   function _syncWaLink() {
-    const a = document.querySelector('.wa-fab-btn');
-    if (a) a.href = 'https://wa.me/972528828232?text=' + encodeURIComponent(t('wa.prefill'));
+    document.querySelectorAll('.footer-whatsapp').forEach(a => {
+      a.href = 'https://wa.me/972528828232?text=' + encodeURIComponent(t('wa.prefill'));
+    });
   }
   _syncWaLink();
   // Google Sign-In OAuth Web client ID (PUBLIC - ships in the app + web page).
