@@ -57,13 +57,14 @@ def daily_usage_report() -> dict:
 # fails. NOTE: the snapshot contains PBKDF2 password hashes + OAuth tokens —
 # the bucket MUST be private.
 # ---------------------------------------------------------------------------
-_BACKUP_STORES = ("jobs", "users", "quota", "metricool")
+_BACKUP_STORES = ("jobs", "users", "quota", "purchases", "metricool")
 
 def _backup_stores_map():
-    from pipeline_core import users_store, quota_store, jobs_store
+    from pipeline_core import users_store, quota_store, purchases_store, jobs_store
     from metricool_fns import oauth_store
     return {"jobs": jobs_store, "users": users_store,
-            "quota": quota_store, "metricool": oauth_store}
+            "quota": quota_store, "purchases": purchases_store,
+            "metricool": oauth_store}
 
 def _s3_client():
     import os, boto3

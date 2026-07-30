@@ -66,13 +66,50 @@ before every new upload — Play rejects a duplicate `versionCode`.
 
 1. Left nav → **Testing → Internal testing** → **Create new release**.
 2. Upload `app-release.aab`.
-3. Release name: `1.0 (1)`. Add brief release notes (e.g. "First internal build").
+3. Release name: `1.3.0 (7)`. Add brief release notes (e.g. "Google Play credit packs").
 4. **Save** → **Review release** → **Start rollout to Internal testing**.
 5. Under **Testers**, create an email list (add your own Gmail + testers), save.
 6. Copy the **"Copy link"** join URL — open it on each tester's phone, accept,
    then install via the Play Store. No more sideloading.
 
-## 4. Store listing (Main store listing)
+## 4. Configure Google Play credit packs
+
+The Android app sells **consumable, non-expiring video credits**. Product IDs
+are immutable and must match the app exactly:
+
+| Product ID | Credits | Suggested launch price |
+|------------|---------|------------------------|
+| `pipeline_credits_5` | 5 | ₪49 |
+| `pipeline_credits_20` | 20 | ₪149 |
+| `pipeline_credits_50` | 50 | ₪299 |
+
+1. Play Console → **Monetize with Play → Products → One-time products**.
+2. Create each ID above as a consumable one-time product, add its Hebrew and
+   English name/description, configure the purchase option and regions/prices,
+   then activate it. The app reads Play's localized price at runtime; prices
+   are not hardcoded in the frontend.
+3. Play Console → **Users and permissions**: add the service-account email used
+   by the backend and grant purchase/order access, including **View financial
+   data, orders, and cancellation survey responses**, for this app.
+4. The Modal `hebpipe-fcm` secret already mounts `FCM_SERVICE_ACCOUNT`. Either
+   grant that service account the Play permission above, or add a dedicated
+   least-privileged JSON key to the same secret as
+   `PLAY_SERVICE_ACCOUNT_JSON`. Do not remove the existing FCM value.
+5. Add tester Gmail accounts under **Settings → License testing**. Billing only
+   works reliably in a build installed from a Play test/production track, not
+   a locally sideloaded APK.
+
+The server verifies every token with Android Publisher API, binds it to the
+signed-in account, writes one idempotent grant to `hebpipe-purchases`, and only
+then consumes the Play purchase. Pending purchases receive no credits until
+Play reports `PURCHASED`. Reopening the app restores completed purchases if the
+original callback was interrupted.
+
+Before production, test all three packs with a Play license tester, including
+cancel, pending payment, app-close-after-payment, and a second purchase of the
+same consumable.
+
+## 5. Store listing (Main store listing)
 
 - **App name:** פייפליין
 - **Short description (≤80 chars):**
@@ -86,9 +123,9 @@ before every new upload — Play rejects a duplicate `versionCode`.
   ```
 - **App icon:** `assets/play-icon-512.png`
 - **Feature graphic:** `assets/play-feature-1024x500.png`
-- **Phone screenshots:** at least 2 (see step 5).
+- **Phone screenshots:** at least 2 (see step 6).
 
-## 5. Screenshots (2–8 phone shots)
+## 6. Screenshots (2–8 phone shots)
 
 On your phone, in the app, capture these and transfer to your computer:
 1. Upload screen, 2. Caption editor, 3. Options/toggles, 4. Result/download,
@@ -96,7 +133,7 @@ On your phone, in the app, capture these and transfer to your computer:
 Play wants PNG/JPEG, 16:9 or 9:16, each side 320–3840 px — phone screenshots
 qualify as-is.
 
-## 6. Policy sections (App content — all required)
+## 7. Policy sections (App content — all required)
 
 - **Privacy policy URL:** `https://hebrew-pipeline.app/legal.html`
 - **Data safety:** declare what the app collects. For this app:
@@ -115,7 +152,7 @@ qualify as-is.
 - **Ads:** No.
 - **Government app:** No. **Financial features:** No.
 
-## 7. Roll out
+## 8. Roll out
 
 Internal testing goes live within minutes (no full review). When you're ready
 for the public, promote the same release: **Testing → Closed/Open testing** or
@@ -126,8 +163,10 @@ few days for a first submission).
 
 ## Notes
 
-- The app is a Capacitor shell around the web frontend in `site/`, calling the
-  Modal API remotely. To update the app's UI you rebuild + upload a new AAB
-  (bump `versionCode`). See `capacitor.config.json` and `CLAUDE.md`.
-- Planned native upgrades (separate versions): background uploads, push
-  notifications (needs a Firebase project), native share.
+- The app is a Capacitor shell that loads the deployed web frontend at
+  `https://hebrew-pipeline.app` and calls the Modal API remotely. Web-only UI
+  changes deploy immediately; native Java/plugin changes require a rebuilt AAB
+  and a new `versionCode`. See `capacitor.config.json` and `CLAUDE.md`.
+- Native Billing requires Android binary **1.3.0 (versionCode 7)** or newer.
+  Older installed shells load the live website but do not expose the purchase
+  bridge, so they keep the web contact flow until upgraded from Play.

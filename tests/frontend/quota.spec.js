@@ -2,11 +2,11 @@
 const { test, expect } = require('@playwright/test');
 const { API_BASE, bootApp, mockAllApis, selectFile } = require('./helpers');
 
-test('quota pill shows remaining trial videos', async ({ page }) => {
+test('quota pill shows remaining video credits', async ({ page }) => {
   await bootApp(page, { me: { username: 'tester', role: 'user', videos_used: 3, video_limit: 5 } });
   const pill = page.locator('#quotaPill');
   await expect(pill).toBeVisible();
-  await expect(pill).toHaveText('נשארו 2 מתוך 5 סרטוני ניסיון');
+  await expect(pill).toHaveText('נותרו 2 קרדיטים לסרטונים');
   await expect(page.locator('#heroGreeting')).toHaveText('שלום, tester');
 });
 
@@ -15,7 +15,7 @@ test('pill turns red and run is blocked when the limit is used up', async ({ pag
   await mockAllApis(page);
 
   const pill = page.locator('#quotaPill');
-  await expect(pill).toHaveText('מכסת סרטוני הניסיון נוצלה');
+  await expect(pill).toHaveText('לא נותרו קרדיטים לסרטונים');
   await expect(pill).toHaveClass(/quota-pill-empty/);
 
   let processCalled = false;
@@ -74,7 +74,7 @@ test('a failed job refreshes the quota pill so a refunded credit shows', async (
                 body: JSON.stringify({ error: 'ffmpeg exited 1: no_audio' }) }));
 
   const pill = page.locator('#quotaPill');
-  await expect(pill).toHaveText('נשארו 3 מתוך 5 סרטוני ניסיון');
+  await expect(pill).toHaveText('נותרו 3 קרדיטים לסרטונים');
   await selectFile(page);
   await page.waitForSelector('#runBtn:not([disabled])');
   await page.click('#runBtn');
@@ -82,12 +82,12 @@ test('a failed job refreshes the quota pill so a refunded credit shows', async (
   await expect(page.locator('#statusError')).toBeVisible({ timeout: 10_000 });
   // no_audio maps to the friendly Hebrew message, and the pill shows the refund.
   await expect(page.locator('#errorMsg')).toContainText('אין פס קול');
-  await expect(pill).toHaveText('נשארו 4 מתוך 5 סרטוני ניסיון');
+  await expect(pill).toHaveText('נותרו 4 קרדיטים לסרטונים');
   // The WhatsApp unlock CTA is quota-only - hidden on a regular error.
   await expect(page.locator('#errorWaCta')).toBeHidden();
 });
 
-test('non-admin confirms before spending a trial video; cancel spends nothing', async ({ page }) => {
+test('non-admin confirms before spending a video credit; cancel spends nothing', async ({ page }) => {
   await bootApp(page, { me: { username: 'tester', role: 'user', videos_used: 1, video_limit: 5 } });
   await mockAllApis(page);
   let processCalls = 0;
@@ -103,8 +103,8 @@ test('non-admin confirms before spending a trial video; cancel spends nothing', 
 
   // Modal shows remaining count
   await expect(page.locator('#confirmOverlay')).toBeVisible();
-  await expect(page.locator('#confirmTitle')).toHaveText('להשתמש בסרטון ניסיון אחד?');
-  await expect(page.locator('#confirmBody')).toContainText('נשארו לכם 4 מתוך 5');
+  await expect(page.locator('#confirmTitle')).toHaveText('להשתמש בקרדיט אחד לסרטון?');
+  await expect(page.locator('#confirmBody')).toContainText('נותרו לכם 4 קרדיטים');
 
   // Cancel: nothing spent
   await page.click('#confirmCancel');

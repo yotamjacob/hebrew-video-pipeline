@@ -2051,13 +2051,83 @@
   display: inline-block;
   margin: 8px 0;
   padding: 7px 16px;
+  border: 1.5px solid transparent;
   border-radius: 999px;
   background: var(--purple-100);
   color: var(--purple-800);
   font-size: 0.8rem;
   font-weight: 700;
+  font-family: inherit;
 }
 .quota-pill-empty { background: #FEE2E2; color: #B85C38; }
+.quota-pill.billing-enabled {
+  cursor: pointer;
+  border-color: var(--purple-200);
+}
+.quota-pill.billing-enabled:hover { background: #E4E7D8; }
+
+.billing-dialog { max-width: 440px; width: 100%; }
+.billing-subtitle { margin: 4px 0 0; text-align: start; }
+.billing-products {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+.billing-product {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 16px;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  background: var(--white);
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+  text-align: start;
+}
+.billing-product:hover { border-color: var(--purple-400); background: var(--purple-50); }
+.billing-product:disabled { opacity: 0.58; cursor: wait; }
+.billing-product-copy { display: flex; flex-direction: column; gap: 2px; }
+.billing-product-name { font-size: 1rem; font-weight: 700; }
+.billing-product-detail { font-size: 0.76rem; color: var(--muted); }
+.billing-product-price {
+  direction: ltr;
+  unicode-bidi: isolate;
+  white-space: nowrap;
+  color: var(--terracotta);
+  font-size: 1rem;
+  font-weight: 700;
+}
+.billing-status {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--purple-50);
+  color: var(--purple-800);
+  font-size: 0.84rem;
+  text-align: start;
+}
+.billing-status.error { background: #FCE8E0; color: #9A4326; }
+.billing-footnote { margin: 14px 0 0; color: var(--muted); font-size: 0.75rem; }
+.billing-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 10px 15px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--terracotta);
+  color: var(--white);
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.billing-cta svg { width: 18px; height: 18px; flex: 0 0 auto; }
 
 .mc-chip {
   display: inline-block; margin: 8px 8px 8px 0;

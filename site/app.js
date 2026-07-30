@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.18';
+  const APP_VERSION = '1.10.19';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -281,6 +281,10 @@
     if (quotaInfo) { updateQuotaUI(); updateVerifyBanner(); } else refreshQuota();
     restoreTab();
     if (typeof _initPush === 'function') _initPush();
+    _initBillingListener();
+    // Reconcile completed/unconsumed Play purchases after every fresh app
+    // session. This covers a purchase finishing while the app was closed.
+    setTimeout(() => { _restorePlayPurchases().catch(() => {}); }, 100);
     // AUTO-resume a saved background job - no banner tap required. Opening the
     // app (e.g. from the "ready to edit" push) lands straight back in the
     // flow; when processing finished while away, the poll returns instantly
@@ -387,6 +391,8 @@
       ? t('quota.pill', {left: left, limit: quotaInfo.video_limit})
       : t('quota.pillZero');
     pill.classList.toggle('quota-pill-empty', left === 0);
+    pill.classList.toggle('billing-enabled', _billingAvailable());
+    pill.title = _billingAvailable() ? t('billing.open') : '';
     pill.style.display = '';
   }
 
@@ -1347,6 +1353,175 @@
   }
   function _capPlugin(name) {
     return window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins[name];
+  }
+
+  // ── Google Play Billing (native Android only) ─────────────────────────────
+  const BILLING_CREDITS = {
+    pipeline_credits_5: 5,
+    pipeline_credits_20: 20,
+    pipeline_credits_50: 50,
+  };
+  let _billingRestoreStarted = false;
+  let _billingListenerStarted = false;
+  let _billingBusy = false;
+
+  function _billingAvailable() {
+    return _isNative() && !!_capPlugin('NativeBilling');
+  }
+
+  function _initBillingListener() {
+    if (_billingListenerStarted || !_billingAvailable()) return;
+    const billing = _capPlugin('NativeBilling');
+    if (!billing.addListener) return;  // test/older bridge compatibility
+    _billingListenerStarted = true;
+    billing.addListener('purchaseUpdated', async purchase => {
+      // The active buyCredits promise handles its own immediate callback.
+      // This listener is for a pending payment completing later.
+      if (_billingBusy || !purchase || purchase.state !== 'purchased') return;
+      const productId = (purchase.products || []).find(id => BILLING_CREDITS[id]);
+      if (!productId) return;
+      try {
+        await _verifyPlayPurchase(purchase, productId);
+        await refreshQuota();
+      } catch (error) {
+        console.warn('delayed billing verification failed', error);
+      }
+    });
+  }
+
+  function _setBillingStatus(message, isError = false) {
+    const el = document.getElementById('billingStatus');
+    if (!el) return;
+    el.textContent = message || '';
+    el.classList.toggle('error', !!isError);
+    el.style.display = message ? 'block' : 'none';
+  }
+
+  function _setBillingBusy(busy) {
+    _billingBusy = busy;
+    document.querySelectorAll('.billing-product').forEach(btn => { btn.disabled = busy; });
+  }
+
+  async function openBillingModal() {
+    if (!_billingAvailable()) return;
+    const overlay = document.getElementById('billingOverlay');
+    overlay.style.display = 'flex';
+    _setBillingStatus(t('billing.loading'));
+    try {
+      const result = await _capPlugin('NativeBilling').getProducts();
+      const products = (result && result.products || [])
+        .filter(p => BILLING_CREDITS[p.productId])
+        .sort((a, b) => BILLING_CREDITS[a.productId] - BILLING_CREDITS[b.productId]);
+      const container = document.getElementById('billingProducts');
+      container.replaceChildren();
+      for (const product of products) {
+        const credits = BILLING_CREDITS[product.productId];
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'billing-product';
+        button.dataset.productId = product.productId;
+        button.onclick = () => buyCredits(product.productId);
+        const copy = document.createElement('span');
+        copy.className = 'billing-product-copy';
+        const name = document.createElement('span');
+        name.className = 'billing-product-name';
+        name.textContent = t('billing.pack', {count: credits});
+        const detail = document.createElement('span');
+        detail.className = 'billing-product-detail';
+        detail.textContent = t('billing.packDetail', {count: credits});
+        const price = document.createElement('span');
+        price.className = 'billing-product-price';
+        price.textContent = product.formattedPrice || '';
+        copy.append(name, detail);
+        button.append(copy, price);
+        container.appendChild(button);
+      }
+      _setBillingStatus(products.length ? '' : t('billing.unavailable'), !products.length);
+    } catch (error) {
+      console.warn('billing product load failed', error);
+      _setBillingStatus(t('billing.unavailable'), true);
+    }
+  }
+
+  function closeBillingModal() {
+    if (_billingBusy) return;
+    const overlay = document.getElementById('billingOverlay');
+    if (overlay) overlay.style.display = 'none';
+  }
+
+  async function _verifyPlayPurchase(purchase, productId) {
+    const response = await apiFetch(`${API_BASE}/billing/play/verify`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        purchase_token: purchase.purchaseToken,
+        product_id: productId,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const err = new Error(data.code || data.error || `HTTP ${response.status}`);
+      err.code = data.code;
+      throw err;
+    }
+    return data;
+  }
+
+  async function buyCredits(productId) {
+    if (_billingBusy || !_billingAvailable() ||
+        !quotaInfo || !quotaInfo.billing_account_id) return;
+    _setBillingBusy(true);
+    _setBillingStatus(t('billing.openingPlay'));
+    try {
+      const purchase = await _capPlugin('NativeBilling').purchase({
+        productId,
+        accountId: quotaInfo.billing_account_id,
+      });
+      if (!purchase || purchase.state === 'pending') {
+        _setBillingStatus(t('billing.pending'));
+        return;
+      }
+      _setBillingStatus(t('billing.verifying'));
+      const result = await _verifyPlayPurchase(purchase, productId);
+      await refreshQuota();
+      _setBillingStatus(t('billing.success', {count: result.credits_granted}));
+      setTimeout(() => {
+        if (!_billingBusy) closeBillingModal();
+      }, 1400);
+    } catch (error) {
+      if (error && error.code === 'purchase_cancelled') {
+        _setBillingStatus('');
+      } else if (error && error.code === 'purchase_pending') {
+        _setBillingStatus(t('billing.pending'));
+      } else {
+        console.warn('billing purchase failed', error);
+        _setBillingStatus(t('billing.failed'), true);
+      }
+    } finally {
+      _setBillingBusy(false);
+    }
+  }
+
+  async function _restorePlayPurchases() {
+    if (_billingRestoreStarted || !_billingAvailable() ||
+        !quotaInfo || !quotaInfo.billing_account_id) return;
+    _billingRestoreStarted = true;
+    try {
+      const result = await _capPlugin('NativeBilling').restorePurchases();
+      let restored = false;
+      for (const purchase of result && result.purchases || []) {
+        if (!purchase || purchase.state !== 'purchased') continue;
+        const productId = (purchase.products || []).find(id => BILLING_CREDITS[id]);
+        if (!productId) continue;
+        await _verifyPlayPurchase(purchase, productId);
+        restored = true;
+      }
+      if (restored) await refreshQuota();
+    } catch (error) {
+      // Restoration is best-effort. A network/Play outage is retried on the
+      // next full app session and must not interrupt the editing flow.
+      console.warn('billing restore failed', error);
+    }
   }
 
   async function pickNativeFile() {
@@ -3659,8 +3834,9 @@
     // Quota exhaustion isn't a malfunction - offer the WhatsApp unlock CTA
     // right in the error card (hidden again on any other error).
     const waCta = document.getElementById('errorWaCta');
+    const buyCta = document.getElementById('errorBuyCta');
     if (waCta) {
-      if (isQuota) {
+      if (isQuota && !_billingAvailable()) {
         waCta.querySelector('span').textContent = t('quota.waCta');
         waCta.href = _quotaWaUrl();
         waCta.style.display = 'inline-flex';
@@ -3668,6 +3844,8 @@
         waCta.style.display = 'none';
       }
     }
+    if (buyCta) buyCta.style.display =
+      isQuota && _billingAvailable() ? 'inline-flex' : 'none';
     // A failed job refunds its credit server-side; re-pull usage so the pill
     // reflects the refund (harmless no-op when nothing was charged).
     refreshQuota();
@@ -3806,6 +3984,8 @@
     document.getElementById('noticeBlockBody').textContent  = body;
     const _cta = document.getElementById('noticeBlockCta');
     if (_cta) _cta.style.display = 'none';   // only showQuotaExhausted reveals it
+    const _buy = document.getElementById('noticeBuyCta');
+    if (_buy) _buy.style.display = 'none';
     noticeBlock.classList.add('visible');
   }
   // Quota exhausted = a warm lead, not a dead end: the notice carries a
@@ -3816,13 +3996,16 @@
     return `https://wa.me/${WA_NUMBER}?text=` + encodeURIComponent(t('quota.waMsg'));
   }
   function showQuotaExhausted() {
-    showBlockNotice(t('quota.pillZero'), t('quota.exhausted'));
+    showBlockNotice(t('quota.pillZero'),
+      _billingAvailable() ? t('billing.exhausted') : t('quota.exhausted'));
     const cta = document.getElementById('noticeBlockCta');
-    if (cta) {
+    if (cta && !_billingAvailable()) {
       cta.querySelector('span').textContent = t('quota.waCta');
       cta.href = _quotaWaUrl();
       cta.style.display = 'inline-flex';
     }
+    const buy = document.getElementById('noticeBuyCta');
+    if (buy && _billingAvailable()) buy.style.display = 'inline-flex';
   }
   function showWarnNotice(title, body) {
     document.getElementById('noticeWarnTitle').textContent = title;
@@ -5086,8 +5269,10 @@
     if (e.key !== 'Escape') return;
     const legal = document.getElementById('legalOverlay');
     const contact = document.getElementById('contactOverlay');
+    const billing = document.getElementById('billingOverlay');
     if (legal && legal.style.display !== 'none') closeLegalModal();
     if (contact && contact.style.display !== 'none') closeContactModal();
+    if (billing && billing.style.display !== 'none') closeBillingModal();
   });
 
   // Transient AI-service failures (Anthropic 529 "Overloaded", 429, 5xx) reach
@@ -6304,7 +6489,7 @@
     if (u.role !== 'admin') {
       const inp = document.createElement('input');
       inp.type = 'number'; inp.min = -1; inp.max = 100000;
-      inp.value = u.video_limit;
+      inp.value = u.base_video_limit == null ? u.video_limit : u.base_video_limit;
       inp.className = 'admin-limit-input';
       const btn = document.createElement('button');
       btn.className = 'admin-save-btn';

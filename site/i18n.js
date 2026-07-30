@@ -469,11 +469,26 @@
     'sched.captionFailed': { en: "Couldn't generate a caption ({msg}). You can write one manually.", he: 'יצירת הכיתוב נכשלה ({msg}). אפשר לכתוב אחד ידנית.' },
 
     // ── Quota / admin ──
-    'quota.pill':       { en: '{left} of {limit} trial videos left', he: 'נשארו {left} מתוך {limit} סרטוני ניסיון' },
-    'quota.pillZero':   { en: 'Trial videos used up', he: 'מכסת סרטוני הניסיון נוצלה' },
-    'quota.exhausted':  { en: 'You have used all your free trial videos. Want more? Send me a WhatsApp message and I will unlock extra videos for you.', he: 'ניצלתם את כל סרטוני הניסיון. רוצים עוד? שלחו לי הודעה בוואטסאפ ואפתח לכם סרטונים נוספים.' },
+    'quota.pill':       { en: '{left} video credits left', he: 'נותרו {left} קרדיטים לסרטונים' },
+    'quota.pillZero':   { en: 'No video credits left', he: 'לא נותרו קרדיטים לסרטונים' },
+    'quota.exhausted':  { en: 'You have used all your video credits. Want more? Send me a WhatsApp message and I will add more for you.', he: 'ניצלתם את כל הקרדיטים לסרטונים. רוצים עוד? שלחו לי הודעה בוואטסאפ ואוסיף לכם קרדיטים.' },
     'quota.waCta':      { en: 'Message on WhatsApp', he: 'שליחת הודעה בוואטסאפ' },
-    'quota.waMsg':      { en: 'Hi! I used up my free trial videos on Pipeline and I would love to get more', he: 'היי! ניצלתי את סרטוני הניסיון בפייפליין ואשמח לקבל עוד' },
+    'quota.waMsg':      { en: 'Hi! I used up my video credits on Pipeline and I would love to get more', he: 'היי! ניצלתי את הקרדיטים לסרטונים בפייפליין ואשמח לקבל עוד' },
+    'billing.open':     { en: 'Buy more video credits', he: 'רכישת קרדיטים נוספים לסרטונים' },
+    'billing.title':    { en: 'Buy video credits', he: 'רכישת קרדיטים לסרטונים' },
+    'billing.subtitle': { en: 'One credit processes one video. Credits do not expire.', he: 'קרדיט אחד מעבד סרטון אחד. הקרדיטים אינם פגים.' },
+    'billing.buyCredits': { en: 'Buy credits', he: 'רכישת קרדיטים' },
+    'billing.pack':     { en: '{count} video credits', he: '{count} קרדיטים לסרטונים' },
+    'billing.packDetail': { en: 'Process {count} videos', he: 'עיבוד {count} סרטונים' },
+    'billing.loading':  { en: 'Loading Google Play prices…', he: 'טוען מחירים מ-Google Play…' },
+    'billing.openingPlay': { en: 'Opening Google Play…', he: 'פותח את Google Play…' },
+    'billing.verifying': { en: 'Verifying your purchase…', he: 'מאמת את הרכישה…' },
+    'billing.pending':  { en: 'Payment is pending. Credits will appear after Google Play confirms it.', he: 'התשלום בהמתנה. הקרדיטים יופיעו לאחר אישור Google Play.' },
+    'billing.success':  { en: '{count} credits added successfully.', he: '{count} קרדיטים נוספו בהצלחה.' },
+    'billing.failed':   { en: 'We could not confirm the purchase yet. If Google Play completed the payment, reopen the app and the credits will be restored.', he: 'עדיין לא הצלחנו לאמת את הרכישה. אם Google Play השלימה את התשלום, פתחו מחדש את האפליקציה והקרדיטים ישוחזרו.' },
+    'billing.unavailable': { en: 'Credit packs are not available from Google Play yet. Please try again later.', he: 'חבילות הקרדיטים עדיין אינן זמינות ב-Google Play. נסו שוב מאוחר יותר.' },
+    'billing.secure':   { en: 'Payment is handled securely by Google Play.', he: 'התשלום מטופל באופן מאובטח על ידי Google Play.' },
+    'billing.exhausted': { en: 'You have used all your video credits. Choose a Google Play pack to keep creating.', he: 'ניצלתם את כל הקרדיטים לסרטונים. בחרו חבילה ב-Google Play כדי להמשיך ליצור.' },
     'tab.admin':        { en: 'Admin', he: 'ניהול' },
 
     // ── Guide tab ──
@@ -505,7 +520,7 @@
     'guide.metricool.title': { en: 'Connecting Metricool', he: 'חיבור Metricool' },
     'guide.metricool.body':  { en: 'Metricool is the service that publishes your scheduled posts. Connecting is a one-time step.<ul><li>Tap the Connect Metricool chip at the top of the app and link your account.</li><li>Once connected, the chip shows your connection - tap it to disconnect.</li><li>Each user connects their own Metricool account.</li></ul>', he: 'Metricool הוא השירות שמפרסם את הפוסטים המתוזמנים שלכם. החיבור הוא פעולה חד-פעמית.<ul><li>הקישו על תווית "חיבור Metricool" בראש האפליקציה וחברו את החשבון.</li><li>אחרי החיבור, התווית מציגה את החיבור - הקישו עליה כדי להתנתק.</li><li>כל משתמש מחבר את חשבון ה-Metricool שלו.</li></ul>' },
     'guide.account.title': { en: 'Account &amp; credits', he: 'חשבון וקרדיטים' },
-    'guide.account.body':  { en: '<ul><li>Each account has a limited number of free video credits. One credit is used every time you process a video (the Options step). If processing fails, the credit is returned.</li><li>Your remaining credits show in the pill at the top of the app.</li><li>Need more credits or help? Use the Contact link in the footer.</li></ul>', he: '<ul><li>לכל חשבון יש מספר מוגבל של קרדיטים חינמיים לסרטונים. קרדיט אחד מנוצל בכל עיבוד סרטון (שלב האפשרויות). אם העיבוד נכשל, הקרדיט מוחזר.</li><li>הקרדיטים שנותרו מוצגים בתווית שבראש האפליקציה.</li><li>צריכים עוד קרדיטים או עזרה? השתמשו בקישור "צרו קשר" בתחתית.</li></ul>' },
+    'guide.account.body':  { en: '<ul><li>Each account starts with free video credits. One credit is used every time you process a video (the Options step). If processing fails, the credit is returned.</li><li>Your remaining credits show in the pill at the top of the app.</li><li>In the Android app, tap the credits pill to buy a non-expiring pack securely through Google Play.</li><li>Need help? Use the Contact link in the footer.</li></ul>', he: '<ul><li>כל חשבון מתחיל עם קרדיטים חינמיים לסרטונים. קרדיט אחד מנוצל בכל עיבוד סרטון (שלב האפשרויות). אם העיבוד נכשל, הקרדיט מוחזר.</li><li>הקרדיטים שנותרו מוצגים בתווית שבראש האפליקציה.</li><li>באפליקציית Android, הקישו על תווית הקרדיטים כדי לרכוש חבילה שאינה פגה באופן מאובטח דרך Google Play.</li><li>צריכים עזרה? השתמשו בקישור "צרו קשר" בתחתית.</li></ul>' },
     'admin.title':      { en: 'User Limits', he: 'מכסות משתמשים' },
     'admin.note':       { en: 'How many videos each account can process (minus 1 = unlimited).', he: 'כמה סרטונים כל חשבון יכול לעבד (מינוס 1 = בלי הגבלה).' },
     'admin.loading':    { en: 'Loading…', he: 'טוען…' },
@@ -522,8 +537,8 @@
     'admin.pwTooShort': { en: 'Min 8 chars', he: 'לפחות 8 תווים' },
 
     'hero.hello': { en: 'Hello, {name}', he: 'שלום, {name}' },
-    'quota.confirmTitle': { en: 'Use 1 trial video?', he: 'להשתמש בסרטון ניסיון אחד?' },
-    'quota.confirmBody':  { en: 'You have {left} of {limit} trial videos left. Processing this video will use one of them.', he: 'נשארו לכם {left} מתוך {limit} סרטוני ניסיון. עיבוד הסרטון ישתמש באחד מהם.' },
+    'quota.confirmTitle': { en: 'Use 1 video credit?', he: 'להשתמש בקרדיט אחד לסרטון?' },
+    'quota.confirmBody':  { en: 'You have {left} video credits left. Processing this video will use one.', he: 'נותרו לכם {left} קרדיטים לסרטונים. עיבוד הסרטון ישתמש בקרדיט אחד.' },
     'quota.confirmOk':    { en: 'Process video', he: 'עיבוד הסרטון' },
 
     // ── Language toggle ──

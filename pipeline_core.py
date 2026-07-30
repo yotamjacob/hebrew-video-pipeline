@@ -142,6 +142,7 @@ progress_store = modal.Dict.from_name("hebpipe-progress", create_if_missing=True
 users_store = modal.Dict.from_name("hebpipe-users", create_if_missing=True)   # email (legacy: username) → {uid, salt, pw, created}
 calls_store = modal.Dict.from_name("hebpipe-calls", create_if_missing=True)   # call_id  → {uid, ts}
 quota_store = modal.Dict.from_name("hebpipe-quota", create_if_missing=True)   # f"{uid}:{call_id}" → ts (one unique entry per consumed credit)
+purchases_store = modal.Dict.from_name("hebpipe-purchases", create_if_missing=True)  # play:<token hash> → immutable verified credit grant
 fcm_store   = modal.Dict.from_name("hebpipe-fcm", create_if_missing=True)     # uid → [device FCM tokens] for "video ready" push notifications
 errors_store = modal.Dict.from_name("hebpipe-errors", create_if_missing=True)  # e:{ts}:{uid} → error report (admin alerting + /admin/errors)
 # Deferred processing jobs: full upload key → {params, uid, uname, uprefix,
@@ -452,15 +453,24 @@ def _owned_key(key: str, uid: str) -> bool:
 # admin if their username is in the ADMIN_USERS env var (comma-separated, in
 # the hebpipe-auth secret) OR their record has role == "admin".
 DEFAULT_VIDEO_LIMIT = 5
+PLAY_PACKAGE_NAME = "com.heb.pipeline"
+PLAY_CREDIT_PRODUCTS = {
+    "pipeline_credits_5": 5,
+    "pipeline_credits_20": 20,
+    "pipeline_credits_50": 50,
+}
 
 
-def _quota_state(rec: dict, admin_users: str = None, username: str = None):
+def _quota_state(rec: dict, admin_users: str = None, username: str = None,
+                 purchased_credits: int = 0):
     """(is_admin, used, limit) for a user record. limit -1 = unlimited."""
     admins = {u.strip().lower() for u in (admin_users or "").split(",") if u.strip()}
     is_admin = bool(username and username.lower() in admins) or (rec or {}).get("role") == "admin"
     used = int((rec or {}).get("videos_used", 0) or 0)
     limit = (rec or {}).get("video_limit", DEFAULT_VIDEO_LIMIT)
     limit = -1 if limit is None else int(limit)
+    if limit >= 0:
+        limit += max(0, int(purchased_credits or 0))
     return is_admin, used, limit
 
 
@@ -482,6 +492,86 @@ def _count_quota_used(store, uid: str) -> int:
         return sum(1 for k in store.keys() if isinstance(k, str) and k.startswith(prefix))
     except Exception:
         return 0
+
+
+def _billing_account_id(uid: str) -> str:
+    """Opaque, stable Play Billing account binding (never exposes the uid)."""
+    import hashlib
+    return hashlib.sha256(f"hebpipe-play:{uid}".encode("utf-8")).hexdigest()
+
+
+def _purchase_ledger_key(purchase_token: str) -> str:
+    """Hash the Play token before using it as a durable ledger key."""
+    import hashlib
+    return "play:" + hashlib.sha256(purchase_token.encode("utf-8")).hexdigest()
+
+
+def _count_purchased_credits(store, uid: str) -> int:
+    """Authoritative total from unique, server-verified purchase grants."""
+    total = 0
+    try:
+        for key in store.keys():
+            if not isinstance(key, str) or not key.startswith("play:"):
+                continue
+            rec = store.get(key)
+            if isinstance(rec, dict) and rec.get("uid") == uid and rec.get("state") == "granted":
+                total += max(0, int(rec.get("credits", 0) or 0))
+    except Exception:
+        return total
+    return total
+
+
+def _apply_voided_play_purchases(store, voided_purchases: list,
+                                 now: float) -> int:
+    """Revoke grants matched by Play's refund/chargeback purchase tokens."""
+    revoked = 0
+    for voided in voided_purchases or []:
+        token = voided.get("purchaseToken") if isinstance(voided, dict) else None
+        if not token:
+            continue
+        key = _purchase_ledger_key(str(token))
+        rec = store.get(key)
+        if not isinstance(rec, dict) or rec.get("state") != "granted":
+            continue
+        updated = dict(rec)
+        updated.update({
+            "state": "revoked",
+            "revoked_ts": now,
+            "voided_reason": voided.get("voidedReason"),
+            "voided_source": voided.get("voidedSource"),
+        })
+        store[key] = updated
+        revoked += 1
+    return revoked
+
+
+def _parse_play_purchase(payload: dict, expected_product: str,
+                         expected_account_id: str) -> dict:
+    """Validate a ProductPurchaseV2 response and return normalized grant data."""
+    if not isinstance(payload, dict):
+        raise ValueError("invalid_purchase")
+    state = (payload.get("purchaseStateContext") or {}).get("purchaseState")
+    if state != "PURCHASED":
+        raise ValueError("purchase_pending" if state == "PENDING" else "purchase_not_completed")
+    if payload.get("obfuscatedExternalAccountId") != expected_account_id:
+        raise ValueError("purchase_account_mismatch")
+    items = payload.get("productLineItem") or []
+    item = next((line for line in items
+                 if isinstance(line, dict) and line.get("productId") == expected_product), None)
+    if not item:
+        raise ValueError("purchase_product_mismatch")
+    # ProductPurchaseV2 nests quantity under productOfferDetails (not directly
+    # on ProductLineItem). Multi-quantity is not enabled in the Android flow,
+    # but validating it here keeps the server correct if it is enabled later.
+    offer = item.get("productOfferDetails") or {}
+    quantity = max(1, min(100, int(offer.get("quantity", 1) or 1)))
+    return {
+        "product_id": expected_product,
+        "quantity": quantity,
+        "order_id": str(payload.get("orderId") or "")[:160],
+        "region": str(payload.get("regionCode") or "")[:8],
+        "test": bool(payload.get("testPurchaseContext")),
+    }
 
 
 def _usage_since(quota_store, since_ts: float):
@@ -774,4 +864,3 @@ def _poll_fn_call(fn_call):
             return None, True
         # Terminal error — ensure non-empty message for send_error downstream
         raise RuntimeError(str(e) or name) from e
-

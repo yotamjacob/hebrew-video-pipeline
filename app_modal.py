@@ -17,7 +17,7 @@ import modal
 
 from pipeline_core import (
     light_image,
-    jobs_store, progress_store, users_store, calls_store, quota_store, fcm_store,
+    jobs_store, progress_store, users_store, calls_store, quota_store, purchases_store, fcm_store,
     pending_store, errors_store, _alert_admins,
     codes_store, _normalize_email, _gen_login_code,
     _verify_google_id_token, GOOGLE_WEB_CLIENT_ID,
@@ -31,11 +31,94 @@ from pipeline_core import (
     EMAIL_VERIFY_TTL_SECONDS,
     _user_prefix, _owned_key, _broll_item_safe,
     DEFAULT_VIDEO_LIMIT, _quota_state, _quota_allows, _count_quota_used,
+    PLAY_PACKAGE_NAME, PLAY_CREDIT_PRODUCTS, _billing_account_id,
+    _purchase_ledger_key, _count_purchased_credits, _parse_play_purchase,
+    _apply_voided_play_purchases,
 )
 
 # Public base URLs used to build email links. SITE_URL can be overridden via
 # env once a custom domain is set; the API base is stable.
 API_BASE_URL = "https://yotamjacob--hebrew-video-pipeline-api.modal.run"
+
+
+def _google_play_api(method: str, url: str):
+    """Authenticated Android Publisher request using the mounted service account."""
+    import json as _json
+    import os as _os
+    import requests as _requests
+    from google.oauth2 import service_account
+    from google.auth.transport.requests import Request
+
+    raw = _os.environ.get("PLAY_SERVICE_ACCOUNT_JSON") or _os.environ.get("FCM_SERVICE_ACCOUNT")
+    if not raw:
+        raise RuntimeError("play_billing_credentials_missing")
+    info = _json.loads(raw)
+    creds = service_account.Credentials.from_service_account_info(
+        info, scopes=["https://www.googleapis.com/auth/androidpublisher"])
+    creds.refresh(Request())
+    response = _requests.request(
+        method, url, headers={"Authorization": f"Bearer {creds.token}"},
+        timeout=20)
+    if not response.ok:
+        raise RuntimeError(f"play_api_{response.status_code}")
+    return response.json() if response.content else {}
+
+
+def _fetch_google_play_purchase(product_id: str, purchase_token: str):
+    from urllib.parse import quote
+    package = quote(PLAY_PACKAGE_NAME, safe="")
+    token = quote(purchase_token, safe="")
+    return _google_play_api(
+        "GET",
+        f"https://androidpublisher.googleapis.com/androidpublisher/v3/"
+        f"applications/{package}/purchases/productsv2/tokens/{token}")
+
+
+def _consume_google_play_purchase(product_id: str, purchase_token: str):
+    from urllib.parse import quote
+    package = quote(PLAY_PACKAGE_NAME, safe="")
+    product = quote(product_id, safe="")
+    token = quote(purchase_token, safe="")
+    return _google_play_api(
+        "POST",
+        f"https://androidpublisher.googleapis.com/androidpublisher/v3/"
+        f"applications/{package}/purchases/products/{product}/tokens/{token}:consume")
+
+
+@app.function(image=light_image, schedule=modal.Period(hours=6),
+              secrets=[modal.Secret.from_name("hebpipe-fcm")])
+def reconcile_voided_play_purchases() -> dict:
+    """Revoke credits for Play refunds/chargebacks (last 30 days, paginated)."""
+    import time
+    from urllib.parse import quote
+
+    package = quote(PLAY_PACKAGE_NAME, safe="")
+    base = (
+        "https://androidpublisher.googleapis.com/androidpublisher/v3/"
+        f"applications/{package}/purchases/voidedpurchases"
+        "?type=0&pageSelection.maxResults=1000"
+    )
+    rows = []
+    page_token = None
+    try:
+        while True:
+            url = base
+            if page_token:
+                url += "&pageSelection.token=" + quote(page_token, safe="")
+            result = _google_play_api("GET", url)
+            rows.extend(result.get("voidedPurchases") or [])
+            page_token = (result.get("tokenPagination") or {}).get("nextPageToken")
+            if not page_token:
+                break
+        revoked = _apply_voided_play_purchases(
+            purchases_store, rows, time.time())
+        print(f"[billing] reconciled {len(rows)} voided purchase(s); revoked {revoked}")
+        return {"ok": True, "seen": len(rows), "revoked": revoked}
+    except Exception as exc:
+        # A deploy before Play Console permission is configured must stay
+        # healthy. The next scheduled pass retries automatically.
+        print(f"[billing] voided-purchase reconciliation unavailable: {exc!r}")
+        return {"ok": False, "error": str(exc)[:120]}
 
 
 async def _receive_stream_upload(receive, write_chunk, flush_bytes=4 * 1024 * 1024):
@@ -731,14 +814,106 @@ def api():
         if path in ("/auth/me", "/auth/me/") and method == "GET":
             import os as _os
             uname, urec = _user_by_uid()
-            is_admin, used, limit = _quota_state(urec, _os.environ.get("ADMIN_USERS"), uname)
+            purchased = _count_purchased_credits(purchases_store, uid)
+            is_admin, used, limit = _quota_state(
+                urec, _os.environ.get("ADMIN_USERS"), uname, purchased)
+            if not is_admin:
+                used = max(used, _count_quota_used(quota_store, uid))
+            raw_base_limit = (urec or {}).get("video_limit", DEFAULT_VIDEO_LIMIT)
+            base_limit = -1 if raw_base_limit is None else int(raw_base_limit)
             body = json.dumps({"username": uname,
                                "role": "admin" if is_admin else "user",
                                "videos_used": used,
                                "video_limit": None if is_admin else limit,
+                               "base_video_limit": None if is_admin else base_limit,
+                               "purchased_credits": purchased,
+                               "billing_account_id": _billing_account_id(uid),
                                "email": (urec or {}).get("email", ""),
                                "email_verified": bool((urec or {}).get("email_verified", False)),
                                "marketing_consent": bool((urec or {}).get("marketing_consent", False))}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── Google Play consumable credit packs ──
+        # The client supplies only the Play token + immutable product id. Play
+        # is the authority for purchase state, product, quantity, and the
+        # obfuscated account binding. The ledger key hashes the token and the
+        # total quota is derived from unique grants, making retries idempotent.
+        if path in ("/billing/play/verify", "/billing/play/verify/") and method == "POST":
+            import os as _os
+            import time as _time
+            if not _check_rate_limit(_get_client_ip(scope)):
+                await send_error("Rate limit exceeded", 429, code="rate_limited")
+                return
+            try:
+                data = json.loads((await _read_body(receive)).decode("utf-8"))
+            except Exception:
+                await send_error("Invalid request body", 400, code="invalid_purchase")
+                return
+            product_id = str(data.get("product_id") or "").strip()
+            purchase_token = str(data.get("purchase_token") or "").strip()
+            if product_id not in PLAY_CREDIT_PRODUCTS or not (16 <= len(purchase_token) <= 4096):
+                await send_error("Invalid Play purchase", 400, code="invalid_purchase")
+                return
+
+            ledger_key = _purchase_ledger_key(purchase_token)
+            grant = purchases_store.get(ledger_key)
+            if grant:
+                if grant.get("uid") != uid or grant.get("product_id") != product_id:
+                    await send_error("Purchase belongs to another account", 409,
+                                     code="purchase_account_mismatch")
+                    return
+            else:
+                try:
+                    play_payload = await asyncio.to_thread(
+                        _fetch_google_play_purchase, product_id, purchase_token)
+                    verified = _parse_play_purchase(
+                        play_payload, product_id, _billing_account_id(uid))
+                except ValueError as exc:
+                    code = str(exc)
+                    status = 409 if code == "purchase_account_mismatch" else 400
+                    await send_error("Play purchase is not ready", status, code=code)
+                    return
+                except Exception as exc:
+                    print(f"[billing] verification unavailable: {exc!r}")
+                    await send_error("Play purchase verification is temporarily unavailable",
+                                     503, code="billing_unavailable")
+                    return
+                credits = PLAY_CREDIT_PRODUCTS[product_id] * verified["quantity"]
+                grant = {
+                    "uid": uid, "provider": "google_play",
+                    "product_id": product_id, "credits": credits,
+                    "quantity": verified["quantity"],
+                    "order_id": verified["order_id"],
+                    "region": verified["region"], "test": verified["test"],
+                    "state": "granted", "ts": _time.time(),
+                }
+                # Grant first, consume second. If consumption has a transient
+                # failure, the next restore safely retries without re-granting.
+                purchases_store[ledger_key] = grant
+
+            consume_pending = False
+            try:
+                await asyncio.to_thread(
+                    _consume_google_play_purchase, product_id, purchase_token)
+            except Exception as exc:
+                consume_pending = True
+                print(f"[billing] consume retry needed for {ledger_key[-12:]}: {exc!r}")
+
+            uname, urec = _user_by_uid()
+            purchased = _count_purchased_credits(purchases_store, uid)
+            is_admin, used, limit = _quota_state(
+                urec, _os.environ.get("ADMIN_USERS"), uname, purchased)
+            if not is_admin:
+                used = max(used, _count_quota_used(quota_store, uid))
+            body = json.dumps({
+                "ok": True, "credits_granted": grant["credits"],
+                "purchased_credits": purchased, "videos_used": used,
+                "video_limit": None if is_admin else limit,
+                "consume_pending": consume_pending,
+            }).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})
@@ -1268,7 +1443,9 @@ def api():
 
             import os as _os, time as _time
             uname, urec = _user_by_uid()
-            is_admin, used, limit = _quota_state(urec, _os.environ.get("ADMIN_USERS"), uname)
+            purchased = _count_purchased_credits(purchases_store, uid)
+            is_admin, used, limit = _quota_state(
+                urec, _os.environ.get("ADMIN_USERS"), uname, purchased)
             if not is_admin:
                 # Authoritative count from unique per-credit keys (race-proof);
                 # the record's videos_used is a floor so existing testers'
@@ -1401,10 +1578,17 @@ def api():
                 _r = users_store.get(_u)
                 if not isinstance(_r, dict):
                     continue
-                _adm, _used, _limit = _quota_state(_r, _os.environ.get("ADMIN_USERS"), _u)
+                _raw_base_limit = _r.get("video_limit", DEFAULT_VIDEO_LIMIT)
+                _base_limit = -1 if _raw_base_limit is None else int(_raw_base_limit)
+                _purchased = _count_purchased_credits(
+                    purchases_store, str(_r.get("uid") or ""))
+                _adm, _used, _limit = _quota_state(
+                    _r, _os.environ.get("ADMIN_USERS"), _u, _purchased)
                 out.append({"username": _u, "role": "admin" if _adm else "user",
                             "videos_used": _used,
                             "video_limit": None if _adm else _limit,
+                            "base_video_limit": None if _adm else _base_limit,
+                            "purchased_credits": _purchased,
                             "src": _r.get("signup_src"),
                             "created": _r.get("created")})
             out.sort(key=lambda r: r.get("created") or 0)
