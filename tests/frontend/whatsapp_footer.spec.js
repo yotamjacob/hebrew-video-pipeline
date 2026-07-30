@@ -18,6 +18,24 @@ test('each footer has a localized WhatsApp feedback button', async ({ page }) =>
   await expect(page.locator('p.footer:visible .footer-whatsapp')).toContainText('משוב בוואטסאפ');
 });
 
+test('the WhatsApp button uses the same design as every footer action', async ({ page }) => {
+  const links = page.locator('p.footer:visible .footer-contact');
+  const styles = await links.evaluateAll(elements => elements.map(element => {
+    const style = getComputedStyle(element);
+    return {
+      color: style.color,
+      backgroundColor: style.backgroundColor,
+      borderColor: style.borderColor,
+      borderWidth: style.borderWidth,
+      borderRadius: style.borderRadius,
+      fontWeight: style.fontWeight,
+      padding: style.padding,
+    };
+  }));
+  expect(styles.length).toBeGreaterThan(1);
+  expect(new Set(styles.map(style => JSON.stringify(style))).size).toBe(1);
+});
+
 test('the floating WhatsApp button and its tooltip are removed', async ({ page }) => {
   await expect(page.locator('#waFab, .wa-fab, .wa-fab-btn, .wa-fab-bubble')).toHaveCount(0);
   await expect(page.getByText('בעיה? משוב? ספרו לנו')).toHaveCount(0);

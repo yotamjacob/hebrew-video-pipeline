@@ -1657,11 +1657,6 @@
     }
     .footer-contact:hover { color: var(--purple-700); border-color: var(--purple-700); }
     .footer-contact + .footer-contact { margin-inline-start: 10px; margin-top: 6px; }
-    .footer-whatsapp {
-      color: #18783b;
-      border-color: #49a568;
-    }
-    .footer-whatsapp:hover { color: #0f5f2b; border-color: #18783b; }
     /* Frontend version marker (injected by app.js into every footer). */
     .footer-version {
       display: block; width: fit-content; margin: 10px auto 0;
