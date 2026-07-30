@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.19';
+  const APP_VERSION = '1.10.20';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -391,8 +391,10 @@
       ? t('quota.pill', {left: left, limit: quotaInfo.video_limit})
       : t('quota.pillZero');
     pill.classList.toggle('quota-pill-empty', left === 0);
-    pill.classList.toggle('billing-enabled', _billingAvailable());
-    pill.title = _billingAvailable() ? t('billing.open') : '';
+    pill.classList.toggle('billing-enabled', left === 0);
+    pill.title = left === 0
+      ? (_billingAvailable() ? t('billing.open') : t('billing.openPlayStore'))
+      : '';
     pill.style.display = '';
   }
 
@@ -1367,6 +1369,34 @@
 
   function _billingAvailable() {
     return _isNative() && !!_capPlugin('NativeBilling');
+  }
+
+  const PLAY_STORE_URL =
+    'https://play.google.com/store/apps/details?id=com.heb.pipeline';
+
+  function _playStoreQuotaCopy() {
+    return _isNative() ? t('billing.updateRequired') : t('billing.webOnly');
+  }
+
+  function _configurePlayStoreCta(element) {
+    if (!element) return;
+    element.href = PLAY_STORE_URL;
+    const label = element.querySelector('span');
+    if (label) {
+      label.textContent = _isNative()
+        ? t('billing.updateApp')
+        : t('billing.getAndroidApp');
+    }
+  }
+
+  function openQuotaPurchase() {
+    if (!_quotaExhausted()) return;
+    if (_billingAvailable()) {
+      openBillingModal();
+      return;
+    }
+    const opened = window.open(PLAY_STORE_URL, '_blank', 'noopener');
+    if (!opened) window.location.href = PLAY_STORE_URL;
   }
 
   function _initBillingListener() {
@@ -3829,20 +3859,18 @@
   function showError(msg) {
     const isQuota = /limit_reached/.test(msg);
     if (!isQuota) _reportError(flowStage, msg);   // quota-exhausted isn't a malfunction
-    if (isQuota) msg = t('quota.exhausted');
+    if (isQuota) {
+      msg = _billingAvailable() ? t('billing.exhausted') : _playStoreQuotaCopy();
+    }
     if (/no_audio/.test(msg)) msg = t('err.noAudio');
-    // Quota exhaustion isn't a malfunction - offer the WhatsApp unlock CTA
-    // right in the error card (hidden again on any other error).
-    const waCta = document.getElementById('errorWaCta');
+    // Quota exhaustion isn't a malfunction. Current Android shells purchase
+    // in-app; web and old shells go only to the app's Play Store listing.
+    const playCta = document.getElementById('errorPlayCta');
     const buyCta = document.getElementById('errorBuyCta');
-    if (waCta) {
-      if (isQuota && !_billingAvailable()) {
-        waCta.querySelector('span').textContent = t('quota.waCta');
-        waCta.href = _quotaWaUrl();
-        waCta.style.display = 'inline-flex';
-      } else {
-        waCta.style.display = 'none';
-      }
+    if (playCta) {
+      _configurePlayStoreCta(playCta);
+      playCta.style.display =
+        isQuota && !_billingAvailable() ? 'inline-flex' : 'none';
     }
     if (buyCta) buyCta.style.display =
       isQuota && _billingAvailable() ? 'inline-flex' : 'none';
@@ -3982,27 +4010,21 @@
   function showBlockNotice(title, body) {
     document.getElementById('noticeBlockTitle').textContent = title;
     document.getElementById('noticeBlockBody').textContent  = body;
-    const _cta = document.getElementById('noticeBlockCta');
-    if (_cta) _cta.style.display = 'none';   // only showQuotaExhausted reveals it
+    const _play = document.getElementById('noticePlayCta');
+    if (_play) _play.style.display = 'none';   // only showQuotaExhausted reveals it
     const _buy = document.getElementById('noticeBuyCta');
     if (_buy) _buy.style.display = 'none';
     noticeBlock.classList.add('visible');
   }
-  // Quota exhausted = a warm lead, not a dead end: the notice carries a
-  // WhatsApp CTA (same number as the feedback FAB) with a prefilled message
-  // so asking for more videos is one tap.
-  const WA_NUMBER = '972528828232';
-  function _quotaWaUrl() {
-    return `https://wa.me/${WA_NUMBER}?text=` + encodeURIComponent(t('quota.waMsg'));
-  }
+  // Quota exhausted = a warm lead, not a dead end. Purchase in the current
+  // Android shell; web and old shells route to Google Play to install/update.
   function showQuotaExhausted() {
     showBlockNotice(t('quota.pillZero'),
-      _billingAvailable() ? t('billing.exhausted') : t('quota.exhausted'));
-    const cta = document.getElementById('noticeBlockCta');
-    if (cta && !_billingAvailable()) {
-      cta.querySelector('span').textContent = t('quota.waCta');
-      cta.href = _quotaWaUrl();
-      cta.style.display = 'inline-flex';
+      _billingAvailable() ? t('billing.exhausted') : _playStoreQuotaCopy());
+    const play = document.getElementById('noticePlayCta');
+    if (play && !_billingAvailable()) {
+      _configurePlayStoreCta(play);
+      play.style.display = 'inline-flex';
     }
     const buy = document.getElementById('noticeBuyCta');
     if (buy && _billingAvailable()) buy.style.display = 'inline-flex';

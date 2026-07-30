@@ -29,11 +29,17 @@ test('pill turns red and run is blocked when the limit is used up', async ({ pag
   await page.waitForSelector('#runBtn:not([disabled])');
   await page.click('#runBtn');
   await expect(page.locator('#noticeBlock')).toBeVisible();
-  await expect(page.locator('#noticeBlockBody')).toContainText('שלחו לי הודעה בוואטסאפ');
-  // The notice carries a one-tap WhatsApp CTA with a prefilled message.
-  const cta = page.locator('#noticeBlockCta');
+  await expect(page.locator('#noticeBlockBody')).toContainText('Google Play');
+  // Web users go to the Android app listing; payment is never arranged over
+  // WhatsApp or another checkout.
+  const cta = page.locator('#noticePlayCta');
   await expect(cta).toBeVisible();
-  await expect(cta).toHaveAttribute('href', /wa\.me\/972528828232\?text=/);
+  await expect(cta).toContainText('הורדת אפליקציית Android');
+  await expect(cta).toHaveAttribute(
+    'href',
+    'https://play.google.com/store/apps/details?id=com.heb.pipeline',
+  );
+  await expect(page.locator('#noticeBlock a[href*="wa.me"]')).toHaveCount(0);
   expect(processCalled).toBe(false);
 });
 
@@ -50,11 +56,14 @@ test('server 402 limit_reached maps to the friendly message', async ({ page }) =
   await page.waitForSelector('#runBtn:not([disabled])');
   await page.click('#runBtn');
   await page.click('#confirmOk');   // quota confirmation modal
-  await expect(page.locator('#errorMsg')).toContainText('שלחו לי הודעה בוואטסאפ', { timeout: 10_000 });
-  // The error card shows the WhatsApp unlock CTA too.
-  const waCta = page.locator('#errorWaCta');
-  await expect(waCta).toBeVisible();
-  await expect(waCta).toHaveAttribute('href', /wa\.me\/972528828232\?text=/);
+  await expect(page.locator('#errorMsg')).toContainText('Google Play', { timeout: 10_000 });
+  const playCta = page.locator('#errorPlayCta');
+  await expect(playCta).toBeVisible();
+  await expect(playCta).toHaveAttribute(
+    'href',
+    'https://play.google.com/store/apps/details?id=com.heb.pipeline',
+  );
+  await expect(page.locator('#statusError a[href*="wa.me"]')).toHaveCount(0);
 });
 
 test('a failed job refreshes the quota pill so a refunded credit shows', async ({ page }) => {
@@ -83,8 +92,8 @@ test('a failed job refreshes the quota pill so a refunded credit shows', async (
   // no_audio maps to the friendly Hebrew message, and the pill shows the refund.
   await expect(page.locator('#errorMsg')).toContainText('אין פס קול');
   await expect(pill).toHaveText('נותרו 4 קרדיטים לסרטונים');
-  // The WhatsApp unlock CTA is quota-only - hidden on a regular error.
-  await expect(page.locator('#errorWaCta')).toBeHidden();
+  // The Play Store purchase CTA is quota-only - hidden on a regular error.
+  await expect(page.locator('#errorPlayCta')).toBeHidden();
 });
 
 test('non-admin confirms before spending a video credit; cancel spends nothing', async ({ page }) => {

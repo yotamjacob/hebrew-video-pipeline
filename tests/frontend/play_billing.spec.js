@@ -50,7 +50,7 @@ test('native exhausted state opens localized Google Play credit packs', async ({
 
   await page.evaluate(() => showQuotaExhausted());
   await expect(page.locator('#noticeBuyCta')).toBeVisible();
-  await expect(page.locator('#noticeBlockCta')).toBeHidden();
+  await expect(page.locator('#noticePlayCta')).toBeHidden();
   await page.locator('#noticeBuyCta').click();
 
   const packs = page.locator('.billing-product');
@@ -58,6 +58,56 @@ test('native exhausted state opens localized Google Play credit packs', async ({
   await expect(packs.nth(0)).toContainText('5 קרדיטים לסרטונים');
   await expect(packs.nth(0)).toContainText('₪49.00');
   await expect(packs.nth(2)).toContainText('₪299.00');
+});
+
+test('web exhausted-credit actions open the Pipeline Play Store listing', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__openedPlayUrl = null;
+    window.open = url => {
+      window.__openedPlayUrl = url;
+      return {};
+    };
+  });
+  await bootApp(page, {
+    me: {
+      username: 'tester',
+      role: 'user',
+      videos_used: 5,
+      video_limit: 5,
+    },
+  });
+
+  await page.locator('#quotaPill').click();
+  await expect.poll(() => page.evaluate(() => window.__openedPlayUrl)).toBe(
+    'https://play.google.com/store/apps/details?id=com.heb.pipeline',
+  );
+});
+
+test('an older native shell routes to a Play update, never WhatsApp', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.Capacitor = {
+      isNativePlatform: () => true,
+      Plugins: {},
+    };
+  });
+  await bootApp(page, {
+    me: {
+      username: 'tester',
+      role: 'user',
+      videos_used: 5,
+      video_limit: 5,
+    },
+  });
+
+  await page.evaluate(() => showQuotaExhausted());
+  await expect(page.locator('#noticeBlockBody')).toContainText('עדכנו את פייפליין');
+  await expect(page.locator('#noticePlayCta')).toContainText('עדכון אפליקציית Android');
+  await expect(page.locator('#noticePlayCta')).toHaveAttribute(
+    'href',
+    'https://play.google.com/store/apps/details?id=com.heb.pipeline',
+  );
+  await expect(page.locator('#noticeBuyCta')).toBeHidden();
+  await expect(page.locator('#noticeBlock a[href*="wa.me"]')).toHaveCount(0);
 });
 
 

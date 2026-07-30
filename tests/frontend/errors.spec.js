@@ -218,7 +218,8 @@ test('quota-exhausted is NOT reported as an error', async ({ page }) => {
   // so the run spawns straight away and the SERVER's 402 is what we assert on.
   await page.waitForSelector('#errorMsg', { state: 'visible', timeout: 10_000 });
   await expect(page.locator('#errorMsg')).toContainText('הקרדיטים לסרטונים');
-  await expect(page.locator('#errorWaCta')).toBeVisible();   // the quota surface, not a malfunction
+  await expect(page.locator('#errorPlayCta')).toBeVisible(); // the quota surface, not a malfunction
+  await expect(page.locator('#statusError a[href*="wa.me"]')).toHaveCount(0);
   await page.waitForTimeout(800);
   expect(reported).toBe(false);
 });
