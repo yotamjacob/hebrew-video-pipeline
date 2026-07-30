@@ -1649,17 +1649,24 @@
     .footer {
       text-align: center; color: var(--purple-400);
       font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; padding-top: 8px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 10px;
     }
     .footer-contact {
       color: var(--purple-500); text-decoration: none; font-weight: 700;
       border: 2px solid var(--purple-400); border-radius: 999px; background: var(--white);
-      padding: 7px 16px; display: inline-block; transition: color 0.15s, border-color 0.15s;
+      width: 100%; height: 52px; min-width: 0; padding: 7px 10px;
+      display: flex; align-items: center; justify-content: center;
+      line-height: 1.15;
+      transition: color 0.15s, border-color 0.15s;
     }
     .footer-contact:hover { color: var(--purple-700); border-color: var(--purple-700); }
-    .footer-contact + .footer-contact { margin-inline-start: 10px; margin-top: 6px; }
     /* Frontend version marker (injected by app.js into every footer). */
     .footer-version {
-      display: block; width: fit-content; margin: 10px auto 0;
+      grid-column: 1 / -1;
+      justify-self: center;
+      display: block; width: fit-content; margin: 2px auto 0;
       padding: 3px 9px;
       font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em;
       color: var(--purple-700); background: var(--white);
