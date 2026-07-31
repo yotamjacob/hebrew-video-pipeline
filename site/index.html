@@ -855,6 +855,45 @@
 
 <!-- ── Admin view ── -->
 <div class="container" id="adminView" style="display:none">
+  <!-- Measured compute behind a credit. Not a chart: a handful of aggregates,
+       so a headline figure plus a small table reads faster than any plot. -->
+  <div class="card">
+    <div class="card-header" style="cursor:default">
+      <p class="options-title" data-i18n="cost.title">Compute cost</p>
+    </div>
+    <div style="padding-top:14px">
+      <div class="cost-range" id="costRange">
+        <button type="button" class="cost-range-btn is-on" data-days="7" data-i18n="cost.days7">7 days</button>
+        <button type="button" class="cost-range-btn" data-days="30" data-i18n="cost.days30">30 days</button>
+        <button type="button" class="cost-range-btn" data-days="90" data-i18n="cost.days90">90 days</button>
+      </div>
+      <div id="costLoading" class="history-loading" style="display:none" data-i18n="admin.loading">Loading…</div>
+      <div id="costError" class="sched-error" style="display:none"></div>
+      <div id="costEmpty" class="history-note" style="display:none" data-i18n="cost.empty">No jobs recorded in this window yet.</div>
+      <div id="costBody" style="display:none">
+        <div class="cost-hero">
+          <div class="cost-hero-value" id="costPerVideo">-</div>
+          <div class="cost-hero-label" data-i18n="cost.perVideo">Compute per video</div>
+        </div>
+        <div class="cost-stats">
+          <div class="cost-stat"><span class="cost-stat-value" id="costVideos">-</span><span class="cost-stat-label" data-i18n="cost.videos">Videos</span></div>
+          <div class="cost-stat"><span class="cost-stat-value" id="costTotal">-</span><span class="cost-stat-label" data-i18n="cost.total">Total</span></div>
+          <div class="cost-stat"><span class="cost-stat-value" id="costGpu">-</span><span class="cost-stat-label" data-i18n="cost.gpu">GPU time</span></div>
+        </div>
+        <table class="cost-table">
+          <thead>
+            <tr>
+              <th data-i18n="cost.mode">Mode</th>
+              <th data-i18n="cost.jobs">Jobs</th>
+              <th data-i18n="cost.perSrc">GPU per second of video</th>
+            </tr>
+          </thead>
+          <tbody id="costModes"></tbody>
+        </table>
+        <p class="history-note" data-i18n="cost.note">Modal list rates, excluding container startup and idle. A floor for comparing jobs, not an invoice.</p>
+      </div>
+    </div>
+  </div>
   <div class="card">
     <div class="card-header" style="cursor:default">
       <p class="options-title" data-i18n="admin.title">User Limits</p>

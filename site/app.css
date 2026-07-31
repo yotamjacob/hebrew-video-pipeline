@@ -1302,6 +1302,36 @@
       color: var(--muted);
     }
 
+    /* Admin: measured compute cost. Aggregates, not a plot - so the figures
+       wear plain text tokens and carry no series colour of their own. */
+    .cost-range { display: flex; gap: 6px; margin-bottom: 14px; }
+    .cost-range-btn {
+      padding: 5px 12px; border-radius: 8px; border: 1.5px solid var(--purple-200);
+      background: var(--purple-50); color: var(--purple-400);
+      font-family: inherit; font-size: 0.76rem; font-weight: 600; cursor: pointer;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+    }
+    .cost-range-btn.is-on {
+      border-color: var(--purple-600); color: var(--purple-700); background: var(--purple-100);
+    }
+    .cost-hero { margin-bottom: 16px; }
+    .cost-hero-value {
+      font-family: 'Frank Ruhl Libre', serif; font-weight: 500;
+      font-size: 2.1rem; line-height: 1.1; color: var(--terracotta);
+    }
+    .cost-hero-label { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+    .cost-stats { display: flex; gap: 22px; margin-bottom: 18px; flex-wrap: wrap; }
+    .cost-stat { display: flex; flex-direction: column; }
+    .cost-stat-value { font-size: 1.05rem; font-weight: 600; color: var(--purple-700); }
+    .cost-stat-label { font-size: 0.72rem; color: var(--muted); }
+    .cost-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    .cost-table th {
+      text-align: start; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.02em;
+      color: var(--muted); padding: 0 8px 6px 0; border-bottom: 1px solid var(--purple-200);
+    }
+    .cost-table td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--purple-100); }
+    .cost-mode-name { font-weight: 600; color: var(--purple-700); }
+
     /* Lightbox */
     #brollLightbox {
       display: none; position: fixed; inset: 0; z-index: 10000;

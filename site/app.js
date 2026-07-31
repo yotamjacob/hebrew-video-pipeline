@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.11.0';
+  const APP_VERSION = '1.11.1';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -6576,7 +6576,71 @@
   }
 
   // ── Admin: user limits ──
+  // ── Admin: measured compute cost ──
+  // The numbers behind credit pricing. `gpu_per_src` (GPU seconds burned per
+  // second of source) is the one that matters: a plain run near 1 next to an
+  // upscale near 20 is what justifies charging the upscale an extra credit.
+  let _costDays = 7;
+
+  function _fmtSecs(s) {
+    const n = Number(s) || 0;
+    if (n < 90) return Math.round(n) + 's';
+    if (n < 5400) return Math.round(n / 60) + 'm';
+    return (n / 3600).toFixed(1) + 'h';
+  }
+
+  async function loadCosts() {
+    const loading = document.getElementById('costLoading');
+    const errBox  = document.getElementById('costError');
+    const empty   = document.getElementById('costEmpty');
+    const body    = document.getElementById('costBody');
+    if (!loading) return;
+    loading.style.display = '';
+    errBox.style.display = 'none';
+    empty.style.display = 'none';
+    body.style.display = 'none';
+    try {
+      const resp = await apiFetch(`${API_BASE}/admin/costs?days=${_costDays}`);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const c = await resp.json();
+      loading.style.display = 'none';
+      if (!c.videos) { empty.style.display = 'block'; return; }
+      document.getElementById('costPerVideo').textContent = '$' + (c.usd_per_video || 0).toFixed(3);
+      document.getElementById('costVideos').textContent   = c.videos;
+      document.getElementById('costTotal').textContent    = '$' + (c.usd || 0).toFixed(2);
+      document.getElementById('costGpu').textContent      = _fmtSecs(c.gpu_secs);
+      const modes = document.getElementById('costModes');
+      modes.innerHTML = '';
+      Object.keys(c.by_mode || {}).sort().forEach(mode => {
+        const m = c.by_mode[mode];
+        const tr = document.createElement('tr');
+        [mode, m.n, (m.gpu_per_src || 0).toFixed(1) + 'x'].forEach((v, i) => {
+          const td = document.createElement('td');
+          td.textContent = v;
+          if (i === 0) td.className = 'cost-mode-name';
+          tr.appendChild(td);
+        });
+        modes.appendChild(tr);
+      });
+      body.style.display = 'block';
+    } catch (e) {
+      loading.style.display = 'none';
+      errBox.textContent = t('admin.loadFailed');
+      errBox.style.display = 'block';
+    }
+  }
+
+  document.getElementById('costRange')?.addEventListener('click', e => {
+    const btn = e.target.closest('.cost-range-btn');
+    if (!btn) return;
+    _costDays = parseInt(btn.dataset.days, 10) || 7;
+    document.querySelectorAll('#costRange .cost-range-btn')
+      .forEach(b => b.classList.toggle('is-on', b === btn));
+    loadCosts();
+  });
+
   async function loadAdmin() {
+    loadCosts();
     const list = document.getElementById('adminList');
     const loading = document.getElementById('adminLoading');
     const errBox = document.getElementById('adminError');
