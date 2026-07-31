@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.24';
+  const APP_VERSION = '1.10.25';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -1234,7 +1234,40 @@
     return getCaptionsFromEditor().map(c => c.text).join('|');
   }
 
-  function downloadSRT() {
+  // An SRT is generated in the page, so there is no server URL for Android's
+  // DownloadManager to fetch and a blob: `<a download>` is a silent no-op in the
+  // WebView. Write the text into the app cache and hand the file to the system
+  // share sheet - the only reliable way to keep a locally generated file on the
+  // native app. Returns false when the plugins are missing (old shell), so the
+  // caller can fall back to the browser path.
+  async function _nativeSaveSrt(name, text) {
+    const Filesystem = _capPlugin('Filesystem');
+    const Share = _capPlugin('Share');
+    if (!Filesystem || !Share) return false;
+    const btn = document.getElementById('downloadSrtBtn');
+    const label = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.textContent = t('srt.preparing'); }
+    try {
+      const safe = _safeDownloadName(name);
+      await Filesystem.writeFile({ path: safe, directory: 'CACHE', data: text, encoding: 'utf8' });
+      const { uri } = await Filesystem.getUri({ directory: 'CACHE', path: safe });
+      await Share.share({ title: safe, files: [uri], dialogTitle: t('srt.dialog') });
+    } catch (e) {
+      // A dismissed share sheet is not a failure, and neither is the app being
+      // backgrounded mid-flow.
+      const msg = (e && e.message) || '';
+      if (!/cancel/i.test(msg) && !document.hidden) {
+        console.error('srt save failed', e);
+        _reportError('srt', msg || 'srt save failed');
+        celebrateToast(t('srt.failed'), { kind: 'error', duration: 7000 });
+      }
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = label; }
+    }
+    return true;
+  }
+
+  async function downloadSRT() {
     const captions = getCaptionsFromEditor();
     if (!captions.length) return;
     function toSrtTime(s) {
@@ -1247,12 +1280,18 @@
     const srt = captions.map((c, i) =>
       `${i + 1}\n${toSrtTime(c.start)} --> ${toSrtTime(c.end)}\n${c.text}`
     ).join('\n\n') + '\n';
+    const base = selectedFile ? selectedFile.name.replace(/\.[^.]+$/, '') : 'captions';
+    const name = base + '.srt';
+    if (_isNative() && await _nativeSaveSrt(name, srt)) return;
     const blob = new Blob([srt], { type: 'text/plain;charset=utf-8' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
-    const base = selectedFile ? selectedFile.name.replace(/\.[^.]+$/, '') : 'captions';
-    a.href = url; a.download = base + '.srt'; a.click();
-    URL.revokeObjectURL(url);
+    a.href = url; a.download = name; a.style.display = 'none';
+    // Mobile browsers ignore a click on a detached anchor, and revoking the
+    // object URL in the same tick cancels the download before it starts.
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 10_000);
   }
 
   // Download the processed clean-audio (.m4a) file. Fetches through apiFetch so
