@@ -12,6 +12,10 @@ const { API_BASE, mockAllApis, selectFile, bootApp } = require('./helpers');
 const MP4 = path.join(__dirname, 'fixtures/portrait_1080x1920.mp4');
 
 test('docking the player FLIPs (transform present mid-flight, cleared after)', async ({ page }) => {
+  // This one runs a full upload + process and then loads a REAL mp4 before it
+  // can even start measuring, plus ~1.4s of settle waits. The default 15s
+  // budget ran out mid-test on CI, which surfaced as the dock wait timing out.
+  test.setTimeout(45_000);
   await bootApp(page);
   await mockAllApis(page);
   const buf = fs.readFileSync(MP4);
@@ -37,10 +41,16 @@ test('docking the player FLIPs (transform present mid-flight, cleared after)', a
     obs.observe(wrap, { attributes: true, attributeFilter: ['style'] });
   });
 
-  // Scroll deep into the editor so the sentinel passes the topbar → dock.
+  // Dock = sentinel above the topbar AND the editor card still on screen, so
+  // park the sentinel just past the topbar. Anchoring on the caption list
+  // instead was flaky: its position depends on the portrait player's height,
+  // which is only known once the video sizes, and the resulting target could
+  // overshoot the card entirely (scrolling PAST the editor undocks again).
   await page.evaluate(() => {
-    const list = document.getElementById('captionsList');
-    window.scrollTo(0, list.getBoundingClientRect().top + window.scrollY + 300);
+    const sentinel = document.getElementById('playerStickySentinel');
+    const topbar = document.querySelector('.app-topbar');
+    const tbH = topbar ? topbar.offsetHeight : 52;
+    window.scrollTo(0, sentinel.getBoundingClientRect().top + window.scrollY - tbH + 120);
   });
   await page.waitForFunction(() =>
     document.getElementById('captionPlayer').classList.contains('is-stuck'), { timeout: 5000 });
