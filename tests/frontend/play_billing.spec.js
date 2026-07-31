@@ -239,3 +239,40 @@ test('native purchase is server-verified and refreshes the credit pill', async (
     accountId: 'b'.repeat(64),
   }]);
 });
+
+
+test('an admin can buy credits even though the quota never blocks them', async ({ page }) => {
+  await installBillingShim(page);
+  await bootApp(page, {
+    me: {
+      username: 'boss',
+      role: 'admin',
+      videos_used: 0,
+      video_limit: null,
+      billing_account_id: 'd'.repeat(64),
+    },
+  });
+
+  // No remaining count applies to an admin, so the pill is a plain action.
+  const pill = page.locator('#quotaPill');
+  await expect(pill).toHaveText('רכישת קרדיטים');
+  await expect(pill).toHaveClass(/billing-enabled/);
+  await pill.click();
+  await expect(page.locator('.billing-product')).toHaveCount(3);
+});
+
+
+test('an admin on the web is routed to the Play listing', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__opened = [];
+    window.open = url => { window.__opened.push(url); return {}; };
+  });
+  await bootApp(page, {
+    me: { username: 'boss', role: 'admin', videos_used: 0, video_limit: null },
+  });
+
+  await page.locator('#quotaPill').click();
+  expect(await page.evaluate(() => window.__opened)).toEqual([
+    'https://play.google.com/store/apps/details?id=com.heb.pipeline',
+  ]);
+});

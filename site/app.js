@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.25';
+  const APP_VERSION = '1.10.26';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -360,6 +360,10 @@
       t('quota.confirmOk'));
   }
 
+  function _isAdminUser() {
+    return !!(quotaInfo && quotaInfo.role === 'admin');
+  }
+
   function _quotaExhausted() {
     return !!(quotaInfo && quotaInfo.role !== 'admin' &&
               quotaInfo.video_limit != null && quotaInfo.video_limit >= 0 &&
@@ -383,7 +387,19 @@
     }
     const pill = document.getElementById('quotaPill');
     if (!pill) return;
-    if (quotaInfo.role === 'admin' || quotaInfo.video_limit == null || quotaInfo.video_limit < 0) {
+    // Admins bypass the quota, so there is no remaining count to show - but the
+    // purchase flow must stay reachable for them (buying, and exercising the
+    // Play Billing path end to end). The pill becomes a plain "buy credits"
+    // action instead of a counter.
+    if (_isAdminUser()) {
+      pill.textContent = t('billing.buyCredits');
+      pill.classList.remove('quota-pill-empty');
+      pill.classList.add('billing-enabled');
+      pill.title = _billingAvailable() ? t('billing.open') : t('billing.openPlayStore');
+      pill.style.display = '';
+      return;
+    }
+    if (quotaInfo.video_limit == null || quotaInfo.video_limit < 0) {
       pill.style.display = 'none';
       return;
     }
@@ -1434,7 +1450,10 @@
       openBillingModal();
       return;
     }
-    if (!_quotaExhausted()) return;
+    // Web (and pre-billing native shells) can only point at the Play listing.
+    // Regular users see that only once they are out of credits; an admin has no
+    // exhausted state, so their pill always routes there.
+    if (!_quotaExhausted() && !_isAdminUser()) return;
     const opened = window.open(PLAY_STORE_URL, '_blank', 'noopener');
     if (!opened) window.location.href = PLAY_STORE_URL;
   }

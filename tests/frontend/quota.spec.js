@@ -137,7 +137,7 @@ test('admins process without a confirmation modal', async ({ page }) => {
   await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 10_000 });
 });
 
-test('admin sees no pill and gets the admin tab with user limit controls', async ({ page }) => {
+test('admin gets a buy-credits pill and the admin tab with user limit controls', async ({ page }) => {
   await bootApp(page, { me: { username: 'boss', role: 'admin', videos_used: 0, video_limit: null } });
   await page.route(`${API_BASE}/admin/users`, r =>
     r.fulfill({ status: 200, contentType: 'application/json',
@@ -152,7 +152,9 @@ test('admin sees no pill and gets the admin tab with user limit controls', async
                            body: '{"ok":true}' });
   });
 
-  await expect(page.locator('#quotaPill')).toBeHidden();
+  // Admins bypass the quota, so the pill carries no count - but it stays
+  // present as the way into the purchase flow.
+  await expect(page.locator('#quotaPill')).toHaveText('רכישת קרדיטים');
   const adminTab = page.locator('#tabAdmin');
   await expect(adminTab).toBeVisible();
   await adminTab.click();
