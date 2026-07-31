@@ -145,6 +145,7 @@ quota_store = modal.Dict.from_name("hebpipe-quota", create_if_missing=True)   # 
 purchases_store = modal.Dict.from_name("hebpipe-purchases", create_if_missing=True)  # play:<token hash> → immutable verified credit grant
 fcm_store   = modal.Dict.from_name("hebpipe-fcm", create_if_missing=True)     # uid → [device FCM tokens] for "video ready" push notifications
 errors_store = modal.Dict.from_name("hebpipe-errors", create_if_missing=True)  # e:{ts}:{uid} → error report (admin alerting + /admin/errors)
+costs_store = modal.Dict.from_name("hebpipe-costs", create_if_missing=True)   # output key → per-job compute record (see _cost_summary)
 # Deferred processing jobs: full upload key → {params, uid, uname, uprefix,
 # total_chunks, ts} registered BEFORE the upload, so the SERVER spawns
 # process_video the moment the last byte lands - the app may be closed by then
@@ -589,6 +590,77 @@ def _usage_since(quota_store, since_ts: float):
     except Exception:
         pass
     return n, len(uids)
+
+# ── Per-job compute cost ────────────────────────────────────────────────────
+# Credits are priced per VIDEO while the compute behind one varies by ~40x with
+# length and by an order of magnitude with the 4K upscale, so the margin on a
+# credit was never measured - only estimated. Every job now records what it
+# actually burned, and the daily digest turns that into dollars.
+# Rates are Modal list prices (2026-07): L4 $0.000222/s, CPU $0.0000131/core/s,
+# memory $0.00000222/GiB/s. process_video holds an L4 with 4 GiB for its whole
+# run; burn_captions_fn is CPU-only. Both are approximations of the billed
+# amount (container startup and idle are not attributed here), so treat the
+# output as a floor for comparing jobs, not as an invoice.
+COST_RETENTION_DAYS = 90
+GPU_USD_PER_SEC = 0.000222 + 0.00000222 * 4
+CPU_USD_PER_SEC = 0.0000131 * 2 + 0.00000222 * 4
+
+
+def _cost_summary(costs_store, since_ts: float):
+    """Aggregate recorded job costs since `since_ts`.
+
+    Each entry is `{ts, uid, dur, enhance, gpu_secs}` (process_video) or
+    `{ts, uid, burn_secs, broll}` (burn_captions_fn). Returns totals plus a
+    per-enhance-mode breakdown, so the cost of the 4K upscale option is
+    visible next to a plain run rather than buried in the average."""
+    out = {"videos": 0, "burns": 0, "gpu_secs": 0.0, "cpu_secs": 0.0,
+           "src_secs": 0.0, "broll_jobs": 0, "by_mode": {}, "usd": 0.0}
+    try:
+        keys = list(costs_store.keys())
+    except Exception:
+        return out
+    for k in keys:
+        try:
+            rec = costs_store.get(k)
+        except Exception:
+            continue
+        if not isinstance(rec, dict):
+            continue
+        ts = rec.get("ts")
+        if not isinstance(ts, (int, float)) or ts < since_ts:
+            continue
+        gpu = float(rec.get("gpu_secs") or 0)
+        cpu = float(rec.get("burn_secs") or 0)
+        out["gpu_secs"] += gpu
+        out["cpu_secs"] += cpu
+        out["usd"] += gpu * GPU_USD_PER_SEC + cpu * CPU_USD_PER_SEC
+        if rec.get("burn_secs") is not None:
+            out["burns"] += 1
+            if rec.get("broll"):
+                out["broll_jobs"] += 1
+            continue
+        out["videos"] += 1
+        out["src_secs"] += float(rec.get("dur") or 0)
+        mode = rec.get("enhance") or "none"
+        m = out["by_mode"].setdefault(mode, {"n": 0, "gpu_secs": 0.0, "src_secs": 0.0})
+        m["n"] += 1
+        m["gpu_secs"] += gpu
+        m["src_secs"] += float(rec.get("dur") or 0)
+    out["usd"] = round(out["usd"], 4)
+    out["gpu_secs"] = round(out["gpu_secs"], 1)
+    out["cpu_secs"] = round(out["cpu_secs"], 1)
+    out["src_secs"] = round(out["src_secs"], 1)
+    # Cost of one delivered video: the burn belongs to the same video as the
+    # process run, so divide by videos (not by videos + burns).
+    out["usd_per_video"] = round(out["usd"] / out["videos"], 4) if out["videos"] else 0.0
+    for m in out["by_mode"].values():
+        m["gpu_secs"] = round(m["gpu_secs"], 1)
+        m["src_secs"] = round(m["src_secs"], 1)
+        # GPU seconds burned per second of source: the number that says whether
+        # a length-based credit rule is needed.
+        m["gpu_per_src"] = round(m["gpu_secs"] / m["src_secs"], 2) if m["src_secs"] else 0.0
+    return out
+
 
 SONNET_MODEL = "claude-sonnet-5"             # moment selection, hooks, captions, video context
 HAIKU_MODEL  = "claude-haiku-4-5-20251001"   # stock clip frame scoring

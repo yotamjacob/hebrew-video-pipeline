@@ -13,7 +13,7 @@ from pipeline_core import (
     jobs_store, JOB_RETENTION_DAYS, SCRATCH_RETENTION_HOURS, pending_store,
     progress_store, calls_store, CALL_RETENTION_SECONDS, _UID_PREFIX_RE,
     quota_store, _usage_since, _send_email, _email_html, SONNET_MODEL,
-    _send_fcm,
+    _send_fcm, costs_store, COST_RETENTION_DAYS, _cost_summary,
 )
 
 
@@ -30,21 +30,29 @@ def daily_usage_report() -> dict:
     import os, time
     since = time.time() - 24 * 3600
     count, users = _usage_since(quota_store, since)
+    cost = _cost_summary(costs_store, since)
     threshold = int(os.environ.get("USAGE_ALERT_THRESHOLD", "50") or "50")
     admin_email = os.environ.get("ADMIN_EMAIL")
     over = count > threshold
     print(f"[usage] 24h: {count} videos, {users} users (threshold {threshold})")
+    print(f"[cost] 24h: ${cost['usd']} over {cost['videos']} job(s), "
+          f"${cost['usd_per_video']}/video, modes={cost['by_mode']}")
     if admin_email:
         site = os.environ.get("SITE_URL", "https://hebrew-pipeline.app")
         flag = " - OVER THRESHOLD" if over else ""
+        # Cost per video is the number that decides whether a credit is priced
+        # right, so it rides along with the volume digest.
+        cost_line = (f" Compute: ${cost['usd']} total, ${cost['usd_per_video']} per video "
+                     f"({cost['gpu_secs']}s GPU, {cost['cpu_secs']}s CPU)."
+                     if cost["videos"] else "")
         _send_email(admin_email, f"Pipeline usage: {count} videos in 24h{flag}",
                     _email_html("Daily usage digest",
                                 f"{count} videos processed by {users} user(s) in the last 24 hours "
-                                f"(alert threshold: {threshold}).",
+                                f"(alert threshold: {threshold}).{cost_line}",
                                 "Open the app", site))
     else:
         print("[usage] ADMIN_EMAIL not set — digest logged only")
-    return {"count": count, "users": users, "over_threshold": over}
+    return {"count": count, "users": users, "over_threshold": over, "cost": cost}
 
 # ---------------------------------------------------------------------------
 # Off-site metadata backup — the critical Dicts (accounts, History manifest,
@@ -57,14 +65,14 @@ def daily_usage_report() -> dict:
 # fails. NOTE: the snapshot contains PBKDF2 password hashes + OAuth tokens —
 # the bucket MUST be private.
 # ---------------------------------------------------------------------------
-_BACKUP_STORES = ("jobs", "users", "quota", "purchases", "metricool")
+_BACKUP_STORES = ("jobs", "users", "quota", "purchases", "metricool", "costs")
 
 def _backup_stores_map():
     from pipeline_core import users_store, quota_store, purchases_store, jobs_store
     from metricool_fns import oauth_store
     return {"jobs": jobs_store, "users": users_store,
             "quota": quota_store, "purchases": purchases_store,
-            "metricool": oauth_store}
+            "metricool": oauth_store, "costs": costs_store}
 
 def _s3_client():
     import os, boto3
@@ -663,6 +671,8 @@ def process_video(
     import time as _time
     from pathlib import Path
 
+    _t0 = _time.time()   # whole-run wall clock, recorded as this job's GPU seconds
+
     # One-line audit of the received toggles - the definitive record of what
     # this job was ASKED to do (field reports of "it cut although the toggle
     # was off" need this to split sender vs worker).
@@ -1144,6 +1154,21 @@ def process_video(
                 progress_store.pop(upload_key)
             except Exception:
                 pass
+        # What this job actually burned. One credit is priced per video while
+        # the compute varies by ~40x with length and by an order of magnitude
+        # with the 4K upscale, so the margin has to be measured, not assumed.
+        try:
+            costs_store[video_key] = {
+                "ts": _time.time(),
+                "uid": video_key[1:33] if _UID_PREFIX_RE.match(video_key or "") else "",
+                "dur": round(duration or 0, 1),
+                "enhance": enhance_video,
+                "audio": bool(is_audio),
+                "gpu_secs": round(_time.time() - _t0, 1),
+                "steps": dict(_step_times),
+            }
+        except Exception:
+            pass
         return {"captions": captions_list, "video_key": video_key,
                 "step_times": _step_times}
 
@@ -1420,8 +1445,10 @@ def _peak_window(path, want_dur):
               secrets=[modal.Secret.from_name("hebpipe-fcm")])
 def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", margin_v_pct: float = 0.08, broll_json: str = "[]", font_size: int = 48, hook_json: str = "", caption_style_json: str = "", source_name: str = "") -> dict:
     import json, subprocess, tempfile, uuid, shutil
+    import time as _btime
     from pathlib import Path
 
+    _bt0 = _btime.time()   # wall clock for this burn, recorded as its CPU seconds
     tmp_vol.reload()
     captions = json.loads(captions_json)
     broll_items = json.loads(broll_json) if broll_json else []
@@ -1627,6 +1654,17 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             prune_volume()
         except Exception as _je:
             print(f"[jobs] record/prune skipped: {_je!r}")
+        # CPU-side half of the per-video cost (see _cost_summary). A re-burn is
+        # quota-free but not compute-free, so it lands as its own entry.
+        try:
+            costs_store[output_key] = {
+                "ts": _btime.time(),
+                "uid": _kp.group(0)[1:33] if _kp else "",
+                "burn_secs": round(_btime.time() - _bt0, 1),
+                "broll": len(broll_items),
+            }
+        except Exception:
+            pass
         tmp_vol.commit()
         return {"output_key": output_key}
 
@@ -1689,6 +1727,19 @@ def prune_volume():
             if now - (meta.get("ts") or 0) > SCRATCH_RETENTION_HOURS * 3600:
                 try:
                     pending_store.pop(key)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    # Cost records outlive their videos on purpose: pricing is judged over
+    # months, the videos are gone in 30 days, and each entry is a few hundred
+    # bytes of numbers with no media attached.
+    try:
+        for key in list(costs_store.keys()):
+            rec = costs_store.get(key) or {}
+            if now - (rec.get("ts") or 0) > COST_RETENTION_DAYS * 86400:
+                try:
+                    costs_store.pop(key)
                 except Exception:
                     pass
     except Exception:

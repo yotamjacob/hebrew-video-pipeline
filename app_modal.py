@@ -18,7 +18,7 @@ import modal
 from pipeline_core import (
     light_image,
     jobs_store, progress_store, users_store, calls_store, quota_store, purchases_store, fcm_store,
-    pending_store, errors_store, _alert_admins,
+    pending_store, errors_store, _alert_admins, costs_store, _cost_summary,
     codes_store, _normalize_email, _gen_login_code,
     _verify_google_id_token, GOOGLE_WEB_CLIENT_ID,
     app, image, tmp_vol, TMP_DIR,
@@ -1414,6 +1414,27 @@ def api():
                 pass
             out.sort(key=lambda r: r.get("ts") or 0, reverse=True)
             body = json.dumps({"errors": out[:100]}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # Measured compute cost per video — the evidence behind credit pricing.
+        # `days` defaults to a week so a single quiet day can't read as a trend.
+        if path in ("/admin/costs", "/admin/costs/") and method == "GET":
+            import os as _os, time as _ct
+            uname, urec = _user_by_uid()
+            caller_admin, _, _ = _quota_state(urec, _os.environ.get("ADMIN_USERS"), uname)
+            if not caller_admin:
+                await send_error("Forbidden", 403)
+                return
+            _cqs = parse_qs(scope.get("query_string", b"").decode())
+            try:
+                _days = max(1, min(90, int(_cqs.get("days", ["7"])[0])))
+            except Exception:
+                _days = 7
+            summary = _cost_summary(costs_store, _ct.time() - _days * 86400)
+            body = json.dumps({"days": _days, **summary}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})
