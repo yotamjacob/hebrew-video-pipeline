@@ -143,6 +143,10 @@ test('a pending Play payment completing later is granted while the app is open',
       billing_account_id: 'c'.repeat(64),
     },
   });
+  // The boot /auth/me must LAND before the handler below is swapped out: an
+  // unroute while that request is in flight lets it escape to the real API,
+  // which 401s and bounces the app to the login view (pill never renders).
+  await expect(page.locator('#quotaPill')).toBeVisible();
 
   let verified = false;
   await page.route(`${API_BASE}/billing/play/verify`, route => {
@@ -188,6 +192,8 @@ test('native purchase is server-verified and refreshes the credit pill', async (
       billing_account_id: 'b'.repeat(64),
     },
   });
+  // See the note above - wait for the boot /auth/me before unrouting it.
+  await expect(page.locator('#quotaPill')).toBeVisible();
 
   let verifyBody = null;
   await page.route(`${API_BASE}/billing/play/verify`, async (route, request) => {
