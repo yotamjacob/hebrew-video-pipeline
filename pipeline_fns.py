@@ -14,6 +14,7 @@ from pipeline_core import (
     progress_store, calls_store, CALL_RETENTION_SECONDS, _UID_PREFIX_RE,
     quota_store, _usage_since, _send_email, _email_html, SONNET_MODEL,
     _send_fcm, costs_store, COST_RETENTION_DAYS, _cost_summary,
+    _credit_cost, _upscale_allowed, UPSCALE_MAX_SECONDS,
 )
 
 
@@ -660,6 +661,7 @@ def process_video(
     key_prefix: str = "",
     enhance_video: str = "none",   # none | filters | esrgan
     is_audio: bool = False,        # audio-only input: no video, output a clean .m4a
+    credits_charged: int = 0,      # what the router billed; 0 = unpriced (admin/legacy)
 ) -> dict:
     # Warmup call — just starts the container, no real work
     if filename == "__warmup__":
@@ -998,6 +1000,19 @@ def process_video(
             duration = probe_duration(src)
         else:
             width, height, duration, rotation = probe_video(src)
+        # Price verification, against OUR probe rather than the client's claim.
+        # The router charged credits using the duration the client reported, so
+        # this is where understating it stops paying off. Checked immediately
+        # after the probe, before any expensive stage runs, and a raise here is
+        # terminal - which refunds every credit the run charged.
+        if credits_charged and _credit_cost(duration, enhance_video) > credits_charged:
+            raise RuntimeError(
+                f"credit_mismatch: {duration:.0f}s source with enhance={enhance_video} "
+                f"needs {_credit_cost(duration, enhance_video)} credits, {credits_charged} charged")
+        if enhance_video == "esrgan" and not _upscale_allowed(duration):
+            raise RuntimeError(
+                f"upscale_too_long: {duration:.0f}s source exceeds the "
+                f"{UPSCALE_MAX_SECONDS}s upscale limit")
         # The whole pipeline is speech-driven (transcribe -> cut silence ->
         # captions), so an input with no audio track can't be processed. Fail
         # fast with a stable marker the frontend maps to a friendly message,

@@ -302,3 +302,52 @@ class TestAlertAdmins:
         fn = _extract_fn(MODAL_SRC, "_alert_admins", extra_ns=ns)["_alert_admins"]
         monkeypatch.delenv("ADMIN_USERS", raising=False)
         fn("t", "b")   # must not raise
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Credit pricing wiring in the router
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestCreditCharging:
+    """A run can cost more than one credit (source over 10 min, 4K upscale).
+    Route bodies are closures inside api() and can't be extracted, so this
+    guards the source. The failure modes are expensive in both directions: a
+    charge site left at 1 gives away compute, and a refund that returns only
+    the first key keeps a failed job's money."""
+
+    def test_process_prices_the_run_before_checking_quota(self):
+        assert "credit_cost = _credit_cost(src_duration, enhance_video)" in MODAL_SRC
+        # The whole cost must be available up front - charging 2 to a user
+        # holding 1 would leave a negative balance.
+        assert "_quota_allows(is_admin, used + credit_cost - 1, limit)" in MODAL_SRC
+
+    def test_both_spawn_paths_charge_the_computed_cost(self):
+        # Direct spawn (upload-key and legacy-body variants) plus the deferred
+        # spawn from the upload endpoint.
+        assert MODAL_SRC.count("_charge_credits(quota_store, uid, call.object_id, credit_cost)") == 1
+        assert '_charge_credits(quota_store, rec["uid"], call.object_id, _cost)' in MODAL_SRC
+
+    def test_deferred_registration_carries_the_price(self):
+        # The upload endpoint has no query string to re-read, so the cost
+        # computed at registration has to travel with the params.
+        assert '"credit_cost": credit_cost,' in MODAL_SRC
+
+    def test_every_spawn_tells_the_worker_what_was_charged(self):
+        # process_video re-prices from its own probe, so understating the
+        # duration in the request buys nothing.
+        assert MODAL_SRC.count("credits_charged=(0 if is_admin else credit_cost)") == 2
+        assert "credits_charged=(0 if rec.get(\"is_admin\")" in MODAL_SRC
+
+    def test_the_worker_verifies_the_price_against_its_own_probe(self):
+        assert "if credits_charged and _credit_cost(duration, enhance_video) > credits_charged:" in MODAL_SRC
+        assert 'raise RuntimeError(\n                f"credit_mismatch:' in MODAL_SRC
+
+    def test_the_upscale_cap_is_enforced_for_everyone(self):
+        # Not a billing rule: past the cap the job would outrun its timeout, so
+        # admins (who are never charged) are gated too.
+        assert 'if enhance_video == "esrgan" and not _upscale_allowed(duration):' in MODAL_SRC
+        assert 'if enhance_video == "esrgan" and not _upscale_allowed(src_duration):' in MODAL_SRC
+
+    def test_failure_refunds_every_credit_not_just_the_first(self):
+        assert "_back = _refund_credits(quota_store, uid, call_id)" in MODAL_SRC
+        assert 'del quota_store[f"{uid}:{call_id}"]' not in MODAL_SRC

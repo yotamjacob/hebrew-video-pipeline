@@ -453,9 +453,96 @@ def _owned_key(key: str, uid: str) -> bool:
 # Each /process run consumes one credit. Admins are unlimited; a user is an
 # admin if their username is in the ADMIN_USERS env var (comma-separated, in
 # the hebpipe-auth secret) OR their record has role == "admin".
-DEFAULT_VIDEO_LIMIT = 5
+DEFAULT_VIDEO_LIMIT = 3
+# Records created before the free tier moved to 3 have no explicit video_limit,
+# so the FALLBACK in _quota_state must stay at the old value - lowering it would
+# retroactively take credits from existing users (and lock out anyone already
+# past 3). New records always get an explicit video_limit, so nothing else is
+# needed to grandfather them and no data migration is required.
+LEGACY_VIDEO_LIMIT = 5
+
+# What one credit buys. A credit is sold per video, but the compute behind one
+# varies enormously with length and with the 4K upscale, so both carry a
+# surcharge instead of being absorbed silently.
+CREDIT_SECONDS = 600         # one credit covers this much source (10 min)
+UPSCALE_CREDIT_COST = 1      # the 4K upscale costs this much on top
+# Above this the upscale is refused outright: at 15-30x realtime on an L4 it
+# would exceed process_video's 1800s timeout, and a timeout refunds the credit
+# AFTER the GPU time was already spent - we would pay and collect nothing.
+UPSCALE_MAX_SECONDS = 180
+# Clients report duration as a float; a hair over the boundary must not silently
+# double the price of a video the user believes is exactly 10 minutes.
+CREDIT_DURATION_TOLERANCE = 5.0
+
+
+def _credit_cost(duration: float = 0.0, enhance_video: str = "none") -> int:
+    """Credits consumed by one /process spawn."""
+    n = 1
+    try:
+        dur = float(duration or 0)
+    except (TypeError, ValueError):
+        dur = 0.0
+    if dur > CREDIT_SECONDS + CREDIT_DURATION_TOLERANCE:
+        n += 1
+    if enhance_video == "esrgan":
+        n += UPSCALE_CREDIT_COST
+    return n
+
+
+def _upscale_allowed(duration: float = 0.0) -> bool:
+    """False when a 4K upscale of this source would outrun the job timeout."""
+    try:
+        dur = float(duration or 0)
+    except (TypeError, ValueError):
+        return True          # unknown duration: let the worker's probe decide
+    return dur <= UPSCALE_MAX_SECONDS + CREDIT_DURATION_TOLERANCE
+
+
+def _charge_credits(store, uid: str, call_id: str, n: int = 1) -> int:
+    """Write one unique quota key per consumed credit. Returns the count written.
+
+    The first key keeps the historical `{uid}:{call_id}` form so existing
+    records and the refund path are unaffected; extras are suffixed. Unique
+    keys (rather than a mutable counter) are what makes concurrent spawns
+    race-proof - see _count_quota_used."""
+    import time as _t
+    written = 0
+    for i in range(max(1, int(n or 1))):
+        key = f"{uid}:{call_id}" if i == 0 else f"{uid}:{call_id}#{i + 1}"
+        try:
+            store[key] = _t.time()
+            written += 1
+        except Exception:
+            pass
+    return written
+
+
+def _refund_credits(store, uid: str, call_id: str, max_n: int = 4) -> int:
+    """Delete every credit key for a call. Returns how many were removed.
+
+    Idempotent: a repeat call finds them gone and removes nothing, so
+    concurrent failure polls can't double-refund."""
+    removed = 0
+    for i in range(max(1, int(max_n or 1))):
+        key = f"{uid}:{call_id}" if i == 0 else f"{uid}:{call_id}#{i + 1}"
+        try:
+            del store[key]
+            removed += 1
+        except Exception:
+            pass
+    return removed
+
+
 PLAY_PACKAGE_NAME = "com.heb.pipeline"
+# The credit map is FORWARD-ONLY: each grant stores its credit count at
+# purchase time (see _count_purchased_credits), so editing this never revalues
+# a past purchase. Retired IDs must stay listed for as long as the product is
+# still live in Play, or a purchase of it would grant nothing.
 PLAY_CREDIT_PRODUCTS = {
+    "pipeline_credits_10": 10,
+    "pipeline_credits_30": 30,
+    "pipeline_credits_100": 100,
+    # Retired 2026-07-31 (replaced by the 10/30/100 ladder), still honoured.
     "pipeline_credits_5": 5,
     "pipeline_credits_20": 20,
     "pipeline_credits_50": 50,
@@ -468,7 +555,7 @@ def _quota_state(rec: dict, admin_users: str = None, username: str = None,
     admins = {u.strip().lower() for u in (admin_users or "").split(",") if u.strip()}
     is_admin = bool(username and username.lower() in admins) or (rec or {}).get("role") == "admin"
     used = int((rec or {}).get("videos_used", 0) or 0)
-    limit = (rec or {}).get("video_limit", DEFAULT_VIDEO_LIMIT)
+    limit = (rec or {}).get("video_limit", LEGACY_VIDEO_LIMIT)
     limit = -1 if limit is None else int(limit)
     if limit >= 0:
         limit += max(0, int(purchased_credits or 0))

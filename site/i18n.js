@@ -374,6 +374,7 @@
     'err.stage.processing': { en: 'while waiting for processing', he: 'בזמן העיבוד' },
     'err.stage.download':   { en: 'while downloading the result', he: 'בזמן הורדת התוצאה' },
     'err.fileUnreadable': { en: 'Could not read the video file from your device - it may have moved or be cloud-synced (e.g. Google Photos). Please select the file again.', he: 'לא ניתן לקרוא את קובץ הווידאו מהמכשיר - ייתכן שהוא הוזז או מסונכרן בענן (למשל Google Photos). בחרו את הקובץ מחדש.' },
+    'err.creditMismatch': { en: 'The video turned out longer than expected, so the run needs another credit. Please try again.', he: 'הסרטון התברר כארוך מהצפוי, ולכן הריצה דורשת קרדיט נוסף. נסו שוב.' },
     'err.noAudio': { en: 'This video has no audio track. The editor works from the speech in the video (transcription, silence trimming, captions), so it needs a video with sound. Please upload a video that includes audio.', he: 'לסרטון הזה אין פס קול. העורך עובד לפי הדיבור שבסרטון (תמלול, חיתוך שתיקות וכתוביות), ולכן צריך סרטון עם קול. העלו סרטון שכולל אודיו.' },
     'file.cloudTitle': { en: "Can't read this file", he: 'לא ניתן לקרוא את הקובץ' },
     'file.cloud': { en: "This video looks like it's stored in the cloud (e.g. Google Photos) and isn't downloaded to this device, so it can't be uploaded. Open it in your gallery, download it to the device (usually the menu → Download / Save), then select it again.", he: 'נראה שהסרטון שמור בענן (למשל Google Photos) ואינו מורד למכשיר, ולכן לא ניתן להעלות אותו. פתחו אותו בגלריה, הורידו אותו למכשיר (בדרך כלל דרך התפריט ← הורדה / שמירה), ואז בחרו אותו שוב.' },
@@ -542,6 +543,9 @@
 
     'hero.hello': { en: 'Hello, {name}', he: 'שלום, {name}' },
     'quota.confirmTitle': { en: 'Use 1 video credit?', he: 'להשתמש בקרדיט אחד לסרטון?' },
+    'quota.confirmTitleN': { en: 'Use {n} video credits?', he: 'להשתמש ב-{n} קרדיטים לסרטונים?' },
+    'quota.confirmBodyN': { en: 'This run costs {n} credits: videos over 10 minutes and the AI upscale each add one. You have {left} left.', he: 'הריצה הזו עולה {n} קרדיטים: סרטון מעל 10 דקות ושדרוג ה-AI מוסיפים קרדיט כל אחד. נותרו לכם {left}.' },
+    'ev.upscaleTooLong': { en: 'The AI upscale is available for videos up to {max} minutes.', he: 'שדרוג ה-AI זמין לסרטונים באורך של עד {max} דקות.' },
     'quota.confirmBody':  { en: 'You have {left} video credits left. Processing this video will use one.', he: 'נותרו לכם {left} קרדיטים לסרטונים. עיבוד הסרטון ישתמש בקרדיט אחד.' },
     'quota.confirmOk':    { en: 'Process video', he: 'עיבוד הסרטון' },
 

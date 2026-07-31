@@ -129,7 +129,7 @@ def test_rejects_ungrantable_purchase(payload, expected):
 def test_paid_credits_extend_a_finite_quota():
     helpers = _extract_fn(
         MODAL_SRC, "_quota_state",
-        extra_ns={"DEFAULT_VIDEO_LIMIT": 5},
+        extra_ns={"DEFAULT_VIDEO_LIMIT": 3, "LEGACY_VIDEO_LIMIT": 5},
     )
     assert helpers["_quota_state"](
         {"videos_used": 5, "video_limit": 5}, purchased_credits=20
@@ -139,7 +139,7 @@ def test_paid_credits_extend_a_finite_quota():
 def test_paid_credits_do_not_turn_unlimited_into_a_finite_quota():
     helpers = _extract_fn(
         MODAL_SRC, "_quota_state",
-        extra_ns={"DEFAULT_VIDEO_LIMIT": 5},
+        extra_ns={"DEFAULT_VIDEO_LIMIT": 3, "LEGACY_VIDEO_LIMIT": 5},
     )
     assert helpers["_quota_state"](
         {"video_limit": None}, purchased_credits=20

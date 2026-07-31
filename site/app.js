@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.10.26';
+  const APP_VERSION = '1.11.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -349,14 +349,31 @@
     updateVerifyBanner();
   }
 
-  // Non-admin users confirm before spending a trial video
+  // What this run costs, mirroring _credit_cost on the server. One credit
+  // covers 10 minutes of source; a longer video and the 4K upscale each add
+  // one. The server prices it again from its own probe - this is only so the
+  // user is told the price before spending it.
+  const CREDIT_SECONDS = 600;
+  const UPSCALE_MAX_SECONDS = 180;
+  const CREDIT_DURATION_TOLERANCE = 5;
+  function _creditCost() {
+    let n = 1;
+    if (videoDuration && videoDuration > CREDIT_SECONDS + CREDIT_DURATION_TOLERANCE) n += 1;
+    if (!isAudioInput && _enhanceVideoMode() === 'esrgan') n += 1;
+    return n;
+  }
+
+  // Non-admin users confirm before spending credits
   async function _confirmQuotaUse() {
     if (!quotaInfo || quotaInfo.role === 'admin' ||
         quotaInfo.video_limit == null || quotaInfo.video_limit < 0) return true;
     const left = Math.max(0, quotaInfo.video_limit - quotaInfo.videos_used);
+    const cost = _creditCost();
     return showConfirmModal(
-      t('quota.confirmTitle'),
-      t('quota.confirmBody', {left: left, limit: quotaInfo.video_limit}),
+      cost > 1 ? t('quota.confirmTitleN', {n: cost}) : t('quota.confirmTitle'),
+      cost > 1
+        ? t('quota.confirmBodyN', {n: cost, left: left})
+        : t('quota.confirmBody', {left: left, limit: quotaInfo.video_limit}),
       t('quota.confirmOk'));
   }
 
@@ -1414,7 +1431,13 @@
   }
 
   // ── Google Play Billing (native Android only) ─────────────────────────────
+  // Must match PLAY_CREDIT_PRODUCTS on the server. Retired IDs stay listed for
+  // as long as the product is still live in Play, so a purchase of one still
+  // grants; the modal only offers what getProducts() actually returns.
   const BILLING_CREDITS = {
+    pipeline_credits_10: 10,
+    pipeline_credits_30: 30,
+    pipeline_credits_100: 100,
     pipeline_credits_5: 5,
     pipeline_credits_20: 20,
     pipeline_credits_50: 50,
@@ -2272,6 +2295,8 @@
     } else {
       fileDetail.textContent = formatSize(file.size);
     }
+    // The upscale cap depends on THIS file's length.
+    _syncUpscaleLimit();
 
     // Validate duration
     if (videoDuration !== null && videoDuration > MAX_SECS) {
@@ -2532,7 +2557,36 @@
       document.getElementById('enhanceVideoDesc').innerHTML = t(_EV_DESCS[_enhanceVideoMode()]);
       checkToolsEnabled();
       updateTimeEstimate();
+      _syncUpscaleLimit();
     }));
+
+  // The 4K upscale runs at 15-30x realtime, so past ~3 minutes of source it
+  // would outrun the server's job timeout and fail AFTER burning the GPU time.
+  // Disable the option rather than let the user pick a run that cannot finish.
+  function _syncUpscaleLimit() {
+    const radio = document.querySelector('input[name="enhanceVideo"][value="esrgan"]');
+    if (!radio) return;
+    const tooLong = !!videoDuration &&
+      videoDuration > UPSCALE_MAX_SECONDS + CREDIT_DURATION_TOLERANCE;
+    if (tooLong && radio.checked) {
+      const fallback = document.querySelector('input[name="enhanceVideo"][value="none"]');
+      if (fallback) fallback.checked = true;
+      const desc = document.getElementById('enhanceVideoDesc');
+      if (desc) desc.innerHTML = t(_EV_DESCS[_enhanceVideoMode()]);
+    }
+    radio.disabled = tooLong;
+    // The radios are visually hidden; the sibling <label for> IS the control.
+    const row = document.querySelector('label[for="' + radio.id + '"]');
+    if (row) {
+      row.classList.toggle('opt-disabled', tooLong);
+      row.title = tooLong ? t('ev.upscaleTooLong', {max: UPSCALE_MAX_SECONDS / 60}) : '';
+    }
+    const note = document.getElementById('upscaleLimitNote');
+    if (note) {
+      note.textContent = tooLong ? t('ev.upscaleTooLong', {max: UPSCALE_MAX_SECONDS / 60}) : '';
+      note.style.display = tooLong ? 'block' : 'none';
+    }
+  }
 
   // ── Run ──
   runBtn.addEventListener('click', () => { if (burnMode) doBurn(); else run(); });
@@ -2582,6 +2636,10 @@
       is_audio:             isAudioInput ? 'true' : 'false',
       min_silence:          aggr.silence,
       padding:              aggr.padding,
+      // Prices the run (long source / 4K upscale cost extra credits). The
+      // server re-checks it against its own probe, so a wrong value here only
+      // ever fails the job - it can never buy a cheaper run.
+      duration:             videoDuration || 0,
     });
 
     try {
@@ -2757,6 +2815,7 @@
       transcribe_for_broll: 'false',
       min_silence:          aggr.silence,
       padding:              aggr.padding,
+      duration:             videoDuration || 0,
       key:                  currentUploadKey,
     });
 
@@ -3922,6 +3981,10 @@
       msg = _billingAvailable() ? t('billing.exhausted') : _playStoreQuotaCopy();
     }
     if (/no_audio/.test(msg)) msg = t('err.noAudio');
+    // The server priced the run from its own probe and it came out higher than
+    // what was charged, or the upscale was asked for on too long a source.
+    if (/upscale_too_long/.test(msg)) msg = t('ev.upscaleTooLong', {max: UPSCALE_MAX_SECONDS / 60});
+    if (/credit_mismatch/.test(msg)) msg = t('err.creditMismatch');
     // Quota exhaustion isn't a malfunction. Current Android shells purchase
     // in-app; web and old shells go only to the app's Play Store listing.
     const playCta = document.getElementById('errorPlayCta');

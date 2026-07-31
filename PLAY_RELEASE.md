@@ -77,11 +77,22 @@ before every new upload — Play rejects a duplicate `versionCode`.
 The Android app sells **consumable, non-expiring video credits**. Product IDs
 are immutable and must match the app exactly:
 
-| Product ID | Credits | Suggested launch price |
-|------------|---------|------------------------|
-| `pipeline_credits_5` | 5 | ₪49 |
-| `pipeline_credits_20` | 20 | ₪149 |
-| `pipeline_credits_50` | 50 | ₪299 |
+| Product ID | Credits | Price | Per video |
+|------------|---------|-------|-----------|
+| `pipeline_credits_10` | 10 | ₪59 | ₪5.90 |
+| `pipeline_credits_30` | 30 | ₪149 | ₪4.97 |
+| `pipeline_credits_100` | 100 | ₪399 | ₪3.99 |
+
+The `_5` / `_20` / `_50` IDs were retired on 2026-07-31 but remain in
+`PLAY_CREDIT_PRODUCTS` and `BILLING_CREDITS`, so a purchase of one still grants
+while it is live. Deactivate them in Play once the new ladder is published;
+past purchases are unaffected either way, since each grant stores its credit
+count at purchase time.
+
+**Credits are not a flat per-video price.** One credit covers 10 minutes of
+source; a longer video costs 2, and the 4K upscale adds 1 (and is refused above
+3 minutes of source, where it would outrun the job timeout). See `_credit_cost`
+in `pipeline_core.py`.
 
 1. Play Console → **Monetize with Play → Products → One-time products**.
 2. Create each ID above as a consumable one-time product, add its Hebrew and

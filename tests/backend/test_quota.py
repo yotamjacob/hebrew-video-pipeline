@@ -7,7 +7,11 @@ and whether a run is allowed. Wrong answers here either leak GPU money
 from tests.backend.conftest import MODAL_SRC, _extract_fn, _build_ns
 
 _ns = _build_ns()
-_ns["DEFAULT_VIDEO_LIMIT"] = 5
+# Records predating the 3-credit free tier have no explicit video_limit and
+# must keep the OLD allowance - lowering the fallback would take credits back
+# from existing users. New records are created with DEFAULT_VIDEO_LIMIT (3).
+_ns["DEFAULT_VIDEO_LIMIT"] = 3
+_ns["LEGACY_VIDEO_LIMIT"] = 5
 _quota = _extract_fn(MODAL_SRC, "_quota_state", "_quota_allows", "_count_quota_used", "_usage_since", extra_ns=_ns)
 _quota_state      = _quota["_quota_state"]
 _quota_allows     = _quota["_quota_allows"]

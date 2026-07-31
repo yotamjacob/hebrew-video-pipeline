@@ -1293,6 +1293,14 @@
       border-color: var(--purple-600); color: var(--purple-700);
       background: var(--purple-100);
     }
+    /* An option the current file can't use (e.g. upscale past the length cap) */
+    .ar-select label.opt-disabled {
+      opacity: 0.45; cursor: not-allowed;
+    }
+    .option-note {
+      margin-top: 8px; font-size: 0.74rem; line-height: 1.5;
+      color: var(--muted);
+    }
 
     /* Lightbox */
     #brollLightbox {

@@ -30,7 +30,9 @@ from pipeline_core import (
     _EMAIL_RE, _sign_scoped_token, _verify_scoped_token, _send_email, _email_html,
     EMAIL_VERIFY_TTL_SECONDS,
     _user_prefix, _owned_key, _broll_item_safe,
-    DEFAULT_VIDEO_LIMIT, _quota_state, _quota_allows, _count_quota_used,
+    DEFAULT_VIDEO_LIMIT, LEGACY_VIDEO_LIMIT, _quota_state, _quota_allows,
+    _count_quota_used, _credit_cost, _upscale_allowed, _charge_credits,
+    _refund_credits, UPSCALE_MAX_SECONDS,
     PLAY_PACKAGE_NAME, PLAY_CREDIT_PRODUCTS, _billing_account_id,
     _purchase_ledger_key, _count_purchased_credits, _parse_play_purchase,
     _apply_voided_play_purchases,
@@ -741,9 +743,14 @@ def api():
                 return None
             try:
                 tmp_vol.commit()           # flush chunks before the worker reads
-                call = process_video.spawn(upload_key=full_key,
-                                           key_prefix=rec.get("uprefix", uprefix),
-                                           **rec["params"])
+                call = process_video.spawn(
+                    upload_key=full_key,
+                    key_prefix=rec.get("uprefix", uprefix),
+                    # Admins are not charged, so there is nothing for the
+                    # worker to verify the source length against.
+                    credits_charged=(0 if rec.get("is_admin")
+                                     else int(rec.get("credit_cost") or 1)),
+                    **rec["params"])
             except Exception as e:
                 print(f"[pending] spawn failed for {full_key!r}: {e!r}")
                 try:
@@ -757,10 +764,11 @@ def api():
                 pass
             if not rec.get("is_admin") and rec.get("uname"):
                 try:
-                    quota_store[f"{rec['uid']}:{call.object_id}"] = _time.time()
+                    _cost = int(rec.get("credit_cost") or 1)
+                    _charge_credits(quota_store, rec["uid"], call.object_id, _cost)
                     _urec = users_store.get(rec["uname"])
                     if isinstance(_urec, dict):
-                        _urec["videos_used"] = int(_urec.get("videos_used") or 0) + 1
+                        _urec["videos_used"] = int(_urec.get("videos_used") or 0) + _cost
                         users_store[rec["uname"]] = _urec
                 except Exception:
                     pass
@@ -819,7 +827,7 @@ def api():
                 urec, _os.environ.get("ADMIN_USERS"), uname, purchased)
             if not is_admin:
                 used = max(used, _count_quota_used(quota_store, uid))
-            raw_base_limit = (urec or {}).get("video_limit", DEFAULT_VIDEO_LIMIT)
+            raw_base_limit = (urec or {}).get("video_limit", LEGACY_VIDEO_LIMIT)
             base_limit = -1 if raw_base_limit is None else int(raw_base_limit)
             body = json.dumps({"username": uname,
                                "role": "admin" if is_admin else "user",
@@ -1462,6 +1470,18 @@ def api():
                   f"raw_cut={qs.get('cut_silences', ['<absent>'])[0]} parsed_cut={cut_silences} "
                   f"burn={burn_captions} is_audio={is_audio}")
 
+            # What this run costs. The client reports the source duration it
+            # already measured; process_video re-checks against its own probe,
+            # so understating it buys nothing.
+            try:
+                src_duration = float(qs.get("duration", ["0"])[0])
+            except (ValueError, TypeError):
+                src_duration = 0.0
+            if enhance_video == "esrgan" and not _upscale_allowed(src_duration):
+                await send_error("upscale_too_long", 400)
+                return
+            credit_cost = _credit_cost(src_duration, enhance_video)
+
             import os as _os, time as _time
             uname, urec = _user_by_uid()
             purchased = _count_purchased_credits(purchases_store, uid)
@@ -1472,7 +1492,9 @@ def api():
                 # the record's videos_used is a floor so existing testers'
                 # usage isn't reset when this migrates in.
                 used = max(used, _count_quota_used(quota_store, uid))
-                if not _quota_allows(is_admin, used, limit):
+                # Every credit this run will consume must be available up front:
+                # charging 2 to a user holding 1 would leave a negative balance.
+                if not _quota_allows(is_admin, used + credit_cost - 1, limit):
                     await send_error("limit_reached", 402)
                     return
             # DEFERRED registration: called BEFORE the upload with the same
@@ -1509,6 +1531,10 @@ def api():
                     },
                     "uid": uid, "uname": uname, "is_admin": is_admin,
                     "uprefix": uprefix, "total_chunks": total_chunks,
+                    # Quota is CHECKED here and CONSUMED at the real spawn, so
+                    # the price computed from these params has to travel with
+                    # them - the upload endpoint has no query string to re-read.
+                    "credit_cost": credit_cost,
                     "ts": _time.time(),
                 }
                 body = json.dumps({"pending": True}).encode()
@@ -1547,6 +1573,7 @@ def api():
                         key_prefix=uprefix,
                         enhance_video=enhance_video,
                         is_audio=is_audio,
+                        credits_charged=(0 if is_admin else credit_cost),
                     )
                 else:
                     # Legacy path — full body in request (may hit Modal 303 on slow connections)
@@ -1563,16 +1590,15 @@ def api():
                         key_prefix=uprefix,
                         enhance_video=enhance_video,
                         is_audio=is_audio,
+                        credits_charged=(0 if is_admin else credit_cost),
                     )
                 _record_call(call)
                 if not is_admin and uname:
-                    # Unique key = one consumed credit; atomic, so concurrent
-                    # spawns can't clobber each other's increment.
-                    try:
-                        quota_store[f"{uid}:{call.object_id}"] = _time.time()
-                    except Exception:
-                        pass
-                    urec["videos_used"] = used + 1
+                    # One unique key per consumed credit; atomic, so concurrent
+                    # spawns can't clobber each other's increment. A long video
+                    # or a 4K upscale costs more than one (see _credit_cost).
+                    _charge_credits(quota_store, uid, call.object_id, credit_cost)
+                    urec["videos_used"] = used + credit_cost
                     users_store[uname] = urec
                 body = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
@@ -1599,7 +1625,7 @@ def api():
                 _r = users_store.get(_u)
                 if not isinstance(_r, dict):
                     continue
-                _raw_base_limit = _r.get("video_limit", DEFAULT_VIDEO_LIMIT)
+                _raw_base_limit = _r.get("video_limit", LEGACY_VIDEO_LIMIT)
                 _base_limit = -1 if _raw_base_limit is None else int(_raw_base_limit)
                 _purchased = _count_purchased_credits(
                     purchases_store, str(_r.get("uid") or ""))
@@ -1723,16 +1749,15 @@ def api():
                 # refund (_count_quota_used scans these); videos_used is the display
                 # floor. Idempotent: a repeat poll finds the key gone and no-ops, so
                 # concurrent polls can't double-refund. Best-effort throughout.
-                try:
-                    del quota_store[f"{uid}:{call_id}"]
-                    refunded = True
-                except Exception:
-                    refunded = False
-                if refunded:
+                # A run can cost more than one credit (long source, 4K upscale),
+                # so refund every key it wrote, not just the first.
+                _back = _refund_credits(quota_store, uid, call_id)
+                if _back:
                     try:
                         _uname_r, _urec_r = _user_by_uid()
                         if _urec_r:
-                            _urec_r["videos_used"] = max(0, int(_urec_r.get("videos_used", 1)) - 1)
+                            _urec_r["videos_used"] = max(
+                                0, int(_urec_r.get("videos_used", _back)) - _back)
                             users_store[_uname_r] = _urec_r
                     except Exception:
                         pass
