@@ -196,16 +196,25 @@ count. So:
 
 **App not ready.** The usual cause is a reviewer who cannot get in or cannot
 finish a run:
-- Fill in **App content → App access** with working credentials. Auth is
-  passwordless (Google or an emailed 6-digit code), and a reviewer cannot read
-  our email — so give them a Google account they can sign in with, or a
-  prepared account plus instructions.
-- Signup is **open** (the invite code was removed 2026-08-01 for exactly this
-  reason), so nothing blocks account creation itself.
-- A new account gets `DEFAULT_VIDEO_LIMIT` = **3** credits. A >10-minute video
-  costs 2 and the 4K upscale adds 1, so a reviewer can run out mid-review.
-  Raise the reviewer account's limit via **Admin tab → limit** (or `/admin/limit`)
-  before submitting.
+- **Reviewer login (fixed 2026-08-01).** Sign-in is passwordless — Google, or a
+  6-digit code we email — and a reviewer can use neither, which is very likely
+  what "not ready" meant. So ONE address signs in with a **fixed code**, held in
+  the `hebpipe-review` Modal secret as `REVIEW_EMAIL` + `REVIEW_CODE`. This repo
+  is public, so the values are NOT written here — read them from the password
+  manager, or rotate with:
+  ```bash
+  modal secret create --force hebpipe-review REVIEW_EMAIL=… REVIEW_CODE=…
+  ```
+  Put that email and code in **App content → App access** as the credentials,
+  with instructions: *"Choose 'I have an account', enter the email, then enter
+  this code."* Either lane works and no mail is involved.
+  The account is a normal user (never an admin — the Admin tab lists every
+  user's email) and gets `REVIEW_VIDEO_LIMIT` = 25 credits **topped up on every
+  login**, so it cannot strand the reviewer at zero. Blank `REVIEW_CODE` to turn
+  the login off once production access is granted; a code under 6 characters is
+  refused, so blanking is a real off switch. Tests: `tests/backend/test_review_login.py`.
+- Signup is **open** (the invite code was removed 2026-08-01 for the same
+  reason), so nothing blocks account creation either.
 - Walk the whole flow on a clean install first: sign in, upload, edit captions,
   export, download. Any crash or dead end reads as "not ready".
 

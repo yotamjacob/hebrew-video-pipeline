@@ -366,6 +366,41 @@ def _gen_login_code() -> str:
     return f"{secrets.randbelow(1_000_000):06d}"
 
 
+# ── Play-review demo login ──
+# Sign-in is passwordless (Google, or a 6-digit code we email), and a Google
+# Play reviewer can read neither — which is why the app came back as "not
+# ready". ONE address, configured as REVIEW_EMAIL + REVIEW_CODE in the
+# hebpipe-auth secret, may therefore sign in with a FIXED code instead of an
+# emailed one. It is a normal user record and must NEVER be an admin (the Admin
+# tab exposes every user's email). Rotate or delete the pair once Play has
+# granted production access. Both helpers are no-ops when the secret is unset,
+# so a deploy without it simply has no demo login.
+REVIEW_VIDEO_LIMIT = 25   # credits kept AVAILABLE to the reviewer on every login
+
+
+def _is_review_email(email: str, review_email: str) -> bool:
+    """True when `email` is the configured Play-review address."""
+    if not review_email or not email:
+        return False
+    return _normalize_email(email) == _normalize_email(review_email)
+
+
+def _review_login_ok(email: str, code: str, review_email: str, review_code: str) -> bool:
+    """True when (email, code) is the configured Play-review demo login.
+
+    The code compare is constant-time, and a short/blank REVIEW_CODE is refused
+    outright so a half-configured secret can never become a trivial bypass."""
+    import hmac as _hmac
+    if not review_email or not review_code or not code:
+        return False
+    review_code = review_code.strip()
+    if len(review_code) < 6:
+        return False
+    if not _is_review_email(email, review_email):
+        return False
+    return _hmac.compare_digest(code.strip(), review_code)
+
+
 # Google Sign-In: the OAuth **Web** client ID is the token audience. It is PUBLIC
 # (it ships inside the Android APK and the web page), so hardcoding is fine and
 # avoids a risky --force rewrite of the hebpipe-auth secret. The native plugin

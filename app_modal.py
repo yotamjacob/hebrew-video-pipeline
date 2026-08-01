@@ -30,6 +30,7 @@ from pipeline_core import (
     _EMAIL_RE, _sign_scoped_token, _verify_scoped_token, _send_email, _email_html,
     EMAIL_VERIFY_TTL_SECONDS,
     _user_prefix, _owned_key, _broll_item_safe,
+    _is_review_email, _review_login_ok, REVIEW_VIDEO_LIMIT,
     DEFAULT_VIDEO_LIMIT, LEGACY_VIDEO_LIMIT, _quota_state, _quota_allows,
     _count_quota_used, _credit_cost, _upscale_allowed, _charge_credits,
     _refund_credits, UPSCALE_MAX_SECONDS,
@@ -194,7 +195,15 @@ from metricool_fns import (
               secrets=[modal.Secret.from_name("hebpipe-auth"),
                        # FCM: admin error-alert pushes from /error-report and
                        # the terminal-failure poll path.
-                       modal.Secret.from_name("hebpipe-fcm")])
+                       modal.Secret.from_name("hebpipe-fcm"),
+                       # REVIEW_EMAIL + REVIEW_CODE — the Play-review demo login.
+                       # Its OWN secret, not a key inside hebpipe-auth: adding a
+                       # key there needs a `--force` rewrite that REPLACES every
+                       # key, and the existing values can't be read back. To
+                       # disable the demo login, blank REVIEW_CODE (anything
+                       # under 6 chars is refused) - don't delete the secret, or
+                       # the deploy loses a reference it still expects.
+                       modal.Secret.from_name("hebpipe-review")])
 @modal.concurrent(max_inputs=50)   # headroom: chunk uploads + their CORS preflights + polls
 @modal.asgi_app()
 def api():
@@ -364,6 +373,16 @@ def api():
                 await send_error("A valid email address is required", 400, code="invalid_email")
                 return
             ident = _normalize_email(_raw)
+            # The Play-review address short-circuits everything below: no mail is
+            # sent (its code is fixed), and BOTH lanes are answered "ok, existing
+            # account" so the reviewer reaches the code screen no matter which
+            # button they pressed and whether or not the account exists yet.
+            if _is_review_email(_raw, os.environ.get("REVIEW_EMAIL", "")):
+                body = json.dumps({"ok": True, "is_new": False}).encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": body})
+                return
             is_new = _resolve_account_key(ident, _raw) is None
             # Explicit flow from the two-panel UI: 'login' (existing user) or
             # 'register' (new user). A mismatch is answered up front - no code is
@@ -440,24 +459,34 @@ def api():
                 await send_error(f"Too many attempts. Try again in {max(_rev, _rii) // 60 + 1} min.", 429,
                                  code="throttled", retry_min=max(_rev, _rii) // 60 + 1)
                 return
-            crec = codes_store.get(ident)
-            if not isinstance(crec, dict) or crec.get("exp", 0) < _now:
-                _throttle_record_fail(throttle_store, f"codev:{ident}", _now)
-                _throttle_record_fail(throttle_store, f"codevip:{_ip}", _now)
-                await send_error("This code has expired. Request a new one.", 400, code="code_expired")
-                return
-            # Per-code attempt cap so a single live code can't be brute-forced.
-            crec["attempts"] = crec.get("attempts", 0) + 1
-            if crec["attempts"] > 5:
-                codes_store.pop(ident, None)
-                await send_error("Too many wrong tries. Request a new code.", 400, code="code_tries")
-                return
-            codes_store[ident] = crec
-            if not _verify_password(_code, crec["salt"], crec["hash"]):
-                _throttle_record_fail(throttle_store, f"codev:{ident}", _now)
-                _throttle_record_fail(throttle_store, f"codevip:{_ip}", _now)
-                await send_error("Incorrect code. Try again.", 401, code="code_incorrect")
-                return
+            # The Play-review address signs in with a FIXED code, so there is no
+            # stored code to look up. The throttles above still bound guessing.
+            # A miss falls through to the normal path, which has no live code for
+            # this address and answers "expired" — so a wrong guess reveals
+            # nothing about whether a review login exists.
+            _review = _review_login_ok(_raw, _code, os.environ.get("REVIEW_EMAIL", ""),
+                                       os.environ.get("REVIEW_CODE", ""))
+            if _review:
+                crec = {"terms_ts": _now}
+            else:
+                crec = codes_store.get(ident)
+                if not isinstance(crec, dict) or crec.get("exp", 0) < _now:
+                    _throttle_record_fail(throttle_store, f"codev:{ident}", _now)
+                    _throttle_record_fail(throttle_store, f"codevip:{_ip}", _now)
+                    await send_error("This code has expired. Request a new one.", 400, code="code_expired")
+                    return
+                # Per-code attempt cap so a single live code can't be brute-forced.
+                crec["attempts"] = crec.get("attempts", 0) + 1
+                if crec["attempts"] > 5:
+                    codes_store.pop(ident, None)
+                    await send_error("Too many wrong tries. Request a new code.", 400, code="code_tries")
+                    return
+                codes_store[ident] = crec
+                if not _verify_password(_code, crec["salt"], crec["hash"]):
+                    _throttle_record_fail(throttle_store, f"codev:{ident}", _now)
+                    _throttle_record_fail(throttle_store, f"codevip:{_ip}", _now)
+                    await send_error("Incorrect code. Try again.", 401, code="code_incorrect")
+                    return
             # Correct — consume the code and clear throttles.
             codes_store.pop(ident, None)
             _throttle_clear(throttle_store, f"codev:{ident}")
@@ -485,6 +514,19 @@ def api():
                 if _raw != ident:
                     users_store[f"email:{_raw}"] = ident   # also index the raw form
                 _uname = _raw
+            # Keep REVIEW_VIDEO_LIMIT credits AVAILABLE to the reviewer on every
+            # login, so a half-finished review can't strand them at zero. The
+            # limit is raised past what they've already spent rather than
+            # resetting videos_used, because the authoritative consumed count is
+            # the unique-quota-key scan, not that display counter. Deliberately
+            # NOT role="admin": the Admin tab lists every user's email.
+            if _review:
+                _rkey = _acct_key or ident   # legacy accounts key on the username
+                rec = users_store.get(_rkey)
+                if isinstance(rec, dict) and rec.get("uid"):
+                    rec["video_limit"] = _count_quota_used(quota_store, rec["uid"]) + REVIEW_VIDEO_LIMIT
+                    rec["review_account"] = True
+                    users_store[_rkey] = rec
             token = _sign_token(new_uid, os.environ["AUTH_SECRET"])
             body = json.dumps({"token": token, "username": _uname}).encode()
             await send({"type": "http.response.start", "status": 200,
