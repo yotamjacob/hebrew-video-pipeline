@@ -351,3 +351,48 @@ class TestCreditCharging:
     def test_failure_refunds_every_credit_not_just_the_first(self):
         assert "_back = _refund_credits(quota_store, uid, call_id)" in MODAL_SRC
         assert 'del quota_store[f"{uid}:{call_id}"]' not in MODAL_SRC
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Open signup — no invite gate, and every new account gets exactly 3 credits
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestOpenSignup:
+    """The invite-code gate was removed 2026-08-01 so anyone (including a Play
+    reviewer) can create an account. With it gone, the free-tier grant is the
+    only thing standing between an open signup and free compute, so both the
+    absence of the gate and the size of that grant are pinned here. Route bodies
+    are closures inside api(), so this guards the source directly."""
+
+    def test_no_invite_gate_anywhere(self):
+        # Not just the env read - any comparison against an invite field would
+        # re-close the door on a reviewer who has no code.
+        assert 'os.environ.get("INVITE_CODE"' not in MODAL_SRC
+        assert 'data.get("invite")' not in MODAL_SRC
+        assert 'code="invalid_invite"' not in MODAL_SRC
+
+    def test_terms_acceptance_is_still_required_for_new_accounts(self):
+        # Legal gate, not an access gate - it must survive the invite removal.
+        assert 'if is_new and not data.get("terms_accepted"):' in MODAL_SRC
+        assert MODAL_SRC.count('code="terms_required"') >= 1
+        assert '"code": "terms_required"' in MODAL_SRC
+
+    def test_google_signup_asks_for_terms_with_a_flag_old_shells_understand(self):
+        # An installed shell only knows `need_invite`; a current one prefers
+        # `need_terms`. Sending both keeps every build able to reveal the box.
+        assert '"need_terms": True, "need_invite": True,' in MODAL_SRC
+
+    def test_free_tier_is_three_credits(self):
+        # Read from source, not by import: CI has no modal installed.
+        assert "\nDEFAULT_VIDEO_LIMIT = 3\n" in MODAL_SRC
+        # The legacy fallback grandfathers pre-2026-07-31 records and must not
+        # be lowered to match - that would take credits from existing users.
+        assert "\nLEGACY_VIDEO_LIMIT = 5\n" in MODAL_SRC
+
+    def test_every_account_creation_site_pins_the_free_tier(self):
+        # Two creation sites remain (the email-code flow and Google); each must
+        # write an EXPLICIT limit, or _quota_state falls back to the legacy 5.
+        grant = '"video_limit": DEFAULT_VIDEO_LIMIT, "videos_used": 0}'
+        assert MODAL_SRC.count(grant) == 2
+        # Every place a brand-new record is written is one of those two.
+        assert MODAL_SRC.count('users_store[f"uid:{new_uid}"] = ident') == 2

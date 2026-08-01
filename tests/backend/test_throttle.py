@@ -1,5 +1,5 @@
 """Brute-force throttle tests — the persistent, cross-container lockout that
-protects password and invite-code guessing.
+protects password and login-code guessing.
 
 Wrong answers here either let an attacker guess indefinitely (lockout never
 trips) or lock out legitimate users forever (window never resets).
@@ -76,10 +76,10 @@ def test_keys_are_independent():
 
 def test_recording_fail_starts_fresh_window_after_expiry():
     s = _Dict()
-    _throttle_record_fail(s, "invite:1.2.3.4", now=1000)
+    _throttle_record_fail(s, "codeip:1.2.3.4", now=1000)
     # A fail long after the first restarts the count from 1, not from stale state.
-    _throttle_record_fail(s, "invite:1.2.3.4", now=1000 + WINDOW + 100)
-    rec = s.get("t:invite:1.2.3.4")
+    _throttle_record_fail(s, "codeip:1.2.3.4", now=1000 + WINDOW + 100)
+    rec = s.get("t:codeip:1.2.3.4")
     assert rec["fails"] == 1
 
 def test_clear_missing_key_is_safe():

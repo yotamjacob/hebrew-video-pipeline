@@ -281,9 +281,11 @@ def api():
 
         # ── Password registration is RETIRED (2026-07-13) ──
         # New accounts are created only via verified email codes (/auth/request-
-        # code + /auth/verify-code) or Google — closing the "any email + shared
-        # invite = unlimited free-credit accounts" hole. Password /auth/login
-        # stays as a dormant fallback for legacy accounts.
+        # code + /auth/verify-code) or Google, so every account is tied to an
+        # address its owner can actually receive mail at — that verification, not
+        # an invite code, is what limits free-credit farming (the invite gate was
+        # removed 2026-08-01 to open signup for the Play review). Password
+        # /auth/login stays as a dormant fallback for legacy accounts.
         if path in ("/auth/register", "/auth/register/") and method == "POST":
             await send_error("Registration has moved - sign in with your email and the 6-digit code we send you.", 410)
             return
@@ -311,86 +313,32 @@ def api():
             if not ident or len(ident) > 254 or ":" in ident:
                 await send_error("A valid email address is required", 400)
                 return
-            if path.startswith("/auth/register"):
-                if not _EMAIL_RE.match(ident):
-                    await send_error("A valid email address is required", 400)
-                    return
-                # Throttle invite-code guessing per source IP.
-                _ok, _retry = _throttle_allowed(throttle_store, f"invite:{_ip}", _now)
-                if not _ok:
-                    await send_error(f"Too many attempts. Try again in {_retry // 60 + 1} min.", 429)
-                    return
-                # Invite is matched case-insensitively and whitespace-trimmed, so
-                # a stray capital or space doesn't reject a valid code.
-                if (data.get("invite") or "").strip().casefold() != os.environ.get("INVITE_CODE", "").strip().casefold():
-                    _throttle_record_fail(throttle_store, f"invite:{_ip}", _now)
-                    await send_error("Invalid invite code", 403)
-                    return
-                _throttle_clear(throttle_store, f"invite:{_ip}")
-                if len(password) < 8:
-                    await send_error("Password must be at least 8 characters", 400)
-                    return
-                # Accepting the Terms + Privacy Policy is mandatory to register.
-                if not data.get("terms_accepted"):
-                    await send_error("You must accept the Privacy Policy and Terms of Use", 400)
-                    return
-                # The email must be free both as an account key (new accounts)
-                # and in the reverse index (legacy username accounts that
-                # attached this address).
-                if users_store.contains(ident) or users_store.contains(f"email:{ident}"):
-                    await send_error("An account with this email already exists", 409)
-                    return
-                salt, ph = _hash_password(password)
-                new_uid = _secrets.token_hex(16)
-                # Marketing consent: explicit opt-in only (unchecked by default in
-                # the UI). Transactional mail (verify/reset) is sent regardless;
-                # promotional mail may only go to accounts with this set true.
-                _mkt = bool(data.get("marketing_consent"))
-                users_store[ident] = {"uid": new_uid, "salt": salt, "pw": ph, "created": _time.time(),
-                                      "email": ident, "email_verified": False,
-                                      "marketing_consent": _mkt,
-                                      "marketing_consent_ts": _time.time() if _mkt else None,
-                                      "terms_accepted_ts": _time.time(),
-                                      "video_limit": DEFAULT_VIDEO_LIMIT, "videos_used": 0}
-                users_store[f"uid:{new_uid}"] = ident
-                users_store[f"email:{ident}"] = ident   # reverse index for password reset
-                # Fire the verification email (best-effort — a failure must not
-                # block sign-up, since verification is a nudge, not a gate).
-                try:
-                    _vtok = _sign_scoped_token(new_uid, "verify", os.environ["AUTH_SECRET"], EMAIL_VERIFY_TTL_SECONDS)
-                    _send_email(ident, "Verify your email - פייפליין",
-                                _email_html("Verify your email",
-                                            "Tap the button to confirm this address so you can recover your account later.",
-                                            "Verify email", f"{API_BASE_URL}/auth/verify?token={_vtok}"))
-                except Exception as _mail_err:
-                    print(f"[email] verification send failed: {_mail_err}")
-            else:
-                # Throttle password guessing per identifier AND per source IP.
-                _ok_u, _retry_u   = _throttle_allowed(throttle_store, f"login:{ident}", _now)
-                _ok_ip, _retry_ip = _throttle_allowed(throttle_store, f"loginip:{_ip}", _now)
-                if not (_ok_u and _ok_ip):
-                    await send_error(f"Too many attempts. Try again in {max(_retry_u, _retry_ip) // 60 + 1} min.", 429)
-                    return
-                # Resolve the account: direct key hit (email-keyed accounts and
-                # legacy username-keyed accounts), then the email reverse index
-                # (legacy accounts that attached this address). The isinstance
-                # guard keeps index entries (`uid:*`/`email:*` → strings) from
-                # ever being treated as a user record.
-                _acct_key = ident
-                rec = users_store.get(ident)
-                if not isinstance(rec, dict):
-                    _key = users_store.get(f"email:{ident}")
-                    _acct_key = _key if isinstance(_key, str) else None
-                    rec = users_store.get(_key) if isinstance(_key, str) else None
-                if not isinstance(rec, dict) or not _verify_password(password, rec["salt"], rec["pw"]):
-                    _throttle_record_fail(throttle_store, f"login:{ident}", _now)
-                    _throttle_record_fail(throttle_store, f"loginip:{_ip}", _now)
-                    await send_error("Invalid email or password", 401)
-                    return
-                _throttle_clear(throttle_store, f"login:{ident}")
-                _throttle_clear(throttle_store, f"loginip:{_ip}")
-                new_uid = rec["uid"]
-                users_store[f"uid:{new_uid}"] = _acct_key   # backfill reverse index
+            # Throttle password guessing per identifier AND per source IP.
+            _ok_u, _retry_u   = _throttle_allowed(throttle_store, f"login:{ident}", _now)
+            _ok_ip, _retry_ip = _throttle_allowed(throttle_store, f"loginip:{_ip}", _now)
+            if not (_ok_u and _ok_ip):
+                await send_error(f"Too many attempts. Try again in {max(_retry_u, _retry_ip) // 60 + 1} min.", 429)
+                return
+            # Resolve the account: direct key hit (email-keyed accounts and
+            # legacy username-keyed accounts), then the email reverse index
+            # (legacy accounts that attached this address). The isinstance
+            # guard keeps index entries (`uid:*`/`email:*` → strings) from
+            # ever being treated as a user record.
+            _acct_key = ident
+            rec = users_store.get(ident)
+            if not isinstance(rec, dict):
+                _key = users_store.get(f"email:{ident}")
+                _acct_key = _key if isinstance(_key, str) else None
+                rec = users_store.get(_key) if isinstance(_key, str) else None
+            if not isinstance(rec, dict) or not _verify_password(password, rec["salt"], rec["pw"]):
+                _throttle_record_fail(throttle_store, f"login:{ident}", _now)
+                _throttle_record_fail(throttle_store, f"loginip:{_ip}", _now)
+                await send_error("Invalid email or password", 401)
+                return
+            _throttle_clear(throttle_store, f"login:{ident}")
+            _throttle_clear(throttle_store, f"loginip:{_ip}")
+            new_uid = rec["uid"]
+            users_store[f"uid:{new_uid}"] = _acct_key   # backfill reverse index
             token = _sign_token(new_uid, os.environ["AUTH_SECRET"])
             body = json.dumps({"token": token, "username": ident}).encode()
             await send({"type": "http.response.start", "status": 200,
@@ -434,22 +382,14 @@ def api():
                             "headers": CORS + [(b"content-type", b"application/json")]})
                 await send({"type": "http.response.body", "body": _nb})
                 return
-            # NEW accounts still need a valid invite (kept as an extra gate) and
-            # Terms acceptance; existing accounts skip both (they're already in).
-            if is_new:
-                _ok, _retry = _throttle_allowed(throttle_store, f"invite:{_ip}", _now)
-                if not _ok:
-                    await send_error(f"Too many attempts. Try again in {_retry // 60 + 1} min.", 429,
-                                     code="throttled", retry_min=_retry // 60 + 1)
-                    return
-                if (data.get("invite") or "").strip().casefold() != os.environ.get("INVITE_CODE", "").strip().casefold():
-                    _throttle_record_fail(throttle_store, f"invite:{_ip}", _now)
-                    await send_error("Invalid invite code", 403, code="invalid_invite")
-                    return
-                _throttle_clear(throttle_store, f"invite:{_ip}")
-                if not data.get("terms_accepted"):
-                    await send_error("You must accept the Privacy Policy and Terms of Use", 400, code="terms_required")
-                    return
+            # NEW accounts must accept the Terms + Privacy Policy (a legal gate,
+            # so it stays); existing accounts skip it (they accepted at signup).
+            # Signup is otherwise OPEN — no invite code (removed 2026-08-01). The
+            # abuse ceiling is the emailed code itself plus the per-email and
+            # per-IP send throttles below.
+            if is_new and not data.get("terms_accepted"):
+                await send_error("You must accept the Privacy Policy and Terms of Use", 400, code="terms_required")
+                return
             # Throttle code SENDS per email + per IP so an inbox can't be spammed.
             _oke, _ree = _throttle_allowed(throttle_store, f"code:{ident}", _now)
             _oki, _rii = _throttle_allowed(throttle_store, f"codeip:{_ip}", _now)
@@ -555,9 +495,9 @@ def api():
         # ── Google Sign-In: verify the ID token → session token (public) ──
         # Same normalized-email keying as the code flow, so signing in with
         # Google and with a code for the same address land on ONE account (no
-        # double credits). NEW accounts require the invite + Terms (the consent
-        # screen is published, so Google no longer gates signups); the response
-        # carries `need_invite:true` so the app reveals those fields and retries.
+        # double credits). NEW accounts only have to accept the Terms; the
+        # response carries `need_terms:true` so the app reveals that checkbox
+        # and retries with the ID token it already holds.
         if path in ("/auth/google", "/auth/google/") and method == "POST":
             import os, secrets as _secrets, time as _time
             _ip = _get_client_ip(scope)
@@ -579,7 +519,7 @@ def api():
             _sub = claims.get("sub")
             _acct_key = _resolve_account_key(ident, _raw)
             # Two-panel UI: in the "existing user" panel a Google account with no
-            # record gets a clear "no account" answer instead of the invite dance.
+            # record gets a clear "no account" answer instead of a silent signup.
             # (register + existing account just signs in - it's the same person,
             # Google already verified the email.)
             if (data.get("mode") or "").strip().lower() == "login" and not _acct_key:
@@ -599,29 +539,20 @@ def api():
                 new_uid = rec["uid"]
                 _uname = rec.get("email") or _acct_key
             else:
-                # NEW account via Google. The consent screen is PUBLISHED (Google
-                # no longer restricts who can sign in), so gate new signups with
-                # the invite + Terms just like the email-code path. `need_invite`
-                # tells the app to reveal those fields and retry.
-                _iok, _iretry = _throttle_allowed(throttle_store, f"invite:{_ip}", _now)
-                if not _iok:
-                    await send_error(f"Too many attempts. Try again in {_iretry // 60 + 1} min.", 429,
-                                     code="throttled", retry_min=_iretry // 60 + 1)
-                    return
-                if (data.get("invite") or "").strip().casefold() != os.environ.get("INVITE_CODE", "").strip().casefold():
-                    _throttle_record_fail(throttle_store, f"invite:{_ip}", _now)
-                    _nb = json.dumps({"error": "Enter your invite code to create an account.", "need_invite": True, "code": "invalid_invite"}).encode()
-                    await send({"type": "http.response.start", "status": 403,
-                                "headers": CORS + [(b"content-type", b"application/json")]})
-                    await send({"type": "http.response.body", "body": _nb})
-                    return
+                # NEW account via Google. Signup is OPEN — no invite code (removed
+                # 2026-08-01); Google has already verified the address. The only
+                # remaining gate is Terms acceptance, and `need_terms` tells the
+                # app to reveal that checkbox and retry with the same ID token.
+                # `need_invite` is sent alongside it purely so an older installed
+                # shell (which only knows that flag) still reveals the block.
                 if not data.get("terms_accepted"):
-                    _nb = json.dumps({"error": "Please accept the Privacy Policy and Terms of Use.", "need_invite": True, "code": "terms_required"}).encode()
+                    _nb = json.dumps({"error": "Please accept the Privacy Policy and Terms of Use.",
+                                      "need_terms": True, "need_invite": True,
+                                      "code": "terms_required"}).encode()
                     await send({"type": "http.response.start", "status": 400,
                                 "headers": CORS + [(b"content-type", b"application/json")]})
                     await send({"type": "http.response.body", "body": _nb})
                     return
-                _throttle_clear(throttle_store, f"invite:{_ip}")
                 new_uid = _secrets.token_hex(16)
                 users_store[ident] = {"uid": new_uid, "created": _now, "email": _raw,
                                       "email_verified": True, "auth": "google", "google_sub": _sub,

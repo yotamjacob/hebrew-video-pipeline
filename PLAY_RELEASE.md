@@ -172,6 +172,51 @@ few days for a first submission).
 
 ---
 
+## 9. Production access (the 12-tester / 14-day requirement)
+
+This account must earn production access before it can publish publicly.
+**Internal testing does not count.** Only a **Closed testing** track does, and
+the clock only runs while at least **12 testers are opted in continuously for
+14 days**. One uninstall breaks "continuous" and restarts it — recruit 18-20.
+
+Production access was **rejected once (2026-08-01)** on two grounds: testers
+were not active enough, and "the app was not ready". What each means here:
+
+**Testers not active enough.** Google reads real engagement, not the opt-in
+count. So:
+- Testers must install from the **closed-track opt-in link**, via the Play
+  Store. A sideloaded APK produces no Play telemetry, so a tester who used the
+  app daily still looks inactive — and Play Billing won't work either.
+- Give each tester a concrete weekly task (upload a real video, edit the
+  captions, export it), not "try it out". Sessions are what's measured.
+- Ship 2-3 closed-track releases during the 14 days. A build that never changes
+  reads as abandoned; Google wants to see feedback turn into changes.
+- Collect the feedback in writing. The `.footer-whatsapp` link in every footer
+  is the channel — keep a log of what was said and what shipped in response.
+
+**App not ready.** The usual cause is a reviewer who cannot get in or cannot
+finish a run:
+- Fill in **App content → App access** with working credentials. Auth is
+  passwordless (Google or an emailed 6-digit code), and a reviewer cannot read
+  our email — so give them a Google account they can sign in with, or a
+  prepared account plus instructions.
+- Signup is **open** (the invite code was removed 2026-08-01 for exactly this
+  reason), so nothing blocks account creation itself.
+- A new account gets `DEFAULT_VIDEO_LIMIT` = **3** credits. A >10-minute video
+  costs 2 and the 4K upscale adds 1, so a reviewer can run out mid-review.
+  Raise the reviewer account's limit via **Admin tab → limit** (or `/admin/limit`)
+  before submitting.
+- Walk the whole flow on a clean install first: sign in, upload, edit captions,
+  export, download. Any crash or dead end reads as "not ready".
+
+**Writing the application.** The form is scored on substance, and the app's own
+admin data is the best source: `/admin/users` has `videos_used` per account,
+`/admin/costs` has per-video compute, `/admin/errors` has field failures. Answer
+with counts and named fixes ("14 testers, 11 processed at least one video, 63
+videos total, 3 bugs reported and fixed in 1.3.2 and 1.3.3"), not prose.
+
+---
+
 ## Notes
 
 - The app is a Capacitor shell that loads the deployed web frontend at

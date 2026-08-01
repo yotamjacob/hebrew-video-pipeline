@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.11.1';
+  const APP_VERSION = '1.12.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -153,7 +153,7 @@
   // ── Signup source attribution ──
   // A campaign link (/?src=linkedin, ?utm_source= also accepted) is captured at
   // load and persisted - the visitor often creates the account on a LATER visit
-  // (invite arrives by DM, email-code round-trip) and the query string is long
+  // (they think it over, then do the email-code round-trip) and the query is long
   // gone by then. Sent with account creation; the backend records it on NEW
   // records only, so signing in never overwrites an existing attribution.
   try {
@@ -435,7 +435,8 @@
   // ── Passwordless auth: choose a lane → Google or email code → session ──
   // Landing offers "I have an account" / "I'm new here". Existing users sign in
   // with Google or an emailed 6-digit code; new users do the same but must also
-  // provide the invite code + accept the Terms (shown up front). The backend
+  // accept the Terms (shown up front). Signup is OPEN - the invite-code field
+  // was removed 2026-08-01, so the emailed code is the only barrier. The backend
   // gets an explicit `mode` so an existing email can't register a duplicate and
   // a nonexistent email gets a clear "no account". No passwords anywhere.
   const _EMAIL_JS_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -454,7 +455,7 @@
   // for anything unmapped / an older backend).
   const _AUTH_ERR_KEYS = {
     rate_limited: 'autherr.rate_limited', throttled: 'autherr.throttled',
-    invalid_email: 'autherr.invalid_email', invalid_invite: 'autherr.invalid_invite',
+    invalid_email: 'autherr.invalid_email',
     terms_required: 'auth.termsError', google_failed: 'auth.googleFailed',
     code_format: 'autherr.code_format', code_expired: 'autherr.code_expired',
     code_tries: 'autherr.code_tries', code_incorrect: 'autherr.code_incorrect',
@@ -477,7 +478,7 @@
     ['authError', 'authInfo', 'authCodeError', 'authCodeInfo'].forEach(id => {
       const e = document.getElementById(id); if (e) e.style.display = 'none';
     });
-    ['authEmailErr', 'authInviteErr', 'authCodeErr'].forEach(id => _fieldErr(id, ''));
+    ['authEmailErr', 'authCodeErr'].forEach(id => _fieldErr(id, ''));
   }
 
   // Login lane submits straight to "sign in" wording; only the register lane
@@ -494,7 +495,7 @@
     document.getElementById('authNewFields').style.display = flow === 'register' ? 'block' : 'none';
     _syncAuthSubmitLabel();
     _showAuthStep('email');
-    document.getElementById(flow === 'register' ? 'authInvite' : 'authEmail').focus();
+    document.getElementById('authEmail').focus();
   }
 
   // Wrong-lane errors ("no account yet" / "already has an account") are the
@@ -548,7 +549,6 @@
   document.getElementById('authChoiceNew').addEventListener('click', () => _enterAuthFlow('register'));
   document.getElementById('authBackToChoice').addEventListener('click', () => _showAuthStep('choice'));
   document.getElementById('authEmail').addEventListener('input', () => validateEmail(false));
-  document.getElementById('authInvite').addEventListener('input', () => _fieldErr('authInviteErr', ''));
   // Step 1 goes through the real <form> submit (Enter in the email field works).
   document.getElementById('authForm').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -576,19 +576,14 @@
     if (!resend && !validateEmail(true)) return;
     const email = resend ? _authEmail : document.getElementById('authEmail').value.trim();
     const registering = _authFlow === 'register';
-    let invite = '';
-    if (registering) {
-      invite = document.getElementById('authInvite').value.trim();
-      if (!invite) { _fieldErr('authInviteErr', t('valid.inviteRequired')); return; }
-      if (!document.getElementById('authTermsCheck').checked) {
-        errEl.textContent = t('auth.termsError'); errEl.style.display = 'block'; return;
-      }
+    if (registering && !document.getElementById('authTermsCheck').checked) {
+      errEl.textContent = t('auth.termsError'); errEl.style.display = 'block'; return;
     }
     _btnBusy(btn, true);
     errEl.style.display = 'none';
     try {
       const body = { email, mode: _authFlow };
-      if (registering) { body.invite = invite; body.terms_accepted = true; }
+      if (registering) body.terms_accepted = true;
       const resp = await fetch(`${API_BASE}/auth/request-code`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
@@ -598,7 +593,7 @@
         _laneSwitchErr(errEl, data.no_account ? 'register' : 'login');
         return;
       }
-      // Bad invite, throttle, etc - all translated to the UI language.
+      // Missing terms, throttle, etc - all translated to the UI language.
       if (!resp.ok) throw new Error(_authErrMsg(data, resp.status));
       // Code sent → step 2.
       _authEmail = email;
@@ -650,11 +645,10 @@
   // ── Continue with Google ──────────────────────────────────────────────────
   // Exchange a Google ID token for a session token. Same account keying as the
   // code flow (backend normalizes the email), so Google + code = one account.
-  let _pendingGoogleToken = null;   // native: reuse the ID token across a lane switch / invite fix
+  let _pendingGoogleToken = null;   // native: reuse the ID token across a lane switch / terms fix
   async function _exchangeGoogleToken(idToken) {
     const body = { id_token: idToken, mode: _authFlow, src: _signupSrc() };
     if (_authFlow === 'register') {
-      body.invite = document.getElementById('authInvite').value.trim();
       body.terms_accepted = document.getElementById('authTermsCheck').checked;
     }
     const resp = await fetch(`${API_BASE}/auth/google`, {
@@ -676,12 +670,13 @@
         _laneSwitchErr(errEl, 'login');
         return;
       }
-      // Register lane with a missing/wrong invite or unchecked Terms.
-      if (data.need_invite) {
+      // Register lane with the Terms box unchecked. `need_invite` is still
+      // accepted so an older backend's flag name keeps working.
+      if (data.need_terms || data.need_invite) {
         _pendingGoogleToken = idToken;   // reuse on native so no second account picker
-        errEl.textContent = data.code ? _authErrMsg(data, resp.status) : t('auth.googleNeedInvite');
+        errEl.textContent = data.code ? _authErrMsg(data, resp.status) : t('auth.googleNeedTerms');
         errEl.style.display = 'block';
-        document.getElementById('authInvite').focus();
+        document.getElementById('authTermsCheck').focus();
         return;
       }
       throw new Error(_authErrMsg(data, resp.status));
@@ -713,20 +708,15 @@
     const SL = _capPlugin('SocialLogin');
     const btn = document.getElementById('googleSignInBtn');
     if (!SL) { _googleAuthError(new Error('unavailable')); return; }
-    // Register lane: require the invite + Terms BEFORE opening the account
-    // picker, so nobody authenticates with Google only to bounce on the invite.
-    if (_authFlow === 'register') {
-      if (!document.getElementById('authInvite').value.trim()) {
-        _fieldErr('authInviteErr', t('valid.inviteRequired')); return;
-      }
-      if (!document.getElementById('authTermsCheck').checked) {
-        const errEl = document.getElementById('authError');
-        errEl.textContent = t('auth.termsError'); errEl.style.display = 'block'; return;
-      }
+    // Register lane: require the Terms BEFORE opening the account picker, so
+    // nobody authenticates with Google only to bounce on the checkbox.
+    if (_authFlow === 'register' && !document.getElementById('authTermsCheck').checked) {
+      const errEl = document.getElementById('authError');
+      errEl.textContent = t('auth.termsError'); errEl.style.display = 'block'; return;
     }
     _btnBusy(btn, true);
     try {
-      // Retry after a lane switch / invite fix: reuse the token we already got,
+      // Retry after a lane switch / terms fix: reuse the token we already got,
       // so the user doesn't have to pick their Google account a second time.
       if (_pendingGoogleToken) { await _exchangeGoogleToken(_pendingGoogleToken); return; }
       if (!_glInited) {

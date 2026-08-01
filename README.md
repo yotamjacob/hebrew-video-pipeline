@@ -16,9 +16,11 @@ final ffmpeg re-encode, so quality stays high.
 
 ## Web app features
 
-- **Accounts & quota** — username/password (PBKDF2, stateless HMAC sessions,
-  invite-gated registration, email verify + password reset via Resend). Free
-  tier is 5 videos; admins are unlimited. Per-user data isolation.
+- **Accounts & quota** — passwordless: continue with Google, or an emailed
+  6-digit code (stateless HMAC sessions; legacy password login still resolves
+  old accounts). Signup is open — no invite code — and the only gate on a new
+  account is accepting the Terms. Free tier is 3 credits for new accounts (5 for
+  accounts predating 2026-07-31); admins are unlimited. Per-user data isolation.
 - **Captions** — `ivrit-ai/whisper-large-v3-turbo-ct2` word-level transcription,
   then a Sonnet 5 proofread pass that fixes Hebrew ASR typos without changing
   word count/order (so caption timings stay valid). Editable before burn.

@@ -141,22 +141,18 @@
     </div>
     <form id="authForm" style="padding-top:14px" novalidate>
       <!-- Landing: pick a lane. Existing users sign in (Google or email code);
-           new users create an account (Google or email code, + invite + terms). -->
+           new users create an account the same way, plus a Terms checkbox.
+           Signup is OPEN - the invite-code field was removed 2026-08-01. -->
       <div id="authChoice">
         <button type="button" class="run-btn" id="authChoiceExisting" data-i18n="auth.existingUser">I have an account</button>
         <button type="button" class="action-btn" style="margin-top:10px" id="authChoiceNew" data-i18n="auth.newUser">I'm new here - create account</button>
       </div>
 
       <!-- Step 1 (both flows): Google or email. The register flow additionally
-           shows the invite + terms block up front. -->
+           shows the terms block up front. -->
       <div id="authStepEmail" style="display:none">
         <div id="authNewFields" style="display:none">
-          <p class="auth-hint" id="authNewHint" data-i18n="auth.newHere">Enter your invite code and accept the terms, then continue with Google or email.</p>
-          <div id="authInviteRow" style="margin-top:12px">
-            <label class="sched-label" data-i18n="auth.invite">Invite code</label>
-            <input type="text" id="authInvite" class="sched-input" style="width:100%" autocomplete="off" />
-            <div class="field-err" id="authInviteErr"></div>
-          </div>
+          <p class="auth-hint" id="authNewHint" data-i18n="auth.newHere">Accept the terms, then continue with Google or email.</p>
           <label class="remember-row" id="authTermsRow" style="margin-top:12px;margin-bottom:14px;align-items:flex-start">
             <input type="checkbox" id="authTermsCheck">
             <span data-i18n="auth.terms">I have read and agree to the <a href="/legal.html" target="_blank" rel="noopener">Privacy Policy &amp; Terms of Use</a></span>

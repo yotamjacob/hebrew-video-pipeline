@@ -57,7 +57,7 @@ test('existing user: email-code login stores the token and reveals the app', asy
   await _mockCode(page);
   await page.goto('/');
   await page.click('#authChoiceExisting');
-  await expect(page.locator('#authNewFields')).toBeHidden();   // no invite in the login lane
+  await expect(page.locator('#authNewFields')).toBeHidden();   // no terms block in the login lane
   await page.fill('#authEmail', 'alina@example.com');
   await page.click('#authSubmitBtn');                 // send code → step 2
   await expect(page.locator('#authStepCode')).toBeVisible();
@@ -83,7 +83,7 @@ test('?src= campaign link is captured, persisted, and sent with the code verify'
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' }));
 
   // Mixed case in the link is normalized; the value survives in localStorage
-  // so a later visit (invite by DM, email round-trip) still attributes.
+  // so a later visit (they think it over, then sign up) still attributes.
   await page.goto('/?src=LinkedIn');
   expect(await page.evaluate(() => localStorage.getItem('hebpipe_src'))).toBe('linkedin');
   await page.click('#authChoiceExisting');
@@ -140,7 +140,6 @@ test('"no account" error offers a CTA that switches to the register lane in plac
   await expect(page.locator('#authError')).toBeHidden();
   await expect(page.locator('#authEmail')).toHaveValue('stranger@example.com');
   // And the next submit really registers (mode=register).
-  await page.fill('#authInvite', 'the-invite');
   await page.check('#authTermsCheck');
   await page.click('#authSubmitBtn');
   await expect(page.locator('#authStepCode')).toBeVisible();
@@ -159,7 +158,6 @@ test('"already has an account" error in the register lane switches back to sign-
   await page.goto('/');
   await page.click('#authChoiceNew');
   await page.fill('#authEmail', 'alina@example.com');
-  await page.fill('#authInvite', 'the-invite');
   await page.check('#authTermsCheck');
   await page.click('#authSubmitBtn');
   const cta = page.locator('#authError .lane-switch-btn');
@@ -185,7 +183,7 @@ test('a wrong code shows the server error, app stays hidden', async ({ page }) =
   await expect(page.locator('#pipelineView')).toBeHidden();
 });
 
-test('new user: invite + terms shown up front, then code signs them in', async ({ page }) => {
+test('new user: terms shown up front (no invite), then code signs them in', async ({ page }) => {
   const bodies = [];
   await page.route(/\/auth\/request-code/, (route, request) => {
     bodies.push(JSON.parse(request.postData()));
@@ -199,9 +197,10 @@ test('new user: invite + terms shown up front, then code signs them in', async (
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' }));
   await page.goto('/');
   await page.click('#authChoiceNew');
-  await expect(page.locator('#authNewFields')).toBeVisible();   // invite + terms up front
+  await expect(page.locator('#authNewFields')).toBeVisible();   // terms up front
+  // Signup is open: there is no invite field left to fill.
+  await expect(page.locator('#authInvite')).toHaveCount(0);
   await page.fill('#authEmail', 'newbie@example.com');
-  await page.fill('#authInvite', 'the-invite');
   await page.check('#authTermsCheck');
   await page.click('#authSubmitBtn');
   await expect(page.locator('#authStepCode')).toBeVisible();
@@ -209,7 +208,7 @@ test('new user: invite + terms shown up front, then code signs them in', async (
   await page.click('#authVerifyBtn');
   await expect(page.locator('#pipelineView')).toBeVisible();
   expect(bodies[0].mode).toBe('register');
-  expect(bodies[0].invite).toBe('the-invite');
+  expect(bodies[0].invite).toBeUndefined();
   expect(bodies[0].terms_accepted).toBe(true);
   expect(bodies[0].email).toBe('newbie@example.com');
 });
@@ -221,25 +220,25 @@ test('register lane: an already-used email shows "email taken"', async ({ page }
   await page.goto('/');
   await page.click('#authChoiceNew');
   await page.fill('#authEmail', 'taken@example.com');
-  await page.fill('#authInvite', 'the-invite');
   await page.check('#authTermsCheck');
   await page.click('#authSubmitBtn');
   await expect(page.locator('#authError')).toContainText(/already has an account|כבר יש חשבון/);
   await expect(page.locator('#authStepCode')).toBeHidden();
 });
 
-test('register lane blocks submit without invite or terms, before any request', async ({ page }) => {
+test('register lane blocks submit with the terms unchecked, before any request', async ({ page }) => {
   let posted = false;
   await page.route(/\/auth\/request-code/, r => { posted = true; return r.fulfill({ status: 200, body: '{}' }); });
   await page.goto('/');
   await page.click('#authChoiceNew');
   await page.fill('#authEmail', 'newbie@example.com');
-  await page.click('#authSubmitBtn');                    // no invite yet
-  await expect(page.locator('#authInviteErr')).toBeVisible();
-  await page.fill('#authInvite', 'the-invite');
-  await page.click('#authSubmitBtn');                    // invite ok, terms unchecked
+  await page.click('#authSubmitBtn');                    // terms unchecked
   await expect(page.locator('#authError')).toBeVisible();
   expect(posted).toBe(false);
+  // Checking the box is the only thing standing between them and a code.
+  await page.check('#authTermsCheck');
+  await page.click('#authSubmitBtn');
+  await expect.poll(() => posted).toBe(true);
 });
 
 test('a non-email is rejected inline, before any request', async ({ page }) => {
@@ -395,7 +394,7 @@ test('web Google login: a GIS credential is exchanged for a session token', asyn
   expect(await page.evaluate(() => localStorage.getItem('hebpipe_token'))).toBe('google-token');
 });
 
-test('web Google register: sends invite + terms + mode=register', async ({ page }) => {
+test('web Google register: sends terms + mode=register, no invite', async ({ page }) => {
   let sentBody = null;
   await page.route(/\/auth\/google/, (route, request) => {
     sentBody = JSON.parse(request.postData());
@@ -408,12 +407,11 @@ test('web Google register: sends invite + terms + mode=register', async ({ page 
   await page.goto('/');
   await page.click('#authChoiceNew');
   await expect(page.locator('#authNewFields')).toBeVisible();
-  await page.fill('#authInvite', 'the-invite');
   await page.check('#authTermsCheck');
   await page.evaluate(() => window.google.accounts.id._cb({ credential: 'tok2' }));
   await expect(page.locator('#pipelineView')).toBeVisible();
   expect(sentBody.mode).toBe('register');
-  expect(sentBody.invite).toBe('the-invite');
+  expect(sentBody.invite).toBeUndefined();
   expect(sentBody.terms_accepted).toBe(true);
 });
 
@@ -445,13 +443,14 @@ test('a transient /auth/me failure at launch keeps the session (no code re-promp
 });
 
 test('server errors render in the UI language (Hebrew default) via their code', async ({ page }) => {
-  // Wrong invite (register lane) + wrong code (verify) both carry machine codes;
-  // the Hebrew UI must show Hebrew, not the server's English string.
-  await page.route(/\/auth\/request-code/, (route, request) => {
-    const body = JSON.parse(request.postData());
-    if (body.invite === 'wrong') {
-      return route.fulfill({ status: 403, contentType: 'application/json',
-                             body: JSON.stringify({ error: 'Invalid invite code', code: 'invalid_invite' }) });
+  // A throttled code request + a wrong code both carry machine codes; the
+  // Hebrew UI must show Hebrew, not the server's English string.
+  let firstReq = true;
+  await page.route(/\/auth\/request-code/, (route) => {
+    if (firstReq) {
+      firstReq = false;
+      return route.fulfill({ status: 429, contentType: 'application/json',
+                             body: JSON.stringify({ error: 'Too many code requests.', code: 'throttled', retry_min: 3 }) });
     }
     return route.fulfill({ status: 200, contentType: 'application/json',
                            body: JSON.stringify({ ok: true, is_new: true }) });
@@ -462,11 +461,9 @@ test('server errors render in the UI language (Hebrew default) via their code', 
   await page.goto('/');
   await page.click('#authChoiceNew');
   await page.fill('#authEmail', 'newbie@example.com');
-  await page.fill('#authInvite', 'wrong');
   await page.check('#authTermsCheck');
   await page.click('#authSubmitBtn');
-  await expect(page.locator('#authError')).toHaveText('קוד ההזמנה שגוי.');
-  await page.fill('#authInvite', 'right');
+  await expect(page.locator('#authError')).toHaveText('יותר מדי ניסיונות. נסו שוב בעוד 3 דקות.');
   await page.click('#authSubmitBtn');
   await expect(page.locator('#authStepCode')).toBeVisible();
   await page.fill('#authCode', '000000');

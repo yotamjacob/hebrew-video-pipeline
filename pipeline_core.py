@@ -135,7 +135,8 @@ progress_store = modal.Dict.from_name("hebpipe-progress", create_if_missing=True
 # a user touches is prefixed `u{uid}__` by the API router — workers derive
 # output-key prefixes from their input keys, so isolation is structural.
 # Tokens are stateless HMAC-signed `uid.expiry.sig`; the signing secret lives
-# in the `hebpipe-auth` Modal Secret (AUTH_SECRET + INVITE_CODE).
+# in the `hebpipe-auth` Modal Secret (AUTH_SECRET). Signup is open — the
+# INVITE_CODE gate was removed 2026-08-01; a verified email is the only gate.
 # Migration note: to move to a managed provider (e.g. Supabase), swap
 # _verify_token for provider-JWT verification mapping to the same uid.
 # ---------------------------------------------------------------------------
@@ -921,7 +922,7 @@ def _get_client_ip(scope) -> str:
 
 # ── Brute-force throttle (persistent, cross-container) ──
 # _check_rate_limit above is a coarse per-container burst cap. This is the
-# real defense for password / invite-code guessing: failed attempts against a
+# real defense for password / login-code guessing: failed attempts against a
 # key (a username, or an IP) accumulate in a Modal Dict, and once they cross a
 # threshold within a rolling window the key is locked out for the rest of that
 # window. It survives container recycling and is shared across instances, so
