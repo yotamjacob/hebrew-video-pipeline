@@ -876,8 +876,13 @@
     .celebrate-toast {
       position: fixed; z-index: 10001; top: 74px; left: 50%;
       transform: translateX(-50%) translateY(-10px) scale(0.96);
-      display: flex; align-items: center; gap: 9px;
-      padding: 11px 18px; border-radius: 999px; max-width: 90vw;
+      /* Wraps when the content is long (saved-file toasts carry a filename
+         link) - a single nowrap pill truncated the text. Short toasts still
+         render as one pill-shaped line. */
+      display: flex; align-items: center; justify-content: center;
+      flex-wrap: wrap; text-align: center; gap: 6px 9px;
+      padding: 11px 18px; border-radius: 22px;
+      max-width: min(92vw, 460px);
       background: var(--white); border: 1.5px solid var(--sage-100);
       box-shadow: 0 10px 30px rgba(120,90,60,0.18);
       color: var(--text); font-weight: 700; font-size: 0.92rem;
@@ -892,7 +897,8 @@
       background: none; border: none; padding: 0; cursor: pointer;
       font: inherit; font-weight: 600; color: var(--terracotta);
       text-decoration: underline; text-underline-offset: 2px;
-      max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      direction: ltr;   /* filenames are latin - keep the ellipsis at the end */
     }
     .celebrate-toast-check svg { width: 1.3rem; height: 1.3rem; }
     .celebrate-toast-error-icon { display: none; }

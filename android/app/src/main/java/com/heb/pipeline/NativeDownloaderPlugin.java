@@ -93,7 +93,16 @@ public class NativeDownloaderPlugin extends Plugin {
 
     @PluginMethod
     public void openDownloads(PluginCall call) {
+        // ACTION_VIEW_DOWNLOADS is an OEM lottery: some shells have no
+        // matching activity and some resolve it to a STORE download UI
+        // (field report: tapping "Open Downloads" opened the Play Store).
+        // Prefer it only when a real handler exists, otherwise open the
+        // system Files app (API 29+) which always shows Downloads.
         Intent intent = new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS);
+        boolean handled = intent.resolveActivity(getContext().getPackageManager()) != null;
+        if (!handled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            intent = Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_FILES);
+        }
         try {
             getActivity().startActivity(intent);
             call.resolve();

@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.17.0';
+  const APP_VERSION = '1.17.1';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -2068,6 +2068,7 @@
   let _sharing = false;
   let _sharePrep = null;         // { url, uri } once the finished file is cached locally
   let _sharePrepPromise = null;  // in-flight warm-up (native) - a tap awaits this
+  let _sharePrepUrl = null;      // which url that warm-up is fetching
   function _safeShareName(name) { return (name || 'video.mp4').replace(/[^\w.\-]+/g, '_'); }
 
   // Share buttons are 'ready' the MOMENT a result exists - no spinner phase.
@@ -2329,6 +2330,7 @@
     if (!resultDownloadUrl) { _setShareState('hidden'); return; }
     if (_isNative()) {
       _setShareState('ready');
+      _sharePrepUrl = resultDownloadUrl;
       _sharePrepPromise = _prepareShareFile(resultDownloadUrl, resultName)
         .finally(() => { _sharePrepPromise = null; });
     } else if (_canWebShareFiles()) {
@@ -4160,7 +4162,34 @@
   // user dismisses the prompt). An iframe navigation never unloads the page, so
   // the file downloads with no prompt. The server sets the filename from the
   // `filename` query param, so `name` isn't needed on the client.
+  // True when the share warm-up already holds (or is currently fetching) this
+  // exact file in the app cache - saving is then a local COPY, near-instant.
+  function _warmCacheCovers(url) {
+    return (_sharePrep && _sharePrep.url === url && _sharePrep.cachePath)
+        || (_sharePrepPromise && _sharePrepUrl === url);
+  }
   function _browserDownload(url, name) {
+    // LOCAL-FIRST on native: Android's DownloadManager can only fetch a URL,
+    // so routing a freshly-burned video through it re-downloads bytes that
+    // are already sitting in the app cache (field report: "download takes
+    // 30s after the video is ready"). When the warm-up covers the file, save
+    // via the copying Filesystem path instead; DownloadManager stays the
+    // path for COLD files (History rows), where its notification-shade
+    // progress genuinely helps.
+    const FilesystemLocal = _isNative() && _capPlugin('Filesystem');
+    if (FilesystemLocal && FilesystemLocal.copy && _warmCacheCovers(url)) {
+      if (_nativeDownloadBusy) return;
+      _nativeDownloadUrl = url;
+      const task = _nativeDocumentDownload(FilesystemLocal, url, name);
+      _nativeDownloadTask = task;
+      task.finally(() => {
+        if (_nativeDownloadTask === task) {
+          _nativeDownloadTask = null;
+          _nativeDownloadUrl = null;
+        }
+      });
+      return;
+    }
     const Downloader = _isNative() && _capPlugin('NativeDownloader');
     if (Downloader && Downloader.download) {
       if (_nativeDownloadBusy) return;
