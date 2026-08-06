@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.14.1';
+  const APP_VERSION = '1.15.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -2437,18 +2437,10 @@
     apiFetch(API_BASE + '/warmup/').catch(() => {});
   }
 
-  clearFile.addEventListener('click', () => {
-    if (!confirm(t('file.removeConfirm'))) return;
-    selectedFile = null; videoDuration = null; nativeUploadDesc = null;
-    isAudioInput = false; applyAudioMode(false);
-    _disposeSnapshot();
-    document.getElementById('timeEstimate').style.display = 'none';
-    fileInput.value = '';
-    fileInfo.classList.remove('visible');
-    clearNotices();
-    runBtn.disabled = true;
-    resetStatus();
-  });
+  // The X on the file card is a full start-over (same confirm modal + reset
+  // as the bottom button) - clearing just the selection left half-done state
+  // (an in-flight upload, a registered job) behind it.
+  clearFile.addEventListener('click', () => { startOverFlow(); });
 
   // ── Metadata helper (duration + resolution in one pass) ──
   function getVideoMeta(file) {
@@ -3763,7 +3755,10 @@
       });
     });
   }
-  document.getElementById('startOverBtn').addEventListener('click', async () => {
+  // Shared by the bottom "Start over" button AND the file card's X - both
+  // mean "drop everything and reset", so both confirm with the same modal
+  // and run the same cleanup + reload.
+  async function startOverFlow() {
     const confirmed = await showConfirmModal(
       t('confirm.startTitle'),
       t('confirm.startBody'),
@@ -3784,7 +3779,8 @@
     clearSavedJob();
     _intentionalNav = true;   // already confirmed in-app; skip the browser prompt
     location.reload();
-  });
+  }
+  document.getElementById('startOverBtn').addEventListener('click', startOverFlow);
 
   // Find B-Roll Moments button
   const findBrollBtn = document.getElementById('findBrollBtn');
