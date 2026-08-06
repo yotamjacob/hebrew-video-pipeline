@@ -207,6 +207,7 @@
     'download.saving':    { en: 'Saving video...', he: 'שומר את הסרטון...' },
     'download.savingPct': { en: 'Saving video... {pct}%', he: 'שומר את הסרטון... {pct}%' },
     'download.saved':     { en: 'Saved to Documents', he: 'הסרטון נשמר בתיקייה Documents' },
+    'download.savedTo':   { en: 'Your video is saved to:', he: 'הסרטון שלכם נשמר אל:' },
     'download.starting':  { en: 'Starting download...', he: 'מתחיל את ההורדה...' },
     'download.started':   { en: 'Downloading to Downloads — follow progress in notifications', he: 'הסרטון יורד לתיקיית ההורדות — אפשר לעקוב בהתראות' },
     'download.notification': { en: 'Downloading Pipeline video', he: 'מוריד סרטון מפייפליין' },

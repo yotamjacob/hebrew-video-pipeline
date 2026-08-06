@@ -886,6 +886,14 @@
     }
     .celebrate-toast.show { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
     .celebrate-toast-check { color: var(--green); display: inline-flex; }
+    /* Tappable action inside a toast ("Your video is saved to: <name>") -
+       reads as a link, inherits the toast's type scale. */
+    .celebrate-toast-action {
+      background: none; border: none; padding: 0; cursor: pointer;
+      font: inherit; font-weight: 600; color: var(--terracotta);
+      text-decoration: underline; text-underline-offset: 2px;
+      max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
     .celebrate-toast-check svg { width: 1.3rem; height: 1.3rem; }
     .celebrate-toast-error-icon { display: none; }
     .celebrate-toast.error {

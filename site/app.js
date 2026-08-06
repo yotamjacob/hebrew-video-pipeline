@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.16.2';
+  const APP_VERSION = '1.17.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -972,7 +972,27 @@
     const bounded = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r(undefined), ms))]);
     const _w = (window.__PREVIEW_READY_WAIT_MS != null) ? window.__PREVIEW_READY_WAIT_MS : 2500;   // test seam
     try { await bounded(_previewBlobPromise, _w); } catch (_) {}
-    _stepDone('finalize');
+    // Deliberately NOT _stepDone here: the step ticks off only when the real
+    // player reports it can play (_finishPreviewStepWhenPlayable) - a fixed
+    // grace marked it done while the video still buffered (field report:
+    // "preview wasn't actually ready when the step finished").
+  }
+
+  // "Loading preview" completes when the PLAYER can play through the first
+  // frames. Bounded so a dead source can't spin the row forever (the player
+  // has its own error recovery UI).
+  function _finishPreviewStepWhenPlayable(vid) {
+    if (!stepTimers.finalize) return;   // step never ran (audio / cut-only)
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(cap);
+      _stepDone('finalize');
+    };
+    const cap = setTimeout(finish, 20000);
+    if (vid.readyState >= 3) { finish(); return; }
+    vid.addEventListener('canplay', finish, { once: true });
   }
   // Hot-swap the STREAMING player onto the downloaded blob once the background
   // prefetch lands - streaming starts in seconds but seeks pay a network
@@ -2166,7 +2186,10 @@
         await _downloadToCache(Filesystem, url, safe);
       }
       const { uri } = await Filesystem.getUri({ directory: 'CACHE', path: safe });
-      _sharePrep = { url, uri };
+      // cachePath lets the download button COPY these bytes locally instead of
+      // pulling a second full copy over the network (the "download takes 30s
+      // after the video is ready" report).
+      _sharePrep = { url, uri, cachePath: safe };
     } catch (_) { /* silent: this is a background warm-up; a tap retries on demand */ }
   }
 
@@ -4036,7 +4059,12 @@
         mimeType: 'video/mp4',
         description: t('download.notification'),
       });
-      celebrateToast(t('download.started'));
+      celebrateToast(t('download.started'), {
+        duration: 8000,
+        action: Downloader.openDownloads
+          ? { label: t('download.openFolder'), onClick: () => { Downloader.openDownloads().catch(() => {}); } }
+          : null,
+      });
     } catch (error) {
       console.error('native system download failed', error);
       _reportError('download', (error && error.message) || t('err.downloadFailed'));
@@ -4061,26 +4089,50 @@
     buttons.forEach(b => { b.disabled = true; b.textContent = t('download.saving'); });
     let progressHandle = null;
     try {
-      if (Filesystem.addListener) {
-        progressHandle = await Filesystem.addListener('progress', p => {
-          if (p.url && p.url !== tokenUrl) return;
-          const pct = p.contentLength > 0 ? Math.min(100, Math.round(p.bytes * 100 / p.contentLength)) : 0;
-          buttons.forEach(b => { b.textContent = pct ? t('download.savingPct', { pct }) : t('download.saving'); });
+      // The share warm-up already pulled (or is pulling) this exact file into
+      // the app cache the moment the video was ready - COPY those local bytes
+      // to Documents instead of a second full network download. Awaiting the
+      // in-flight warm-up shares its stream; only a missing/failed warm-up
+      // pays the network price below.
+      let copied = false;
+      if (Filesystem.copy) {
+        if (!( _sharePrep && _sharePrep.url === url && _sharePrep.cachePath) && _sharePrepPromise) {
+          try { await _sharePrepPromise; } catch (_) {}
+        }
+        if (_sharePrep && _sharePrep.url === url && _sharePrep.cachePath) {
+          try {
+            await Filesystem.copy({ from: _sharePrep.cachePath, directory: 'CACHE',
+                                    to: path, toDirectory: 'DOCUMENTS' });
+            copied = true;
+          } catch (_) { /* cache entry evicted - fall through to the download */ }
+        }
+      }
+      if (!copied) {
+        if (Filesystem.addListener) {
+          progressHandle = await Filesystem.addListener('progress', p => {
+            if (p.url && p.url !== tokenUrl) return;
+            const pct = p.contentLength > 0 ? Math.min(100, Math.round(p.bytes * 100 / p.contentLength)) : 0;
+            buttons.forEach(b => { b.textContent = pct ? t('download.savingPct', { pct }) : t('download.saving'); });
+          });
+        }
+        await Filesystem.downloadFile({
+          url: tokenUrl,
+          path,
+          directory: 'DOCUMENTS',
+          progress: true,
         });
       }
-      await Filesystem.downloadFile({
-        url: tokenUrl,
-        path,
-        directory: 'DOCUMENTS',
-        progress: true,
-      });
+      let savedUri = null;
       if (Filesystem.getUri) {
         try {
           const { uri } = await Filesystem.getUri({ directory: 'DOCUMENTS', path });
-          if (uri) _sharePrep = { url, uri };
+          savedUri = uri || null;
         } catch (_) { /* save succeeded; sharing can still build a cache copy */ }
       }
-      celebrateToast(t('download.saved'));
+      celebrateToast(t('download.savedTo'), {
+        duration: 8000,
+        action: savedUri ? { label: safe, onClick: () => _openSavedVideo(savedUri) } : { label: safe },
+      });
     } catch (e) {
       console.error('native download failed', e);
       _reportError('download', (e && e.message) || t('err.downloadFailed'));
@@ -4237,6 +4289,21 @@
       checkItems.cut.style.display = 'none';
     if (!document.getElementById('enhanceAudio')?.checked && checkItems.enhance)
       checkItems.enhance.style.display = 'none';
+    // ...and conversely, every tool this run WILL execute is listed as pending
+    // from the very start, in execution order - rows popping into existence
+    // mid-run read as surprises (field report). Burn stays hidden: it belongs
+    // to the export step, not processing.
+    if (_enhanceVideoMode() === 'esrgan' && checkItems.upscale) {
+      checkItems.upscale.style.display = '';
+      const l = document.querySelector('#checkUpscale .check-label');
+      if (l) l.textContent = t('prog.upscale');
+    }
+    const _editorRun = _capsOn && !isAudioInput;
+    if (_editorRun && checkItems.finalize) checkItems.finalize.style.display = '';
+    if (_editorRun && document.getElementById('autoBroll')?.checked && checkItems.broll)
+      checkItems.broll.style.display = '';
+    if (_editorRun && document.getElementById('autoHook')?.checked && checkItems.hook)
+      checkItems.hook.style.display = '';
   }
 
   // The worker's 'cut' stage covers transcription TOO (captions need it), so
@@ -4347,7 +4414,7 @@
   // Floating status toast. Errors use a distinct red treatment and remain
   // visible longer so a transient failure cannot look like success.
   let _toastTimer = null;
-  function celebrateToast(text, { kind = 'success', duration = 2600 } = {}) {
+  function celebrateToast(text, { kind = 'success', duration = 2600, action = null } = {}) {
     const el = document.getElementById('celebrateToast');
     if (!el) return;
     // Reparent to <body> so position:fixed is viewport-relative and z-index
@@ -4360,11 +4427,40 @@
     el.setAttribute('aria-live', kind === 'error' ? 'assertive' : 'polite');
     if (kind === 'error') el.classList.add('error');
     document.getElementById('celebrateToastText').textContent = text;
+    // Optional tappable action ("Your video is saved to: <name>"). Created
+    // lazily; tapping the toast body itself dismisses the toast.
+    let act = document.getElementById('celebrateToastAction');
+    if (action && action.label) {
+      if (!act) {
+        act = document.createElement('button');
+        act.id = 'celebrateToastAction';
+        act.className = 'celebrate-toast-action';
+        el.appendChild(act);
+      }
+      act.textContent = action.label;
+      act.onclick = (e) => {
+        e.stopPropagation();
+        try { action.onClick && action.onClick(); } catch (_) {}
+        el.classList.remove('show');
+      };
+      act.style.display = '';
+    } else if (act) {
+      act.style.display = 'none';
+      act.onclick = null;
+    }
+    el.onclick = () => el.classList.remove('show');
     _pulse(el.querySelector('.celebrate-toast-check'), 'celebrate-check');
     // Restart the entrance transition even if another toast was just visible.
     void el.offsetWidth;
     el.classList.add('show');
     _toastTimer = setTimeout(() => el.classList.remove('show'), duration);
+  }
+
+  // Legacy shells have no ACTION_VIEW bridge - the Share sheet is the
+  // practical "open" for a saved file (Files/Gallery/player targets included).
+  function _openSavedVideo(uri) {
+    const Share = _capPlugin('Share');
+    if (Share && uri) { try { Share.share({ url: uri }); } catch (_) {} }
   }
   // Export complete: animate the success banner in place + count up the payoff.
   function celebrateExport() {
@@ -4893,6 +4989,7 @@
         vid.src = _withToken(`${API_BASE}/download/${videoKey}`);
         _armPreviewBlobUpgrade(vid);
       }
+      _finishPreviewStepWhenPlayable(vid);
     })();
 
     // A failed source (stalled network, corrupt blob, expired token) must

@@ -133,3 +133,33 @@ test('AI upscale gets its own live progress row with real times', async ({ page 
   await expect(page.locator('#checkUpscale')).toHaveClass(/done/, { timeout: 15_000 });
   await expect(page.locator('#checkUpscaleTime')).toHaveText('0:33');
 });
+
+test('every enabled tool is listed as pending from the moment the run starts, in order', async ({ page }) => {
+  // Rows used to pop into existence only when their step STARTED (auto B-roll
+  // and hook appear minutes in, after the editor opens) - the card must show
+  // the full plan up front.
+  await mockAllApis(page);
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.evaluate(() => {
+    for (const id of ['autoBroll', 'autoHook']) {
+      const el = document.getElementById(id);
+      if (el && !el.checked) { el.checked = true; el.dispatchEvent(new Event('change', { bubbles: true })); }
+    }
+  });
+  await page.click('#runBtn');
+  // Assert during the UPLOAD phase - before any backend stage has begun.
+  await expect(page.locator('#checkUpload')).toHaveClass(/active/);
+  for (const id of ['checkFinalize', 'checkBroll', 'checkHook']) {
+    await expect(page.locator('#' + id)).toBeVisible();
+    await expect(page.locator('#' + id)).toHaveClass(/pending/);
+  }
+  // "Loading preview" (finalize) precedes the background B-roll/hook rows -
+  // that is the order the steps actually complete in.
+  const order = await page.evaluate(() =>
+    [...document.querySelectorAll('.check-item')].map(el => el.id));
+  expect(order.indexOf('checkFinalize')).toBeLessThan(order.indexOf('checkBroll'));
+  expect(order.indexOf('checkBroll')).toBeLessThan(order.indexOf('checkHook'));
+  // Burn belongs to the export step - never pre-listed during processing.
+  await expect(page.locator('#checkBurn')).toBeHidden();
+});
