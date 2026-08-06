@@ -276,7 +276,7 @@
     'prog.download':    { en: 'Download again', he: 'הורדה חוזרת' },
     'prog.error':       { en: 'Something went wrong.', he: 'משהו השתבש.' },
     'prog.retry':       { en: 'Try again', he: 'ניסיון חוזר' },
-    'startOver':        { en: 'Start over', he: 'התחלה מחדש' },
+    'startOver':        { en: 'Edit new video', he: 'עריכת סרטון חדש' },
 
     // ── History ──
     'hist.title':      { en: 'Previous Videos', he: 'סרטונים קודמים' },
