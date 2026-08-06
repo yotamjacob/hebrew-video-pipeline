@@ -85,3 +85,21 @@ test('RTL flips layout primitives correctly', async ({ page }) => {
   });
   expect(iconBox).toBeGreaterThan(textBox);
 });
+
+test('booting with English persisted fills the guide (no fallback text in the HTML)', async ({ page }) => {
+  // The guide accordion's titles and bodies are EMPTY elements filled only by
+  // applyI18n(). The boot pass used to be skipped for English ("the HTML is
+  // already English"), which rendered a completely blank guide for anyone who
+  // reopened the app with EN persisted.
+  await page.addInitScript(() => localStorage.setItem('hebpipe_lang', 'en'));
+  await bootApp(page);
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await page.click('#tabGuide');
+  await expect(page.locator('#guideView')).toBeVisible();
+  await expect(page.locator('.guide-intro')).not.toHaveText('');
+  await expect(page.locator('#gsec-getstarted .guide-sec-title'))
+    .toHaveText('Getting started - account & sign in');
+  await page.click('#gsec-getstarted .guide-sec-head');
+  await expect(page.locator('#gsec-getstarted .guide-sec-text'))
+    .toContainText('Signing in is passwordless');
+});

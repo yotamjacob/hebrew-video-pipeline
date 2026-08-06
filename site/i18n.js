@@ -609,8 +609,12 @@
   window.toggleLang = toggleLang;
   window.currentLang = currentLang;
 
-  // Apply persisted language as soon as the DOM exists (script sits at end of body).
+  // Apply persisted language as soon as the DOM exists (script sits at end of
+  // body). ALWAYS apply - even for English: many elements (the whole guide
+  // accordion, for one) carry no fallback text in the static HTML and are
+  // empty until applyI18n() fills them, so skipping the EN pass rendered an
+  // empty guide for English users.
   document.documentElement.lang = _lang;
   document.documentElement.dir = _lang === 'he' ? 'rtl' : 'ltr';
-  if (_lang !== 'en') applyI18n();
+  applyI18n();
 })();
