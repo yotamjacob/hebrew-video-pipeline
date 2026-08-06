@@ -235,3 +235,13 @@ videos total, 3 bugs reported and fixed in 1.3.2 and 1.3.3"), not prose.
 - Native Billing requires Android binary **1.3.0 (versionCode 7)** or newer.
   Older installed shells load the live website but do not expose the purchase
   bridge, so they keep the web contact flow until upgraded from Play.
+- **Next release ships `ParallelUploader`** (`ParallelUploaderPlugin.java` +
+  `ParallelUploadService.java`, registered in `MainActivity`, service +
+  WAKE_LOCK in the manifest): parallel multipart upload to presigned R2 part
+  URLs inside a foreground service - closes the mobile/desktop upload speed
+  gap (1 connection ≈ 9 Mbps vs 5 connections ≈ uplink ~20 Mbps). The web
+  frontend already prefers it and falls back to the stock uploader on shells
+  without it, so no coordination is needed: just build + roll out. Compiled
+  clean 2026-08-06; not yet exercised on a physical device - verify one real
+  upload (progress notification, lock the screen mid-upload, and a Start Over
+  cancel) on the internal track before promoting.

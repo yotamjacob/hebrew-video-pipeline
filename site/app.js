@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.15.0';
+  const APP_VERSION = '1.16.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -892,12 +892,14 @@
   let activeNativeUploadId = null;
   let activeNativeUploadKey = null;
   let activeNativeUploadReady = null;
+  let activeNativeUploadPlugin = null;   // 'Uploader' | 'ParallelUploader' - cancel must target the right one
   try {
     const savedActiveUpload = JSON.parse(
       localStorage.getItem(ACTIVE_NATIVE_UPLOAD_STORAGE) || 'null');
     if (savedActiveUpload && savedActiveUpload.id) {
       activeNativeUploadId = savedActiveUpload.id;
       activeNativeUploadKey = savedActiveUpload.key || null;
+      activeNativeUploadPlugin = savedActiveUpload.plugin || null;
     }
   } catch (_) {}
   let runStartTime    = null;
@@ -1672,12 +1674,14 @@
     apiFetch(API_BASE + '/warmup/').catch(() => {});
   }
 
-  function _rememberActiveNativeUpload(id, key) {
+  function _rememberActiveNativeUpload(id, key, pluginName) {
     activeNativeUploadId = id;
     activeNativeUploadKey = key;
+    activeNativeUploadPlugin = pluginName || 'Uploader';
     try {
       localStorage.setItem(
-        ACTIVE_NATIVE_UPLOAD_STORAGE, JSON.stringify({ id, key }));
+        ACTIVE_NATIVE_UPLOAD_STORAGE,
+        JSON.stringify({ id, key, plugin: activeNativeUploadPlugin }));
     } catch (_) {}
   }
 
@@ -1686,11 +1690,12 @@
     activeNativeUploadId = null;
     activeNativeUploadKey = null;
     activeNativeUploadReady = null;
+    activeNativeUploadPlugin = null;
     try { localStorage.removeItem(ACTIVE_NATIVE_UPLOAD_STORAGE); } catch (_) {}
   }
 
   async function _cancelActiveNativeUpload() {
-    const Uploader = _isNative() && _capPlugin('Uploader');
+    const Uploader = _isNative() && _capPlugin(activeNativeUploadPlugin || 'Uploader');
     let id = activeNativeUploadId;
     let key = activeNativeUploadKey;
     if (!id && activeNativeUploadReady) {
@@ -1750,6 +1755,23 @@
     } catch (_) { return null; }
   }
 
+  // Parallel-multipart variant for the custom ParallelUploader service (new
+  // Android binaries): part URLs plus presigned complete/abort so the service
+  // finishes the multipart directly against R2 - the assembled object then
+  // exists even if the app dies, and the server sweep spawns the job.
+  async function _r2NativeInitParallel(key, size) {
+    try {
+      const resp = await apiFetch(`${API_BASE}/upload_r2/init/`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, size: size || 1, parallel: true }),
+      });
+      if (!resp.ok) return null;
+      const d = await resp.json().catch(() => ({}));
+      return (d && d.upload_id && Array.isArray(d.urls) && d.urls.length
+              && d.complete_url) ? d : null;
+    } catch (_) { return null; }
+  }
+
   // Upload a native file path via the background uploader. Resolves with the
   // upload key (same key the /process call expects). Rejects on failure.
   // Fast path: the foreground service PUTs the file to a presigned R2 URL,
@@ -1759,10 +1781,38 @@
   // sweep spawns the job even if the app dies, so re-uploading is wrong).
   async function nativeUpload(desc, onProgress, presetKey) {
     const key = presetKey || crypto.randomUUID().replace(/-/g, '');
+    // Fastest: N parallel byte-range PUTs via the custom foreground service
+    // (binaries that ship ParallelUploader). Then: single presigned PUT via
+    // the stock uploader. Last: the classic /upload_stream to Modal.
+    const PU = _capPlugin('ParallelUploader');
+    if (PU) {
+      const cfg = await _r2NativeInitParallel(key, desc.size);
+      if (cfg) {
+        try {
+          return await _nativeUploadRun(desc, onProgress, key, {
+            plugin: PU, pluginName: 'ParallelUploader',
+            startOpts: {
+              filePath: desc.path,
+              urls: cfg.urls,
+              partSize: cfg.part_size,
+              size: desc.size || 0,
+              completeUrl: cfg.complete_url,
+              abortUrl: cfg.abort_url || '',
+              concurrency: 5,
+              notificationTitle: t('upload.title') || 'Uploading video',
+            },
+          });
+        } catch (e) {
+          if ((e && e.name === 'AbortError') || intentionalStartOver || (e && e.r2NoFallback)) throw e;
+          console.warn('parallel R2 upload failed - falling back:', e && e.message);
+          onProgress(0);
+        }
+      }
+    }
     const r2Url = await _r2NativeInit(key, desc.size);
     if (r2Url) {
       try {
-        return await _nativeUploadRun(desc, onProgress, key, r2Url);
+        return await _nativeUploadRun(desc, onProgress, key, { r2Url });
       } catch (e) {
         if ((e && e.name === 'AbortError') || intentionalStartOver || (e && e.r2NoFallback)) throw e;
         console.warn('native R2 upload failed - falling back to /upload_stream:', e && e.message);
@@ -1772,9 +1822,15 @@
     return _nativeUploadRun(desc, onProgress, key, null);
   }
 
-  function _nativeUploadRun(desc, onProgress, key, r2Url) {
+  function _nativeUploadRun(desc, onProgress, key, mode) {
+    // mode: null = classic /upload_stream via the stock uploader;
+    // {r2Url} = single presigned PUT via the stock uploader;
+    // {plugin, pluginName, startOpts} = the ParallelUploader service.
+    const r2Url  = mode && mode.r2Url;
+    const isR2   = !!(mode && (mode.r2Url || mode.startOpts));
+    const plugName = (mode && mode.pluginName) || 'Uploader';
     return new Promise((resolve, reject) => {
-      const Uploader = _capPlugin('Uploader');
+      const Uploader = (mode && mode.plugin) || _capPlugin('Uploader');
       if (!Uploader) { reject(new Error('Uploader plugin unavailable')); return; }
       const expected = desc.size || 0;
       let handle = null, settled = false, reconciling = false, uploadId = null;
@@ -1861,8 +1917,10 @@
             // R2 mode: a frozen WebView misses the 'completed' event, and no
             // chunk bytes ever land on the volume - the byte probe below reads
             // 0 forever. Ask the server to complete from R2 instead: succeeds
-            // exactly when the object is fully there (a single PUT is atomic).
-            if (r2Url) {
+            // exactly when the object is fully there (a single PUT is atomic,
+            // and the parallel service only creates the object at its own
+            // multipart-complete step).
+            if (isR2) {
               if (await _r2Complete(1)) { _finish(); return; }
             } else {
               try {
@@ -1919,7 +1977,7 @@
             // stream path.
             reject(new Error(t('err.chunk', { i: 0, status: sc })));
           }
-          else if (r2Url) { onProgress(0.999); _r2FinishOrWait(); }
+          else if (isR2) { onProgress(0.999); _r2FinishOrWait(); }
           else _finish();
         } else if (ev.name === 'failed') {
           _acknowledge(ev);
@@ -1936,7 +1994,7 @@
         handle = h;
         if (settled && handle && handle.remove) handle.remove();
       }).catch(() => {});
-      Uploader.startUpload({
+      Uploader.startUpload(mode && mode.startOpts ? mode.startOpts : {
         filePath: desc.path,
         // R2 mode: the presigned URL IS the auth - extra headers must stay
         // off (only signed headers may be validated; none were signed).
@@ -1958,7 +2016,7 @@
           reject(new Error('Uploader did not return an upload id'));
           return;
         }
-        _rememberActiveNativeUpload(uploadId, key);
+        _rememberActiveNativeUpload(uploadId, key, plugName);
         resolveUploadReady({ id: uploadId, key });
         earlyEvents.splice(0).forEach(_handleUploadEvent);
       }).catch((e) => {

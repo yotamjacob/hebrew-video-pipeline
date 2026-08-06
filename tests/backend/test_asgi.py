@@ -448,6 +448,17 @@ class TestR2Upload:
         assert "_spawn_pending_job_impl(full_key, expect_uid=uid" in MODAL_SRC, (
             "the request-path delegate must still enforce the registrant check")
 
+    def test_parallel_mode_presigns_complete_and_abort(self):
+        # parallel=true (custom Android service): part URLs PLUS presigned
+        # complete/abort so the service finishes the multipart directly
+        # against R2 - the assembled object then exists even if the app dies,
+        # which is what lets sweep_r2_uploads recover it.
+        init_block = MODAL_SRC[MODAL_SRC.index('("/upload_r2/init"'):
+                               MODAL_SRC.index('("/upload_r2/complete"')]
+        assert 'data.get("parallel")' in init_block
+        assert '"complete_multipart_upload"' in init_block
+        assert '"abort_multipart_upload"' in init_block
+
     def test_single_mode_for_native_uploads(self):
         # single=true → one presigned PUT (the native uploader can't slice
         # parts); complete verifies the object exists (atomic PUT) instead of

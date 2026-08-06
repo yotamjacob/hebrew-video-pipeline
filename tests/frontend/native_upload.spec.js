@@ -15,11 +15,13 @@ const { API_BASE, mockAllApis, selectFile, bootApp } = require('./helpers');
  * uploader finished - the 'completed' event is lost and never reaches JS. */
 async function bootNative(page, {
   withUploader = true,
+  withParallel = false,
   fireCompleted = true,
   cancelEventName = 'cancelled',
 } = {}) {
-  await page.addInitScript(({ withUploader, fireCompleted, cancelEventName }) => {
+  await page.addInitScript(({ withUploader, withParallel, fireCompleted, cancelEventName }) => {
     window.__streamUploads = [];
+    window.__parallelUploads = [];
     window.__ackEvents = [];
     window.__removedUploads = [];
     document.addEventListener('DOMContentLoaded', () => {
@@ -56,12 +58,37 @@ async function bootNative(page, {
         },
       };
     }
+    if (withParallel) {
+      // Mirrors the custom ParallelUploaderPlugin's contract (same event
+      // shape as the stock uploader, its own listener slot).
+      Plugins.ParallelUploader = {
+        addListener: (name, cb) => { window.__puCb = cb; return { remove() {} }; },
+        acknowledgeEvent: ({ eventId }) => {
+          window.__ackEvents.push(eventId);
+          return Promise.resolve();
+        },
+        removeUpload: ({ id }) => {
+          window.__removedUploads.push(id);
+          localStorage.setItem('__testRemovedUpload', id);
+          setTimeout(() => window.__puCb && window.__puCb(
+            { name: 'cancelled', id, eventId: `pcancel-${id}`, payload: {} }), 0);
+          return Promise.resolve();
+        },
+        startUpload: (opts) => {
+          window.__parallelUploads.push(opts);
+          if (fireCompleted) setTimeout(() => window.__puCb && window.__puCb(
+            { name: 'completed', id: 'pu1', eventId: 'evt-pu1',
+              payload: { statusCode: 200 } }), 50);
+          return Promise.resolve({ id: 'pu1' });
+        },
+      };
+    }
     window.Capacitor = {
       isNativePlatform: () => true,
       Plugins,
       convertFileSrc: p => '/__native_file__',
     };
-  }, { withUploader, fireCompleted, cancelEventName });
+  }, { withUploader, withParallel, fireCompleted, cancelEventName });
   await bootApp(page);
 }
 
@@ -198,9 +225,23 @@ test('Start over stops the native foreground upload before reloading', async ({ 
 // on the volume. mockAllApis defaults /upload_r2/* to 503, so these tests
 // re-register init/complete to simulate a live R2 config (last route wins).
 
-async function enableNativeR2(page, seen) {
+async function enableNativeR2(page, seen, { parallel = false } = {}) {
   await page.route(/\/upload_r2\/init\//, (route, request) => {
-    seen.push({ kind: 'init', body: request.postDataJSON() });
+    const body = request.postDataJSON();
+    seen.push({ kind: 'init', body });
+    // A parallel-capable backend answers parallel inits with part URLs +
+    // control URLs; when `parallel` is false here we mimic an OLD backend
+    // (no complete_url), which the client treats as parallel-unavailable.
+    if (body.parallel) {
+      return route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify(parallel ? {
+          upload_id: 'mpu-1', part_size: 512 * 1024,
+          urls: [0, 1, 2].map(i => `https://fake-r2.test/part/${i}`),
+          complete_url: 'https://fake-r2.test/complete',
+          abort_url: 'https://fake-r2.test/abort',
+        } : { upload_id: 'mpu-1', part_size: 512 * 1024,
+              urls: ['https://fake-r2.test/part/0'] }) });
+    }
     return route.fulfill({ status: 200, contentType: 'application/json',
                            body: JSON.stringify({ url: 'https://fake-r2.test/native-put' }) });
   });
@@ -276,4 +317,39 @@ test('native R2: a failed PUT falls back to the /upload_stream path', async ({ p
   await page.evaluate(() => window.__upCb({
     name: 'completed', id: 'up1', eventId: 'done-2', payload: { statusCode: 200 } }));
   await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
+});
+
+test('a ParallelUploader binary uploads via the parallel service with part urls + completeUrl', async ({ page }) => {
+  await bootNative(page, { withParallel: true });
+  await mockAllApis(page);
+  const seen = [];
+  await enableNativeR2(page, seen, { parallel: true });
+  await primeNativePick(page, 350 * 1024 * 1024);
+  await page.click('#runBtn');
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
+
+  const up = await page.evaluate(() => window.__parallelUploads[0]);
+  expect(up.urls.length).toBe(3);
+  expect(up.completeUrl).toBe('https://fake-r2.test/complete');
+  expect(up.abortUrl).toBe('https://fake-r2.test/abort');
+  expect(up.partSize).toBe(512 * 1024);
+  expect(up.concurrency).toBeGreaterThan(1);
+  // The stock single-connection uploader must NOT have been used.
+  expect(await page.evaluate(() => window.__streamUploads.length)).toBe(0);
+  // Completion still lands through the shared server-complete flow.
+  expect(seen.some(s => s.kind === 'complete' && s.body.single === true)).toBe(true);
+});
+
+test('ParallelUploader present but backend without parallel support falls back to the single PUT', async ({ page }) => {
+  await bootNative(page, { withParallel: true });
+  await mockAllApis(page);
+  const seen = [];
+  await enableNativeR2(page, seen, { parallel: false });   // old backend: no complete_url
+  await primeNativePick(page, 350 * 1024 * 1024);
+  await page.click('#runBtn');
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
+
+  expect(await page.evaluate(() => window.__parallelUploads.length)).toBe(0);
+  const up = await page.evaluate(() => window.__streamUploads[0]);
+  expect(up.serverUrl).toBe('https://fake-r2.test/native-put');
 });

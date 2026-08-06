@@ -25,6 +25,14 @@
 
         </activity>
 
+        <!-- Parallel multipart upload to presigned R2 URLs. dataSync type is
+             required on Android 14+ for a foreground service that transfers
+             files; the matching permission is declared below. -->
+        <service
+            android:name=".ParallelUploadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -49,6 +57,9 @@
          typed foreground-service permission. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- ParallelUploadService holds a partial wake lock while parts stream so
+         a dozing CPU can't stall an in-flight upload. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Single haptic nudge when an upload finishes (navigator.vibrate). -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Android 13+ requires this for "your video is ready" push notifications. -->

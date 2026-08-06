@@ -1416,12 +1416,35 @@ def api():
                             for i in range(n_parts)]
                     return mp["UploadId"], urls
                 upload_id, urls = await asyncio.to_thread(_init)
+                extra = {}
+                # parallel=true: the native ParallelUploader service finishes
+                # the multipart DIRECTLY against R2 (presigned complete/abort,
+                # no auth token inside the service) - the assembled object then
+                # exists even if the app dies before /complete, and the 5-min
+                # sweep lands + spawns it. The XML body of the complete POST is
+                # not signed (presigned = unsigned payload), so this works from
+                # any HTTP client.
+                if data.get("parallel"):
+                    def _ctl_urls():
+                        return (
+                            s3.generate_presigned_url(
+                                "complete_multipart_upload",
+                                Params={"Bucket": bucket, "Key": obj_key,
+                                        "UploadId": upload_id},
+                                ExpiresIn=R2_URL_TTL, HttpMethod="POST"),
+                            s3.generate_presigned_url(
+                                "abort_multipart_upload",
+                                Params={"Bucket": bucket, "Key": obj_key,
+                                        "UploadId": upload_id},
+                                ExpiresIn=R2_URL_TTL, HttpMethod="DELETE"))
+                    complete_url, abort_url = await asyncio.to_thread(_ctl_urls)
+                    extra = {"complete_url": complete_url, "abort_url": abort_url}
             except Exception as e:
                 print(f"[r2] init failed: {e!r}")
                 await send_error("R2 init failed", 503, code="r2_unavailable")
                 return
             body = json.dumps({"upload_id": upload_id, "part_size": R2_PART_SIZE,
-                               "urls": urls}).encode()
+                               "urls": urls, **extra}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})

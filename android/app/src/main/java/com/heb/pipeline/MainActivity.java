@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(NativeDownloaderPlugin.class);
         registerPlugin(NativeBillingPlugin.class);
+        registerPlugin(ParallelUploaderPlugin.class);
 
         // Pre-create the background-uploader's notification channel as LOW
         // (silent, no vibration) BEFORE Capacitor loads the @capgo uploader
@@ -46,6 +47,13 @@ public class MainActivity extends BridgeActivity {
                 // Via reflection: the gotev upload lib is a transitive dep of the
                 // @capgo uploader plugin and not on this module's compile
                 // classpath. @JvmStatic companion method -> plain static call.
+                // NOTE: this deliberately does NOT stop ParallelUploadService -
+                // its uploads land in R2 where the backend's 5-minute sweep
+                // spawns processing even with the app gone, so finishing the
+                // upload after a swipe-away is what the user wants (the
+                // "processing" push still arrives). The rationale above (kill
+                // because nothing could spawn) only holds for the stock
+                // uploader's /upload_stream path.
                 Class.forName("net.gotev.uploadservice.UploadService")
                      .getMethod("stopAllUploads")
                      .invoke(null);
