@@ -342,7 +342,7 @@
     'file.badType':       { en: 'Please upload a video (MP4, MOV, MKV) or audio file (MP3, M4A, WAV, OGG).', he: 'נא להעלות קובץ וידאו (MP4, MOV, MKV) או שמע (MP3, M4A, WAV, OGG).' },
     'file.tooLargeMeta':  { en: '{size} · too large', he: '{size} · גדול מדי' },
     'file.tooLargeTitle': { en: 'File too large', he: 'הקובץ גדול מדי' },
-    'file.tooLarge':      { en: 'Max size is 500 MB. This file is {size}. Please trim or compress it first.', he: 'הגודל המרבי הוא 500 MB. הקובץ הזה שוקל {size}. קצרו או דחסו אותו קודם.' },
+    'file.tooLarge':      { en: 'Max size is 1 GB. This file is {size}. Please trim or compress it first.', he: 'הגודל המרבי הוא 1 GB. הקובץ הזה שוקל {size}. קצרו או דחסו אותו קודם.' },
     'file.reading':       { en: '{size} · reading…', he: '{size} · קורא…' },
     'file.res4kTitle':    { en: '4K video', he: 'סרטון 4K' },
     'file.res4k':         { en: 'This is a 4K video, so the file is large - the upload may take a few minutes on a mobile connection. Video quality is kept as-is. Keep the app open until the upload finishes.', he: 'זהו סרטון 4K, ולכן הקובץ גדול - ההעלאה עשויה לקחת כמה דקות בחיבור סלולרי. איכות הווידאו נשמרת כמו שהיא. השאירו את האפליקציה פתוחה עד שההעלאה תסתיים.' },

@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.12.0';
+  const APP_VERSION = '1.12.1';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -787,7 +787,7 @@
 
 
   // Limits
-  const MAX_BYTES    = 500 * 1024 * 1024; // 500 MB
+  const MAX_BYTES    = 1024 * 1024 * 1024; // 1 GB - 500 MB sources must pass with headroom
   const WARN_BYTES   = 150 * 1024 * 1024; // 150 MB
   const MAX_SECS     = 20 * 60;            // 20 min
   const WARN_SECS    = 8  * 60;            // 8 min

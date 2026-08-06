@@ -38,6 +38,14 @@ async function bootApp(page, { me } = {}) {
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"token":"m.test"}' }));
   await page.route(/\/oauth\/status/, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"connected":false}' }));
+  // The Admin tab fires loadCosts() the moment it opens - unmocked it hits the
+  // real API with the fake token, 401s, and apiFetch tears the app back to the
+  // login view mid-test (whether that lands before the last assertion is a race
+  // on the real API's response time, so it flakes). Benign empty default; the
+  // cost-panel tests re-register their own handler (last route wins).
+  await page.route(/\/admin\/costs/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json',
+                body: '{"days":7,"videos":0,"burns":0,"usd":0,"usd_per_video":0,"by_mode":{}}' }));
   await page.goto('/');
 }
 
