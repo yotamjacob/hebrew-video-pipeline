@@ -68,6 +68,13 @@ async function mockAllApis(page, {
   await page.route(/\/error-report/, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
 
+  // R2 fast upload path - default OFF in tests (503 → the uploader falls back
+  // to the chunked path every existing spec exercises). r2_upload.spec.js
+  // re-registers these routes to exercise the fast path (last route wins).
+  await page.route(/\/upload_r2\//, r =>
+    r.fulfill({ status: 503, contentType: 'application/json',
+                body: '{"error":"R2 not configured","code":"r2_unavailable"}' }));
+
   // Metricool status - checked when the schedule card reveals; unmocked it
   // would hit the real API with the fake test token, 401, and bounce the
   // whole app back to the login view mid-test

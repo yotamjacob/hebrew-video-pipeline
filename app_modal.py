@@ -203,7 +203,10 @@ from metricool_fns import (
                        # disable the demo login, blank REVIEW_CODE (anything
                        # under 6 chars is refused) - don't delete the secret, or
                        # the deploy loses a reference it still expects.
-                       modal.Secret.from_name("hebpipe-review")])
+                       modal.Secret.from_name("hebpipe-review"),
+                       # S3/R2 creds: presigned direct-upload URLs (/upload_r2/*)
+                       # use the same bucket as the metadata backup.
+                       modal.Secret.from_name("hebpipe-backup")])
 @modal.concurrent(max_inputs=50)   # headroom: chunk uploads + their CORS preflights + polls
 @modal.asgi_app()
 def api():
@@ -1218,6 +1221,208 @@ def api():
             except Exception as e:
                 print(f"[pending] stream-complete spawn failed: {e!r}")
             body = json.dumps({"ok": True, **({"call_id": spawned_call} if spawned_call else {})}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── R2 direct upload ──
+        # Web uploads to the Modal ingress are capped at ~3-4 Mbps: the browser
+        # multiplexes every concurrent chunk POST onto ONE HTTP/2 connection
+        # (per-origin coalescing) and the h2 upload flow-control window on a
+        # ~120 ms path (ingress is us-east-1) is the ceiling - no client-side
+        # knob changes that (measured 2026-08-06). The R2 S3 endpoint speaks
+        # HTTP/1.1 only, so the browser opens REAL parallel TCP connections and
+        # the same uplink measured 21 Mbps. Flow: /init presigns multipart part
+        # URLs, the browser PUTs parts straight to R2, /complete assembles the
+        # object and streams it onto the volume as chunk 0000 (the same shape
+        # /upload_stream publishes, so processing/pending-spawn/retention are
+        # untouched), then deletes the R2 object. The deferred registration's
+        # total_chunks stays the CHUNKED count - one landed file never trips
+        # _pending_complete early, and /complete spawns explicitly instead.
+        # Requires the hebpipe-backup secret (same bucket as the metadata
+        # backup, uploads/ prefix); absent creds → 503 and the frontend falls
+        # back to the chunked path.
+        R2_PART_SIZE  = 8 * 1024 * 1024
+        R2_MAX_SIZE   = 1024 * 1024 * 1024 + R2_PART_SIZE   # client cap + slack
+        R2_URL_TTL    = 4 * 3600
+
+        def _r2_client():
+            if not os.environ.get("S3_ENDPOINT_URL") or not os.environ.get("S3_BUCKET"):
+                return None, None
+            import boto3
+            client = boto3.client(
+                "s3",
+                endpoint_url=os.environ["S3_ENDPOINT_URL"],
+                aws_access_key_id=os.environ["S3_ACCESS_KEY_ID"],
+                aws_secret_access_key=os.environ["S3_SECRET_ACCESS_KEY"],
+                region_name=os.environ.get("S3_REGION", "auto"),
+            )
+            return client, os.environ["S3_BUCKET"]
+
+        if path in ("/upload_r2/init", "/upload_r2/init/") and method == "POST":
+            s3, bucket = await asyncio.to_thread(_r2_client)
+            if s3 is None:
+                await send_error("R2 not configured", 503, code="r2_unavailable")
+                return
+            try:
+                data = json.loads((await _read_body(receive)).decode("utf-8"))
+                key  = data.get("key") or ""
+                size = int(data.get("size") or 0)
+            except Exception:
+                await send_error("Invalid body", 400)
+                return
+            if not _SAFE_KEY_RE.match(key):
+                await send_error("Invalid or missing key", 400)
+                return
+            if not (0 < size <= R2_MAX_SIZE):
+                await send_error("Invalid size", 400)
+                return
+            obj_key = f"uploads/{uprefix}{key}.src"
+            n_parts = max(1, -(-size // R2_PART_SIZE))
+            try:
+                def _init():
+                    mp = s3.create_multipart_upload(Bucket=bucket, Key=obj_key)
+                    urls = [s3.generate_presigned_url(
+                                "upload_part",
+                                Params={"Bucket": bucket, "Key": obj_key,
+                                        "UploadId": mp["UploadId"], "PartNumber": i + 1},
+                                ExpiresIn=R2_URL_TTL)
+                            for i in range(n_parts)]
+                    return mp["UploadId"], urls
+                upload_id, urls = await asyncio.to_thread(_init)
+            except Exception as e:
+                print(f"[r2] init failed: {e!r}")
+                await send_error("R2 init failed", 503, code="r2_unavailable")
+                return
+            body = json.dumps({"upload_id": upload_id, "part_size": R2_PART_SIZE,
+                               "urls": urls}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        if path in ("/upload_r2/complete", "/upload_r2/complete/") and method == "POST":
+            s3, bucket = await asyncio.to_thread(_r2_client)
+            if s3 is None:
+                await send_error("R2 not configured", 503, code="r2_unavailable")
+                return
+            try:
+                data      = json.loads((await _read_body(receive)).decode("utf-8"))
+                key       = data.get("key") or ""
+                upload_id = data.get("upload_id") or ""
+                etags     = data.get("etags") or []
+            except Exception:
+                await send_error("Invalid body", 400)
+                return
+            if not _SAFE_KEY_RE.match(key) or not upload_id or not isinstance(etags, list):
+                await send_error("Invalid or missing key", 400)
+                return
+            from pathlib import Path as _Path
+            import os as _os
+            import uuid as _uuid
+            obj_key    = f"uploads/{uprefix}{key}.src"
+            chunk_path = _Path(TMP_DIR) / f"{uprefix}{key}_chunk_0000"
+            # Idempotent retry: if a previous /complete already landed the file
+            # on the volume, skip straight to the spawn check - the client can
+            # safely re-POST after a network blip.
+            already = await asyncio.to_thread(chunk_path.exists)
+            if not already:
+                try:
+                    def _assemble_and_fetch():
+                        try:
+                            s3.complete_multipart_upload(
+                                Bucket=bucket, Key=obj_key, UploadId=upload_id,
+                                MultipartUpload={"Parts": [
+                                    {"ETag": e, "PartNumber": i + 1}
+                                    for i, e in enumerate(etags)]})
+                        except Exception:
+                            # NoSuchUpload after a completed earlier attempt is
+                            # fine IF the object exists; anything else is real.
+                            s3.head_object(Bucket=bucket, Key=obj_key)
+                        staging = _Path(TMP_DIR) / (
+                            f".{uprefix}{key}.{_uuid.uuid4().hex}.uploading")
+                        try:
+                            obj = s3.get_object(Bucket=bucket, Key=obj_key)
+                            with open(staging, "wb") as fh:
+                                for part in iter(lambda: obj["Body"].read(8 * 1024 * 1024), b""):
+                                    fh.write(part)
+                            _os.replace(staging, chunk_path)
+                        except BaseException:
+                            staging.unlink(missing_ok=True)
+                            raise
+                        try:
+                            s3.delete_object(Bucket=bucket, Key=obj_key)
+                        except Exception:
+                            pass   # lifecycle sweeps orphans
+                    await asyncio.to_thread(_assemble_and_fetch)
+                except Exception as e:
+                    print(f"[r2] complete failed for {uprefix}{key}: {e!r}")
+                    await send_error("R2 complete failed", 502, code="r2_complete_failed")
+                    return
+            # Whole file just landed - spawn a deferred job NOW, exactly like
+            # /upload_stream (registration total_chunks is the chunked count,
+            # so the chunk-counting paths never spawn this one).
+            spawned_call = None
+            try:
+                if isinstance(pending_store.get(f"{uprefix}{key}"), dict):
+                    spawned_call = await asyncio.to_thread(_spawn_pending_job, f"{uprefix}{key}")
+            except Exception as e:
+                print(f"[pending] r2-complete spawn failed: {e!r}")
+            body = json.dumps({"ok": True, **({"call_id": spawned_call} if spawned_call else {})}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        if path in ("/upload_r2/abort", "/upload_r2/abort/") and method == "POST":
+            s3, bucket = await asyncio.to_thread(_r2_client)
+            if s3 is not None:
+                try:
+                    data      = json.loads((await _read_body(receive)).decode("utf-8"))
+                    key       = data.get("key") or ""
+                    upload_id = data.get("upload_id") or ""
+                except Exception:
+                    key, upload_id = "", ""
+                if _SAFE_KEY_RE.match(key):
+                    obj_key = f"uploads/{uprefix}{key}.src"
+                    def _abort():
+                        if upload_id:
+                            try:
+                                s3.abort_multipart_upload(Bucket=bucket, Key=obj_key,
+                                                          UploadId=upload_id)
+                            except Exception:
+                                pass
+                        try:
+                            s3.delete_object(Bucket=bucket, Key=obj_key)
+                        except Exception:
+                            pass
+                    await asyncio.to_thread(_abort)
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": b'{"ok": true}'})
+            return
+
+        # Uplink probe target for the R2 path: presigned PUTs (and matching
+        # DELETEs so the client can clean up) for tiny scratch objects. The
+        # estimate must measure the path the real upload takes.
+        if path in ("/upload_r2/probe", "/upload_r2/probe/") and method == "GET":
+            s3, bucket = await asyncio.to_thread(_r2_client)
+            if s3 is None:
+                await send_error("R2 not configured", 503, code="r2_unavailable")
+                return
+            def _probe_urls():
+                puts, deletes = [], []
+                for _ in range(4):
+                    import uuid as _uuid2
+                    k = f"uploads/_probe/{uprefix}{_uuid2.uuid4().hex}"
+                    puts.append(s3.generate_presigned_url(
+                        "put_object", Params={"Bucket": bucket, "Key": k}, ExpiresIn=600))
+                    deletes.append(s3.generate_presigned_url(
+                        "delete_object", Params={"Bucket": bucket, "Key": k}, ExpiresIn=600))
+                return puts, deletes
+            puts, deletes = await asyncio.to_thread(_probe_urls)
+            body = json.dumps({"puts": puts, "deletes": deletes}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})

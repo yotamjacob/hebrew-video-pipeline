@@ -396,3 +396,60 @@ class TestOpenSignup:
         assert MODAL_SRC.count(grant) == 2
         # Every place a brand-new record is written is one of those two.
         assert MODAL_SRC.count('users_store[f"uid:{new_uid}"] = ident') == 2
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# R2 direct upload — /upload_r2/init|complete|abort|probe (route bodies are
+# closures inside api(), so these guard the source directly)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestR2Upload:
+    """The fast web-upload path: presigned multipart PUTs straight to R2, then
+    /complete assembles the object and copies it onto the volume as chunk 0000
+    (the /upload_stream shape, so processing/pending-spawn/retention are
+    untouched)."""
+
+    def test_init_validates_key_and_size(self):
+        # Both init and complete must gate on the same key regex as every
+        # other upload route - the object key embeds it.
+        r2_block = MODAL_SRC[MODAL_SRC.index("/upload_r2/init"):
+                             MODAL_SRC.index("/upload_r2/probe")]
+        assert r2_block.count("_SAFE_KEY_RE.match(key)") >= 3, (
+            "init, complete and abort must all validate the upload key")
+        assert "R2_MAX_SIZE" in r2_block
+
+    def test_object_key_is_uid_namespaced(self):
+        # Per-user isolation: the R2 object key must carry the uid prefix so
+        # one user's init can never address another's upload.
+        assert MODAL_SRC.count('f"uploads/{uprefix}{key}.src"') >= 3
+
+    def test_complete_lands_chunk_0000_via_staging(self):
+        # The volume publish must be staging-file + atomic replace (same as
+        # /upload_stream) - never a partial write at the final path.
+        block = MODAL_SRC[MODAL_SRC.index("/upload_r2/complete"):
+                          MODAL_SRC.index("/upload_r2/abort")]
+        assert '_chunk_0000' in block
+        assert "_os.replace(staging, chunk_path)" in block
+
+    def test_complete_is_idempotent(self):
+        # A client retry after a network blip must not re-download or fail:
+        # an existing chunk_0000 short-circuits to the spawn check.
+        block = MODAL_SRC[MODAL_SRC.index("/upload_r2/complete"):
+                          MODAL_SRC.index("/upload_r2/abort")]
+        assert "chunk_path.exists" in block
+
+    def test_complete_spawns_pending_job(self):
+        # Deferred spawn parity with /upload_stream: the whole file landed, so
+        # a registered job starts NOW even if the app is closed.
+        block = MODAL_SRC[MODAL_SRC.index("/upload_r2/complete"):
+                          MODAL_SRC.index("/upload_r2/abort")]
+        assert "_spawn_pending_job" in block
+
+    def test_missing_creds_answer_503_r2_unavailable(self):
+        # Absent secret keys must degrade to the chunked path (frontend falls
+        # back on 503), never crash the route.
+        assert MODAL_SRC.count('code="r2_unavailable"') >= 3
+
+    def test_api_mounts_backup_secret(self):
+        # The routes read S3_* env vars - api() must mount hebpipe-backup.
+        assert 'modal.Secret.from_name("hebpipe-backup")' in MODAL_SRC

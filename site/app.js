@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.12.1';
+  const APP_VERSION = '1.13.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -2507,7 +2507,46 @@
   // UPLOAD_CONCURRENCY streams). A single-stream probe badly under-measures on
   // APs that shape per-connection, doubling the estimate. Resolves to Mbps or
   // null (never throws). Writes tiny scratch files the server prunes.
+  // Probes the R2 path first (that's where the real upload goes; the Modal
+  // ingress caps at ~3-4 Mbps over h2, which would wildly over-estimate the
+  // time) and falls back to the Modal probe when R2 isn't reachable.
   function _probeUplinkMbps() {
+    return _probeR2Mbps().then(m => m || _probeModalMbps()).catch(() => null);
+  }
+
+  function _probeR2Mbps() {
+    const SIZE = 384 * 1024;
+    return (async () => {
+      let urls;
+      try {
+        // Plain fetch, NOT apiFetch: the probe is telemetry - a 401 here
+        // (expired session, older backend) must never tear the app down.
+        const resp = await fetch(`${API_BASE}/upload_r2/probe/`,
+          { headers: authToken ? { 'Authorization': 'Bearer ' + authToken } : {} });
+        if (!resp.ok) return null;
+        urls = await resp.json();
+        if (!Array.isArray(urls.puts) || !urls.puts.length) return null;
+      } catch (_) { return null; }
+      const body = new Uint8Array(SIZE);
+      const t0 = performance.now();
+      const results = await Promise.all(urls.puts.map(u => new Promise(res => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', u);
+        xhr.timeout = 20000;
+        xhr.onload    = () => res(xhr.status >= 200 && xhr.status < 300);
+        xhr.onerror   = () => res(false);
+        xhr.ontimeout = () => res(false);
+        xhr.send(body);
+      })));
+      const secs = (performance.now() - t0) / 1000;
+      // Clean up the scratch objects; fire-and-forget.
+      (urls.deletes || []).forEach(u => { try { fetch(u, { method: 'DELETE' }).catch(() => {}); } catch (_) {} });
+      if (!results.every(Boolean) || secs <= 0) return null;   // CORS unset / blocked → not the real path
+      return (urls.puts.length * SIZE * 8 / 1e6) / secs;
+    })();
+  }
+
+  function _probeModalMbps() {
     const STREAMS = 4, SIZE = 384 * 1024;   // ~1.5 MB total, mirrors multi-stream upload
     return new Promise(resolve => {
       try {
@@ -2688,7 +2727,19 @@
       if (_upMode === 'stream') {
         await nativeUpload(nativeUploadDesc, _onUpProgress, uploadKey);
       } else {
-        await chunkedUpload(_upMeta, _upBlob, _onUpProgress, uploadKey);
+        // Fast path: presigned parallel PUTs to R2 (~uplink speed). Falls back
+        // to the chunked Modal path on any R2-specific failure (old backend,
+        // missing creds, bucket CORS unset) - flagged r2Fallback so a real
+        // terminal error (unreadable file, dead network) still surfaces.
+        let usedR2 = false;
+        try {
+          await r2Upload(_upMeta, _upBlob, _onUpProgress, uploadKey);
+          usedR2 = true;
+        } catch (e) {
+          if (!e || !e.r2Fallback) throw e;
+          console.warn('R2 upload unavailable - falling back to chunked:', e.message);
+        }
+        if (!usedR2) await chunkedUpload(_upMeta, _upBlob, _onUpProgress, uploadKey);
       }
       _stepDone('upload');
       document.getElementById('uploadBarRow').style.display = 'none';
@@ -3218,6 +3269,243 @@
     return key;
   }
 
+  // ── R2 direct upload (fast path) ──
+  // Chunk POSTs to the Modal ingress are capped at ~3-4 Mbps: the browser
+  // coalesces every concurrent request onto ONE HTTP/2 connection, and the h2
+  // upload flow-control window on the ~120 ms path to us-east-1 is the ceiling
+  // (measured 2026-08-06; no chunk-size/concurrency knob moves it). The R2 S3
+  // endpoint speaks HTTP/1.1, so PARTS_CONCURRENCY XHRs get real parallel TCP
+  // connections - the same uplink measured 21 Mbps (uplink-bound). Flow:
+  // /upload_r2/init presigns multipart part URLs, parts PUT straight to R2
+  // (no auth header - the signature is in the URL), /upload_r2/complete
+  // assembles + copies to the volume server-side. Falls back to chunkedUpload
+  // on ANY early failure (old backend, missing creds, bucket CORS not set) -
+  // the throw carries r2Fallback so the caller can tell "use the slow path"
+  // from a real terminal error.
+  const R2_RESUME_TTL = 3 * 60 * 60 * 1000;   // presigned URLs live 4 h; stay under
+
+  // PUT one part; resolves with the ETag (bucket CORS must expose it).
+  function _putPartR2(url, body, onLoaded) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      let watchdog;
+      const stallMs = window.__CHUNK_STALL_MS || CHUNK_STALL_MS;
+      const arm = () => {
+        clearTimeout(watchdog);
+        watchdog = setTimeout(() => { try { xhr.abort(); } catch (_) {}
+          reject(Object.assign(new Error('upload stalled'), { isNetwork: true })); }, stallMs);
+      };
+      xhr.open('PUT', url);
+      xhr.upload.onprogress = e => { arm(); if (e.lengthComputable) onLoaded(e.loaded); };
+      xhr.onload = () => {
+        clearTimeout(watchdog);
+        const etag = xhr.getResponseHeader('ETag');
+        if (xhr.status >= 200 && xhr.status < 300 && etag) { resolve(etag); return; }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          // 2xx but no readable ETag = bucket CORS lacks ExposeHeaders - the
+          // multipart can never be completed. Not retryable.
+          reject(Object.assign(new Error('no etag'), { isTerminal: true, r2Fallback: true })); return;
+        }
+        if (xhr.status >= 400 && xhr.status < 500 && xhr.status !== 408 && xhr.status !== 429) {
+          // 403 = expired/invalid presign - retrying the same URL can't help.
+          reject(Object.assign(new Error(`part ${xhr.status}`), { isTerminal: true, r2Fallback: true, httpStatus: xhr.status })); return;
+        }
+        reject(Object.assign(new Error(`server ${xhr.status}`), { isServer: true, httpStatus: xhr.status }));
+      };
+      xhr.onerror   = () => { clearTimeout(watchdog); reject(Object.assign(new Error('Failed to fetch'), { isNetwork: true })); };
+      xhr.ontimeout = () => { clearTimeout(watchdog); reject(Object.assign(new Error('upload stalled'), { isNetwork: true })); };
+      arm();
+      xhr.send(body);
+    });
+  }
+
+  function _r2Sig(file)      { return _fileSig(file) + '_r2'; }
+  function _r2LoadState(file, key) {
+    try {
+      const s = JSON.parse(localStorage.getItem(_r2Sig(file)) || 'null');
+      if (!s || s.key !== key || Date.now() - (s.ts || 0) > R2_RESUME_TTL) return null;
+      return s;
+    } catch (_) { return null; }
+  }
+  function _r2SaveState(file, st) {
+    try { localStorage.setItem(_r2Sig(file), JSON.stringify(st)); } catch (_) {}
+  }
+  function _r2ClearState(file) { try { localStorage.removeItem(_r2Sig(file)); } catch (_) {} }
+
+  // Active multipart (for Start Over cleanup). {key, upload_id} or null.
+  let _r2Active = null;
+
+  async function r2Upload(file, source, onProgress, key) {
+    source = source || file;
+    const size = source.size || file.size;
+    // Resume a prior multipart for this exact file if the URLs are still
+    // fresh; otherwise init a new one.
+    let st = _r2LoadState(file, key);
+    if (!st) {
+      let resp;
+      try {
+        resp = await apiFetch(`${API_BASE}/upload_r2/init/`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key, size }),
+        });
+      } catch (e) {
+        // apiFetch clears the token on a real 401 teardown - don't mask that
+        // by falling back (the chunked path would just 401 chunk by chunk).
+        if (!authToken) throw e;
+        throw Object.assign(new Error('r2 init unreachable'), { r2Fallback: true });
+      }
+      if (!resp.ok) throw Object.assign(new Error(`r2 init ${resp.status}`), { r2Fallback: true });
+      const d = await resp.json();
+      if (!d.upload_id || !Array.isArray(d.urls) || !d.urls.length)
+        throw Object.assign(new Error('r2 init malformed'), { r2Fallback: true });
+      st = { key, upload_id: d.upload_id, part_size: d.part_size, urls: d.urls,
+             etags: {}, ts: Date.now() };
+      _r2SaveState(file, st);
+    }
+    _r2Active = { key, upload_id: st.upload_id };
+    const partSize   = st.part_size;
+    const totalParts = st.urls.length;
+    const loadedByPart = new Array(totalParts).fill(0);
+    const report = () => onProgress(loadedByPart.reduce((a, b) => a + b, 0) / size);
+    const resumedParts = Object.keys(st.etags).length;
+    if (resumedParts) console.info(`R2 resume: ${resumedParts}/${totalParts} parts already sent`);
+
+    const _t0 = performance.now();
+    let _stalls = 0, _netRetries = 0, _serverRetries = 0, _resentBytes = 0;
+    let anySuccess = resumedParts > 0;
+
+    async function uploadPart(i) {
+      const start = i * partSize;
+      const end   = Math.min(start + partSize, size);
+      const partLen = end - start;
+      if (st.etags[i]) { loadedByPart[i] = partLen; report(); return; }
+      const slice = source.slice(start, end);
+      const MAX_SERVER_ATTEMPTS = 4;
+      const MAX_STUCK = 6, MAX_TOTAL = 60;
+      let serverAttempts = 0, stuckTries = 0, totalTries = 0;
+      const pctEl = document.getElementById('uploadBarPct');
+      while (true) {
+        if (totalTries++ > 0) {
+          await _whenVisible();
+          await new Promise(r => setTimeout(r, 2000));
+        }
+        if (totalTries > MAX_TOTAL)
+          throw Object.assign(new Error(t('err.chunkRetries', { i: i, n: MAX_TOTAL, status: 0 })), { isTerminal: true });
+        loadedByPart[i] = 0; report();
+        let body;
+        try {
+          body = await slice.arrayBuffer();
+        } catch (readErr) {
+          throw Object.assign(new Error(t('err.fileUnreadable')), { isTerminal: true });
+        }
+        const epoch0 = _hiddenEpoch;
+        try {
+          const etag = await _putPartR2(
+            st.urls[i], body,
+            loaded => { loadedByPart[i] = Math.min(loaded, partLen); report(); }
+          );
+          loadedByPart[i] = partLen; report();
+          st.etags[i] = etag; anySuccess = true; _r2SaveState(file, st);
+          return;
+        } catch (e) {
+          if (e.isTerminal) throw e;
+          _resentBytes += loadedByPart[i];
+          if (e.isServer) {
+            _serverRetries++;
+            if (++serverAttempts >= MAX_SERVER_ATTEMPTS)
+              throw Object.assign(new Error(t('err.chunkRetries', { i: i, n: MAX_SERVER_ATTEMPTS, status: e.httpStatus || 0 })), { isTerminal: true });
+          } else {
+            if (/stall/i.test(e.message || '')) _stalls++; else _netRetries++;
+            const backgrounded = document.hidden || _hiddenEpoch !== epoch0;
+            if (!backgrounded) {
+              // No part has EVER gone through and the first tries die while
+              // visible: almost certainly bucket CORS not set / R2 blocked.
+              // Bail to the chunked path fast instead of burning 6 retries.
+              if (!anySuccess && stuckTries >= 1)
+                throw Object.assign(e, { isTerminal: true, r2Fallback: true });
+              if (++stuckTries >= MAX_STUCK)
+                throw Object.assign(e, { isTerminal: true });
+            }
+            if (pctEl) pctEl.textContent = t('upload.retrying');
+          }
+        }
+      }
+    }
+
+    let nextPart = 0;
+    const inFlight = new Map();
+    function launchNext() {
+      if (nextPart >= totalParts) return;
+      const i = nextPart++;
+      const p = uploadPart(i).then(() => inFlight.delete(i), err => { inFlight.delete(i); throw err; });
+      inFlight.set(i, p);
+    }
+    try {
+      while (nextPart < totalParts && inFlight.size < UPLOAD_CONCURRENCY) launchNext();
+      while (inFlight.size > 0) {
+        await Promise.race(inFlight.values());
+        while (nextPart < totalParts && inFlight.size < UPLOAD_CONCURRENCY) launchNext();
+      }
+    } catch (e) {
+      if (e && e.r2Fallback) {
+        // Hand the multipart back before falling to the chunked path.
+        _r2AbortActive();
+        _r2ClearState(file);
+      }
+      throw e;
+    }
+
+    // All parts are in R2 - ask the server to assemble + copy to the volume.
+    // Retryable: /complete is idempotent (a landed chunk_0000 short-circuits).
+    const etags = Array.from({ length: totalParts }, (_, i) => st.etags[i]);
+    let completed = false, lastErr = null;
+    for (let attempt = 0; attempt < 3 && !completed; attempt++) {
+      if (attempt) await new Promise(r => setTimeout(r, 2000 * attempt));
+      try {
+        const resp = await apiFetch(`${API_BASE}/upload_r2/complete/`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key, upload_id: st.upload_id, etags }),
+        });
+        if (resp.ok) { completed = true; break; }
+        lastErr = new Error(`r2 complete ${resp.status}`);
+      } catch (e) { lastErr = e; if (!authToken) break; }
+    }
+    if (!completed) throw lastErr || new Error('r2 complete failed');
+
+    _r2Active = null;
+    _r2ClearState(file);
+    _clearResume(file);
+    _disposeSnapshot();
+
+    const secs = (performance.now() - _t0) / 1000;
+    const mbps = secs > 0 ? (size * 8 / 1e6) / secs : 0;
+    window.__lastUploadStats = {
+      bytes: size, mb: +(size / 1048576).toFixed(1), secs: +secs.toFixed(1),
+      mbps: +mbps.toFixed(2), chunks: totalParts, concurrency: UPLOAD_CONCURRENCY,
+      stalls: _stalls, netRetries: _netRetries, serverRetries: _serverRetries,
+      resentMB: +(_resentBytes / 1048576).toFixed(1), path: 'r2',
+    };
+    console.info(`R2 upload done: ${window.__lastUploadStats.mb} MB in ${secs.toFixed(0)} s = `
+      + `${mbps.toFixed(2)} Mbps effective; stalls=${_stalls} netRetries=${_netRetries}`);
+    return key;
+  }
+
+  // Best-effort multipart abort (Start Over / fallback) - keepalive so it
+  // survives the page reload that follows.
+  function _r2AbortActive() {
+    if (!_r2Active) return;
+    const { key, upload_id } = _r2Active;
+    _r2Active = null;
+    try {
+      fetch(`${API_BASE}/upload_r2/abort/`, {
+        method: 'POST', keepalive: true,
+        headers: { 'Content-Type': 'application/json',
+                   ...(authToken ? { 'Authorization': 'Bearer ' + authToken } : {}) },
+        body: JSON.stringify({ key, upload_id }),
+      }).catch(() => {});
+    } catch (_) {}
+  }
+
   // Upload file via XHR (for progress tracking); returns {callId} from 202 response
   function xhrUpload(url, file, onProgress) {
     return new Promise((resolve, reject) => {
@@ -3397,6 +3685,7 @@
       return;
     }
     if (currentCallId) apiFetch(`${API_BASE}/cancel/${currentCallId}/`, { keepalive: true }).catch(() => {});
+    _r2AbortActive();   // keepalive - survives the reload below
     clearSavedJob();
     _intentionalNav = true;   // already confirmed in-app; skip the browser prompt
     location.reload();
