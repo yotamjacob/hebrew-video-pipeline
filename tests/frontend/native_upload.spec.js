@@ -191,3 +191,89 @@ test('Start over stops the native foreground upload before reloading', async ({ 
   expect(await page.evaluate(() =>
     localStorage.getItem('__testStatusErrorShown'))).toBeNull();
 });
+
+// ── Native R2 fast path ──────────────────────────────────────────────────────
+// The foreground service PUTs the whole file to a presigned R2 URL (single
+// object, ~4-5x the Modal-ingress stream), then /upload_r2/complete lands it
+// on the volume. mockAllApis defaults /upload_r2/* to 503, so these tests
+// re-register init/complete to simulate a live R2 config (last route wins).
+
+async function enableNativeR2(page, seen) {
+  await page.route(/\/upload_r2\/init\//, (route, request) => {
+    seen.push({ kind: 'init', body: request.postDataJSON() });
+    return route.fulfill({ status: 200, contentType: 'application/json',
+                           body: JSON.stringify({ url: 'https://fake-r2.test/native-put' }) });
+  });
+  await page.route(/\/upload_r2\/complete\//, (route, request) => {
+    seen.push({ kind: 'complete', body: request.postDataJSON() });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+  });
+}
+
+test('native upload PUTs to the presigned R2 URL (no auth headers) and completes server-side', async ({ page }) => {
+  await bootNative(page);
+  await mockAllApis(page);
+  const seen = [];
+  await enableNativeR2(page, seen);
+  await primeNativePick(page, 350 * 1024 * 1024);
+  await page.click('#runBtn');
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
+
+  const up = await page.evaluate(() => window.__streamUploads[0]);
+  expect(up.serverUrl).toBe('https://fake-r2.test/native-put');
+  expect(up.method).toBe('PUT');
+  // The presigned URL is the auth - custom headers must stay off (only
+  // signed headers may be validated; none were signed).
+  expect(Object.keys(up.headers || {})).toEqual([]);
+  const complete = seen.find(s => s.kind === 'complete');
+  expect(complete.body.single).toBe(true);
+  expect(complete.body.key).toBe(seen.find(s => s.kind === 'init').body.key);
+});
+
+test('native R2: a frozen webview that missed the completed event recovers via /upload_r2/complete', async ({ page }) => {
+  await bootNative(page, { fireCompleted: false });
+  await mockAllApis(page);
+  const seen = [];
+  await enableNativeR2(page, seen);
+  // The upload has NOT spawned yet (nobody completed it) - process_pending
+  // answers pending until /upload_r2/complete runs, which is exactly the
+  // state a thawed webview finds after missing the completed event.
+  let r2Completed = false;
+  await page.route(/\/upload_r2\/complete\//, (route, request) => {
+    r2Completed = true;
+    seen.push({ kind: 'complete', body: request.postDataJSON() });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+  });
+  await page.route(/\/process_pending\//, r =>
+    r.fulfill({ status: 200, contentType: 'application/json',
+                body: r2Completed ? '{"call_id":"call-1"}' : '{"pending":true}' }));
+  await primeNativePick(page, 512 * 1024);
+  await page.click('#runBtn');
+  await page.waitForTimeout(500);
+  // Thaw: the reconcile must ask the server to complete from R2 - the byte
+  // probe is useless here (no chunk files ever land on the volume).
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
+  expect(seen.some(s => s.kind === 'complete' && s.body.single === true)).toBe(true);
+});
+
+test('native R2: a failed PUT falls back to the /upload_stream path', async ({ page }) => {
+  await bootNative(page, { fireCompleted: false });
+  await mockAllApis(page);
+  const seen = [];
+  await enableNativeR2(page, seen);
+  await primeNativePick(page, 350 * 1024 * 1024);
+  await page.click('#runBtn');
+  await expect.poll(() => page.evaluate(() => window.__streamUploads.length)).toBe(1);
+  // R2 rejects / network dies mid-PUT → the plugin reports failed.
+  await page.evaluate(() => window.__upCb({
+    name: 'failed', id: 'up1', eventId: 'fail-1', payload: { error: 'network' } }));
+  // Orchestrator falls back: a second startUpload targeting the Modal stream.
+  await expect.poll(() => page.evaluate(() => window.__streamUploads.length), { timeout: 10_000 }).toBe(2);
+  const second = await page.evaluate(() => window.__streamUploads[1]);
+  expect(second.serverUrl).toContain('/upload_stream/');
+  expect(second.headers['X-Upload-Key']).toBeTruthy();
+  await page.evaluate(() => window.__upCb({
+    name: 'completed', id: 'up1', eventId: 'done-2', payload: { statusCode: 200 } }));
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
+});

@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.13.0';
+  const APP_VERSION = '1.14.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -1719,17 +1719,63 @@
           if (!response.ok) console.warn(`Upload cleanup failed (${response.status})`);
         })
         .catch(error => console.warn('Upload cleanup request failed', error));
+      // A native R2 upload may have finished its PUT already - delete the
+      // staged object too (no-op when nothing is there).
+      try {
+        fetch(`${API_BASE}/upload_r2/abort/`, {
+          method: 'POST', keepalive: true,
+          headers: { 'Content-Type': 'application/json',
+                     ...(authToken ? { 'Authorization': 'Bearer ' + authToken } : {}) },
+          body: JSON.stringify({ key }),
+        }).catch(() => {});
+      } catch (_) {}
     }
     _forgetActiveNativeUpload(id);
   }
 
+  // Ask for a single-object presigned R2 PUT for the native uploader. The
+  // foreground service can't slice multipart parts, but ONE HTTP/1.1 PUT to
+  // R2 measured ~4-5x the Modal-ingress stream path (no h2 upload window on
+  // the R2 endpoint - see the r2Upload note). Resolves to the URL or null
+  // (old backend / creds missing / any failure → caller streams to Modal).
+  async function _r2NativeInit(key, size) {
+    try {
+      const resp = await apiFetch(`${API_BASE}/upload_r2/init/`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, size: size || 1, single: true }),
+      });
+      if (!resp.ok) return null;
+      const d = await resp.json().catch(() => ({}));
+      return d && d.url ? d.url : null;
+    } catch (_) { return null; }
+  }
+
   // Upload a native file path via the background uploader. Resolves with the
   // upload key (same key the /process call expects). Rejects on failure.
-  function nativeUpload(desc, onProgress, presetKey) {
+  // Fast path: the foreground service PUTs the file to a presigned R2 URL,
+  // then /upload_r2/complete lands it on the volume. Any R2-path failure
+  // falls back to the classic /upload_stream target - except a user cancel,
+  // and except after the PUT succeeded (the bytes are in R2; the server
+  // sweep spawns the job even if the app dies, so re-uploading is wrong).
+  async function nativeUpload(desc, onProgress, presetKey) {
+    const key = presetKey || crypto.randomUUID().replace(/-/g, '');
+    const r2Url = await _r2NativeInit(key, desc.size);
+    if (r2Url) {
+      try {
+        return await _nativeUploadRun(desc, onProgress, key, r2Url);
+      } catch (e) {
+        if ((e && e.name === 'AbortError') || intentionalStartOver || (e && e.r2NoFallback)) throw e;
+        console.warn('native R2 upload failed - falling back to /upload_stream:', e && e.message);
+        onProgress(0);
+      }
+    }
+    return _nativeUploadRun(desc, onProgress, key, null);
+  }
+
+  function _nativeUploadRun(desc, onProgress, key, r2Url) {
     return new Promise((resolve, reject) => {
       const Uploader = _capPlugin('Uploader');
       if (!Uploader) { reject(new Error('Uploader plugin unavailable')); return; }
-      const key = presetKey || crypto.randomUUID().replace(/-/g, '');
       const expected = desc.size || 0;
       let handle = null, settled = false, reconciling = false, uploadId = null;
       const earlyEvents = [];
@@ -1765,6 +1811,41 @@
       // byte check remains as the in-flight fallback (also refreshes the bar),
       // and must not gate the pending check on `expected` (a picker that
       // reports no size would otherwise disable reconciliation entirely).
+      // R2 mode: after the service's PUT lands, the server must copy the
+      // object to the volume + spawn. Idempotent, so retried freely.
+      async function _r2Complete(attempts) {
+        for (let a = 0; a < attempts && !settled; a++) {
+          if (a) await new Promise(r => setTimeout(r, 2000 * a));
+          try {
+            const resp = await apiFetch(`${API_BASE}/upload_r2/complete/`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ key, single: true }),
+            });
+            if (resp.ok) return true;
+          } catch (e) { if (!authToken) return false; }
+        }
+        return false;
+      }
+      // The PUT succeeded but /complete keeps failing: the bytes ARE in R2
+      // and the 5-minute server sweep will land + spawn them - wait for that
+      // instead of failing an upload that actually finished.
+      async function _r2FinishOrWait() {
+        if (await _r2Complete(4)) { _finish(); return; }
+        for (let i = 0; i < 80 && !settled; i++) {   // ~7 min > one sweep period
+          try {
+            const pr = await apiFetch(`${API_BASE}/process_pending/?key=${key}`);
+            if (pr.ok) {
+              const d = await pr.json().catch(() => ({}));
+              if (d.call_id) { _finish(); return; }
+            }
+          } catch (_) {}
+          await new Promise(r => setTimeout(r, 5000));
+        }
+        if (!settled) {
+          settled = true; cleanup(); _forgetActiveNativeUpload(uploadId);
+          reject(Object.assign(new Error(t('err.netBlip')), { r2NoFallback: true }));
+        }
+      }
       async function reconcile() {
         if (settled || reconciling) return;
         reconciling = true;
@@ -1777,14 +1858,22 @@
                 if (d.call_id) { _finish(); return; }
               }
             } catch (_) {}
-            try {
-              const r = await apiFetch(`${API_BASE}/upload_check/?key=${key}`);
-              if (r.ok && expected) {
-                const { bytes } = await r.json();
-                if (bytes >= expected) { _finish(); return; }
-                if (bytes > 0) onProgress(Math.min(0.99, bytes / expected));
-              }
-            } catch (_) {}
+            // R2 mode: a frozen WebView misses the 'completed' event, and no
+            // chunk bytes ever land on the volume - the byte probe below reads
+            // 0 forever. Ask the server to complete from R2 instead: succeeds
+            // exactly when the object is fully there (a single PUT is atomic).
+            if (r2Url) {
+              if (await _r2Complete(1)) { _finish(); return; }
+            } else {
+              try {
+                const r = await apiFetch(`${API_BASE}/upload_check/?key=${key}`);
+                if (r.ok && expected) {
+                  const { bytes } = await r.json();
+                  if (bytes >= expected) { _finish(); return; }
+                  if (bytes > 0) onProgress(Math.min(0.99, bytes / expected));
+                }
+              } catch (_) {}
+            }
             await new Promise(res => setTimeout(res, 2500));
           }
         } finally { reconciling = false; }
@@ -1825,8 +1914,12 @@
           const sc = ev.payload && ev.payload.statusCode;
           if (sc && sc >= 400) {
             settled = true; cleanup(); _forgetActiveNativeUpload(uploadId);
+            // R2 mode: a 4xx from R2 (expired presign etc.) left no object
+            // behind (PUT is atomic) - the orchestrator falls back to the
+            // stream path.
             reject(new Error(t('err.chunk', { i: 0, status: sc })));
           }
+          else if (r2Url) { onProgress(0.999); _r2FinishOrWait(); }
           else _finish();
         } else if (ev.name === 'failed') {
           _acknowledge(ev);
@@ -1845,11 +1938,13 @@
       }).catch(() => {});
       Uploader.startUpload({
         filePath: desc.path,
-        serverUrl: `${API_BASE}/upload_stream/`,
+        // R2 mode: the presigned URL IS the auth - extra headers must stay
+        // off (only signed headers may be validated; none were signed).
+        serverUrl: r2Url || `${API_BASE}/upload_stream/`,
         method: 'PUT',
         uploadType: 'binary',
         mimeType: desc.mimeType || 'application/octet-stream',
-        headers: Object.assign(
+        headers: r2Url ? {} : Object.assign(
           { 'X-Upload-Key': key },
           expected ? { 'X-Upload-Size': String(expected) } : {},
           authToken ? { Authorization: 'Bearer ' + authToken } : {}),

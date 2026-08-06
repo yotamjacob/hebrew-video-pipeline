@@ -185,6 +185,168 @@ from metricool_fns import (
 )
 
 # ---------------------------------------------------------------------------
+def _spawn_pending_job_impl(full_key, expect_uid=None, fallback_uprefix=None):
+    """Claim + spawn the DEFERRED processing job for a completed upload.
+
+    Called from the upload endpoints the moment the last byte lands, so
+    processing starts even when the app was closed mid-upload (its JS -
+    which used to do the spawn - is frozen then). The atomic pop is the
+    claim: two racing completion signals can't double-spawn/double-bill.
+    Returns the call_id, or None when there is nothing (left) to spawn.
+
+    expect_uid: on the request path, the caller must be the registrant.
+    The R2 sweep passes None - it acts ON the registration record itself
+    (written by an authenticated /process defer call), so the record's own
+    uid is the authority there.
+    """
+    import time as _time
+    try:
+        rec = pending_store.pop(full_key)
+    except KeyError:
+        return None
+    except Exception:
+        return None
+    if not isinstance(rec, dict) or "params" not in rec:
+        return None
+    if expect_uid is not None and rec.get("uid") != expect_uid:
+        try:
+            pending_store[full_key] = rec
+        except Exception:
+            pass
+        return None
+    try:
+        tmp_vol.commit()           # flush chunks before the worker reads
+        call = process_video.spawn(
+            upload_key=full_key,
+            key_prefix=rec.get("uprefix", fallback_uprefix),
+            # Admins are not charged, so there is nothing for the
+            # worker to verify the source length against.
+            credits_charged=(0 if rec.get("is_admin")
+                             else int(rec.get("credit_cost") or 1)),
+            **rec["params"])
+    except Exception as e:
+        print(f"[pending] spawn failed for {full_key!r}: {e!r}")
+        try:
+            pending_store[full_key] = rec   # restore so a retry can claim
+        except Exception:
+            pass
+        return None
+    try:
+        calls_store[call.object_id] = {"uid": rec["uid"], "ts": _time.time()}
+    except Exception:
+        pass
+    if not rec.get("is_admin") and rec.get("uname"):
+        try:
+            _cost = int(rec.get("credit_cost") or 1)
+            _charge_credits(quota_store, rec["uid"], call.object_id, _cost)
+            _urec = users_store.get(rec["uname"])
+            if isinstance(_urec, dict):
+                _urec["videos_used"] = int(_urec.get("videos_used") or 0) + _cost
+                users_store[rec["uname"]] = _urec
+        except Exception:
+            pass
+    try:
+        pending_store["done:" + full_key] = {
+            "call_id": call.object_id, "uid": rec["uid"], "ts": _time.time()}
+    except Exception:
+        pass
+    print(f"[pending] spawned {call.object_id} for {full_key!r}")
+    return call.object_id
+
+
+def _r2_client_env():
+    """boto3 client + bucket from the hebpipe-backup secret env, or (None, None)."""
+    import os as _os
+    if not _os.environ.get("S3_ENDPOINT_URL") or not _os.environ.get("S3_BUCKET"):
+        return None, None
+    import boto3
+    client = boto3.client(
+        "s3",
+        endpoint_url=_os.environ["S3_ENDPOINT_URL"],
+        aws_access_key_id=_os.environ["S3_ACCESS_KEY_ID"],
+        aws_secret_access_key=_os.environ["S3_SECRET_ACCESS_KEY"],
+        region_name=_os.environ.get("S3_REGION", "auto"),
+    )
+    return client, _os.environ["S3_BUCKET"]
+
+
+def _r2_land_on_volume(s3, bucket, obj_key, full_key):
+    """Stream a completed R2 upload object onto the volume as chunk 0000
+    (staging + atomic replace - the /upload_stream shape). Idempotent: an
+    already-landed chunk file short-circuits. Deletes the object on success."""
+    import os as _os
+    import uuid as _uuid
+    from pathlib import Path as _Path
+    chunk_path = _Path(TMP_DIR) / f"{full_key}_chunk_0000"
+    if chunk_path.exists():
+        return True
+    staging = _Path(TMP_DIR) / f".{full_key}.{_uuid.uuid4().hex}.uploading"
+    try:
+        obj = s3.get_object(Bucket=bucket, Key=obj_key)
+        with open(staging, "wb") as fh:
+            for part in iter(lambda: obj["Body"].read(8 * 1024 * 1024), b""):
+                fh.write(part)
+        _os.replace(staging, chunk_path)
+    except BaseException:
+        staging.unlink(missing_ok=True)
+        raise
+    try:
+        s3.delete_object(Bucket=bucket, Key=obj_key)
+    except Exception:
+        pass   # lifecycle sweeps orphans
+    return True
+
+
+@app.function(image=light_image, schedule=modal.Period(minutes=5),
+              volumes={TMP_DIR: tmp_vol},
+              secrets=[modal.Secret.from_name("hebpipe-backup")])
+def sweep_r2_uploads():
+    """Close the close-and-forget gap for native R2 uploads: the Android
+    foreground service PUTs the file to R2 and the object appears atomically,
+    but if the app never returns to the foreground nobody calls
+    /upload_r2/complete - the registered job would sit pending forever and the
+    'upload done' push would never fire. Every 5 minutes: for each pending
+    registration whose bytes are not on the volume yet, check R2 for the
+    completed object; if present, land it and spawn. Races with an in-app
+    /complete are safe: the volume copy is idempotent and the spawn claim is
+    an atomic pop."""
+    s3, bucket = _r2_client_env()
+    if s3 is None:
+        return
+    from pathlib import Path as _Path
+    import time as _time
+    swept = 0
+    try:
+        keys = [k for k in pending_store.keys() if not k.startswith("done:")]
+    except Exception as e:
+        print(f"[r2sweep] pending scan failed: {e!r}")
+        return
+    for full_key in keys:
+        rec = pending_store.get(full_key)
+        if not isinstance(rec, dict) or "params" not in rec:
+            continue
+        # Give a just-registered upload time to land through the normal path.
+        if _time.time() - float(rec.get("ts") or 0) < 60:
+            continue
+        if (_Path(TMP_DIR) / f"{full_key}_chunk_0000").exists():
+            continue   # landed - the request path's spawn is in flight
+        obj_key = f"uploads/{full_key}.src"
+        try:
+            s3.head_object(Bucket=bucket, Key=obj_key)
+        except Exception:
+            continue   # not uploaded (or chunked path) - nothing to do
+        try:
+            _r2_land_on_volume(s3, bucket, obj_key, full_key)
+            call_id = _spawn_pending_job_impl(full_key)
+            if call_id:
+                swept += 1
+                print(f"[r2sweep] landed + spawned {call_id} for {full_key!r}")
+        except Exception as e:
+            print(f"[r2sweep] failed for {full_key!r}: {e!r}")
+    if swept:
+        print(f"[r2sweep] recovered {swept} upload(s)")
+
+
 # HTTP API — raw ASGI, zero external dependencies, dispatches to process_video
 #
 # POST /process?filename=x&cut_silences=true&burn_captions=true&min_silence=0.5&padding=0.2
@@ -694,67 +856,11 @@ def api():
             return bool(meta) and meta.get("uid") == uid
 
         def _spawn_pending_job(full_key):
-            """Claim + spawn the DEFERRED processing job for a completed upload.
-
-            Called from the upload endpoints the moment the last byte lands, so
-            processing starts even when the app was closed mid-upload (its JS -
-            which used to do the spawn - is frozen then). The atomic pop is the
-            claim: two racing completion signals can't double-spawn/double-bill.
-            Returns the call_id, or None when there is nothing (left) to spawn.
-            """
-            import time as _time
-            try:
-                rec = pending_store.pop(full_key)
-            except KeyError:
-                return None
-            except Exception:
-                return None
-            if not isinstance(rec, dict) or "params" not in rec:
-                return None
-            if rec.get("uid") != uid:      # uploader must be the registrant
-                try:
-                    pending_store[full_key] = rec
-                except Exception:
-                    pass
-                return None
-            try:
-                tmp_vol.commit()           # flush chunks before the worker reads
-                call = process_video.spawn(
-                    upload_key=full_key,
-                    key_prefix=rec.get("uprefix", uprefix),
-                    # Admins are not charged, so there is nothing for the
-                    # worker to verify the source length against.
-                    credits_charged=(0 if rec.get("is_admin")
-                                     else int(rec.get("credit_cost") or 1)),
-                    **rec["params"])
-            except Exception as e:
-                print(f"[pending] spawn failed for {full_key!r}: {e!r}")
-                try:
-                    pending_store[full_key] = rec   # restore so a retry can claim
-                except Exception:
-                    pass
-                return None
-            try:
-                calls_store[call.object_id] = {"uid": rec["uid"], "ts": _time.time()}
-            except Exception:
-                pass
-            if not rec.get("is_admin") and rec.get("uname"):
-                try:
-                    _cost = int(rec.get("credit_cost") or 1)
-                    _charge_credits(quota_store, rec["uid"], call.object_id, _cost)
-                    _urec = users_store.get(rec["uname"])
-                    if isinstance(_urec, dict):
-                        _urec["videos_used"] = int(_urec.get("videos_used") or 0) + _cost
-                        users_store[rec["uname"]] = _urec
-                except Exception:
-                    pass
-            try:
-                pending_store["done:" + full_key] = {
-                    "call_id": call.object_id, "uid": rec["uid"], "ts": _time.time()}
-            except Exception:
-                pass
-            print(f"[pending] spawned {call.object_id} for {full_key!r}")
-            return call.object_id
+            """Claim + spawn the deferred job (request path: the caller must
+            be the registrant). Body lives at module level so the R2 sweep can
+            spawn too - see _spawn_pending_job_impl."""
+            return _spawn_pending_job_impl(full_key, expect_uid=uid,
+                                           fallback_uprefix=uprefix)
 
         def _pending_complete(full_key, total_chunks):
             """True when every chunk of a deferred upload is on the volume."""
@@ -1279,6 +1385,25 @@ def api():
                 await send_error("Invalid size", 400)
                 return
             obj_key = f"uploads/{uprefix}{key}.src"
+            # single=true: ONE presigned PUT for the whole file - the native
+            # Android foreground-service uploader sends one binary PUT (it
+            # can't slice parts). An S3 PUT is atomic, so the object existing
+            # == the whole file arrived (what the sweep relies on).
+            if data.get("single"):
+                try:
+                    url = await asyncio.to_thread(
+                        lambda: s3.generate_presigned_url(
+                            "put_object", Params={"Bucket": bucket, "Key": obj_key},
+                            ExpiresIn=R2_URL_TTL))
+                except Exception as e:
+                    print(f"[r2] single init failed: {e!r}")
+                    await send_error("R2 init failed", 503, code="r2_unavailable")
+                    return
+                body = json.dumps({"url": url}).encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": body})
+                return
             n_parts = max(1, -(-size // R2_PART_SIZE))
             try:
                 def _init():
@@ -1312,15 +1437,15 @@ def api():
                 key       = data.get("key") or ""
                 upload_id = data.get("upload_id") or ""
                 etags     = data.get("etags") or []
+                single    = bool(data.get("single"))
             except Exception:
                 await send_error("Invalid body", 400)
                 return
-            if not _SAFE_KEY_RE.match(key) or not upload_id or not isinstance(etags, list):
+            if not _SAFE_KEY_RE.match(key) or not isinstance(etags, list) \
+               or (not single and not upload_id):
                 await send_error("Invalid or missing key", 400)
                 return
             from pathlib import Path as _Path
-            import os as _os
-            import uuid as _uuid
             obj_key    = f"uploads/{uprefix}{key}.src"
             chunk_path = _Path(TMP_DIR) / f"{uprefix}{key}_chunk_0000"
             # Idempotent retry: if a previous /complete already landed the file
@@ -1330,31 +1455,21 @@ def api():
             if not already:
                 try:
                     def _assemble_and_fetch():
-                        try:
-                            s3.complete_multipart_upload(
-                                Bucket=bucket, Key=obj_key, UploadId=upload_id,
-                                MultipartUpload={"Parts": [
-                                    {"ETag": e, "PartNumber": i + 1}
-                                    for i, e in enumerate(etags)]})
-                        except Exception:
-                            # NoSuchUpload after a completed earlier attempt is
-                            # fine IF the object exists; anything else is real.
+                        if single:
+                            # A single PUT is atomic: existing == fully uploaded.
                             s3.head_object(Bucket=bucket, Key=obj_key)
-                        staging = _Path(TMP_DIR) / (
-                            f".{uprefix}{key}.{_uuid.uuid4().hex}.uploading")
-                        try:
-                            obj = s3.get_object(Bucket=bucket, Key=obj_key)
-                            with open(staging, "wb") as fh:
-                                for part in iter(lambda: obj["Body"].read(8 * 1024 * 1024), b""):
-                                    fh.write(part)
-                            _os.replace(staging, chunk_path)
-                        except BaseException:
-                            staging.unlink(missing_ok=True)
-                            raise
-                        try:
-                            s3.delete_object(Bucket=bucket, Key=obj_key)
-                        except Exception:
-                            pass   # lifecycle sweeps orphans
+                        else:
+                            try:
+                                s3.complete_multipart_upload(
+                                    Bucket=bucket, Key=obj_key, UploadId=upload_id,
+                                    MultipartUpload={"Parts": [
+                                        {"ETag": e, "PartNumber": i + 1}
+                                        for i, e in enumerate(etags)]})
+                            except Exception:
+                                # NoSuchUpload after a completed earlier attempt
+                                # is fine IF the object exists; else it's real.
+                                s3.head_object(Bucket=bucket, Key=obj_key)
+                        _r2_land_on_volume(s3, bucket, obj_key, f"{uprefix}{key}")
                     await asyncio.to_thread(_assemble_and_fetch)
                 except Exception as e:
                     print(f"[r2] complete failed for {uprefix}{key}: {e!r}")

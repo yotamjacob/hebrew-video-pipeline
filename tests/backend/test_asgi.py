@@ -412,8 +412,8 @@ class TestR2Upload:
     def test_init_validates_key_and_size(self):
         # Both init and complete must gate on the same key regex as every
         # other upload route - the object key embeds it.
-        r2_block = MODAL_SRC[MODAL_SRC.index("/upload_r2/init"):
-                             MODAL_SRC.index("/upload_r2/probe")]
+        r2_block = MODAL_SRC[MODAL_SRC.index('("/upload_r2/init"'):
+                             MODAL_SRC.index('("/upload_r2/probe"')]
         assert r2_block.count("_SAFE_KEY_RE.match(key)") >= 3, (
             "init, complete and abort must all validate the upload key")
         assert "R2_MAX_SIZE" in r2_block
@@ -425,24 +425,52 @@ class TestR2Upload:
 
     def test_complete_lands_chunk_0000_via_staging(self):
         # The volume publish must be staging-file + atomic replace (same as
-        # /upload_stream) - never a partial write at the final path.
-        block = MODAL_SRC[MODAL_SRC.index("/upload_r2/complete"):
-                          MODAL_SRC.index("/upload_r2/abort")]
-        assert '_chunk_0000' in block
-        assert "_os.replace(staging, chunk_path)" in block
+        # /upload_stream) - never a partial write at the final path. The logic
+        # lives in _r2_land_on_volume, shared by the route and the sweep.
+        block = MODAL_SRC[MODAL_SRC.index('("/upload_r2/complete"'):
+                          MODAL_SRC.index('("/upload_r2/abort"')]
+        assert "_r2_land_on_volume" in block
+        helper = MODAL_SRC[MODAL_SRC.index("def _r2_land_on_volume"):
+                           MODAL_SRC.index("def sweep_r2_uploads")]
+        assert "_chunk_0000" in helper
+        assert "_os.replace(staging, chunk_path)" in helper
+
+    def test_sweep_recovers_closed_app_uploads(self):
+        # Native R2 uploads: the foreground service PUTs the file, but only
+        # the app can call /complete - if it never reopens, the scheduled
+        # sweep must land the object and spawn, or the registered job (and
+        # its push) is lost. The sweep trusts the registration record's uid
+        # (expect_uid=None), while the request path keeps the caller check.
+        sweep = MODAL_SRC[MODAL_SRC.index("def sweep_r2_uploads"):]
+        sweep = sweep[:sweep.index("\n@") if "\n@" in sweep else len(sweep)]
+        assert "_spawn_pending_job_impl(full_key)" in sweep
+        assert "head_object" in sweep
+        assert "_spawn_pending_job_impl(full_key, expect_uid=uid" in MODAL_SRC, (
+            "the request-path delegate must still enforce the registrant check")
+
+    def test_single_mode_for_native_uploads(self):
+        # single=true → one presigned PUT (the native uploader can't slice
+        # parts); complete verifies the object exists (atomic PUT) instead of
+        # assembling a multipart.
+        init_block = MODAL_SRC[MODAL_SRC.index('("/upload_r2/init"'):
+                               MODAL_SRC.index('("/upload_r2/complete"')]
+        assert 'data.get("single")' in init_block
+        comp_block = MODAL_SRC[MODAL_SRC.index('("/upload_r2/complete"'):
+                               MODAL_SRC.index('("/upload_r2/abort"')]
+        assert 'data.get("single")' in comp_block
 
     def test_complete_is_idempotent(self):
         # A client retry after a network blip must not re-download or fail:
         # an existing chunk_0000 short-circuits to the spawn check.
-        block = MODAL_SRC[MODAL_SRC.index("/upload_r2/complete"):
-                          MODAL_SRC.index("/upload_r2/abort")]
+        block = MODAL_SRC[MODAL_SRC.index('("/upload_r2/complete"'):
+                          MODAL_SRC.index('("/upload_r2/abort"')]
         assert "chunk_path.exists" in block
 
     def test_complete_spawns_pending_job(self):
         # Deferred spawn parity with /upload_stream: the whole file landed, so
         # a registered job starts NOW even if the app is closed.
-        block = MODAL_SRC[MODAL_SRC.index("/upload_r2/complete"):
-                          MODAL_SRC.index("/upload_r2/abort")]
+        block = MODAL_SRC[MODAL_SRC.index('("/upload_r2/complete"'):
+                          MODAL_SRC.index('("/upload_r2/abort"')]
         assert "_spawn_pending_job" in block
 
     def test_missing_creds_answer_503_r2_unavailable(self):
