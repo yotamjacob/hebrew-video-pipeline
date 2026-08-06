@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.16.0';
+  const APP_VERSION = '1.16.1';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -1047,14 +1047,22 @@
   // the done-marker write.
   async function _awaitPendingSpawn(key, timeoutMs = 90_000) {
     const t0 = Date.now();
+    // A 404 is only fatal when it PERSISTS: the server-side spawn pops the
+    // registration BEFORE it spawns and writes the done-marker AFTER - a poll
+    // landing inside that window (seconds; also hit when the 5-min R2 sweep
+    // is the one claiming the job) sees neither and would fail a job that is
+    // actually spawning fine (field report: mobile "spawn 404" while the job
+    // ran and the credit was spent).
+    let notFound = 0;
     while (Date.now() - t0 < timeoutMs) {
       let resp = null;
       try { resp = await apiFetch(`${API_BASE}/process_pending/?key=${encodeURIComponent(key)}`); } catch (_) {}
       if (resp && resp.ok) {
+        notFound = 0;
         const d = await resp.json().catch(() => ({}));
         if (d.call_id) return d.call_id;
       } else if (resp && resp.status === 404) {
-        throw new Error(t('err.spawn', { status: 404 }));
+        if (++notFound >= 4) throw new Error(t('err.spawn', { status: 404 }));
       }
       await new Promise(r => setTimeout(r, 1500));
     }
@@ -1068,15 +1076,19 @@
   // → give up and tell the user to re-pick; their chunks resume).
   async function _awaitPendingResume(key, timeoutMs = 10 * 60_000) {
     const t0 = Date.now();
-    let lastBytes = -1, stale = 0;
+    let lastBytes = -1, stale = 0, notFound = 0;
     while (Date.now() - t0 < timeoutMs) {
       let resp = null;
       try { resp = await apiFetch(`${API_BASE}/process_pending/?key=${encodeURIComponent(key)}`); } catch (_) {}
       if (resp && resp.ok) {
+        notFound = 0;
         const d = await resp.json().catch(() => ({}));
         if (d.call_id) return d.call_id;
       } else if (resp && resp.status === 404) {
-        throw new Error('pending job gone');
+        // Transient by design: the spawn pops the registration before the
+        // done-marker exists (see _awaitPendingSpawn) - only persistent
+        // absence means the job is really gone.
+        if (++notFound >= 3) throw new Error('pending job gone');
       }
       try {
         const c = await apiFetch(`${API_BASE}/upload_check/?key=${encodeURIComponent(key)}`);
@@ -3887,18 +3899,35 @@
     const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
     return `rgba(${r},${g},${b},${alpha})`;
   }
+  // Build an outward text outline as a ring of hard text-shadows. Chosen over
+  // -webkit-text-stroke (even with paint-order:stroke fill, which DOES work in
+  // Chromium - verified by pixel probe): a text stroke is drawn per glyph with
+  // MITER joins, so sharp Hebrew corners grow needle spikes and a fat stroke
+  // from one letter bites into its neighbour's fill at tight spacing - the
+  // "glitchy border" field report. Shadows paint behind ALL glyphs together
+  // and the union of offset copies gives round joins, matching libass's
+  // rounded outward border.
+  function _outlineShadows(w, color) {
+    if (!(w > 0)) return 'none';
+    const s = [];
+    const ring = (radius, count, phase) => {
+      for (let i = 0; i < count; i++) {
+        const a = (2 * Math.PI * i) / count + phase;
+        s.push(`${(Math.cos(a) * radius).toFixed(2)}px ${(Math.sin(a) * radius).toFixed(2)}px 0 ${color}`);
+      }
+    };
+    ring(w, Math.max(8, Math.ceil(w) * 4), 0);   // outer ring - more directions for fatter borders
+    if (w > 2) ring(w * 0.6, 8, 0.39);           // inner ring closes coverage gaps
+    return s.join(', ');
+  }
   // Apply the style to the live caption overlay (scale = player px per burn px).
-  // Stroke is DOUBLED because CSS centers it on the glyph contour while the
-  // fill (paint-order: stroke fill) covers the inner half - the visible
-  // outward outline then equals libass's border_size, and the white core is
-  // never eaten (it was, at phone scale - read as a font change on pause).
   function _applyCapStyleColors(el, scale) {
     const cs = _captionStylePayload();
     el.style.color = cs.font_color;
-    el.style.paintOrder = 'stroke fill';
-    el.style.webkitTextStroke = cs.border_size > 0
-      ? `${Math.max(1, cs.border_size * 2 * scale)}px ${cs.border_color}` : '';
-    el.style.textShadow = 'none';
+    el.style.paintOrder = '';
+    el.style.webkitTextStroke = '';
+    el.style.textShadow = cs.border_size > 0
+      ? _outlineShadows(Math.max(1, cs.border_size * scale), cs.border_color) : 'none';
     if (cs.bg_opacity > 0) {
       el.style.background = _hexToRgba(cs.bg_color, cs.bg_opacity);
       el.style.padding = '0.14em 0.3em';
@@ -5148,7 +5177,11 @@
     ph.style.fontSize     = fs + 'px';
     ph.style.lineHeight   = lineH + 'px';
     ph.style.color        = fontCol;
-    ph.style.webkitTextStroke = bSize > 0 ? `${Math.max(0.5, bSize * (W / 270))}px ${bColor}` : '';
+    // Shadow ring, not text-stroke - same rounded-outline rationale as the
+    // caption overlay (_outlineShadows): no miter spikes, no glyph overlap.
+    ph.style.webkitTextStroke = '';
+    ph.style.textShadow = bSize > 0
+      ? _outlineShadows(Math.max(0.5, bSize * (W / 270)), bColor) : 'none';
     ph.innerHTML = _hookLines.map(l => '<div class="hook-line">' + _escapeHtml(l) + '</div>').join('');
     ph.dataset.ready = '1';
     // Visibility itself follows the playhead (renderPlayerFrame); when paused
@@ -7414,7 +7447,9 @@
   }
 
   async function editFromHistory(job, btn) {
-    if (btn) { btn.disabled = true; btn.title = t('hist.editLoading'); }
+    // Visible feedback: the state fetch + rehydration can take a few seconds
+    // on mobile, and a silently-disabled pencil reads as a dead button.
+    if (btn) { _btnBusy(btn, true); btn.title = t('hist.editLoading'); }
     try {
       const resp = await apiFetch(`${API_BASE}/jobs/${job.key}/edit/`);
       // 410 = the cut source was cleaned up; 404 = burned before this shipped.
@@ -7462,7 +7497,7 @@
       _reportError('history-edit', e && e.message);
       celebrateToast(t('hist.editFailed'));
     } finally {
-      if (btn) { btn.disabled = false; btn.title = t('hist.edit'); }
+      if (btn && btn.isConnected) { _btnBusy(btn, false); btn.title = t('hist.edit'); }
     }
   }
 

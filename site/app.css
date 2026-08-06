@@ -1555,12 +1555,17 @@
       white-space: pre; word-break: normal; line-height: 1.35;
       pointer-events: auto; cursor: grab; touch-action: none;
       user-select: none; -webkit-user-select: none; z-index: 3;
-      /* Match libass: the outline is drawn UNDER the fill and grows outward -
-         a centered stroke eats the fill at small preview scales (glyphs went
-         dark, reading as a "different font" vs the burn/exact frame). */
-      paint-order: stroke fill;
-      -webkit-text-stroke: 1px rgba(0,0,0,0.85);
-      text-shadow: none;
+      /* Match libass: outward ROUNDED outline. A text-stroke (even with
+         paint-order:stroke fill) is drawn per glyph with miter joins - needle
+         spikes on sharp Hebrew corners + neighbouring-glyph overlap read as a
+         glitchy border. A shadow ring paints behind all glyphs together.
+         JS (_applyCapStyleColors) overrides this with the styled border. */
+      -webkit-text-stroke: 0;
+      text-shadow:
+        1px 0 0 rgba(0,0,0,0.85), -1px 0 0 rgba(0,0,0,0.85),
+        0 1px 0 rgba(0,0,0,0.85), 0 -1px 0 rgba(0,0,0,0.85),
+        0.7px 0.7px 0 rgba(0,0,0,0.85), -0.7px 0.7px 0 rgba(0,0,0,0.85),
+        0.7px -0.7px 0 rgba(0,0,0,0.85), -0.7px -0.7px 0 rgba(0,0,0,0.85);
       /* libass never synthesizes bold: single-weight fonts (Secular One,
          Suez One) burn at 400, so the overlay must not fake a 700 either. */
       font-synthesis: none;
