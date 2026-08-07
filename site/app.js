@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.20.2';
+  const APP_VERSION = '1.21.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -6450,6 +6450,16 @@
     }
   }
 
+  // Inline stock-clip preview: at most one plays at a time.
+  function _stopInlineClip(thumbDiv) {
+    const v = thumbDiv.querySelector('video.clip-inline-video');
+    if (v) { try { v.pause(); } catch (_) {} v.remove(); }
+    thumbDiv.classList.remove('playing');
+  }
+  function _stopAllInlineClips() {
+    document.querySelectorAll('.clip-thumb.playing').forEach(_stopInlineClip);
+  }
+
   function renderStockMoments(moments, videoCtx) {
     const list = document.getElementById('stockBrollList');
     list.innerHTML = '';
@@ -6605,7 +6615,28 @@
       const thumbDiv = document.createElement('div');
       thumbDiv.className = 'clip-thumb';
       thumbDiv.addEventListener('click', () => {
-        if (clip.page_url) window.open(clip.page_url, '_blank', 'noopener,noreferrer');
+        // In-app preview: play the actual clip inline (muted, looping)
+        // instead of bouncing to the stock site. Tap again to stop. The
+        // attribution/view links below still open the source page (license).
+        if (thumbDiv.classList.contains('playing')) { _stopInlineClip(thumbDiv); return; }
+        if (!clip.preview_url) {
+          if (clip.page_url) window.open(clip.page_url, '_blank', 'noopener,noreferrer');
+          return;
+        }
+        _stopAllInlineClips();
+        const v = document.createElement('video');
+        v.className = 'clip-inline-video';
+        v.src = clip.preview_url;
+        v.muted = true; v.loop = true; v.autoplay = true; v.playsInline = true;
+        v.setAttribute('muted', ''); v.setAttribute('playsinline', '');
+        thumbDiv.classList.add('playing');
+        // Insert under the badges (absolute-positioned later siblings) so the
+        // source/score chips stay visible over the running clip.
+        thumbDiv.insertBefore(v, playOverlay);
+        v.play().catch(() => {
+          _stopInlineClip(thumbDiv);
+          if (clip.page_url) window.open(clip.page_url, '_blank', 'noopener,noreferrer');
+        });
       });
 
       if (clip.thumbnail) {

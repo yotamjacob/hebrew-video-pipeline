@@ -165,3 +165,27 @@ test('editing a caption after analysis reveals the re-run banner', async ({ page
   await page.click('#tabBtnBroll');
   await expect(page.locator('#stockBrollRerunBanner')).toBeVisible();
 });
+
+test('tapping a clip thumbnail plays the clip inline instead of opening the stock site', async ({ page }) => {
+  await runFullUpload(page);
+  await mockBroll(page, TWO_MOMENTS);
+  // Serve a real tiny mp4 for the clip preview (mockBroll aborts stock media,
+  // which would trip the open-external fallback) - last route wins.
+  const fs = require('fs');
+  const path = require('path');
+  const buf = fs.readFileSync(path.join(__dirname, 'fixtures/portrait_1080x1920.mp4'));
+  await page.route(/videos\.pexels\.com/, r =>
+    r.fulfill({ status: 200, headers: { 'Content-Type': 'video/mp4' }, body: buf }));
+  await openBrollAndFind(page);
+  const thumb = page.locator('.clip-thumb').first();
+  await expect(thumb).toBeVisible();
+  let popup = null;
+  page.on('popup', p => { popup = p; });
+  await thumb.click();
+  await expect(thumb.locator('video.clip-inline-video')).toHaveCount(1);
+  await expect(thumb).toHaveClass(/playing/);
+  expect(popup).toBeNull();          // no external navigation
+  // Tap again stops and restores the still.
+  await thumb.click();
+  await expect(thumb.locator('video.clip-inline-video')).toHaveCount(0);
+});

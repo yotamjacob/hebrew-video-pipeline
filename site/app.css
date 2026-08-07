@@ -1026,6 +1026,13 @@
       transition: transform 0.12s, box-shadow 0.12s;
     }
     .clip-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(62, 58, 52, 0.12); }
+    /* Inline clip preview: the video paints over the still, under the
+       badges; the play affordance hides while it runs. */
+    .clip-inline-video {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: cover; background: #000;
+    }
+    .clip-thumb.playing .clip-thumb-play { display: none; }
     .clip-thumb {
       position: relative;
       width: 148px;
