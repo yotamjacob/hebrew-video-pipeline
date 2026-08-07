@@ -889,7 +889,10 @@
       opacity: 0; pointer-events: none;
       transition: opacity 0.28s ease, transform 0.42s cubic-bezier(0.34,1.56,0.64,1);
     }
-    .celebrate-toast.show { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+    /* pointer-events must come back with visibility: the base state disables
+       them (the toast was informational once), which silently made the
+       saved-file action link and tap-to-dismiss dead. */
+    .celebrate-toast.show { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); pointer-events: auto; }
     .celebrate-toast-check { color: var(--green); display: inline-flex; }
     /* Tappable action inside a toast ("Your video is saved to: <name>") -
        reads as a link, inherits the toast's type scale. */

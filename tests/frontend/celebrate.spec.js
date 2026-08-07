@@ -24,3 +24,17 @@ test('export complete reveals + animates the success banner (no seconds-trimmed 
   // The "seconds trimmed" payoff stat was removed - it stays hidden.
   await expect(page.locator('#burnSuccessStat')).toBeHidden();
 });
+
+test('a toast action link is actually clickable (pointer-events restored with .show)', async ({ page }) => {
+  await bootApp(page);
+  await page.evaluate(() => {
+    window.__actionClicked = false;
+    celebrateToast('saved', { duration: 60000, action: { label: 'open-me', onClick: () => { window.__actionClicked = true; } } });
+  });
+  const act = page.locator('#celebrateToastAction');
+  await expect(act).toBeVisible();
+  await act.click();
+  expect(await page.evaluate(() => window.__actionClicked)).toBe(true);
+  // The action click also dismisses the toast.
+  await expect(page.locator('#celebrateToast')).not.toHaveClass(/show/);
+});
