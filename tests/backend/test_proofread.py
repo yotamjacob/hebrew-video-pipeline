@@ -7,7 +7,11 @@ import json
 from tests.backend.conftest import MODAL_SRC, _extract_fn, _build_ns
 
 _ns = _build_ns()
-proofread_words = _extract_fn(MODAL_SRC, "proofread_words", extra_ns=_ns)["proofread_words"]
+# The phonetic guard helpers are called from inside proofread_words - extract
+# them into the same namespace or the call NameErrors and chunks keep originals.
+proofread_words = _extract_fn(
+    MODAL_SRC, "proofread_words", "_consonant_key", "_phonetically_plausible",
+    extra_ns=_ns)["proofread_words"]
 
 
 class _FakeClient:

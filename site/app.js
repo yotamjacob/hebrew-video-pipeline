@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.19.0';
+  const APP_VERSION = '1.20.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -7566,6 +7566,12 @@
       const stem = (job.name || 'video').replace(/\.[^/.]+$/, '');
       const fname = isAudio ? stem + '_clean.m4a' : stem + '_edited.mp4';
       _browserDownload(`${API_BASE}/download/${job.key}/?filename=${encodeURIComponent(fname)}`, fname);
+      // Native saves run through a tracked task - spin THIS row's button
+      // until it settles (the generic download buttons don't exist here).
+      if (_nativeDownloadTask) {
+        _btnBusy(dl, true);
+        _nativeDownloadTask.finally(() => { if (dl.isConnected) _btnBusy(dl, false); });
+      }
     };
     const sch = document.createElement('button');
     sch.className = 'history-btn';
@@ -7585,9 +7591,11 @@
       if (!ok) return;
       // Remove the card in place - no full-tab reload (a reload refetched the
       // whole list + every thumbnail and reset the scroll position).
-      del.disabled = true;
+      _btnBusy(del, true);
       try {
-        const resp = await apiFetch(`${API_BASE}/jobs/${job.key}/`, { method: 'DELETE' });
+        // Retrying fetch: a backgrounding blip (user switches away mid-tap)
+        // parks and resumes instead of failing the delete.
+        const resp = await apiFetchRetry(`${API_BASE}/jobs/${job.key}/`, { method: 'DELETE' });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         card.style.overflow = 'hidden';
         card.style.transition = 'opacity 0.18s, max-height 0.25s 0.1s, margin 0.25s 0.1s, padding 0.25s 0.1s';
@@ -7606,7 +7614,7 @@
           }
         }, 400);
       } catch (_) {
-        del.disabled = false;
+        _btnBusy(del, false);
         celebrateToast(t('hist.deleteFailed'));
       }
     };
@@ -7707,7 +7715,8 @@
     // on mobile, and a silently-disabled pencil reads as a dead button.
     if (btn) { _btnBusy(btn, true); btn.title = t('hist.editLoading'); }
     try {
-      const resp = await apiFetch(`${API_BASE}/jobs/${job.key}/edit/`);
+      // Retrying fetch: parks over a backgrounding blip instead of failing.
+      const resp = await apiFetchRetry(`${API_BASE}/jobs/${job.key}/edit/`);
       // 410 = the cut source was cleaned up; 404 = burned before this shipped.
       if (resp.status === 410 || resp.status === 404) {
         celebrateToast(t('hist.editGone'));

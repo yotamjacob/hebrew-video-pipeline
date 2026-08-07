@@ -277,6 +277,46 @@ def has_video_stream(path):
         return True   # if unsure, assume video (safer default: full pipeline)
     return any(s.get("disposition", {}).get("attached_pic", 0) != 1 for s in streams)
 
+# ── Proofread phonetic guard ────────────────────────────────────────────────
+# The proofread prompt forbids replacing a word with a DIFFERENT-sounding one,
+# but that is a soft instruction - a field report caught 'צופה' becoming
+# 'גולשת' (plausible in context, phonetically unrelated). This deterministic
+# check rejects any per-word fix whose consonant skeleton barely overlaps the
+# original's: homophone repairs (קולטה→כל תא) share nearly all consonants,
+# meaning-swaps share almost none.
+def _consonant_key(word):
+    """Multiset of phonetically-normalized consonants (vowel-letters dropped).
+    Tables live in-function so the AST-extraction tests get them for free."""
+    phon_eq = {"ת": "ט", "כ": "ק", "ך": "ק", "ע": "א", "ה": "א", "ס": "ש",
+               "ם": "מ", "ן": "נ", "ף": "פ", "ץ": "צ", "ב": "ו"}
+    vowelish = set("אהוי")
+    out = []
+    for ch in word:
+        if not ("א" <= ch <= "ת"):
+            continue
+        ch = phon_eq.get(ch, ch)
+        if ch in vowelish:
+            continue
+        out.append(ch)
+    return out
+
+def _phonetically_plausible(orig, fixed):
+    """True when `fixed` could plausibly SOUND like `orig` (or either is too
+    short to judge). Compares consonant-skeleton overlap; spaces in `fixed`
+    are fine (merged-token expansions keep the same sounds)."""
+    if orig == fixed:
+        return True
+    a = _consonant_key(orig)
+    b = _consonant_key(fixed.replace(" ", ""))
+    if len(a) <= 1 or len(b) <= 1:
+        return True   # too little signal to judge - trust the model
+    from collections import Counter
+    ca, cb = Counter(a), Counter(b)
+    inter = sum((ca & cb).values())
+    union = sum((ca | cb).values())
+    return union == 0 or (inter / union) >= 0.4
+
+
 def proofread_words(texts, client, model, chunk_size=400, max_tokens=8000):
     """Fix Hebrew ASR mishearings via one context-aware LLM pass.
 
@@ -351,7 +391,15 @@ def proofread_words(texts, client, model, chunk_size=400, max_tokens=8000):
             fixed = json.loads(raw)
             if (isinstance(fixed, list) and len(fixed) == len(chunk)
                     and all(isinstance(w, str) and w.strip() for w in fixed)):
-                out[start:start + len(chunk)] = [w.strip() for w in fixed]
+                cleaned = []
+                for orig, w in zip(chunk, fixed):
+                    w = w.strip()
+                    if w != orig and not _phonetically_plausible(orig, w):
+                        print(f"[proofread] rejected non-phonetic swap "
+                              f"{orig!r} -> {w!r} - kept original")
+                        w = orig
+                    cleaned.append(w)
+                out[start:start + len(chunk)] = cleaned
             else:
                 print(f"[proofread] chunk at {start}: bad shape - kept original")
         except Exception as e:
