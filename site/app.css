@@ -1043,11 +1043,6 @@
       padding: 1px 7px; border-radius: 6px;
     }
     .cap-preset-name { font-size: 0.68rem; color: var(--muted); white-space: nowrap; }
-    .new-badge {
-      display: inline-block; padding: 1px 7px; border-radius: 999px;
-      background: var(--terracotta); color: var(--white);
-      font-size: 0.62rem; font-weight: 700; vertical-align: 1px;
-    }
 
     /* Inline clip preview: the video paints over the still, under the
        badges; the play affordance hides while it runs. */

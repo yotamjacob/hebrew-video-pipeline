@@ -191,7 +191,6 @@
     'burn.success':     { en: 'Your video is downloading. If it did not start, tap Download again.', he: 'הסרטון שלכם יורד. אם ההורדה לא התחילה, הקישו על הורדה חוזרת.' },
     'burn.downloadAgain': { en: 'Download again', he: 'הורדה חוזרת' },
     'style.presets':     { en: 'Quick styles', he: 'סגנונות מוכנים' },
-    'style.newBadge':    { en: 'NEW', he: 'חדש' },
     'preset.clean':      { en: 'Clean', he: 'נקי' },
     'preset.karaoke':    { en: 'Karaoke', he: 'קריוקי' },
     'preset.wordpop':    { en: 'Word pop', he: 'מילה-מילה' },

@@ -220,14 +220,18 @@ test('progress bar preview mirrors the toggle and the playhead', async ({ page }
   const pb = page.locator('#playerProgressBurn');
   await expect(pb).toBeHidden();
   await page.locator('#capProgressBar').check();
-  await expect(page.locator('#capProgressColorRow')).toBeVisible();
+  await expect(page.locator('#capProgressColor')).toBeVisible();   // inline on the toggle row
   await seekTo(page, 1.0);
   await expect(pb).toBeVisible();
-  // Width tracks t/duration - compute the expectation from the real fixture
-  // duration instead of hardcoding it.
-  const expected = await page.evaluate(() =>
-    1.0 / document.getElementById('cutVideo').duration * 100);
-  const width = await pb.evaluate(el => parseFloat(el.style.width));
+  // Width tracks t/duration. Pause first and read width + playhead in ONE
+  // evaluate - on slow runners the video can advance between separate reads.
+  await page.evaluate(() => { const v = document.getElementById('cutVideo'); if (!v.paused) v.pause(); });
+  await page.waitForTimeout(150);   // let the pause-tick renderPlayerFrame land
+  const [width, expected] = await page.evaluate(() => {
+    const v = document.getElementById('cutVideo');
+    return [parseFloat(document.getElementById('playerProgressBurn').style.width),
+            v.currentTime / v.duration * 100];
+  });
   expect(Math.abs(width - expected)).toBeLessThan(3);
   // Toggle off hides it again and the style payload follows.
   await page.locator('#capProgressBar').uncheck();

@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.27.0';
+  const APP_VERSION = '1.27.1';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -4036,8 +4036,6 @@
     const kwOn = !!document.getElementById('capKeywords')?.checked;
     const row = document.getElementById('capHighlightRow');
     if (row) row.style.display = (_capMode() === 'karaoke' || kwOn) ? 'flex' : 'none';
-    const pr = document.getElementById('capProgressColorRow');
-    if (pr) pr.style.display = document.getElementById('capProgressBar')?.checked ? 'flex' : 'none';
     _syncProgressBarPreview();
     if (kwOn) _ensureKeywords();
   }
@@ -8051,8 +8049,15 @@
     if (bsv && style.border_size != null) bsv.textContent = style.border_size + 'px';
     const bov = document.getElementById('capBgOpacityVal');
     if (bov && style.bg_opacity != null) bov.textContent = Math.round(style.bg_opacity * 100) + '%';
-    { const e = document.getElementById('capProgressBar'); if (e) e.checked = !!style.progress_bar; }
-    { const e = document.getElementById('capKeywords'); if (e) e.checked = !!style.highlight_keywords; }
+    // Only write toggles the payload actually CARRIES: presets are looks and
+    // deliberately omit progress_bar/highlight_keywords - forcing them false
+    // here was the "progress bar resets when I change a setting" bug.
+    if ('progress_bar' in style) {
+      const e = document.getElementById('capProgressBar'); if (e) e.checked = !!style.progress_bar;
+    }
+    if ('highlight_keywords' in style) {
+      const e = document.getElementById('capKeywords'); if (e) e.checked = !!style.highlight_keywords;
+    }
     _syncStyleModeUI();
   }
 
