@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.20.1';
+  const APP_VERSION = '1.20.2';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -2265,7 +2265,10 @@
         uri = (await Filesystem.getUri({ directory: 'CACHE', path: safe })).uri;
         _sharePrep = { url, uri };
       }
-      await Share.share({ title: name, text: t('share.text'), files: [uri], dialogTitle: t('share.dialog') });
+      // FILE shares carry ONLY the file. Bundling EXTRA_TEXT with the video
+      // stream makes Instagram open without the media on a cold start (field:
+      // "works only on the 2nd attempt") - IG mishandles text+stream intents.
+      await Share.share({ files: [uri], dialogTitle: t('share.dialog') });
     } catch (e) {
       const msg = (e && e.message) || '';
       // Ignore user cancel + interruptions from the app being backgrounded/closed;
@@ -2335,7 +2338,9 @@
           _webShareFile = { url, file };
         }
       }
-      await navigator.share({ files: [file], title: name, text: t('share.text') });
+      // Files only - text+stream makes Instagram drop the media (see the
+      // native share note).
+      await navigator.share({ files: [file] });
     } catch (e) {
       const msg = (e && (e.name + ' ' + e.message)) || '';
       if (/abort|cancel/i.test(msg) || document.hidden) { /* user backed out */ }
