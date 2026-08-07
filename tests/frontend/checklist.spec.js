@@ -139,6 +139,15 @@ test('every enabled tool is listed as pending from the moment the run starts, in
   // and hook appear minutes in, after the editor opens) - the card must show
   // the full plan up front.
   await mockAllApis(page);
+  // Hold the upload phase open: with every API mocked to answer instantly the
+  // whole run (upload -> process -> editor -> auto tools) finishes before the
+  // assertions below - rows are already active/done. Real chunk POSTs get a
+  // delay (the index-9999 probe stays instant); last-registered route wins.
+  await page.route(/\/upload_chunk\//, async (route, request) => {
+    if (request.headers()['x-upload-index'] !== '9999')
+      await new Promise(r => setTimeout(r, 3000));
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+  });
   await selectFile(page);
   await page.waitForSelector('#runBtn:not([disabled])');
   await page.evaluate(() => {

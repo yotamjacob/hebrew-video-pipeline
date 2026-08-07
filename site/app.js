@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.18.0';
+  const APP_VERSION = '1.19.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -2076,14 +2076,47 @@
   // background; a tap that lands mid-warm-up awaits the SAME in-flight download
   // (showing "preparing..." on the button) instead of starting a second one.
   function _setShareState(state) {
+    // 'hidden' | 'preparing' (native: file still caching - not tappable yet)
+    // | 'ready'. The button is enabled ONLY once the bytes are on the device,
+    // so a tap always shares instantly (user request - the instant-"ready"
+    // button used to block for the whole download when tapped early).
     ['burnShareBtn', 'shareBtn'].forEach(id => {
       const b = document.getElementById(id);
       if (!b) return;
       if (state === 'hidden') { b.style.display = 'none'; return; }
       b.style.display = '';
-      b.textContent = t('share.btn');
+      b.disabled = state === 'preparing';
+      b.textContent = state === 'preparing' ? t('share.preparing') : t('share.btn');
     });
   }
+
+  // Keep the share warm-up alive until the file is REALLY cached. The fetch
+  // dies silently when Android freezes the WebView (user leaves the app), and
+  // the old flow only retried on tap - so "preparing" restarted from zero at
+  // the worst moment. Supervisor: (re)start the warm-up whenever a result
+  // exists and the app is visible; flip the button to 'ready' only when the
+  // bytes are on disk. Bounded retries per result.
+  let _shareWarmTries = 0;
+  async function _ensureShareWarm() {
+    const url = resultDownloadUrl;
+    if (!_isNative() || !url) return;
+    if (_sharePrep && _sharePrep.url === url) { _setShareState('ready'); return; }
+    if (_sharePrepPromise && _sharePrepUrl === url) return;   // already running
+    if (_sharePrepUrl !== url) _shareWarmTries = 0;           // new result - fresh budget
+    if (_shareWarmTries++ >= 5) return;                       // persistent failure - tap path still works
+    _sharePrepUrl = url;
+    const attempt = _prepareShareFile(url, resultName)
+      .finally(() => { if (_sharePrepPromise === attempt) _sharePrepPromise = null; });
+    _sharePrepPromise = attempt;
+    await attempt;
+    if (resultDownloadUrl !== url) return;   // a newer result took over
+    if (_sharePrep && _sharePrep.url === url) _setShareState('ready');
+    else if (!document.hidden) setTimeout(_ensureShareWarm, 4000);
+  }
+  document.addEventListener('visibilitychange', () => {
+    // Coming back to the app resumes a warm-up the freeze killed.
+    if (!document.hidden) _ensureShareWarm();
+  });
   function _escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
   // Write an in-memory Blob to the app cache in base64 chunks (Filesystem.writeFile
@@ -2322,17 +2355,14 @@
 
   // Reveal the Share button the moment a result exists - native always (OS
   // share sheet via the Share plugin), web wherever the Web Share API can share
-  // files. The button is READY immediately (no spinner phase - it used to sit
-  // in a "loading" state for the whole warm-up download, ~30s for a big video);
-  // the warm-up runs silently and a tap that lands before it finishes awaits
-  // the same in-flight download. Hidden with no result.
+  // files. Native shows 'preparing' (disabled) until the warm-up lands the
+  // file on the device, then flips to a tap-shares-instantly 'ready'.
   function _maybeShowShare() {
     if (!resultDownloadUrl) { _setShareState('hidden'); return; }
     if (_isNative()) {
-      _setShareState('ready');
-      _sharePrepUrl = resultDownloadUrl;
-      _sharePrepPromise = _prepareShareFile(resultDownloadUrl, resultName)
-        .finally(() => { _sharePrepPromise = null; });
+      if (_sharePrep && _sharePrep.url === resultDownloadUrl) { _setShareState('ready'); return; }
+      _setShareState('preparing');
+      _ensureShareWarm();
     } else if (_canWebShareFiles()) {
       _setShareState('ready');
       _webSharePrepPromise = _prepareWebShareFile(resultDownloadUrl, resultName)
@@ -5037,6 +5067,24 @@
       _finishPreviewStepWhenPlayable(vid);
     })();
 
+    // Buffering must be VISIBLE: on the streaming source the buffer can run
+    // dry mid-play and the video froze with no hint (field report: "plays and
+    // stops abruptly"). Show the loading overlay whenever the element reports
+    // it is waiting for data, hide it the moment playback resumes.
+    if (!vid._bufWired) {
+      vid._bufWired = true;
+      const _showBuf = () => {
+        // onclick set = the failure-retry overlay owns the element - don't
+        // repurpose it as a buffering spinner.
+        if (!_playerSetupDone || !loadingEl || loadingEl.onclick) return;
+        loadingEl.style.display = 'flex';
+      };
+      const _hideBuf = () => { if (loadingEl && !loadingEl.onclick) loadingEl.style.display = 'none'; };
+      vid.addEventListener('waiting', _showBuf);
+      vid.addEventListener('stalled', () => { if (!vid.paused) _showBuf(); });
+      ['playing', 'seeked', 'loadeddata'].forEach(ev => vid.addEventListener(ev, _hideBuf));
+    }
+
     // A failed source (stalled network, corrupt blob, expired token) must
     // never strand the spinner: first failure retries as a live stream, a
     // second shows a tappable retry instead of spinning forever.
@@ -5479,7 +5527,10 @@
     // Float ONLY while the user is inside the editor area: the sentinel has
     // scrolled past the top AND part of the editor card is still on screen.
     // Scrolling above the card, or past it (burn button / status), un-floats.
-    const stick = _sentinelAboveTop && _editorInView;
+    // While a caption line is being EDITED the mini-player also gets out of
+    // the way - it covered the very text being typed (field report). It
+    // returns on blur (tapping outside) or on scrolling back up.
+    const stick = _sentinelAboveTop && _editorInView && !_captionEditFocus;
     if (stick === player.classList.contains('is-stuck')) return;
     const wrap = player.querySelector('.player-wrap');
     _flipPlayerWrap(wrap || player, () => {
@@ -5497,6 +5548,32 @@
     // The wrap resizes → rescale the caption + hook overlays.
     requestAnimationFrame(() => { updatePreviewCaption(); });
   }
+  let _captionEditFocus = false;
+  (() => {
+    const list = document.getElementById('captionsList');
+    if (!list) return;
+    const isEditField = el => !!(el && el.matches
+      && el.matches('input, textarea, [contenteditable="true"]'));
+    list.addEventListener('focusin', e => {
+      if (!isEditField(e.target)) return;
+      _captionEditFocus = true;
+      const player = document.getElementById('captionPlayer');
+      if (player) _applyStickyState(player);
+    });
+    list.addEventListener('focusout', () => {
+      // Hopping between two caption fields fires focusout before the next
+      // focusin - re-check on the next tick so the player doesn't flash back.
+      setTimeout(() => {
+        const a = document.activeElement;
+        const next = !!(a && list.contains(a) && isEditField(a));
+        if (next === _captionEditFocus) return;
+        _captionEditFocus = next;
+        const player = document.getElementById('captionPlayer');
+        if (player) _applyStickyState(player);
+      }, 80);
+    });
+  })();
+
   function initStickyPlayer() {
     const sentinel = document.getElementById('playerStickySentinel');
     const player   = document.getElementById('captionPlayer');
