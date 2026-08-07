@@ -490,6 +490,10 @@
       </div>
       <!-- Caption styling (hook-parity): text/outline colours + optional
            background box. Flows through build_caption_ass for WYSIWYG burns. -->
+      <!-- One-tap style presets: each chip is a full caption_style payload
+           (+ font) applied through the same controls users can then tweak. -->
+      <p style="font-size:0.8rem;color:var(--muted);margin:0 0 6px"><span data-i18n="style.presets">Quick styles</span> <span class="new-badge" data-i18n="style.newBadge">NEW</span></p>
+      <div id="capPresetRow" class="cap-preset-row"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
         <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px;grid-column:1/-1">
           <span data-i18n="style.mode">Caption style</span>

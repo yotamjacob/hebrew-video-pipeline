@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.24.0';
+  const APP_VERSION = '1.25.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -4030,6 +4030,71 @@
     const row = document.getElementById('capHighlightRow');
     if (row) row.style.display = _capMode() === 'karaoke' ? 'flex' : 'none';
   }
+
+  // ── One-tap caption style presets ─────────────────────────────────────────
+  // A preset is a full caption_style payload (+ font). Applying one drives the
+  // SAME controls the user can then tweak - no second styling pathway.
+  const CAPTION_PRESETS = [
+    { id: 'clean',   nameKey: 'preset.clean',   font: 'Heebo',
+      style: { font_color: '#FFFFFF', border_color: '#000000', border_size: 2,
+               bg_color: '#000000', bg_opacity: 0, mode: 'classic', highlight_color: '#FFD400' } },
+    { id: 'karaoke', nameKey: 'preset.karaoke', font: 'Heebo',
+      style: { font_color: '#FFFFFF', border_color: '#000000', border_size: 2,
+               bg_color: '#000000', bg_opacity: 0, mode: 'karaoke', highlight_color: '#FFD400' } },
+    { id: 'wordpop', nameKey: 'preset.wordpop', font: 'Secular One',
+      style: { font_color: '#FFFFFF', border_color: '#000000', border_size: 4,
+               bg_color: '#000000', bg_opacity: 0, mode: 'word', highlight_color: '#FFD400' } },
+    { id: 'news',    nameKey: 'preset.news',    font: 'Frank Ruhl Libre',
+      style: { font_color: '#FFFFFF', border_color: '#000000', border_size: 0,
+               bg_color: '#000000', bg_opacity: 0.6, mode: 'classic', highlight_color: '#FFD400' } },
+    { id: 'viral',   nameKey: 'preset.viral',   font: 'Rubik',
+      style: { font_color: '#FFE45C', border_color: '#000000', border_size: 3,
+               bg_color: '#000000', bg_opacity: 0, mode: 'classic', highlight_color: '#FFFFFF' } },
+    { id: 'invert',  nameKey: 'preset.invert',  font: 'Assistant',
+      style: { font_color: '#1A1A1A', border_color: '#FFFFFF', border_size: 0,
+               bg_color: '#F4ECE0', bg_opacity: 0.85, mode: 'classic', highlight_color: '#C26D4B' } },
+  ];
+  function applyCaptionPreset(p) {
+    _applyCaptionStyleValues(p.style);
+    if (p.font) {
+      captionFont = p.font;
+      const fs = document.getElementById('fontSelect'); if (fs) fs.value = p.font;
+      _ensureCaptionFont(p.font);
+    }
+    try { localStorage.setItem('captionStyle', JSON.stringify(_captionStylePayload())); } catch (_) {}
+    updatePreviewCaption();
+    _markActivePreset(p.id);
+  }
+  function _markActivePreset(id) {
+    document.querySelectorAll('.cap-preset-chip').forEach(ch =>
+      ch.classList.toggle('active', ch.dataset.preset === id));
+  }
+  function _buildPresetRow() {
+    const row = document.getElementById('capPresetRow');
+    if (!row) return;
+    row.innerHTML = '';
+    CAPTION_PRESETS.forEach(p => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'cap-preset-chip';
+      chip.dataset.preset = p.id;
+      const sample = document.createElement('span');
+      sample.className = 'cap-preset-sample';
+      sample.textContent = 'אבג';
+      sample.style.fontFamily = `'${p.font}', sans-serif`;
+      sample.style.color = p.style.font_color;
+      if (p.style.bg_opacity > 0) sample.style.background = _hexToRgba(p.style.bg_color, p.style.bg_opacity);
+      if (p.style.border_size > 0) sample.style.textShadow = _outlineShadows(1.2, p.style.border_color);
+      const lbl = document.createElement('span');
+      lbl.className = 'cap-preset-name';
+      lbl.textContent = t(p.nameKey);
+      chip.append(sample, lbl);
+      chip.addEventListener('click', () => applyCaptionPreset(p));
+      row.appendChild(chip);
+    });
+  }
+  _buildPresetRow();
+  document.addEventListener('langchange', _buildPresetRow);
   function _capMode() { return document.getElementById('capStyleMode')?.value || 'classic'; }
   // Word-by-word mode: per-word display cues for one caption line. MIRRORS
   // _word_events in build_caption_ass (pipeline_fns.py) - same proportional
@@ -4195,6 +4260,7 @@
       }
     } catch (_) {}
     const onEdit = () => {
+      _markActivePreset(null);   // manual tweak - no longer exactly a preset
       _syncStyleModeUI();
       try { localStorage.setItem('captionStyle', JSON.stringify(_captionStylePayload())); } catch (_) {}
       updatePreviewCaption();
