@@ -627,3 +627,51 @@ class TestProgressBar:
     def test_no_duration_no_frac_no_bar(self):
         ass = self._build({'progress_bar': True})
         assert '\\p1' not in ass
+
+
+class TestKeywordHighlight:
+    """caption_style.highlight_keywords + per-caption kw token indices:
+    classic mode tags those tokens with the highlight color (static, same
+    single event); word mode colors a whole cue when it contains a keyword;
+    out-of-range indices (stale after edits) are dropped silently."""
+
+    def _build(self, captions, cs):
+        from tests.backend.conftest import _extract_fn, _build_ns
+        ns = _build_ns()
+        ns.update({'_fix_rtl_punct': lambda s: s, '_censor_caption_text': lambda s: s,
+                   '_rtl_ass_text': lambda s: s, '_RLE': '', '_PDF': ''})
+        fn = _extract_fn(MODAL_SRC, 'build_caption_ass', extra_ns=ns)['build_caption_ass']
+        return fn(1080, 1920, 'Heebo', 48, 77, 153, captions, {}, caption_style=cs)
+
+    def _dialogues(self, ass):
+        return [l for l in ass.splitlines() if l.startswith('Dialogue:')]
+
+    def test_classic_tags_keyword_tokens(self):
+        cap = {'start': 0, 'end': 2, 'text': 'שלום עולם טוב', 'kw': [1]}
+        lines = self._dialogues(self._build([cap], {
+            'highlight_keywords': True, 'highlight_color': '#FF0000'}))
+        assert len(lines) == 1
+        assert '{\\c&H0000FF&}עולם{\\c&HFFFFFF&}' in lines[0]
+        assert '{\\c&H0000FF&}שלום' not in lines[0]
+
+    def test_toggle_off_ignores_stored_kw(self):
+        cap = {'start': 0, 'end': 2, 'text': 'שלום עולם', 'kw': [0]}
+        ass = self._build([cap], {'highlight_keywords': False})
+        assert '\\c&H' not in ass.split('[Events]')[1]
+
+    def test_stale_out_of_range_indices_dropped(self):
+        # Text was edited down to two tokens; index 7 is stale - no tags, no crash.
+        cap = {'start': 0, 'end': 2, 'text': 'שלום עולם', 'kw': [7]}
+        lines = self._dialogues(self._build([cap], {'highlight_keywords': True}))
+        assert len(lines) == 1
+        assert '\\c&H' not in lines[0]
+
+    def test_word_mode_colors_the_keyword_cue(self):
+        cap = {'start': 0.0, 'end': 3.0, 'text': 'שלום עולם טוב', 'kw': [1],
+               'words': [[0.0, 1.0, 'שלום'], [1.0, 2.0, 'עולם'], [2.0, 3.0, 'טוב']]}
+        lines = self._dialogues(self._build([cap], {
+            'mode': 'word', 'highlight_keywords': True, 'highlight_color': '#00FF00'}))
+        assert len(lines) == 3
+        assert '\\c&H00FF00&' in lines[1]
+        assert '\\c&H00FF00&' not in lines[0]
+        assert '\\c&H00FF00&' not in lines[2]

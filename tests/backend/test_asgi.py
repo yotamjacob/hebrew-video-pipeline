@@ -492,3 +492,19 @@ class TestR2Upload:
     def test_api_mounts_backup_secret(self):
         # The routes read S3_* env vars - api() must mount hebpipe-backup.
         assert 'modal.Secret.from_name("hebpipe-backup")' in MODAL_SRC
+
+
+class TestKeywordsRoute:
+    """/keywords: inline Haiku keyword picking with strict normalization -
+    the route (not the model) guarantees one entry per line and in-range
+    indices. Route bodies are closures; guard the source."""
+
+    def test_route_exists_and_normalizes(self):
+        block = MODAL_SRC[MODAL_SRC.index('("/keywords"'):MODAL_SRC.index('("/generate-hook"')]
+        assert "0 <= int(k) < ntok" in block, "indices must be validated in-range"
+        assert "for i in range(len(caps))" in block, "one entry per input line, always"
+        assert "HAIKU_MODEL" in block
+        assert "[:300]" in block, "caption count/length must be bounded"
+
+    def test_api_mounts_anthropic_secret(self):
+        assert 'modal.Secret.from_name("anthropic-secret")' in MODAL_SRC.split("def api()")[0]

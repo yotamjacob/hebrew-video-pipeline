@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.26.0';
+  const APP_VERSION = '1.27.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -1258,6 +1258,9 @@
       };
       if (row.dataset.words) {
         try { cap.words = JSON.parse(row.dataset.words); } catch (_) {}
+      }
+      if (row.dataset.kw) {
+        try { cap.kw = JSON.parse(row.dataset.kw); } catch (_) {}
       }
       return cap;
     });
@@ -4025,15 +4028,79 @@
       highlight_color: document.getElementById('capHighlightColor')?.value || '#FFD400',
       progress_bar:    !!document.getElementById('capProgressBar')?.checked,
       progress_color:  document.getElementById('capProgressColor')?.value || '#C26D4B',
+      highlight_keywords: !!document.getElementById('capKeywords')?.checked,
     };
   }
   // The highlight color only means something in karaoke mode - show it there.
   function _syncStyleModeUI() {
+    const kwOn = !!document.getElementById('capKeywords')?.checked;
     const row = document.getElementById('capHighlightRow');
-    if (row) row.style.display = _capMode() === 'karaoke' ? 'flex' : 'none';
+    if (row) row.style.display = (_capMode() === 'karaoke' || kwOn) ? 'flex' : 'none';
     const pr = document.getElementById('capProgressColorRow');
     if (pr) pr.style.display = document.getElementById('capProgressBar')?.checked ? 'flex' : 'none';
     _syncProgressBarPreview();
+    if (kwOn) _ensureKeywords();
+  }
+
+  // ── Auto keyword highlight: one Haiku call picks the money words ──────────
+  // Indices ride each caption (and its DOM row) as `kw`; the burn colors them
+  // (classic: token tags; word mode: whole-cue color). Signature-cached so
+  // re-toggles and style edits don't refetch; edited text drops stale indices
+  // via the in-range guards on both sides.
+  let _kwSignature = null, _kwBusy = false;
+  async function _ensureKeywords() {
+    const caps = (typeof captionsData !== 'undefined' && captionsData) || [];
+    if (!caps.length || _kwBusy) return;
+    const sig = caps.map(c => c.text).join('\u0001');
+    if (sig === _kwSignature) return;
+    _kwBusy = true;
+    const busy = document.getElementById('capKeywordsBusy');
+    if (busy) busy.style.display = '';
+    try {
+      const resp = await apiFetchRetry(`${API_BASE}/keywords/`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ captions: caps.map(c => ({ text: c.text })) }),
+      });
+      if (!resp.ok) throw new Error('keywords ' + resp.status);
+      const d = await resp.json();
+      const rows = document.querySelectorAll('#captionsList .caption-row');
+      (d.keywords || []).forEach((kw, i) => {
+        if (rows[i]) { try { rows[i].dataset.kw = JSON.stringify(kw || []); } catch (_) {} }
+        if (caps[i]) caps[i].kw = kw || [];
+      });
+      _kwSignature = sig;
+      updatePreviewCaption();
+    } catch (e) {
+      console.warn('keyword highlight failed', e && e.message);
+      celebrateToast(t('style.kwFailed'), { kind: 'error', duration: 5000 });
+      const cb = document.getElementById('capKeywords');
+      if (cb) cb.checked = false;
+    } finally {
+      _kwBusy = false;
+      if (busy) busy.style.display = 'none';
+    }
+  }
+  function _kwIdxSet(cap) {
+    if (!document.getElementById('capKeywords')?.checked) return null;
+    const kw = (cap.kw || []).map(Number).filter(n => isFinite(n));
+    return kw.length ? new Set(kw) : null;
+  }
+  // Static keyword coloring for a classic-mode line (preview mirror of the
+  // burn's _tag_tokens).
+  function _kwStaticHTML(cap, displayW) {
+    const wrapped = rewrapCaption(cap.text, displayW, captionFontSize);
+    const hl = document.getElementById('capHighlightColor')?.value || '#FFD400';
+    const idx = _kwIdxSet(cap) || new Set();
+    let k = 0;
+    return wrapped.split('\n').map(line =>
+      line.split(/\s+/).filter(Boolean).map(w => {
+        const html = idx.has(k)
+          ? '<span style="color:' + hl + '">' + _escapeHtml(w) + '</span>'
+          : _escapeHtml(w);
+        k++;
+        return html;
+      }).join(' ')
+    ).join('\n');
   }
   // Mirror of the burned ASS progress bar on the moving preview.
   function _syncProgressBarPreview() {
@@ -4237,6 +4304,7 @@
     { const e = document.getElementById('capBorderSizeVal'); if (e) e.textContent = '2px'; }
     { const e = document.getElementById('capBgOpacityVal'); if (e) e.textContent = '0%'; }
     { const e = document.getElementById('capProgressBar'); if (e) e.checked = false; }
+    { const e = document.getElementById('capKeywords'); if (e) e.checked = false; }
     _syncStyleModeUI();
     try {
       localStorage.setItem('captionFontSize', '48');
@@ -4280,6 +4348,7 @@
         const bov = document.getElementById('capBgOpacityVal');
         if (bov) bov.textContent = Math.round((saved.bg_opacity || 0) * 100) + '%';
         { const e = document.getElementById('capProgressBar'); if (e) e.checked = !!saved.progress_bar; }
+        { const e = document.getElementById('capKeywords'); if (e) e.checked = !!saved.highlight_keywords; }
       }
     } catch (_) {}
     const onEdit = () => {
@@ -4289,7 +4358,7 @@
       updatePreviewCaption();
     };
     _syncStyleModeUI();
-    ['capFontColor', 'capBorderColor', 'capBorderSize', 'capBgColor', 'capBgOpacity', 'capStyleMode', 'capHighlightColor', 'capProgressBar', 'capProgressColor'].forEach(id => {
+    ['capFontColor', 'capBorderColor', 'capBorderSize', 'capBgColor', 'capBgOpacity', 'capStyleMode', 'capHighlightColor', 'capProgressBar', 'capProgressColor', 'capKeywords'].forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
       el.addEventListener('input', onEdit);
@@ -5085,6 +5154,7 @@
         const q = (_capMode() === 'word' || _capMode() === 'karaoke') ? _wordCueAt(cap, t) : null;
         if (_capMode() === 'word') capEl.textContent = q ? q.text : '';
         else if (_capMode() === 'karaoke' && q) capEl.innerHTML = _karaokeHTML(cap, q, displayW);
+        else if (_kwIdxSet(cap)) capEl.innerHTML = _kwStaticHTML(cap, displayW);
         else capEl.textContent = rewrapCaption(cap.text, displayW, captionFontSize);
       }
     }
@@ -5169,11 +5239,19 @@
       // range (hl) - absolute word timings can't survive the still-frame
       // retime, the explicit range can.
       captions: (captionsData || []).flatMap(c => {
+        const kws = _kwIdxSet(c);
         if (mode === 'word')
-          return _wordCuesFor(c).map(q => ({ start: q.start, end: q.end, text: q.text }));
+          return _wordCuesFor(c).map(q => {
+            const hit = kws && [...kws].some(k => q.i0 <= k && k <= q.i1);
+            // A matched cue is colored WHOLE at burn - mirror via relative kw
+            // indices over the cue's own tokens.
+            const ntok = q.text.split(/\s+/).filter(Boolean).length;
+            return Object.assign({ start: q.start, end: q.end, text: q.text },
+              hit ? { kw: Array.from({ length: ntok }, (_, i) => i) } : {});
+          });
         if (mode === 'karaoke')
           return _wordCuesFor(c).map(q => ({ start: q.start, end: q.end, text: c.text, hl: [q.i0, q.i1] }));
-        return [{ start: c.start, end: c.end, text: c.text }];
+        return [{ start: c.start, end: c.end, text: c.text, ...(kws ? { kw: [...kws] } : {}) }];
       }),
       hook: hookPayload || null,
       caption_style: Object.assign(
@@ -5465,8 +5543,15 @@
         _lastCapCue = cueKey;
         _lastCap = cap;
         if (!cap || (!cueText && mode === 'word')) capEl.textContent = '';
-        else if (mode === 'word') capEl.textContent = cueText;
+        else if (mode === 'word') {
+          const kws = _kwIdxSet(cap);
+          if (kws && cue && [...kws].some(k => cue.i0 <= k && k <= cue.i1)) {
+            const hl = document.getElementById('capHighlightColor')?.value || '#FFD400';
+            capEl.innerHTML = '<span style="color:' + hl + '">' + _escapeHtml(cueText) + '</span>';
+          } else capEl.textContent = cueText;
+        }
         else if (mode === 'karaoke' && cue) capEl.innerHTML = _karaokeHTML(cap, cue, vid.videoWidth || 1080);
+        else if (_kwIdxSet(cap)) capEl.innerHTML = _kwStaticHTML(cap, vid.videoWidth || 1080);
         else capEl.textContent = rewrapCaption(cap.text, vid.videoWidth || 1080, captionFontSize);
         if (cap) _applyCaptionStyles();
         _highlightRow();
@@ -7084,6 +7169,9 @@
     if (Array.isArray(cap.words) && cap.words.length) {
       try { row.dataset.words = JSON.stringify(cap.words); } catch (_) {}
     }
+    if (Array.isArray(cap.kw) && cap.kw.length) {
+      try { row.dataset.kw = JSON.stringify(cap.kw); } catch (_) {}
+    }
 
     // Time controls
     const timeWrap = document.createElement('div');
@@ -7964,6 +8052,7 @@
     const bov = document.getElementById('capBgOpacityVal');
     if (bov && style.bg_opacity != null) bov.textContent = Math.round(style.bg_opacity * 100) + '%';
     { const e = document.getElementById('capProgressBar'); if (e) e.checked = !!style.progress_bar; }
+    { const e = document.getElementById('capKeywords'); if (e) e.checked = !!style.highlight_keywords; }
     _syncStyleModeUI();
   }
 

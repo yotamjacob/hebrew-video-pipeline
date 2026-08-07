@@ -30,6 +30,7 @@ from pipeline_core import (
     _EMAIL_RE, _sign_scoped_token, _verify_scoped_token, _send_email, _email_html,
     EMAIL_VERIFY_TTL_SECONDS,
     _user_prefix, _owned_key, _broll_item_safe,
+    _anthropic_client, HAIKU_MODEL,
     _is_review_email, _review_login_ok, REVIEW_VIDEO_LIMIT,
     DEFAULT_VIDEO_LIMIT, LEGACY_VIDEO_LIMIT, _quota_state, _quota_allows,
     _count_quota_used, _credit_cost, _upscale_allowed, _charge_credits,
@@ -368,7 +369,10 @@ def sweep_r2_uploads():
                        modal.Secret.from_name("hebpipe-review"),
                        # S3/R2 creds: presigned direct-upload URLs (/upload_r2/*)
                        # use the same bucket as the metadata backup.
-                       modal.Secret.from_name("hebpipe-backup")])
+                       modal.Secret.from_name("hebpipe-backup"),
+                       # Inline Haiku call for /keywords (keyword-highlight
+                       # selection is a ~1s request - no worker spawn needed).
+                       modal.Secret.from_name("anthropic-secret")])
 @modal.concurrent(max_inputs=50)   # headroom: chunk uploads + their CORS preflights + polls
 @modal.asgi_app()
 def api():
@@ -2330,7 +2334,9 @@ def api():
                         # pre-computes the range for the paused instant.
                         caps = ([{"start": 0.0, "end": 9.0, "text": active[0].get("text", ""),
                                   **({"hl": active[0]["hl"]}
-                                     if isinstance(active[0].get("hl"), list) else {})}]
+                                     if isinstance(active[0].get("hl"), list) else {}),
+                                  **({"kw": active[0]["kw"]}
+                                     if isinstance(active[0].get("kw"), list) else {})}]
                                 if active else [])
                         hk = {}
                         if hook.get("text"):
@@ -2717,6 +2723,73 @@ def api():
             return
 
         # Hook generation
+        # Keyword-highlight selection: pick the 'money words' per caption line
+        # (numbers, names, charged/emphasized words) so the style layer can
+        # color them. One inline Haiku call - fast enough to answer in-request.
+        if path in ("/keywords", "/keywords/") and method == "POST":
+            if not _check_rate_limit(_get_client_ip(scope)):
+                await send_error("Rate limit exceeded. Try again in a minute.", 429, code="rate_limited")
+                return
+            try:
+                data = json.loads((await _read_body(receive)).decode("utf-8"))
+                caps = [str(c.get("text", ""))[:300] for c in (data.get("captions") or [])][:300]
+            except Exception:
+                await send_error("Invalid body", 400)
+                return
+            if not caps:
+                await send_error("No captions", 400)
+                return
+            numbered = "\n".join(f"{i}: {t}" for i, t in enumerate(caps))
+            prompt = (
+                "Below are numbered Hebrew caption lines from a talking video. "
+                "For EACH line pick the 0-2 most emphasis-worthy KEYWORD tokens - "
+                "numbers, names, brands, and emotionally or informationally "
+                "charged words. Prefer none over weak picks; function words are "
+                "never keywords.\n"
+                "Tokens are the whitespace-separated words of the line, indexed "
+                "from 0.\n"
+                "Return ONLY a JSON array with exactly one element per line, "
+                "each an array of token indices (possibly empty). Example for 3 "
+                "lines: [[2],[],[0,4]]\n\n" + numbered)
+            def _pick():
+                client = _anthropic_client()
+                r = client.messages.create(
+                    model=HAIKU_MODEL, max_tokens=2000,
+                    messages=[{"role": "user", "content": prompt}])
+                raw = r.content[0].text.strip()
+                if "```" in raw:
+                    for part in raw.split("```"):
+                        part = part.strip().lstrip("json").strip()
+                        if part.startswith("["):
+                            raw = part
+                            break
+                if not raw.startswith("["):
+                    idx = raw.find("[")
+                    if idx >= 0:
+                        raw = raw[idx:]
+                out = json.loads(raw)
+                if not isinstance(out, list):
+                    raise ValueError("not a list")
+                # Normalize: one entry per line, valid in-range int indices only.
+                norm = []
+                for i in range(len(caps)):
+                    kw = out[i] if i < len(out) and isinstance(out[i], list) else []
+                    ntok = len(caps[i].split())
+                    norm.append(sorted({int(k) for k in kw
+                                        if isinstance(k, (int, float)) and 0 <= int(k) < ntok})[:3])
+                return norm
+            try:
+                keywords = await asyncio.to_thread(_pick)
+            except Exception as e:
+                print(f"[keywords] failed: {e!r}")
+                await send_error("Keyword selection failed - try again.", 502, code="kw_failed")
+                return
+            body = json.dumps({"keywords": keywords}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
         if path in ("/generate-hook", "/generate-hook/") and method == "POST":
             if not _check_rate_limit(_get_client_ip(scope)):
                 await send_error("Rate limit exceeded. Try again in a minute.", 429, code="rate_limited")
