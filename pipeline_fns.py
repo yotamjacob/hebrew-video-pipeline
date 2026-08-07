@@ -556,7 +556,15 @@ def generate_ass(segs, path, w, h, font_size=48, min_sil=0.3):
                 _fix_rtl_punct(" ".join(_clean(ww.text) for ww in ln).strip())
                 for ln in lines_in_cue
             )
-            events.append((ns, ne, text))
+            # Per-word timings (post-cut timeline) ride with the event - the
+            # word-by-word caption style needs them in the editor and burn.
+            words = [
+                [round(cumulative + (ww.start - seg.start), 3),
+                 round(cumulative + (ww.end - seg.start), 3),
+                 _clean(ww.text)]
+                for ln in lines_in_cue for ww in ln
+            ]
+            events.append((ns, ne, text, words))
             lines_in_cue.clear()
 
         prev_end = None
@@ -604,7 +612,7 @@ def generate_ass(segs, path, w, h, font_size=48, min_sil=0.3):
     lines = [
         f"Dialogue: 0,{seconds_to_ass(s)},{seconds_to_ass(e)},"
         f"Default,,0,0,0,,{_rtl_ass_text(t)}\n"
-        for s, e, t in events
+        for s, e, t, _w in events
     ]
     path.write_text(header + "".join(lines), encoding="utf-8")
     return events
@@ -1137,7 +1145,10 @@ def process_video(
             # burn) - we only want the timed events for the editor / SRT.
             _cw, _ch = (1080, 1920) if is_audio else (width, height)
             events = generate_ass(segs, ass_file, _cw, _ch, min_sil=min_silence)
-            captions_list = [{"start": s, "end": e, "text": _censor_caption_text(t)} for s, e, t in events]
+            captions_list = [
+                {"start": s, "end": e, "text": _censor_caption_text(t),
+                 "words": [[ws, we, _censor_caption_text(wt)] for ws, we, wt in wds]}
+                for s, e, t, wds in events]
 
         enh_vf = ENHANCE_VIDEO_VF if enhance_video == "filters" else ""
         if is_audio:
@@ -1307,9 +1318,61 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
     def _fix_cap_lines(t):
         return r'\N'.join(_fix_rtl_punct(l) for l in t.split(r'\N'))
 
-    captions = [{"start": c["start"], "end": c["end"],
-                 "text": _fix_cap_lines(_rewrap_cap(_censor_caption_text(c["text"])))}
-                for c in captions]
+    def _word_events(c):
+        """Word-by-word mode: per-word display cues for one caption line.
+        MIRRORED by _wordCuesFor in site/app.js (moving preview + exact-frame
+        payload) - keep the redistribution and the merge threshold in sync."""
+        text = _censor_caption_text(c["text"]).replace(r"\N", " ")
+        toks = [w for w in text.split() if w]
+        if not toks:
+            return []
+        c_start, c_end = float(c["start"]), float(c["end"])
+        times = None
+        ws = c.get("words")
+        # Word timings survive editing only while the token count still
+        # matches; otherwise redistribute the line's span across the edited
+        # words proportionally to their length.
+        if isinstance(ws, list) and len(ws) == len(toks):
+            try:
+                times = [(float(w[0]), float(w[1])) for w in ws]
+            except (TypeError, ValueError, IndexError):
+                times = None
+        if times is None:
+            span = max(0.001, c_end - c_start)
+            total = sum(len(t2) for t2 in toks) or 1
+            acc, times = c_start, []
+            for t2 in toks:
+                d = span * len(t2) / total
+                times.append((acc, acc + d)); acc += d
+        # Display window per word = its start → the NEXT word's start (no
+        # flicker gaps inside the line); words shorter than MIN merge with the
+        # next so fast speech doesn't strobe.
+        MIN_WORD_SECS = 0.15
+        cues, i, n = [], 0, len(toks)
+        while i < n:
+            s0 = times[i][0] if i > 0 else c_start
+            j = i
+            while True:
+                e0 = times[j + 1][0] if j + 1 < n else c_end
+                if e0 - s0 >= MIN_WORD_SECS or j + 1 >= n:
+                    break
+                j += 1
+            cues.append({"start": s0, "end": max(e0, s0 + 0.05),
+                         "text": _fix_rtl_punct(" ".join(toks[i:j + 1]))})
+            i = j + 1
+        return cues
+
+    if str(_cs.get("mode") or "classic") == "word":
+        # One event per word: no wrapping, no reflow - the single word renders
+        # centered with the exact same style the classic mode uses.
+        _cued = []
+        for c in captions:
+            _cued.extend(_word_events(c))
+        captions = _cued
+    else:
+        captions = [{"start": c["start"], "end": c["end"],
+                     "text": _fix_cap_lines(_rewrap_cap(_censor_caption_text(c["text"])))}
+                    for c in captions]
 
     hook = hook or {}
     hook_style_line  = ""

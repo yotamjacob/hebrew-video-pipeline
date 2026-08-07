@@ -476,3 +476,60 @@ class TestCaptionRealBold:
     def test_style_bold_is_true(self):
         line = TestCaptionStyle()._style_line(TestCaptionStyle()._build(None))
         assert line.split(',')[7] == '-1'   # real bold via the installed 700 faces
+
+
+class TestWordMode:
+    """caption_style.mode == 'word': one Dialogue event per word (no wrap, no
+    reflow), real word timings when they match the (possibly edited) text,
+    proportional redistribution when they don't, and a 0.15s anti-strobe merge.
+    The JS mirror (_wordCuesFor in site/app.js) must group identically."""
+
+    def _build(self, captions, cs):
+        from tests.backend.conftest import _extract_fn, _build_ns
+        ns = _build_ns()
+        ns.update({'_fix_rtl_punct': lambda s: s, '_censor_caption_text': lambda s: s,
+                   '_rtl_ass_text': lambda s: s, '_RLE': '', '_PDF': ''})
+        fn = _extract_fn(MODAL_SRC, 'build_caption_ass', extra_ns=ns)['build_caption_ass']
+        return fn(1080, 1920, 'Heebo', 48, 77, 153, captions, {}, caption_style=cs)
+
+    def _dialogues(self, ass):
+        return [l for l in ass.splitlines() if l.startswith('Dialogue:')]
+
+    def test_word_mode_emits_one_event_per_word(self):
+        cap = {'start': 0.0, 'end': 3.0, 'text': 'שלום עולם טוב',
+               'words': [[0.0, 1.0, 'שלום'], [1.0, 2.0, 'עולם'], [2.0, 3.0, 'טוב']]}
+        lines = self._dialogues(self._build([cap], {'mode': 'word'}))
+        assert len(lines) == 3
+        assert 'שלום' in lines[0] and 'עולם' in lines[1] and 'טוב' in lines[2]
+        # Each word's display runs to the NEXT word's start - no flicker gap.
+        assert '0:00:01.00,0:00:02.00' in lines[1]
+
+    def test_classic_mode_is_untouched(self):
+        cap = {'start': 0.0, 'end': 3.0, 'text': 'שלום עולם',
+               'words': [[0.0, 1.5, 'שלום'], [1.5, 3.0, 'עולם']]}
+        for cs in (None, {}, {'mode': 'classic'}):
+            lines = self._dialogues(self._build([cap], cs))
+            assert len(lines) == 1
+            assert 'שלום עולם' in lines[0]
+
+    def test_short_words_merge_against_strobing(self):
+        # Second word displays for only 0.05s - it must merge with a neighbor.
+        cap = {'start': 0.0, 'end': 2.0, 'text': 'אז כן נמשיך',
+               'words': [[0.0, 0.5, 'אז'], [0.5, 0.55, 'כן'], [0.55, 2.0, 'נמשיך']]}
+        lines = self._dialogues(self._build([cap], {'mode': 'word'}))
+        assert len(lines) == 2
+        assert 'כן נמשיך' in lines[1]
+
+    def test_edited_text_falls_back_to_redistribution(self):
+        # Token count no longer matches the stored words - the line's span is
+        # spread across the edited words instead of failing or misaligning.
+        cap = {'start': 0.0, 'end': 2.0, 'text': 'אחת שתיים שלוש',
+               'words': [[0.0, 2.0, 'ישן']]}
+        lines = self._dialogues(self._build([cap], {'mode': 'word'}))
+        assert len(lines) == 3
+        assert lines[0].split(',')[1] == '0:00:00.00'
+
+    def test_no_words_at_all_still_splits(self):
+        cap = {'start': 0.0, 'end': 1.0, 'text': 'שלום עולם'}
+        lines = self._dialogues(self._build([cap], {'mode': 'word'}))
+        assert len(lines) == 2

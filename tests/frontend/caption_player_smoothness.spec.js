@@ -158,3 +158,38 @@ test('play/pause toggles the control state cleanly', async ({ page }) => {
   expect(await playing()).toBe(false);
   expect(await page.evaluate(() => document.getElementById('playerPlayBtn').classList.contains('is-playing'))).toBe(false);
 });
+
+// ── Word-by-word caption style ──────────────────────────────────────────────
+const WORD_CAPS = [
+  { start: 0.2, end: 1.6, text: 'שלום עולם',
+    words: [[0.2, 0.9, 'שלום'], [0.9, 1.6, 'עולם']] },
+];
+
+test('word mode shows only the current spoken word, classic shows the line', async ({ page }) => {
+  await runEditor(page, WORD_CAPS);
+  await page.selectOption('#capStyleMode', 'word');
+  await seekTo(page, 0.5);
+  await expect.poll(() => capText(page)).toBe('שלום');
+  await seekTo(page, 1.2);
+  await expect.poll(() => capText(page)).toBe('עולם');
+  await page.selectOption('#capStyleMode', 'classic');
+  await seekTo(page, 0.5);
+  await expect.poll(() => capText(page)).toContain('שלום עולם');
+});
+
+test('burn payload carries mode=word and the per-word timings', async ({ page }) => {
+  await runEditor(page, WORD_CAPS);
+  await page.selectOption('#capStyleMode', 'word');
+  let burnBody = null;
+  await page.route(/\/burn\/\?/, (route, request) => {
+    burnBody = JSON.parse(request.postData());
+    return route.fulfill({ status: 202, contentType: 'application/json',
+                           body: JSON.stringify({ call_id: 'mock-burn-call-id' }) });
+  });
+  await page.click('#runBtn');
+  await page.click('#confirmOk');
+  await expect.poll(() => burnBody, { timeout: 10_000 }).not.toBeNull();
+  expect(burnBody.caption_style.mode).toBe('word');
+  // Word timings survive the editor round-trip (they ride the DOM rows).
+  expect(burnBody.captions[0].words).toEqual([[0.2, 0.9, 'שלום'], [0.9, 1.6, 'עולם']]);
+});

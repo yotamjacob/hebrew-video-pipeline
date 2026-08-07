@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.21.0';
+  const APP_VERSION = '1.22.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -1250,11 +1250,17 @@
   }
 
   function getCaptionsFromEditor() {
-    return Array.from(document.querySelectorAll('#captionsList .caption-row')).map(row => ({
-      start: parseFloat(row.querySelector('.caption-start').value) || 0,
-      end:   parseFloat(row.querySelector('.caption-end').value)   || 0,
-      text:  row.querySelector('.caption-input').value,
-    }));
+    return Array.from(document.querySelectorAll('#captionsList .caption-row')).map(row => {
+      const cap = {
+        start: parseFloat(row.querySelector('.caption-start').value) || 0,
+        end:   parseFloat(row.querySelector('.caption-end').value)   || 0,
+        text:  row.querySelector('.caption-input').value,
+      };
+      if (row.dataset.words) {
+        try { cap.words = JSON.parse(row.dataset.words); } catch (_) {}
+      }
+      return cap;
+    });
   }
 
   function getEditedCaptions() { return getCaptionsFromEditor(); }
@@ -3968,7 +3974,51 @@
       border_size:  parseInt(document.getElementById('capBorderSize')?.value || '2', 10),
       bg_color:     document.getElementById('capBgColor')?.value || '#000000',
       bg_opacity:   parseInt(document.getElementById('capBgOpacity')?.value || '0', 10) / 100,
+      mode:         document.getElementById('capStyleMode')?.value || 'classic',
     };
+  }
+  function _capMode() { return document.getElementById('capStyleMode')?.value || 'classic'; }
+  // Word-by-word mode: per-word display cues for one caption line. MIRRORS
+  // _word_events in build_caption_ass (pipeline_fns.py) - same proportional
+  // redistribution fallback and the same 0.15s anti-strobe merge, so the
+  // moving preview groups words exactly like the burn will.
+  function _wordCuesFor(cap) {
+    const text = String(cap.text || '').replace(/\\N/g, ' ');
+    if (cap.__cueText === text && cap.__cues) return cap.__cues;
+    const toks = text.split(/\s+/).filter(Boolean);
+    const start = +cap.start || 0, end = +cap.end || 0;
+    let times = null;
+    if (Array.isArray(cap.words) && cap.words.length === toks.length) {
+      times = cap.words.map(w => [+w[0], +w[1]]);
+      if (times.some(w => !isFinite(w[0]) || !isFinite(w[1]))) times = null;
+    }
+    if (!times) {
+      const span = Math.max(0.001, end - start);
+      const total = toks.reduce((a, w) => a + w.length, 0) || 1;
+      let acc = start;
+      times = toks.map(w => { const d = span * w.length / total; const r = [acc, acc + d]; acc += d; return r; });
+    }
+    const MIN = 0.15, cues = [];
+    let i = 0;
+    while (i < toks.length) {
+      const s0 = i > 0 ? times[i][0] : start;
+      let j = i, e0;
+      for (;;) {
+        e0 = (j + 1 < toks.length) ? times[j + 1][0] : end;
+        if (e0 - s0 >= MIN || j + 1 >= toks.length) break;
+        j++;
+      }
+      cues.push({ start: s0, end: Math.max(e0, s0 + 0.05), text: toks.slice(i, j + 1).join(' ') });
+      i = j + 1;
+    }
+    cap.__cueText = text; cap.__cues = cues;
+    return cues;
+  }
+  function _wordCueAt(cap, t) {
+    const cues = _wordCuesFor(cap);
+    return cues.find(q => t >= q.start && t < q.end)
+      || (t <= cap.start + 0.05 ? cues[0] : null)
+      || (t >= cap.end - 0.05 ? cues[cues.length - 1] : null);
   }
   function _hexToRgba(hex, alpha) {
     const h = hex.replace('#', '');
@@ -4023,7 +4073,7 @@
     fontSizeSlider.value = '48';
     captionMarginPct = 0.08;
     const defs = { capFontColor: '#FFFFFF', capBorderColor: '#000000', capBorderSize: 2,
-                   capBgColor: '#000000', capBgOpacity: 0 };
+                   capBgColor: '#000000', capBgOpacity: 0, capStyleMode: 'classic' };
     for (const [id, v] of Object.entries(defs)) {
       const el = document.getElementById(id); if (el) el.value = v;
     }
@@ -4058,7 +4108,8 @@
       if (saved) {
         const map = { capFontColor: saved.font_color, capBorderColor: saved.border_color,
                       capBorderSize: saved.border_size, capBgColor: saved.bg_color,
-                      capBgOpacity: Math.round((saved.bg_opacity || 0) * 100) };
+                      capBgOpacity: Math.round((saved.bg_opacity || 0) * 100),
+                      capStyleMode: saved.mode || 'classic' };
         for (const [id, v] of Object.entries(map)) {
           const el = document.getElementById(id);
           if (el && v != null) el.value = v;
@@ -4073,7 +4124,7 @@
       try { localStorage.setItem('captionStyle', JSON.stringify(_captionStylePayload())); } catch (_) {}
       updatePreviewCaption();
     };
-    ['capFontColor', 'capBorderColor', 'capBorderSize', 'capBgColor', 'capBgOpacity'].forEach(id => {
+    ['capFontColor', 'capBorderColor', 'capBorderSize', 'capBgColor', 'capBgOpacity', 'capStyleMode'].forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
       el.addEventListener('input', onEdit);
@@ -4865,7 +4916,14 @@
       capEl.style.fontSize = Math.max(7, captionFontSize * scale) + 'px';
       const t = vid.currentTime;
       const cap = captionsData && captionsData.find(c => t >= c.start && t <= c.end + 0.05);
-      if (cap) capEl.textContent = rewrapCaption(cap.text, displayW, captionFontSize);
+      if (cap) {
+        if (_capMode() === 'word') {
+          const q = _wordCueAt(cap, t);
+          capEl.textContent = q ? q.text : '';
+        } else {
+          capEl.textContent = rewrapCaption(cap.text, displayW, captionFontSize);
+        }
+      }
     }
     // Keep the hook wrap (hidden measurement canvas) + on-player overlay in sync.
     drawHookPreview();
@@ -4937,12 +4995,18 @@
 
   async function _fetchExactFrame(t, hookPayload) {
     if (!videoKey || isAudioInput) return null;
+    const wordMode = _capMode() === 'word';
     const body = {
       video_key: videoKey, t,
       font: captionFont, font_size: captionFontSize, margin_v: captionMarginPct,
-      captions: (captionsData || []).map(c => ({ start: c.start, end: c.end, text: c.text })),
+      // Word mode sends PRE-CUED single-word captions (grouping already
+      // applied by the shared mirror), with mode stripped so the builder
+      // renders them as-is - re-splitting a merged pair would diverge.
+      captions: (captionsData || []).flatMap(c => wordMode
+        ? _wordCuesFor(c).map(q => ({ start: q.start, end: q.end, text: q.text }))
+        : [{ start: c.start, end: c.end, text: c.text }]),
       hook: hookPayload || null,
-      caption_style: _captionStylePayload(),
+      caption_style: Object.assign(_captionStylePayload(), wordMode ? { mode: 'classic' } : {}),
     };
     const resp = await apiFetch(`${API_BASE}/preview_frame`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -5174,6 +5238,7 @@
     let scrubbing = false;
     let _rafId    = 0;
     let _lastCap  = undefined;   // last-rendered caption (undefined = never rendered yet)
+    let _lastCapCue = undefined; // cue identity: the line (classic) or line@word (word mode)
 
     function _applyCaptionStyles() {
       capEl.style.fontFamily = `'${captionFont}', sans-serif`;
@@ -5209,11 +5274,21 @@
       }
       timeLbl.textContent = fmtT(t) + ' / ' + fmtT(dur);
 
-      // Touch the caption DOM only when the active segment actually changes.
+      // Touch the caption DOM only when the active CUE changes - the whole
+      // line in classic mode, the current word in word-by-word mode.
       const cap = captionsData.find(c => t >= c.start && t <= c.end + 0.05) || null;
-      if (cap !== _lastCap) {
+      let cueKey = cap, cueText = cap ? cap.text : '';
+      if (cap && _capMode() === 'word') {
+        const q = _wordCueAt(cap, t);
+        cueKey = q ? cap.start + '@' + q.start : null;
+        cueText = q ? q.text : '';
+      }
+      if (cueKey !== _lastCapCue) {
+        _lastCapCue = cueKey;
         _lastCap = cap;
-        capEl.textContent = cap ? rewrapCaption(cap.text, vid.videoWidth || 1080, captionFontSize) : '';
+        capEl.textContent = !cueText ? ''
+          : (_capMode() === 'word' ? cueText
+             : rewrapCaption(cueText, vid.videoWidth || 1080, captionFontSize));
         if (cap) _applyCaptionStyles();
         _highlightRow();
       }
@@ -6821,6 +6896,13 @@
   function _createCaptionRow(cap) {
     const row = document.createElement('div');
     row.className = 'caption-row';
+    // Word timings ride on the row: getCaptionsFromEditor rebuilds captions
+    // from the DOM, and without this they'd be dropped on the first edit sync
+    // (word-by-word mode falls back to redistribution when the edited token
+    // count stops matching - see _wordCuesFor).
+    if (Array.isArray(cap.words) && cap.words.length) {
+      try { row.dataset.words = JSON.stringify(cap.words); } catch (_) {}
+    }
 
     // Time controls
     const timeWrap = document.createElement('div');
@@ -7688,7 +7770,8 @@
                   capBorderColor: style.border_color,
                   capBorderSize:  style.border_size,
                   capBgColor:     style.bg_color,
-                  capBgOpacity:   style.bg_opacity != null ? Math.round(style.bg_opacity * 100) : null };
+                  capBgOpacity:   style.bg_opacity != null ? Math.round(style.bg_opacity * 100) : null,
+                  capStyleMode:   style.mode || 'classic' };
     for (const [id, v] of Object.entries(map)) {
       const el = document.getElementById(id);
       if (el && v != null) el.value = v;
