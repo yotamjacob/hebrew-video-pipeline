@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.22.0';
+  const APP_VERSION = '1.23.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -2435,13 +2435,60 @@
     } catch (e) { console.warn('push init failed', e); }
   }
 
-  // On native, route the upload zone / browse tap to the native picker instead
-  // of the hidden <input> (which yields a pathless browser File).
+  // ── Mobile source chooser: record with the camera OR pick a file ──────────
+  // Phones can CREATE the video, not just hold one - tapping the upload zone
+  // on a mobile device asks which. "Record" uses the hidden capture-input
+  // (opens the camera recorder; Capacitor's WebView file-chooser handles it
+  // natively too); the recorded File flows through the standard web upload
+  // path. Desktop keeps the plain file dialog.
+  function _isMobileDevice() {
+    return _isNative() || /Android|iPhone|iPad|Mobi/i.test(navigator.userAgent || '');
+  }
+  let _srcBypass = false;   // set while a chooser button forwards to a picker
+  function _openSourceChooser() {
+    const ov = document.getElementById('sourceOverlay');
+    if (!ov) { _isNative() ? pickNativeFile() : fileInput.click(); return; }
+    ov.style.display = 'flex';
+  }
+  (function initSourceChooser() {
+    const ov = document.getElementById('sourceOverlay');
+    if (!ov) return;
+    const hide = () => { ov.style.display = 'none'; };
+    const forward = (fn) => {
+      hide();
+      _srcBypass = true;
+      try { fn(); } finally { setTimeout(() => { _srcBypass = false; }, 0); }
+    };
+    document.getElementById('srcRecordBtn')?.addEventListener('click', () =>
+      forward(() => document.getElementById('recordInput')?.click()));
+    document.getElementById('srcFileBtn')?.addEventListener('click', () =>
+      forward(() => (_isNative() ? pickNativeFile() : fileInput.click())));
+    document.getElementById('srcCancelBtn')?.addEventListener('click', hide);
+    ov.addEventListener('click', (e) => { if (e.target === ov) hide(); });
+    document.getElementById('recordInput')?.addEventListener('change', (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (f) handleFile(f);
+      e.target.value = '';   // allow re-recording the same flow
+    });
+  })();
+  // Mobile WEB: intercept the zone tap (the covering <input> would open the
+  // file dialog directly) and offer the chooser instead.
+  if (!_isNative()) {
+    uploadZone.addEventListener('click', (e) => {
+      if (!_isMobileDevice() || _srcBypass) return;
+      e.preventDefault(); e.stopPropagation();
+      _openSourceChooser();
+    }, true);
+  }
+
+  // On native, route the upload zone / browse tap to the source chooser (its
+  // file option uses the native picker - the hidden <input> would yield a
+  // pathless browser File that can't ride the foreground-service uploader).
   if (_isNative()) {
     if (fileInput) fileInput.style.display = 'none';
     uploadZone.addEventListener('click', (e) => {
       e.preventDefault(); e.stopPropagation();
-      pickNativeFile();
+      _openSourceChooser();
     }, true);
 
     // Show the brand animation as the loading screen, then hand off to the app.

@@ -353,3 +353,12 @@ test('ParallelUploader present but backend without parallel support falls back t
   const up = await page.evaluate(() => window.__streamUploads[0]);
   expect(up.serverUrl).toBe('https://fake-r2.test/native-put');
 });
+
+test('native: tapping the upload zone opens the source chooser (record or file)', async ({ page }) => {
+  await bootNative(page);
+  await mockAllApis(page);
+  await page.click('#uploadZone');
+  await expect(page.locator('#sourceOverlay')).toBeVisible();
+  await page.click('#srcCancelBtn');
+  await expect(page.locator('#sourceOverlay')).toBeHidden();
+});

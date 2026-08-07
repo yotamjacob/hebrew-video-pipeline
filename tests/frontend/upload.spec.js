@@ -439,3 +439,37 @@ test('4K video shows a slow-upload warning (quality kept as-is)', async ({ page 
   // It's a warning, not a block - the user can still process.
   await expect(page.locator('#runBtn')).toBeEnabled();
 });
+
+// ── Mobile source chooser (record vs file) ──────────────────────────────────
+test('mobile: tapping the upload zone offers record-or-file; desktop goes straight to the dialog', async ({ page, browserName }, testInfo) => {
+  await bootApp(page);
+  await page.click('#uploadZone');
+  const isMobile = testInfo.project.name === 'Mobile Chrome';
+  if (isMobile) {
+    await expect(page.locator('#sourceOverlay')).toBeVisible();
+    // The record path is a capture-input opening the camera recorder.
+    await expect(page.locator('#recordInput')).toHaveAttribute('capture', 'user');
+    await expect(page.locator('#recordInput')).toHaveAttribute('accept', 'video/*');
+    // Cancel closes without side effects.
+    await page.click('#srcCancelBtn');
+    await expect(page.locator('#sourceOverlay')).toBeHidden();
+  } else {
+    await expect(page.locator('#sourceOverlay')).toBeHidden();
+  }
+});
+
+test('a recorded video flows into the normal selection path', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'Mobile Chrome', 'chooser is mobile-only');
+  await bootApp(page);
+  await mockAllApis(page);
+  await page.click('#uploadZone');
+  await expect(page.locator('#sourceOverlay')).toBeVisible();
+  // Playwright can't drive the OS camera - set the file on the record input
+  // directly, which is exactly what the camera hands back.
+  await page.click('#srcCancelBtn');
+  await page.setInputFiles('#recordInput', {
+    name: 'recorded.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(512 * 1024),
+  });
+  await page.waitForSelector('#runBtn:not([disabled])', { timeout: 10_000 });
+  await expect(page.locator('#fileName')).toHaveText('recorded.mp4');
+});
