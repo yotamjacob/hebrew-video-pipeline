@@ -11,6 +11,10 @@ const { API_BASE, mockAllApis, selectFile, bootApp } = require('./helpers');
 
 const MP4 = path.join(__dirname, 'fixtures/portrait_1080x1920.mp4');
 
+// This spec asserts the FLIP transform itself - restore real motion (the
+// suite default is reducedMotion: 'reduce', which makes the FLIP a no-op).
+test.use({ reducedMotion: 'no-preference' });
+
 test('docking the player FLIPs (transform present mid-flight, cleared after)', async ({ page }) => {
   // This one runs a full upload + process and then loads a REAL mp4 before it
   // can even start measuring, plus ~1.4s of settle waits. The default 15s

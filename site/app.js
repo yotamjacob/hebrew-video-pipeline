@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.29.0';
+  const APP_VERSION = '1.30.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -4039,6 +4039,7 @@
     _syncProgressBarPreview();
     if (kwOn) _ensureKeywords();
     _renderKwList();
+    _refreshColorSwatches();
   }
 
   // ── Auto keyword highlight: one Haiku call picks the money words ──────────
@@ -4175,8 +4176,125 @@
     updatePreviewCaption();
     _markActivePreset(p.id);
   }
-  // Collapsible caption-design card (collapsed by default - the presets above
-  // cover most users; power users expand to fine-tune).
+  // ── App-styled color picker ───────────────────────────────────────────────
+  // The native <input type=color> opens the OS dialog, which clashes with the
+  // app's look. Each registered input gets a compact swatch button that opens
+  // a shared popover of curated tiles (brand palette + caption-pop colors);
+  // "custom" falls through to the native picker. Tiles set the input's value
+  // and dispatch 'input', so every existing handler keeps working unchanged.
+  const COLOR_SWATCHES = [
+    // boho brand palette
+    '#C26D4B', '#7E8E6A', '#A8B694', '#E8DFD3', '#F4ECE0', '#5C5346',
+    // essentials
+    '#FFFFFF', '#DDDDDD', '#888888', '#333333', '#1A1A1A', '#000000',
+    // caption-pop suggestions
+    '#FFD400', '#FFE45C', '#FF9500', '#FF3B30', '#FF2D95', '#A78BFA',
+    '#00C2FF', '#7FDBFF', '#34D399', '#00E676', '#F5C518', '#FF6B6B',
+  ];
+  const _COLOR_INPUT_IDS = [
+    'capFontColor', 'capBorderColor', 'capBgColor', 'capHighlightColor',
+    'capProgressColor', 'hookFontColor', 'hookBgColor', 'hookBorderColor',
+  ];
+  let _colorPopTarget = null;
+  function _colorPopover() {
+    let pop = document.getElementById('colorPopover');
+    if (pop) return pop;
+    pop = document.createElement('div');
+    pop.id = 'colorPopover';
+    pop.className = 'color-popover';
+    const grid = document.createElement('div');
+    grid.className = 'color-popover-grid';
+    COLOR_SWATCHES.forEach(hex => {
+      const tile = document.createElement('button');
+      tile.type = 'button';
+      tile.className = 'color-tile';
+      tile.dataset.hex = hex;
+      tile.style.background = hex;
+      tile.addEventListener('click', () => {
+        if (!_colorPopTarget) return;
+        _colorPopTarget.value = hex;
+        _colorPopTarget.dispatchEvent(new Event('input',  { bubbles: true }));
+        _colorPopTarget.dispatchEvent(new Event('change', { bubbles: true }));
+        _refreshColorSwatches();
+        _closeColorPopover();
+      });
+      grid.appendChild(tile);
+    });
+    const custom = document.createElement('button');
+    custom.type = 'button';
+    custom.className = 'color-tile color-tile-custom';
+    custom.title = 'custom';
+    custom.addEventListener('click', () => {
+      const target = _colorPopTarget;
+      _closeColorPopover();
+      if (target) target.click();   // the native picker, as the escape hatch
+    });
+    grid.appendChild(custom);
+    pop.appendChild(grid);
+    document.body.appendChild(pop);
+    document.addEventListener('click', (e) => {
+      if (pop.classList.contains('open') && !pop.contains(e.target)
+          && !(e.target.closest && e.target.closest('.color-swatch-btn'))) _closeColorPopover();
+    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') _closeColorPopover(); });
+    return pop;
+  }
+  function _closeColorPopover() {
+    const pop = document.getElementById('colorPopover');
+    if (pop) pop.classList.remove('open');
+    _colorPopTarget = null;
+  }
+  function _openColorPopover(input, anchorBtn) {
+    const pop = _colorPopover();
+    _colorPopTarget = input;
+    const cur = (input.value || '').toUpperCase();
+    pop.querySelectorAll('.color-tile').forEach(tl =>
+      tl.classList.toggle('selected', (tl.dataset.hex || '').toUpperCase() === cur));
+    pop.classList.add('open');
+    const r = anchorBtn.getBoundingClientRect();
+    const pw = pop.offsetWidth, ph = pop.offsetHeight;
+    let left = Math.min(Math.max(8, r.left), window.innerWidth - pw - 8);
+    let top = r.bottom + 6;
+    if (top + ph > window.innerHeight - 8) top = Math.max(8, r.top - ph - 6);
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
+  }
+  function _refreshColorSwatches() {
+    document.querySelectorAll('.color-swatch-btn').forEach(btn => {
+      const inp = document.getElementById(btn.dataset.for || '');
+      const chip = btn.querySelector('.csb-chip');
+      if (inp && chip) chip.style.background = inp.value;
+    });
+  }
+  (function initColorSwatches() {
+    _COLOR_INPUT_IDS.forEach(id => {
+      const inp = document.getElementById(id);
+      if (!inp) return;
+      inp.classList.add('color-input-hidden');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'color-swatch-btn';
+      btn.dataset.for = id;
+      btn.id = id + 'Swatch';
+      const chip = document.createElement('span');
+      chip.className = 'csb-chip';
+      chip.style.background = inp.value;
+      btn.appendChild(chip);
+      btn.addEventListener('click', (e) => {
+        // Inside a <label>: without preventDefault the label forwards the
+        // click to its input and the OS dialog opens anyway.
+        e.preventDefault();
+        e.stopPropagation();
+        _openColorPopover(inp, btn);
+      });
+      inp.insertAdjacentElement('afterend', btn);
+      inp.addEventListener('input', _refreshColorSwatches);
+    });
+  })();
+
+  // Collapsible caption-design card. OPEN by default (the font selector is a
+  // primary control); the collapsed choice persists per device, so tidy-minded
+  // users collapse once and it stays that way.
   function toggleCapDesign(force) {
     const head = document.getElementById('capDesignHead');
     const body = document.getElementById('capDesignBody');
@@ -4184,8 +4302,12 @@
     const open = force != null ? !!force : body.style.display === 'none';
     body.style.display = open ? 'block' : 'none';
     head.setAttribute('aria-expanded', open ? 'true' : 'false');
+    try { localStorage.setItem('capDesignOpen', open ? '1' : '0'); } catch (_) {}
   }
   window.toggleCapDesign = toggleCapDesign;
+  try {
+    if (localStorage.getItem('capDesignOpen') !== '0') toggleCapDesign(true);
+  } catch (_) { toggleCapDesign(true); }
 
   function _markActivePreset(id) {
     document.querySelectorAll('.cap-preset-chip').forEach(ch =>
@@ -4447,6 +4569,7 @@
     }
     { const e = document.getElementById('hookBgOpacityVal'); if (e) e.textContent = '60%'; }
     { const e = document.getElementById('hookBorderSizeVal'); if (e) e.textContent = '0px'; }
+    _refreshColorSwatches();
     drawHookPreview();
     updatePlayerHook();
     _hideExactHook(); scheduleExactHook();
@@ -5968,7 +6091,7 @@
   }
 
   // ── Sticky preview: dock + shrink the player once its sentinel scrolls out ──
-  let _stickyObs = null, _stickyCardObs = null;
+  let _stickyObs = null, _stickyCardObs = null, _stickyReleaseObs = null;
   let _sentinelAboveTop = false, _editorInView = true;
   // FLIP the wrap between its two layouts: snapshot where it WAS, apply the
   // layout change, then transition a transform from the old spot to the new
@@ -5986,11 +6109,19 @@
     wrap.style.transition = 'none';
     wrap.style.transformOrigin = 'top left';
     wrap.style.transform = `translate(${dx}px, ${dy}px) scale(${s})`;
+    // A mid-flight wrap sweeps ACROSS the page and would swallow taps on
+    // whatever it passes over (field: hook options unclickable while the
+    // dock animated in a loop of scroll adjustments).
+    wrap.style.pointerEvents = 'none';
     requestAnimationFrame(() => requestAnimationFrame(() => {
       wrap.style.transition = 'transform 0.35s cubic-bezier(0.2, 0.8, 0.3, 1)';
       wrap.style.transform = '';
     }));
-    const done = () => { wrap.style.transition = ''; wrap.style.transformOrigin = ''; wrap.removeEventListener('transitionend', done); };
+    const done = () => {
+      wrap.style.transition = ''; wrap.style.transformOrigin = '';
+      wrap.style.pointerEvents = '';
+      wrap.removeEventListener('transitionend', done);
+    };
     wrap.addEventListener('transitionend', done);
     setTimeout(done, 500);   // backstop: transitionend can be swallowed by a mid-flight retoggle
   }
@@ -6054,13 +6185,28 @@
     const topbar = document.querySelector('.app-topbar');
     const tbH = topbar ? topbar.offsetHeight : 52;
     document.documentElement.style.setProperty('--topbar-h', tbH + 'px');
+    // HYSTERESIS (2026-08-07): stick and release act at DIFFERENT lines, and
+    // each observer only sets its own direction. A single shared threshold
+    // let a scroll position sitting exactly on the line flip stick/unstick
+    // forever (layout nudges re-crossed it) - the page visibly oscillated and
+    // Playwright clicks on mobile timed out with ever-changing interceptors.
+    const _setStick = (on) => {
+      if (on === _sentinelAboveTop) return;
+      _sentinelAboveTop = on;
+      _applyStickyState(player);
+    };
     _stickyObs = new IntersectionObserver(([entry]) => {
       // "Past the top" specifically - a sentinel below the viewport (page
       // scrolled ABOVE the editor) must not float the player.
-      _sentinelAboveTop = !entry.isIntersecting && entry.boundingClientRect.top < tbH + 6;
-      _applyStickyState(player);
+      if (!entry.isIntersecting && entry.boundingClientRect.top < tbH + 6) _setStick(true);
     }, { rootMargin: `-${tbH + 6}px 0px 0px 0px`, threshold: 0 });
     _stickyObs.observe(sentinel);
+    _stickyReleaseObs = new IntersectionObserver(([entry]) => {
+      // Release only once the sentinel is comfortably back below the bar
+      // (40px band) - never at the stick line itself.
+      if (entry.isIntersecting) _setStick(false);
+    }, { rootMargin: `-${tbH + 46}px 0px 0px 0px`, threshold: 0 });
+    _stickyReleaseObs.observe(sentinel);
     if (card) {
       _stickyCardObs = new IntersectionObserver(([entry]) => {
         _editorInView = entry.isIntersecting;
@@ -6450,6 +6596,7 @@
     if (opacityValEl) opacityValEl.textContent = d.bgOpacity + '%';
     if (sizeValEl)    sizeValEl.textContent    = d.fontSize + '%';
     if (borderValEl)  borderValEl.textContent  = d.borderSize + 'px';
+    _refreshColorSwatches();
     drawHookPreview();
   }
   function _renderTemplateList() {

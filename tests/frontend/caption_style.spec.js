@@ -96,15 +96,16 @@ test('a preset look flows into the burn payload', async ({ page }) => {
   expect(decodeURIComponent(burnUrl)).toContain('font=Frank+Ruhl+Libre');
 });
 
-test('caption design card starts collapsed and expands on tap', async ({ page }) => {
+test('caption design card is open by default, collapses on tap, and the choice persists', async ({ page }) => {
   await runFullUpload(page);
-  await expect(page.locator('#capDesignBody')).toBeHidden();
-  await expect(page.locator('#capStyleMode')).toBeHidden();   // inside the card
-  await page.click('#capDesignHead');
   await expect(page.locator('#capDesignBody')).toBeVisible();
   await expect(page.locator('#capStyleMode')).toBeVisible();
   await page.click('#capDesignHead');
   await expect(page.locator('#capDesignBody')).toBeHidden();
+  // The collapsed choice is remembered per device.
+  expect(await page.evaluate(() => localStorage.getItem('capDesignOpen'))).toBe('0');
+  await page.click('#capDesignHead');
+  await expect(page.locator('#capDesignBody')).toBeVisible();
 });
 
 test('user styles: save the current look, apply it, delete it', async ({ page }) => {
@@ -129,4 +130,25 @@ test('user styles: save the current look, apply it, delete it', async ({ page })
   await page.locator('.cap-preset-del').first().click();
   await page.click('#confirmOk');
   await expect(page.locator('.cap-preset-del')).toHaveCount(0);
+});
+
+test('color swatch opens the app-styled popover; a tile applies instantly', async ({ page }) => {
+  await runFullUpload(page);
+  await page.evaluate(() => toggleCapDesign(true));
+  await page.click('#capFontColorSwatch');
+  const pop = page.locator('#colorPopover');
+  await expect(pop).toBeVisible();
+  // Curated set: brand palette + essentials + pop colors + custom tile.
+  await expect(pop.locator('.color-tile')).toHaveCount(25);
+  await page.click('.color-tile[data-hex="#FFD400"]');
+  await expect(pop).toBeHidden();
+  await expect(page.locator('#capFontColor')).toHaveValue('#ffd400');
+  // The live preview followed (input event path is shared with manual edits).
+  await expect.poll(() =>
+    page.evaluate(() => document.getElementById('playerCap').style.color)
+  ).toBe('rgb(255, 212, 0)');
+  // The swatch chip reflects the pick.
+  const chip = await page.evaluate(() =>
+    document.querySelector('#capFontColorSwatch .csb-chip').style.background);
+  expect(chip).toContain('255, 212, 0');
 });

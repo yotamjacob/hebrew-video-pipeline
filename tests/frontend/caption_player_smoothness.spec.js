@@ -226,7 +226,7 @@ test('progress bar preview mirrors the toggle and the playhead', async ({ page }
   await expect(pb).toBeHidden();
   await page.click('#tabBtnEffects');   // the toggle lives on the Effects tab
   await page.locator('#capProgressBar').check();
-  await expect(page.locator('#capProgressColor')).toBeVisible();   // inline on the toggle row
+  await expect(page.locator('#capProgressColorSwatch')).toBeVisible();   // inline swatch on the toggle row
   await seekTo(page, 1.0);
   await expect(pb).toBeVisible();
   // Width tracks t/duration. Pause first and read width + playhead in ONE

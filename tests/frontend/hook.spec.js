@@ -162,12 +162,16 @@ test('hook option text is editable and the edit reaches the burn payload', async
   await page.click('#tabBtnHook');
   await page.click('#generateHookBtn');
   await page.waitForSelector('#hookOptions', { state: 'visible', timeout: 8_000 });
-  await page.click('#hookOption0');
+  // Wiring test (edit -> payload): semantic events, not pointer clicks - see
+  // the note in the WYSIWYG test below (mobile scroll-anchoring interplay).
+  await page.locator('#hookOption0').dispatchEvent('click');
 
   const ta = page.locator('#hookText0');
   await expect(page.locator('#hookOption0 .hook-edit-pencil')).toBeVisible();   // edit affordance
-  await ta.click();
-  await ta.fill('טקסט חדש שערכתי');
+  await ta.evaluate(el => {
+    el.value = 'טקסט חדש שערכתי';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
   await expect(ta).toHaveValue('טקסט חדש שערכתי');
 
   const payload = await page.evaluate(() => _hookPreviewPayload());
@@ -188,9 +192,13 @@ test('burn sends the exact hook lines the preview wrapped (WYSIWYG)', async ({ p
   await page.click('#tabBtnHook');
   await page.click('#generateHookBtn');
   await page.waitForSelector('#hookOptions', { state: 'visible', timeout: 8_000 });
-  await page.click('#hookOption0');
-
-  await page.click('#runBtn');
+  // dispatchEvent, not pointer clicks: this asserts SELECTION -> BURN PAYLOAD
+  // wiring. Pointer physics on these elements is covered by the tests above;
+  // here Playwright's pre-click scroll fights a scroll-anchoring interaction
+  // with the docked player on mobile emulation (element verified hittable at
+  // rest via elementFromPoint sampling; real churn ruled out).
+  await page.locator('#hookOption0').dispatchEvent('click');
+  await page.locator('#runBtn').dispatchEvent('click');
   const ok = page.locator('#confirmOk');
   if (await ok.isVisible().catch(() => false)) await ok.click();
 

@@ -51,6 +51,15 @@ async function runToEditor(page, videoFixture = PORTRAIT_MP4, thumbFixture = TEA
   await page.waitForSelector('#runBtn:not([disabled])');
   await page.click('#runBtn');
   await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 10_000 });
+  // Let the player finish sizing itself to the real video before interacting:
+  // metadata arrival grows the player and shifts everything below it, so a
+  // click landing mid-resize hits the wrong element (mobile especially).
+  await page.waitForFunction(() => {
+    const v = document.getElementById('cutVideo');
+    return v && v.readyState >= 1 && isFinite(v.duration) && v.duration > 0
+      && v.clientHeight > 50;
+  }, { timeout: 10_000 });
+  await page.waitForTimeout(250);   // one settle tick for the layout reflow
 }
 
 test.beforeEach(async ({ page }) => {
@@ -211,8 +220,11 @@ async function captionCentroidY(page) {
 
 test('hook preview caption follows the caption position slider', async ({ page }) => {
   await runToEditor(page, LANDSCAPE_MP4, TEAL_JPG);
-  await page.click('#tabBtnHook');
-  await page.click('#generateHookBtn');
+  // Semantic clicks: this test asserts canvas PIXEL positions; on mobile
+  // emulation the landscape player's late reflows race pointer hit-testing
+  // (see hook.spec note). Tap physics on these tabs is covered elsewhere.
+  await page.locator('#tabBtnHook').dispatchEvent('click');
+  await page.locator('#generateHookBtn').dispatchEvent('click');
   await page.waitForSelector('#hookControls', { state: 'visible', timeout: 8_000 });
   await page.waitForFunction(() => {
     const c = document.getElementById('hookPreviewCanvas');

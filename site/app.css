@@ -1026,6 +1026,37 @@
       transition: transform 0.12s, box-shadow 0.12s;
     }
     .clip-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(62, 58, 52, 0.12); }
+    /* ── App-styled color picker (replaces the OS color dialog) ── */
+    .color-input-hidden { display: none; }
+    .color-swatch-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      height: 30px; padding: 3px; border-radius: 9px; cursor: pointer;
+      border: 1.5px solid var(--sage-100, #DDE3D0); background: var(--white);
+    }
+    .color-swatch-btn .csb-chip {
+      width: 40px; height: 22px; border-radius: 6px;
+      border: 1px solid rgba(62,58,52,0.18);
+    }
+    .color-popover {
+      position: fixed; z-index: 10002; display: none;
+      background: var(--white); border: 1.5px solid var(--sage-100, #DDE3D0);
+      border-radius: 14px; padding: 10px;
+      box-shadow: 0 10px 30px rgba(120,90,60,0.22);
+      max-width: 216px;
+    }
+    .color-popover.open { display: block; }
+    .color-popover-grid {
+      display: grid; grid-template-columns: repeat(6, 26px); gap: 6px;
+    }
+    .color-tile {
+      width: 26px; height: 26px; border-radius: 7px; cursor: pointer;
+      border: 1px solid rgba(62,58,52,0.18); padding: 0;
+    }
+    .color-tile.selected { outline: 2px solid var(--terracotta); outline-offset: 1px; }
+    .color-tile-custom {
+      background: conic-gradient(#FF3B30, #FF9500, #FFD400, #34D399, #00C2FF, #A78BFA, #FF2D95, #FF3B30);
+    }
+
     /* ── Caption style presets ── */
     .cap-preset-tabs { display: flex; gap: 6px; margin: 0 0 8px; }
     .cap-preset-tab {
@@ -1068,16 +1099,24 @@
     }
     .cap-preset-chip {
       display: flex; flex-direction: column; align-items: center; gap: 4px;
-      min-width: 76px; padding: 8px 10px; border-radius: 12px; cursor: pointer;
+      /* FIXED geometry: the sample text renders in each preset's webfont, and
+         fonts stream in lazily - flexible chips reflowed on every arrival and
+         everything below the row jumped (mobile clicks flaked on it). */
+      width: 84px; height: 62px; box-sizing: border-box; overflow: hidden;
+      padding: 6px 8px; border-radius: 12px; cursor: pointer;
       border: 1.5px solid var(--sage-100, #DDE3D0); background: var(--white);
       flex-shrink: 0;
     }
     .cap-preset-chip.active { border-color: var(--terracotta); }
     .cap-preset-sample {
-      font-size: 1.1rem; font-weight: 700; line-height: 1.4;
-      padding: 1px 7px; border-radius: 6px;
+      font-size: 1.05rem; font-weight: 700;
+      height: 26px; display: flex; align-items: center; justify-content: center;
+      padding: 0 7px; border-radius: 6px;
     }
-    .cap-preset-name { font-size: 0.68rem; color: var(--muted); white-space: nowrap; }
+    .cap-preset-name {
+      font-size: 0.68rem; color: var(--muted); white-space: nowrap;
+      max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+    }
 
     /* Inline clip preview: the video paints over the still, under the
        badges; the play affordance hides while it runs. */
@@ -1563,7 +1602,13 @@
       border-radius: 12px; padding: 4px;
     }
     .editor-tab {
-      flex: 1; padding: 9px 6px; border: none; border-radius: 9px;
+      /* min-width:0 + basis 0: four tabs share the row EQUALLY regardless of
+         label width - with min-width:auto the Hebrew labels set the widths,
+         which shifted as webfonts streamed in (neighbor tabs intercepted
+         taps on phones) and overflowed narrow screens. */
+      flex: 1 1 0; min-width: 0; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+      padding: 9px 4px; border: none; border-radius: 9px;
       background: none; color: var(--purple-500); font-family: inherit;
       font-size: 0.88rem; font-weight: 700; cursor: pointer;
       transition: background 0.15s, color 0.15s;
