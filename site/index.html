@@ -701,6 +701,16 @@
       <div id="tabEffects" class="editor-panel" style="display:none">
         <div style="display:flex;flex-direction:column;gap:14px;padding:4px 2px">
         <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:row;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="fxAutoZoom" style="width:18px;height:18px;accent-color:var(--terracotta)">
+          <span data-i18n="fx.zoom">Auto punch-in zoom</span>
+          <select id="fxZoomStrength" style="margin-inline-start:auto;flex-shrink:0;height:28px;border-radius:8px;border:1.5px solid var(--purple-200);background:var(--white);color:var(--purple-800);font-family:inherit;font-size:0.78rem;padding:0 6px">
+            <option value="subtle" data-i18n="fx.zoomSubtle">Subtle</option>
+            <option value="medium" selected data-i18n="fx.zoomMedium">Medium</option>
+            <option value="strong" data-i18n="fx.zoomStrong">Strong</option>
+          </select>
+        </label>
+        <div style="font-size:0.72rem;color:var(--muted);margin-top:-8px" data-i18n="fx.zoomNote">Short zoom-ins at emphasis moments, shown live in the preview</div>
+        <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:row;align-items:center;gap:8px;cursor:pointer">
           <input type="checkbox" id="capProgressBar" style="width:18px;height:18px;accent-color:var(--terracotta)">
           <span data-i18n="style.progress">Progress bar (top of video)</span>
           <input type="color" id="capProgressColor" value="#C26D4B"

@@ -1656,6 +1656,46 @@ def _peak_window(path, want_dur):
 
 
 # ---------------------------------------------------------------------------
+# Auto punch-in zoom (Effects tab)
+# ---------------------------------------------------------------------------
+def _zoom_filters(caption_style, width, height, in_label, out_label):
+    """filter_complex snippets for snap punch-in zooms (`caption_style.zooms`).
+
+    Windows arrive PRE-COMPUTED from the client as explicit [start, end] pairs
+    on the post-cut timeline (the hook.lines contract: the burn renders exactly
+    what the preview showed - the JS window heuristic can evolve without
+    touching this). Render = a full-length scaled + center-cropped copy of the
+    main track overlaid only inside the windows: an instant punch-in cut with
+    the input's own timestamps, deliberately NOT zoompan (which regenerates
+    PTS against its `fps` option and can desync audio on non-25fps sources).
+    Applied BEFORE B-roll overlays and subtitles, so inserts and captions are
+    never zoomed. Returns [] when there is nothing to do.
+    """
+    _ZOOM_FACTOR = {"subtle": 1.06, "medium": 1.10, "strong": 1.16}
+    _MAX_ZOOM_WINDOWS = 60
+    style = caption_style or {}
+    try:
+        factor = _ZOOM_FACTOR.get(str(style.get("zoom_strength", "medium")), 1.10)
+        spans = []
+        for it in list(style.get("zooms") or [])[:_MAX_ZOOM_WINDOWS]:
+            s, e = float(it[0]), float(it[1])
+            if e > s >= 0:
+                spans.append((s, e))
+    except Exception:
+        return []
+    if not spans:
+        return []
+    zw = int(round(width * factor / 2)) * 2
+    zh = int(round(height * factor / 2)) * 2
+    enable = "+".join(f"between(t,{s:.3f},{e:.3f})" for s, e in spans)
+    return [
+        f"[{in_label}]split[zsa][zsb]",
+        f"[zsb]scale={zw}:{zh},crop={width}:{height}[zsc]",
+        f"[zsa][zsc]overlay=0:0:enable='{enable}'[{out_label}]",
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Caption-burn worker — CPU only, no GPU needed
 # ---------------------------------------------------------------------------
 @app.function(image=burn_image, timeout=600, volumes={TMP_DIR: tmp_vol},
@@ -1785,7 +1825,12 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
 
         esc = str(ass_path).replace(":", r"\:")
 
-        if not broll_files:
+        # Punch-in zoom windows (Effects tab) force the filter_complex path
+        # even without B-roll - the split/overlay chain can't ride a plain -vf.
+        zoom_fs = _zoom_filters(caption_style, width, height,
+                                "vrot" if _rotation else "0:v", "vzoom")
+
+        if not broll_files and not zoom_fs:
             # Simple path: just subtitle burn (or copy if no captions)
             if captions:
                 run(["ffmpeg", "-y"] + _rot_input + ["-i", str(video_in),
@@ -1813,6 +1858,11 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             if _rotation:
                 filters.append(f"[0:v]{_rot_vf.rstrip(',')}[vrot]")
                 prev = "vrot"
+            # Punch-in zoom next: before B-roll (inserts stay unzoomed) and
+            # before subtitles (captions stay unzoomed).
+            if zoom_fs:
+                filters += zoom_fs
+                prev = "vzoom"
             for idx, (_, start, end, clip_in_start, clip_in_end) in enumerate(broll_files):
                 vid_idx = idx + 1
                 out_label = f"vbr{idx}"

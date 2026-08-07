@@ -2307,6 +2307,15 @@ def api():
                 hook         = data.get("hook") or {}
                 caption_style = data.get("caption_style") or {}
                 caps_in      = data.get("captions") or []
+                # Punch-in zoom factor at the paused instant. The client sends
+                # the numeric factor (window membership is its call - the
+                # WYSIWYG contract); the still is scaled + center-cropped
+                # BEFORE the ASS burn, exactly like the real render chain.
+                try:
+                    zoom = float(data.get("zoom") or 0)
+                except (TypeError, ValueError):
+                    zoom = 0.0
+                zoom = zoom if 1.001 < zoom <= 2.0 else 0.0
 
                 def _render():
                     import json as _json
@@ -2346,7 +2355,11 @@ def api():
                                 hk = dict(hook); hk["start_seconds"] = 0.0; hk["duration_seconds"] = 9.0
                         ass = build_caption_ass(W, Hh, font, font_size, margin_h, margin_v, caps, hk, caption_style=caption_style)
                         ap.write_text(ass, encoding="utf-8")
-                        _sp.run(["ffmpeg", "-y", "-i", str(fr), "-vf", f"ass={ap}",
+                        # Zoom before ass= mirrors the burn's filter order
+                        # (zoom → B-roll → subtitles): captions never zoom.
+                        zoom_vf = (f"scale=trunc(iw*{zoom}/2)*2:trunc(ih*{zoom}/2)*2,"
+                                   f"crop={W}:{Hh}," if zoom else "")
+                        _sp.run(["ffmpeg", "-y", "-i", str(fr), "-vf", f"{zoom_vf}ass={ap}",
                                  "-frames:v", "1", str(out)],
                                 stdout=_sp.DEVNULL, stderr=_sp.PIPE, timeout=60, check=True)
                         return out.read_bytes()

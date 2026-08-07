@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.30.0';
+  const APP_VERSION = '1.31.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -4029,6 +4029,8 @@
       progress_bar:    !!document.getElementById('capProgressBar')?.checked,
       progress_color:  document.getElementById('capProgressColor')?.value || '#C26D4B',
       highlight_keywords: !!document.getElementById('capKeywords')?.checked,
+      auto_zoom:       !!document.getElementById('fxAutoZoom')?.checked,
+      zoom_strength:   document.getElementById('fxZoomStrength')?.value || 'medium',
     };
   }
   // The highlight color only means something in karaoke mode - show it there.
@@ -4037,6 +4039,7 @@
     const row = document.getElementById('capHighlightRow');
     if (row) row.style.display = (_capMode() === 'karaoke' || kwOn) ? 'flex' : 'none';
     _syncProgressBarPreview();
+    _syncZoomPreview();
     if (kwOn) _ensureKeywords();
     _renderKwList();
     _refreshColorSwatches();
@@ -4118,6 +4121,60 @@
       }).join(' ')
     ).join('\n');
   }
+  // ── Auto punch-in zoom (Effects tab) ──────────────────────────────────────
+  // Windows are computed HERE and ride the burn body as caption_style.zooms -
+  // explicit [start, end] pairs the server renders verbatim (the hook.lines
+  // contract), so preview and burn can never disagree on WHERE the punches
+  // land. Heuristic, deliberately conservative: punch in at captions that
+  // start after a real speech pause (sentence starts), at most one per
+  // ZOOM_MIN_GAP seconds (≤4/min), snap in and out (the trendy cut, not a
+  // smooth ramp).
+  const ZOOM_MIN_GAP = 15, ZOOM_MIN_DUR = 1.0, ZOOM_MAX_DUR = 2.6;
+  const ZOOM_FACTORS = { subtle: 1.06, medium: 1.10, strong: 1.16 };  // keep in sync with _zoom_filters (pipeline_fns.py)
+  function _computeZoomWindows(caps) {
+    const wins = [];
+    let lastStart = -Infinity, prevEnd = null;
+    for (const c of (caps || [])) {
+      const s = Number(c.start), e = Number(c.end);
+      if (!isFinite(s) || !isFinite(e) || e <= s) continue;
+      const sentenceStart = prevEnd == null || s - prevEnd >= 0.35;
+      prevEnd = e;
+      // Continuous speech (no pauses) still gets an occasional punch, just at
+      // a longer interval, so flat monologues aren't zoomless.
+      const minGap = sentenceStart ? ZOOM_MIN_GAP : ZOOM_MIN_GAP * 1.5;
+      if (s - lastStart < minGap) continue;
+      const dur = Math.max(ZOOM_MIN_DUR, Math.min(ZOOM_MAX_DUR, e - s));
+      wins.push([+s.toFixed(3), +(s + dur).toFixed(3)]);
+      lastStart = s;
+    }
+    return wins;
+  }
+  let _zoomWinCache = { sig: null, wins: [] };
+  function _zoomWindows() {
+    if (!document.getElementById('fxAutoZoom')?.checked) return [];
+    const caps = (typeof captionsData !== 'undefined' && captionsData) || [];
+    const sig = caps.map(c => (+c.start).toFixed(2) + '-' + (+c.end).toFixed(2)).join(',');
+    if (sig !== _zoomWinCache.sig) _zoomWinCache = { sig, wins: _computeZoomWindows(caps) };
+    return _zoomWinCache.wins;
+  }
+  function _zoomFactorAt(t) {
+    const wins = _zoomWindows();
+    for (const [s, e] of wins) {
+      if (t >= s && t <= e)
+        return ZOOM_FACTORS[document.getElementById('fxZoomStrength')?.value] || 1.10;
+    }
+    return 1;
+  }
+  // Instant CSS punch-in on the paused/playing video (clipped by playerWrap's
+  // overflow:hidden). The exact still gets the same zoom server-side.
+  function _syncZoomPreview(t) {
+    const vid = document.getElementById('cutVideo');
+    if (!vid) return;
+    const z = _zoomFactorAt(t != null ? t : (vid.currentTime || 0));
+    const tr = z > 1 ? 'scale(' + z + ')' : '';
+    if (vid.style.transform !== tr) vid.style.transform = tr;
+  }
+
   // Mirror of the burned ASS progress bar on the moving preview.
   function _syncProgressBarPreview() {
     const pb = document.getElementById('playerProgressBurn');
@@ -4551,6 +4608,8 @@
     { const e = document.getElementById('capBgOpacityVal'); if (e) e.textContent = '0%'; }
     { const e = document.getElementById('capProgressBar'); if (e) e.checked = false; }
     { const e = document.getElementById('capKeywords'); if (e) e.checked = false; }
+    { const e = document.getElementById('fxAutoZoom'); if (e) e.checked = false; }
+    { const e = document.getElementById('fxZoomStrength'); if (e) e.value = 'medium'; }
     _syncStyleModeUI();
     try {
       localStorage.setItem('captionFontSize', '48');
@@ -4595,6 +4654,8 @@
         const bov = document.getElementById('capBgOpacityVal');
         if (bov) bov.textContent = Math.round((saved.bg_opacity || 0) * 100) + '%';
         { const e = document.getElementById('capProgressBar'); if (e) e.checked = !!saved.progress_bar; }
+        { const e = document.getElementById('fxAutoZoom'); if (e) e.checked = !!saved.auto_zoom; }
+        { const e = document.getElementById('fxZoomStrength'); if (e && saved.zoom_strength) e.value = saved.zoom_strength; }
         // highlight_keywords deliberately NOT restored - the feature starts
         // off for every session (user decision, 2026-08-07); history re-edits
         // still restore it explicitly via _applyCaptionStyleValues.
@@ -4607,7 +4668,7 @@
       updatePreviewCaption();
     };
     _syncStyleModeUI();
-    ['capFontColor', 'capBorderColor', 'capBorderSize', 'capBgColor', 'capBgOpacity', 'capStyleMode', 'capHighlightColor', 'capProgressBar', 'capProgressColor', 'capKeywords'].forEach(id => {
+    ['capFontColor', 'capBorderColor', 'capBorderSize', 'capBgColor', 'capBgOpacity', 'capStyleMode', 'capHighlightColor', 'capProgressBar', 'capProgressColor', 'capKeywords', 'fxAutoZoom', 'fxZoomStrength'].forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
       el.addEventListener('input', onEdit);
@@ -5511,6 +5572,9 @@
           return (document.getElementById('capProgressBar')?.checked && vid && vid.duration > 0)
             ? { progress_frac: t / vid.duration } : {};
         })()),
+      // Punch-in zoom at the paused instant: send the FACTOR, not the windows -
+      // absolute window times mean nothing to a retimed still, the factor does.
+      ...(() => { const z = _zoomFactorAt(t); return z > 1 ? { zoom: z } : {}; })(),
     };
     const resp = await apiFetch(`${API_BASE}/preview_frame`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -5818,6 +5882,7 @@
       _updateBrollOverlay(t);
 
       _syncProgressBarPreview();
+      _syncZoomPreview(t);
     }
 
     function _playerLoop() {
@@ -7745,7 +7810,14 @@
       _setStage('burn');
       const spawnResp = await apiFetchRetry(burnUrl.toString(), {
         method: 'POST',
-        body: JSON.stringify({ captions: edited, broll: allBroll, caption_style: _captionStylePayload(), ...(hookPayload ? { hook: hookPayload } : {}) }),
+        body: JSON.stringify({
+          captions: edited, broll: allBroll,
+          // Punch-in windows ride the style payload; the server renders these
+          // exact spans (never recomputes), so preview == burn.
+          caption_style: Object.assign(_captionStylePayload(),
+            (() => { const w = _zoomWindows(); return w.length ? { zooms: w } : {}; })()),
+          ...(hookPayload ? { hook: hookPayload } : {}),
+        }),
         headers: { 'Content-Type': 'application/json' },
         signal: pollController.signal,
       });
@@ -8332,6 +8404,12 @@
     }
     if ('highlight_keywords' in style) {
       const e = document.getElementById('capKeywords'); if (e) e.checked = !!style.highlight_keywords;
+    }
+    if ('auto_zoom' in style) {
+      const e = document.getElementById('fxAutoZoom'); if (e) e.checked = !!style.auto_zoom;
+    }
+    if (style.zoom_strength) {
+      const e = document.getElementById('fxZoomStrength'); if (e) e.value = style.zoom_strength;
     }
     _syncStyleModeUI();
   }
