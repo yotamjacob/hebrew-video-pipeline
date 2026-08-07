@@ -412,6 +412,8 @@
       <div id="captionPlayer" class="player-outer" style="display:none">
         <div class="player-wrap" id="playerWrap">
           <video id="cutVideo" playsinline preload="metadata" crossorigin="anonymous"></video>
+          <!-- Burned progress-bar preview (mirrors the ASS bar; hidden when off). -->
+          <div id="playerProgressBurn" aria-hidden="true"></div>
           <!-- Selected B-roll clips (one <video> each, shown during their window). -->
           <div id="brollLayer" aria-hidden="true"></div>
           <!-- Exact (libass-rendered) still shown when paused - pixel-identical to the export -->
@@ -506,6 +508,15 @@
         <label id="capHighlightRow" style="font-size:0.8rem;color:var(--muted);display:none;flex-direction:column;gap:4px;grid-column:1/-1">
           <span data-i18n="style.highlightColor">Highlight color</span>
           <input type="color" id="capHighlightColor" value="#FFD400"
+            style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
+        </label>
+        <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:row;align-items:center;gap:8px;grid-column:1/-1;cursor:pointer">
+          <input type="checkbox" id="capProgressBar" style="width:18px;height:18px;accent-color:var(--terracotta)">
+          <span data-i18n="style.progress">Progress bar (top of video)</span> <span class="new-badge" data-i18n="style.newBadge">NEW</span>
+        </label>
+        <label id="capProgressColorRow" style="font-size:0.8rem;color:var(--muted);display:none;flex-direction:column;gap:4px;grid-column:1/-1">
+          <span data-i18n="style.progressColor">Bar color</span>
+          <input type="color" id="capProgressColor" value="#C26D4B"
             style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
         </label>
         <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">

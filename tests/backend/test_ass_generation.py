@@ -586,3 +586,44 @@ class TestKaraokeMode:
         lines = self._dialogues(self._build([self.CAP], {'mode': 'karaoke'}))
         stripped = {re.sub(r'\{[^}]*\}', '', l.split(',,', 1)[1]) for l in lines}
         assert len(stripped) == 1
+
+
+class TestProgressBar:
+    """caption_style.progress_bar: a thin vector bar along the top edge that
+    fills over the video via \\fscx 0->100 (drawing coords aren't animatable,
+    scale is). The exact-preview path sends progress_frac and gets a static
+    bar at that fill (an animation can't ride a still frame)."""
+
+    def _build(self, cs, duration=None):
+        from tests.backend.conftest import _extract_fn, _build_ns
+        ns = _build_ns()
+        ns.update({'_fix_rtl_punct': lambda s: s, '_censor_caption_text': lambda s: s,
+                   '_rtl_ass_text': lambda s: s, '_RLE': '', '_PDF': ''})
+        fn = _extract_fn(MODAL_SRC, 'build_caption_ass', extra_ns=ns)['build_caption_ass']
+        return fn(1080, 1920, 'Heebo', 48, 77, 153,
+                  [{'start': 0, 'end': 1, 'text': 'שלום'}], {},
+                  caption_style=cs, duration=duration)
+
+    def test_off_by_default(self):
+        assert '\\p1' not in self._build(None, duration=30)
+        assert '\\fscx0' not in self._build({}, duration=30)
+
+    def test_animated_bar_over_the_full_duration(self):
+        ass = self._build({'progress_bar': True, 'progress_color': '#FF0000'}, duration=30)
+        bar = [l for l in ass.splitlines() if '\\fscx0' in l]
+        assert len(bar) == 1
+        assert '\\t(0,30000,\\fscx100)' in bar[0]      # fills over exactly 30s
+        assert '\\c&H0000FF&' in bar[0]                 # red in BGR
+        assert '0:00:30.00' in bar[0]                   # event spans the video
+        assert 'm 0 0 l 1080 0' in bar[0]               # full-width drawing
+
+    def test_static_fill_for_the_exact_preview(self):
+        ass = self._build({'progress_bar': True, 'progress_frac': 0.5}, duration=None)
+        bar = [l for l in ass.splitlines() if '\\p1' in l and 'm 0 0' in l]
+        assert len(bar) == 1
+        assert '\\fscx' not in bar[0]                   # static, not animated
+        assert 'l 540 0' in bar[0]                      # 50% of 1080
+
+    def test_no_duration_no_frac_no_bar(self):
+        ass = self._build({'progress_bar': True})
+        assert '\\p1' not in ass

@@ -1595,7 +1595,14 @@
        same text twice (misaligned = glitchy doubles). Opacity keeps them
        grabbable: a drag hides the still and restores them instantly. */
     .player-wrap.exact-showing #playerCap,
-    .player-wrap.exact-showing #playerHook { opacity: 0; }
+    .player-wrap.exact-showing #playerHook,
+    .player-wrap.exact-showing #playerProgressBurn { opacity: 0; }
+    /* Burned progress-bar mirror: thin fill along the top edge, matching the
+       ASS bar (height ~1.2% of the frame, min 4px). Width driven by JS. */
+    #playerProgressBurn {
+      position: absolute; top: 0; left: 0; height: max(4px, 1.2%);
+      width: 0; display: none; z-index: 4; pointer-events: none;
+    }
     #playerCap {
       position: absolute; left: 50%; transform: translateX(-50%);
       max-width: 92%; color: #fff; font-weight: 700; text-align: center;

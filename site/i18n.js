@@ -203,6 +203,8 @@
     'style.modeWord':    { en: 'One word at a time', he: 'מילה אחת בכל פעם' },
     'style.modeKaraoke': { en: 'Karaoke highlight', he: 'הדגשת קריוקי' },
     'style.highlightColor': { en: 'Highlight color', he: 'צבע הדגשה' },
+    'style.progress':       { en: 'Progress bar (top of video)', he: 'פס התקדמות (בראש הסרטון)' },
+    'style.progressColor':  { en: 'Bar color', he: 'צבע הפס' },
     'style.resetBtn':      { en: 'Restore default style', he: 'איפוס לעיצוב ברירת המחדל' },
     'style.resetTitle':    { en: 'Restore default style?', he: 'לאפס לעיצוב ברירת המחדל?' },
     'style.resetCapBody':  { en: 'Font, size, colors and position will return to their defaults. Your caption text is not affected.', he: 'הגופן, הגודל, הצבעים והמיקום יחזרו לברירת המחדל. טקסט הכתוביות לא ישתנה.' },

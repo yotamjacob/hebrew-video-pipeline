@@ -1255,7 +1255,7 @@ def process_video(
 # preview) call this, so the preview is drawn by the EXACT same libass path as
 # the burn — pixel-identical (no browser-vs-libass font-metric/outline drift).
 def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captions, hook,
-                      caption_style=None):
+                      caption_style=None, duration=None):
     font_size = max(12, min(200, int(font_size)))
     # libass sizes glyphs by the font's LINE metrics (hhea ascent-descent),
     # while CSS font-size uses the em square - so at the same nominal size
@@ -1285,6 +1285,12 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
     def seconds_to_ass(t):
         h = int(t // 3600); m = int((t % 3600) // 60); s = t % 60
         return f"{h}:{m:02d}:{s:05.2f}"
+
+    def _ibgr(hx):
+        h = hx.lstrip("#")
+        if len(h) == 3:
+            h = "".join(ch * 2 for ch in h)
+        return f"{int(h[4:6], 16):02X}{int(h[2:4], 16):02X}{int(h[0:2], 16):02X}"
 
     def hex_to_ass(hex_color: str, alpha_byte: int = 0) -> str:
         h = hex_color.lstrip("#")
@@ -1361,12 +1367,6 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
                          "text": _fix_rtl_punct(" ".join(toks[i:j + 1]))})
             i = j + 1
         return cues
-
-    def _ibgr(hx):
-        h = hx.lstrip("#")
-        if len(h) == 3:
-            h = "".join(ch * 2 for ch in h)
-        return f"{int(h[4:6], 16):02X}{int(h[2:4], 16):02X}{int(h[0:2], 16):02X}"
 
     def _karaoke_events(c):
         """Karaoke mode: the full (classic-wrapped) line stays on screen and
@@ -1556,7 +1556,29 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
         f"Default,,0,0,0,,{{\\q2}}{_rtl_ass_text(c['text'])}\n"
         for c in captions
     ]
-    return header + "".join(lines) + hook_event_lines
+
+    # Retention progress bar: a thin vector rectangle along the top edge that
+    # fills over the video's duration (\fscx 0->100 from a top-left anchor -
+    # drawing coords aren't animatable, scale is). The exact-preview path
+    # can't ride the animation on a still frame, so it sends progress_frac
+    # and gets a static bar at that fill instead. \pos ignores margins.
+    pb_events = ""
+    if _cs.get("progress_bar"):
+        bar_h = max(6, round(height * 0.012))
+        pb_col = _ibgr(_cs.get("progress_color", "#C26D4B"))
+        frac = _cs.get("progress_frac")
+        if frac is not None:
+            w = max(1, int(width * max(0.0, min(1.0, float(frac)))))
+            draw = f"m 0 0 l {w} 0 l {w} {bar_h} l 0 {bar_h}"
+            pb_events = ("Dialogue: 2,0:00:00.00,0:00:09.00,Default,,0,0,0,,"
+                         f"{{\\an7\\pos(0,0)\\bord0\\shad0\\p1\\c&H{pb_col}&}}{draw}{{\\p0}}\n")
+        elif duration and float(duration) > 0:
+            dur = float(duration)
+            draw = f"m 0 0 l {width} 0 l {width} {bar_h} l 0 {bar_h}"
+            pb_events = (f"Dialogue: 2,0:00:00.00,{seconds_to_ass(dur)},Default,,0,0,0,,"
+                         f"{{\\an7\\pos(0,0)\\bord0\\shad0\\p1\\c&H{pb_col}&"
+                         f"\\fscx0\\t(0,{int(dur * 1000)},\\fscx100)}}{draw}{{\\p0}}\n")
+    return header + "".join(lines) + hook_event_lines + pb_events
 
 
 # ---------------------------------------------------------------------------
@@ -1680,7 +1702,8 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
         # Captions + hook ASS are built by the shared builder so the editor
         # preview (/preview_frame) is rendered by the identical libass path.
         ass_str = build_caption_ass(width, height, font, font_size, margin_h, margin_v, captions, hook,
-                                    caption_style=caption_style)
+                                    caption_style=caption_style,
+                                    duration=probe_duration(video_in))
         ass_path.write_text(ass_str, encoding="utf-8")
 
         # Copy / download selected B-roll clips into temp dir

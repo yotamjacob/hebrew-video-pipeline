@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.25.0';
+  const APP_VERSION = '1.26.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -4023,12 +4023,32 @@
       bg_opacity:   parseInt(document.getElementById('capBgOpacity')?.value || '0', 10) / 100,
       mode:         document.getElementById('capStyleMode')?.value || 'classic',
       highlight_color: document.getElementById('capHighlightColor')?.value || '#FFD400',
+      progress_bar:    !!document.getElementById('capProgressBar')?.checked,
+      progress_color:  document.getElementById('capProgressColor')?.value || '#C26D4B',
     };
   }
   // The highlight color only means something in karaoke mode - show it there.
   function _syncStyleModeUI() {
     const row = document.getElementById('capHighlightRow');
     if (row) row.style.display = _capMode() === 'karaoke' ? 'flex' : 'none';
+    const pr = document.getElementById('capProgressColorRow');
+    if (pr) pr.style.display = document.getElementById('capProgressBar')?.checked ? 'flex' : 'none';
+    _syncProgressBarPreview();
+  }
+  // Mirror of the burned ASS progress bar on the moving preview.
+  function _syncProgressBarPreview() {
+    const pb = document.getElementById('playerProgressBurn');
+    const vid = document.getElementById('cutVideo');
+    if (!pb) return;
+    const on = !!document.getElementById('capProgressBar')?.checked;
+    const dur = vid && vid.duration;
+    if (on && dur > 0) {
+      pb.style.display = 'block';
+      pb.style.width = ((vid.currentTime || 0) / dur * 100) + '%';
+      pb.style.background = document.getElementById('capProgressColor')?.value || '#C26D4B';
+    } else {
+      pb.style.display = 'none';
+    }
   }
 
   // ── One-tap caption style presets ─────────────────────────────────────────
@@ -4210,12 +4230,13 @@
     captionMarginPct = 0.08;
     const defs = { capFontColor: '#FFFFFF', capBorderColor: '#000000', capBorderSize: 2,
                    capBgColor: '#000000', capBgOpacity: 0, capStyleMode: 'classic',
-                   capHighlightColor: '#FFD400' };
+                   capHighlightColor: '#FFD400', capProgressColor: '#C26D4B' };
     for (const [id, v] of Object.entries(defs)) {
       const el = document.getElementById(id); if (el) el.value = v;
     }
     { const e = document.getElementById('capBorderSizeVal'); if (e) e.textContent = '2px'; }
     { const e = document.getElementById('capBgOpacityVal'); if (e) e.textContent = '0%'; }
+    { const e = document.getElementById('capProgressBar'); if (e) e.checked = false; }
     _syncStyleModeUI();
     try {
       localStorage.setItem('captionFontSize', '48');
@@ -4248,7 +4269,8 @@
                       capBorderSize: saved.border_size, capBgColor: saved.bg_color,
                       capBgOpacity: Math.round((saved.bg_opacity || 0) * 100),
                       capStyleMode: saved.mode || 'classic',
-                      capHighlightColor: saved.highlight_color || '#FFD400' };
+                      capHighlightColor: saved.highlight_color || '#FFD400',
+                      capProgressColor: saved.progress_color || '#C26D4B' };
         for (const [id, v] of Object.entries(map)) {
           const el = document.getElementById(id);
           if (el && v != null) el.value = v;
@@ -4257,6 +4279,7 @@
         if (bsv) bsv.textContent = (saved.border_size != null ? saved.border_size : 2) + 'px';
         const bov = document.getElementById('capBgOpacityVal');
         if (bov) bov.textContent = Math.round((saved.bg_opacity || 0) * 100) + '%';
+        { const e = document.getElementById('capProgressBar'); if (e) e.checked = !!saved.progress_bar; }
       }
     } catch (_) {}
     const onEdit = () => {
@@ -4266,7 +4289,7 @@
       updatePreviewCaption();
     };
     _syncStyleModeUI();
-    ['capFontColor', 'capBorderColor', 'capBorderSize', 'capBgColor', 'capBgOpacity', 'capStyleMode', 'capHighlightColor'].forEach(id => {
+    ['capFontColor', 'capBorderColor', 'capBorderSize', 'capBgColor', 'capBgOpacity', 'capStyleMode', 'capHighlightColor', 'capProgressBar', 'capProgressColor'].forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
       el.addEventListener('input', onEdit);
@@ -5153,7 +5176,14 @@
         return [{ start: c.start, end: c.end, text: c.text }];
       }),
       hook: hookPayload || null,
-      caption_style: Object.assign(_captionStylePayload(), mode === 'word' ? { mode: 'classic' } : {}),
+      caption_style: Object.assign(
+        _captionStylePayload(),
+        mode === 'word' ? { mode: 'classic' } : {},
+        (() => {
+          const vid = document.getElementById('cutVideo');
+          return (document.getElementById('capProgressBar')?.checked && vid && vid.duration > 0)
+            ? { progress_frac: t / vid.duration } : {};
+        })()),
     };
     const resp = await apiFetch(`${API_BASE}/preview_frame`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -5452,6 +5482,8 @@
 
       // B-roll overlay: swap in the selected clip during its moment window.
       _updateBrollOverlay(t);
+
+      _syncProgressBarPreview();
     }
 
     function _playerLoop() {
@@ -7921,7 +7953,8 @@
                   capBgColor:     style.bg_color,
                   capBgOpacity:   style.bg_opacity != null ? Math.round(style.bg_opacity * 100) : null,
                   capStyleMode:   style.mode || 'classic',
-                  capHighlightColor: style.highlight_color || null };
+                  capHighlightColor: style.highlight_color || null,
+                  capProgressColor:  style.progress_color || null };
     for (const [id, v] of Object.entries(map)) {
       const el = document.getElementById(id);
       if (el && v != null) el.value = v;
@@ -7930,6 +7963,7 @@
     if (bsv && style.border_size != null) bsv.textContent = style.border_size + 'px';
     const bov = document.getElementById('capBgOpacityVal');
     if (bov && style.bg_opacity != null) bov.textContent = Math.round(style.bg_opacity * 100) + '%';
+    { const e = document.getElementById('capProgressBar'); if (e) e.checked = !!style.progress_bar; }
     _syncStyleModeUI();
   }
 

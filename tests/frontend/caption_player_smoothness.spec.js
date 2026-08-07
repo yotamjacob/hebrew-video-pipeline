@@ -214,3 +214,24 @@ test('karaoke mode keeps the full line and highlights only the current word', as
   await expect.poll(() => page.evaluate(() =>
     document.querySelectorAll('#playerCap span').length)).toBe(0);
 });
+
+test('progress bar preview mirrors the toggle and the playhead', async ({ page }) => {
+  await runEditor(page, CAPS);
+  const pb = page.locator('#playerProgressBurn');
+  await expect(pb).toBeHidden();
+  await page.locator('#capProgressBar').check();
+  await expect(page.locator('#capProgressColorRow')).toBeVisible();
+  await seekTo(page, 1.0);
+  await expect(pb).toBeVisible();
+  // Width tracks t/duration - compute the expectation from the real fixture
+  // duration instead of hardcoding it.
+  const expected = await page.evaluate(() =>
+    1.0 / document.getElementById('cutVideo').duration * 100);
+  const width = await pb.evaluate(el => parseFloat(el.style.width));
+  expect(Math.abs(width - expected)).toBeLessThan(3);
+  // Toggle off hides it again and the style payload follows.
+  await page.locator('#capProgressBar').uncheck();
+  await expect(pb).toBeHidden();
+  const payload = await page.evaluate(() => _captionStylePayload());
+  expect(payload.progress_bar).toBe(false);
+});
