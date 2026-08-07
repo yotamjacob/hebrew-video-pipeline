@@ -22,6 +22,7 @@ test('every font option is applied to the caption preview overlay', async ({ pag
   await expect(page.locator('#captionPlayer')).toBeVisible();
   const cap = page.locator('#playerCap');
   for (const font of FONTS) {
+    await page.evaluate(() => toggleCapDesign(true));
     await page.selectOption('#fontSelect', font);
     // The chosen family is applied to the overlay (ahead of the sans-serif fallback).
     const ff = await cap.evaluate(el => getComputedStyle(el).fontFamily);

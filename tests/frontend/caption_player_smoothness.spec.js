@@ -167,11 +167,13 @@ const WORD_CAPS = [
 
 test('word mode shows only the current spoken word, classic shows the line', async ({ page }) => {
   await runEditor(page, WORD_CAPS);
+  await page.evaluate(() => toggleCapDesign(true));
   await page.selectOption('#capStyleMode', 'word');
   await seekTo(page, 0.5);
   await expect.poll(() => capText(page)).toBe('שלום');
   await seekTo(page, 1.2);
   await expect.poll(() => capText(page)).toBe('עולם');
+  await page.evaluate(() => toggleCapDesign(true));
   await page.selectOption('#capStyleMode', 'classic');
   await seekTo(page, 0.5);
   await expect.poll(() => capText(page)).toContain('שלום עולם');
@@ -179,6 +181,7 @@ test('word mode shows only the current spoken word, classic shows the line', asy
 
 test('burn payload carries mode=word and the per-word timings', async ({ page }) => {
   await runEditor(page, WORD_CAPS);
+  await page.evaluate(() => toggleCapDesign(true));
   await page.selectOption('#capStyleMode', 'word');
   let burnBody = null;
   await page.route(/\/burn\/\?/, (route, request) => {
@@ -196,6 +199,7 @@ test('burn payload carries mode=word and the per-word timings', async ({ page })
 
 test('karaoke mode keeps the full line and highlights only the current word', async ({ page }) => {
   await runEditor(page, WORD_CAPS);
+  await page.evaluate(() => toggleCapDesign(true));
   await page.selectOption('#capStyleMode', 'karaoke');
   // Highlight color control appears with the mode.
   await expect(page.locator('#capHighlightRow')).toBeVisible();
@@ -208,6 +212,7 @@ test('karaoke mode keeps the full line and highlights only the current word', as
   await expect.poll(() => page.evaluate(() =>
     document.querySelector('#playerCap span')?.textContent || '')).toBe('עולם');
   // Back to classic: no highlight spans, control hidden.
+  await page.evaluate(() => toggleCapDesign(true));
   await page.selectOption('#capStyleMode', 'classic');
   await expect(page.locator('#capHighlightRow')).toBeHidden();
   await seekTo(page, 0.5);
@@ -254,8 +259,10 @@ test('keyword highlight: fetches indices once and colors only those tokens', asy
   });
   await page.click('#tabBtnEffects');   // the toggle lives on the Effects tab
   await page.locator('#capKeywords').check();
-  // Shared highlight-color row (captions tab) appears for keyword mode too.
+  // Shared highlight-color row (captions tab, inside the collapsed design
+  // card) appears for keyword mode too.
   await page.click('#tabBtnCaptions');
+  await page.evaluate(() => toggleCapDesign(true));
   await expect(page.locator('#capHighlightRow')).toBeVisible();
   await seekTo(page, 0.5);   // inside the first caption
   await expect.poll(() => page.evaluate(() =>

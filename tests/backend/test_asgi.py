@@ -503,7 +503,8 @@ class TestKeywordsRoute:
         block = MODAL_SRC[MODAL_SRC.index('("/keywords"'):MODAL_SRC.index('("/generate-hook"')]
         assert "0 <= int(k) < ntok" in block, "indices must be validated in-range"
         assert "for i in range(len(caps))" in block, "one entry per input line, always"
-        assert "HAIKU_MODEL" in block
+        assert "SONNET_MODEL" in block
+        assert 'thinking={"type": "disabled"}' in block
         assert "[:300]" in block, "caption count/length must be bounded"
 
     def test_api_mounts_anthropic_secret(self):

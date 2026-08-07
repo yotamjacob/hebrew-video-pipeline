@@ -1027,6 +1027,41 @@
     }
     .clip-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(62, 58, 52, 0.12); }
     /* ── Caption style presets ── */
+    .cap-preset-tabs { display: flex; gap: 6px; margin: 0 0 8px; }
+    .cap-preset-tab {
+      padding: 5px 14px; border-radius: 999px; cursor: pointer;
+      border: 1.5px solid var(--sage-100, #DDE3D0); background: var(--white);
+      color: var(--muted); font: inherit; font-size: 0.78rem; font-weight: 600;
+    }
+    .cap-preset-tab.active { border-color: var(--terracotta); color: var(--text); }
+    .cap-preset-del {
+      position: absolute; top: -6px; inset-inline-end: -6px;
+      width: 20px; height: 20px; border-radius: 50%; border: none;
+      background: var(--terracotta); color: var(--white); cursor: pointer;
+      display: flex; align-items: center; justify-content: center; font-size: 0.7rem;
+    }
+    .cap-preset-chip { position: relative; }
+    /* Collapsible caption-design card */
+    .design-card {
+      border: 1.5px solid var(--sage-100, #DDE3D0); border-radius: 14px;
+      padding: 10px 12px; margin-bottom: 12px; background: var(--white);
+    }
+    .design-card-head {
+      display: flex; align-items: center; justify-content: space-between;
+      width: 100%; background: none; border: none; cursor: pointer;
+      font: inherit; font-size: 0.88rem; font-weight: 700; color: var(--text);
+      padding: 2px 0;
+    }
+    .design-card-head .collapse-chevron { transition: transform 0.2s; display: inline-flex; }
+    .design-card-head .collapse-chevron svg { width: 18px; height: 18px; }
+    .design-card-head[aria-expanded="true"] .collapse-chevron { transform: rotate(180deg); }
+    /* Keyword chips (Effects tab) */
+    .kw-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+    .kw-chip {
+      padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+      background: var(--purple-50); border: 1px solid var(--purple-200); color: var(--text);
+    }
+
     .cap-preset-row {
       display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 10px;
       -webkit-overflow-scrolling: touch;

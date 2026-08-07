@@ -30,7 +30,7 @@ from pipeline_core import (
     _EMAIL_RE, _sign_scoped_token, _verify_scoped_token, _send_email, _email_html,
     EMAIL_VERIFY_TTL_SECONDS,
     _user_prefix, _owned_key, _broll_item_safe,
-    _anthropic_client, HAIKU_MODEL,
+    _anthropic_client, SONNET_MODEL,
     _is_review_email, _review_login_ok, REVIEW_VIDEO_LIMIT,
     DEFAULT_VIDEO_LIMIT, LEGACY_VIDEO_LIMIT, _quota_state, _quota_allows,
     _count_quota_used, _credit_cost, _upscale_allowed, _charge_credits,
@@ -2753,8 +2753,12 @@ def api():
                 "lines: [[2],[],[0,4]]\n\n" + numbered)
             def _pick():
                 client = _anthropic_client()
+                # Sonnet (was Haiku): keyword quality IS the feature - weak
+                # picks made it feel random. Sonnet requires thinking disabled
+                # (adaptive thinking otherwise eats max_tokens).
                 r = client.messages.create(
-                    model=HAIKU_MODEL, max_tokens=2000,
+                    model=SONNET_MODEL, max_tokens=2000,
+                    thinking={"type": "disabled"},
                     messages=[{"role": "user", "content": prompt}])
                 raw = r.content[0].text.strip()
                 if "```" in raw:

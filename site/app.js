@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.28.0';
+  const APP_VERSION = '1.29.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -4038,6 +4038,7 @@
     if (row) row.style.display = (_capMode() === 'karaoke' || kwOn) ? 'flex' : 'none';
     _syncProgressBarPreview();
     if (kwOn) _ensureKeywords();
+    _renderKwList();
   }
 
   // ── Auto keyword highlight: one Haiku call picks the money words ──────────
@@ -4067,6 +4068,7 @@
         if (caps[i]) caps[i].kw = kw || [];
       });
       _kwSignature = sig;
+      _renderKwList();
       updatePreviewCaption();
     } catch (e) {
       console.warn('keyword highlight failed', e && e.message);
@@ -4077,6 +4079,21 @@
       _kwBusy = false;
       if (busy) busy.style.display = 'none';
     }
+  }
+  // Chip list of the chosen words on the Effects tab - the user sees exactly
+  // what will light up.
+  function _renderKwList() {
+    const el = document.getElementById('kwList');
+    if (!el) return;
+    const on = !!document.getElementById('capKeywords')?.checked;
+    const words = [];
+    ((typeof captionsData !== 'undefined' && captionsData) || []).forEach(c => {
+      const toks = String(c.text || '').split(/\s+/).filter(Boolean);
+      (c.kw || []).forEach(k => { if (toks[k] != null) words.push(toks[k]); });
+    });
+    if (!on || !words.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.style.display = 'flex';
+    el.innerHTML = words.map(w => '<span class="kw-chip">' + _escapeHtml(w) + '</span>').join('');
   }
   function _kwIdxSet(cap) {
     if (!document.getElementById('capKeywords')?.checked) return null;
@@ -4146,38 +4163,147 @@
       const fs = document.getElementById('fontSelect'); if (fs) fs.value = p.font;
       _ensureCaptionFont(p.font);
     }
+    if (p.size) {
+      const ss = document.getElementById('captionFontSizeSlider');
+      if (ss) {
+        captionFontSize = _snapSizeOption(ss, parseInt(p.size, 10) || 48);
+        ss.value = String(captionFontSize);
+        try { localStorage.setItem('captionFontSize', String(captionFontSize)); } catch (_) {}
+      }
+    }
     try { localStorage.setItem('captionStyle', JSON.stringify(_captionStylePayload())); } catch (_) {}
     updatePreviewCaption();
     _markActivePreset(p.id);
   }
+  // Collapsible caption-design card (collapsed by default - the presets above
+  // cover most users; power users expand to fine-tune).
+  function toggleCapDesign(force) {
+    const head = document.getElementById('capDesignHead');
+    const body = document.getElementById('capDesignBody');
+    if (!head || !body) return;
+    const open = force != null ? !!force : body.style.display === 'none';
+    body.style.display = open ? 'block' : 'none';
+    head.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  window.toggleCapDesign = toggleCapDesign;
+
   function _markActivePreset(id) {
     document.querySelectorAll('.cap-preset-chip').forEach(ch =>
       ch.classList.toggle('active', ch.dataset.preset === id));
   }
+  // User-saved caption styles (localStorage), shown on the "My styles" view.
+  function _getUserPresets() {
+    try { return JSON.parse(localStorage.getItem('captionUserPresets') || '[]'); } catch { return []; }
+  }
+  function _saveUserPresets(list) {
+    try { localStorage.setItem('captionUserPresets', JSON.stringify(list)); } catch (_) {}
+  }
+  let _presetView = 'system';   // 'system' | 'mine'
+
+  function _presetChip(p, label, onApply) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'cap-preset-chip';
+    if (p.id) chip.dataset.preset = p.id;
+    const sample = document.createElement('span');
+    sample.className = 'cap-preset-sample';
+    sample.textContent = 'אבג';
+    sample.style.fontFamily = `'${p.font}', sans-serif`;
+    sample.style.color = p.style.font_color;
+    if (p.style.bg_opacity > 0) sample.style.background = _hexToRgba(p.style.bg_color, p.style.bg_opacity);
+    if (p.style.border_size > 0) sample.style.textShadow = _outlineShadows(1.2, p.style.border_color);
+    const lbl = document.createElement('span');
+    lbl.className = 'cap-preset-name';
+    lbl.textContent = label;
+    chip.append(sample, lbl);
+    chip.addEventListener('click', onApply);
+    return chip;
+  }
+
   function _buildPresetRow() {
     const row = document.getElementById('capPresetRow');
     if (!row) return;
     row.innerHTML = '';
-    CAPTION_PRESETS.forEach(p => {
-      const chip = document.createElement('button');
-      chip.type = 'button';
-      chip.className = 'cap-preset-chip';
-      chip.dataset.preset = p.id;
-      const sample = document.createElement('span');
-      sample.className = 'cap-preset-sample';
-      sample.textContent = 'אבג';
-      sample.style.fontFamily = `'${p.font}', sans-serif`;
-      sample.style.color = p.style.font_color;
-      if (p.style.bg_opacity > 0) sample.style.background = _hexToRgba(p.style.bg_color, p.style.bg_opacity);
-      if (p.style.border_size > 0) sample.style.textShadow = _outlineShadows(1.2, p.style.border_color);
-      const lbl = document.createElement('span');
-      lbl.className = 'cap-preset-name';
-      lbl.textContent = t(p.nameKey);
-      chip.append(sample, lbl);
-      chip.addEventListener('click', () => applyCaptionPreset(p));
+    const saveRow = document.getElementById('capPresetSaveRow');
+    if (saveRow) saveRow.style.display = 'none';
+    if (_presetView === 'system') {
+      CAPTION_PRESETS.forEach(p =>
+        row.appendChild(_presetChip(p, t(p.nameKey), () => applyCaptionPreset(p))));
+      return;
+    }
+    // "My styles": saved chips (deletable) + a save-current chip.
+    const mine = _getUserPresets();
+    mine.forEach((p, i) => {
+      const chip = _presetChip(p, p.name, () => applyCaptionPreset(p));
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'cap-preset-del';
+      del.setAttribute('aria-label', 'delete');
+      del.innerHTML = ICON.x;
+      del.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const ok = await showConfirmModal(t('preset.tabMine'), p.name, t('confirm.delete'));
+        if (!ok) return;
+        const list = _getUserPresets();
+        list.splice(i, 1);
+        _saveUserPresets(list);
+        _buildPresetRow();
+      });
+      chip.appendChild(del);
       row.appendChild(chip);
     });
+    if (!mine.length) {
+      const none = document.createElement('p');
+      none.style.cssText = 'font-size:0.78rem;color:var(--muted);margin:auto 0;align-self:center';
+      none.textContent = t('preset.noneSaved');
+      row.appendChild(none);
+    }
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'cap-preset-chip';
+    add.id = 'capPresetAdd';
+    const plus = document.createElement('span');
+    plus.className = 'cap-preset-sample';
+    plus.textContent = '+';
+    const albl = document.createElement('span');
+    albl.className = 'cap-preset-name';
+    albl.textContent = t('preset.save');
+    add.append(plus, albl);
+    add.addEventListener('click', () => {
+      const sr = document.getElementById('capPresetSaveRow');
+      if (sr) { sr.style.display = 'flex'; document.getElementById('capPresetName')?.focus(); }
+    });
+    row.appendChild(add);
   }
+  function _switchPresetView(view) {
+    _presetView = view;
+    document.getElementById('capPresetTabSystem')?.classList.toggle('active', view === 'system');
+    document.getElementById('capPresetTabMine')?.classList.toggle('active', view === 'mine');
+    _buildPresetRow();
+  }
+  document.getElementById('capPresetTabSystem')?.addEventListener('click', () => _switchPresetView('system'));
+  document.getElementById('capPresetTabMine')?.addEventListener('click', () => _switchPresetView('mine'));
+  document.getElementById('capPresetSaveBtn')?.addEventListener('click', () => {
+    const nameEl = document.getElementById('capPresetName');
+    const name = (nameEl?.value || '').trim();
+    if (!name) { nameEl?.focus(); return; }
+    const cs = _captionStylePayload();
+    const list = _getUserPresets();
+    list.unshift({
+      name,
+      font: captionFont,
+      size: captionFontSize,
+      // LOOK fields only - orthogonal toggles (progress bar, keywords) are
+      // deliberately not part of a saved style.
+      style: { font_color: cs.font_color, border_color: cs.border_color,
+               border_size: cs.border_size, bg_color: cs.bg_color,
+               bg_opacity: cs.bg_opacity, mode: cs.mode,
+               highlight_color: cs.highlight_color },
+    });
+    _saveUserPresets(list.slice(0, 24));
+    if (nameEl) nameEl.value = '';
+    _buildPresetRow();
+  });
   _buildPresetRow();
   document.addEventListener('langchange', _buildPresetRow);
   function _capMode() { return document.getElementById('capStyleMode')?.value || 'classic'; }
@@ -4346,7 +4472,9 @@
         const bov = document.getElementById('capBgOpacityVal');
         if (bov) bov.textContent = Math.round((saved.bg_opacity || 0) * 100) + '%';
         { const e = document.getElementById('capProgressBar'); if (e) e.checked = !!saved.progress_bar; }
-        { const e = document.getElementById('capKeywords'); if (e) e.checked = !!saved.highlight_keywords; }
+        // highlight_keywords deliberately NOT restored - the feature starts
+        // off for every session (user decision, 2026-08-07); history re-edits
+        // still restore it explicitly via _applyCaptionStyleValues.
       }
     } catch (_) {}
     const onEdit = () => {

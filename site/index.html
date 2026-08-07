@@ -453,8 +453,22 @@
       <div id="tabCaptions" class="editor-panel">
       <!-- Caption style first: presets + mode define the look, the font
            below refines it. -->
-      <p style="font-size:0.8rem;color:var(--muted);margin:0 0 6px" data-i18n="style.presets">Quick styles</p>
+      <div class="cap-preset-tabs">
+        <button type="button" id="capPresetTabSystem" class="cap-preset-tab active" data-i18n="preset.tabSystem">Ready-made</button>
+        <button type="button" id="capPresetTabMine" class="cap-preset-tab" data-i18n="preset.tabMine">My styles</button>
+      </div>
       <div id="capPresetRow" class="cap-preset-row"></div>
+      <div id="capPresetSaveRow" style="display:none;gap:8px;align-items:center;margin:0 0 10px">
+        <input id="capPresetName" type="text" data-i18n-placeholder="preset.namePh" placeholder="Style name"
+          style="flex:1;height:34px;border-radius:8px;border:1.5px solid var(--purple-200);background:var(--white);color:var(--text);padding:0 10px;font:inherit">
+        <button type="button" id="capPresetSaveBtn" class="modal-ok-btn" style="height:34px;padding:0 14px" data-i18n="preset.save">Save</button>
+      </div>
+      <div class="design-card">
+        <button type="button" id="capDesignHead" class="design-card-head" aria-expanded="false" onclick="toggleCapDesign()">
+          <span data-i18n="style.designTitle">Caption design</span>
+          <i class="collapse-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></i>
+        </button>
+        <div id="capDesignBody" style="display:none;padding-top:10px">
         <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px;margin-bottom:10px">
           <span data-i18n="style.mode">Caption style</span>
           <select id="capStyleMode" style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);background:var(--white);color:var(--text);padding:0 10px;font:inherit;cursor:pointer;width:100%">
@@ -543,6 +557,9 @@
       <div style="text-align:center;margin-bottom:12px">
         <button type="button" id="capStyleResetBtn" class="style-reset-btn btn-refresh-icon" onclick="resetCaptionStyle()" data-i18n="style.resetBtn">Restore default style</button>
       </div>
+        </div>
+      </div>
+
 
       <!-- Shown only when the editor was reopened on a previous export -->
       <p id="historyEditHint" class="history-edit-hint" style="display:none" data-i18n="hist.editHint">Editing a previous export. Your changes create a new video - the original stays in history.</p>
@@ -694,6 +711,7 @@
           <span data-i18n="style.keywords">Auto keyword highlight</span>
           <span id="capKeywordsBusy" style="display:none;font-size:0.72rem" data-i18n="style.kwBusy">choosing words...</span>
         </label>
+        <div id="kwList" class="kw-list" style="display:none"></div>
         </div>
       </div>
 
