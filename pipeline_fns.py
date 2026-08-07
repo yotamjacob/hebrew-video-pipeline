@@ -1357,17 +1357,60 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
                 if e0 - s0 >= MIN_WORD_SECS or j + 1 >= n:
                     break
                 j += 1
-            cues.append({"start": s0, "end": max(e0, s0 + 0.05),
+            cues.append({"start": s0, "end": max(e0, s0 + 0.05), "i0": i, "i1": j,
                          "text": _fix_rtl_punct(" ".join(toks[i:j + 1]))})
             i = j + 1
         return cues
 
-    if str(_cs.get("mode") or "classic") == "word":
+    def _ibgr(hx):
+        h = hx.lstrip("#")
+        if len(h) == 3:
+            h = "".join(ch * 2 for ch in h)
+        return f"{int(h[4:6], 16):02X}{int(h[2:4], 16):02X}{int(h[0:2], 16):02X}"
+
+    def _karaoke_events(c):
+        """Karaoke mode: the full (classic-wrapped) line stays on screen and
+        the current word changes COLOR - never weight: bold changes glyph
+        widths and re-flows the RTL line per word (jitter). Inline \c tags
+        are metric-neutral, so the line is pixel-stable across events. A
+        caption carrying hl=[i0,i1] (the exact-preview path - timings can't
+        survive the still-frame retime) highlights that token range directly."""
+        text = _censor_caption_text(c["text"])
+        wrapped = _rewrap_cap(text)
+        tok_lines = [ln.split() for ln in wrapped.split(r"\N")]
+        hl_tag   = "{\\c&H" + _ibgr(_cs.get("highlight_color", "#FFD400")) + "&}"
+        base_tag = "{\\c&H" + _ibgr(_cs.get("font_color", "#FFFFFF")) + "&}"
+
+        def _tagged(i0, i1):
+            k = 0
+            out = []
+            for ln in tok_lines:
+                parts = []
+                for w in ln:
+                    parts.append(hl_tag + w + base_tag if i0 <= k <= i1 else w)
+                    k += 1
+                out.append(" ".join(parts))
+            return r"\N".join(out)
+
+        hl = c.get("hl")
+        if isinstance(hl, (list, tuple)) and len(hl) == 2:
+            return [{"start": c["start"], "end": c["end"],
+                     "text": _tagged(int(hl[0]), int(hl[1]))}]
+        return [{"start": q["start"], "end": q["end"],
+                 "text": _tagged(q["i0"], q["i1"])} for q in _word_events(c)]
+
+    _cap_mode = str(_cs.get("mode") or "classic")
+    if _cap_mode == "word":
         # One event per word: no wrapping, no reflow - the single word renders
         # centered with the exact same style the classic mode uses.
         _cued = []
         for c in captions:
             _cued.extend(_word_events(c))
+        captions = _cued
+    elif _cap_mode == "karaoke":
+        _cued = []
+        for c in captions:
+            _cued.extend(_karaoke_events(c))
         captions = _cued
     else:
         captions = [{"start": c["start"], "end": c["end"],

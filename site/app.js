@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.23.0';
+  const APP_VERSION = '1.24.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -4022,7 +4022,13 @@
       bg_color:     document.getElementById('capBgColor')?.value || '#000000',
       bg_opacity:   parseInt(document.getElementById('capBgOpacity')?.value || '0', 10) / 100,
       mode:         document.getElementById('capStyleMode')?.value || 'classic',
+      highlight_color: document.getElementById('capHighlightColor')?.value || '#FFD400',
     };
+  }
+  // The highlight color only means something in karaoke mode - show it there.
+  function _syncStyleModeUI() {
+    const row = document.getElementById('capHighlightRow');
+    if (row) row.style.display = _capMode() === 'karaoke' ? 'flex' : 'none';
   }
   function _capMode() { return document.getElementById('capStyleMode')?.value || 'classic'; }
   // Word-by-word mode: per-word display cues for one caption line. MIRRORS
@@ -4055,11 +4061,29 @@
         if (e0 - s0 >= MIN || j + 1 >= toks.length) break;
         j++;
       }
-      cues.push({ start: s0, end: Math.max(e0, s0 + 0.05), text: toks.slice(i, j + 1).join(' ') });
+      cues.push({ start: s0, end: Math.max(e0, s0 + 0.05), i0: i, i1: j,
+                  text: toks.slice(i, j + 1).join(' ') });
       i = j + 1;
     }
     cap.__cueText = text; cap.__cues = cues;
     return cues;
+  }
+  // Karaoke moving preview: the classic-wrapped line with the current cue's
+  // tokens wrapped in a colored span (color only - metric-neutral, like the
+  // burn's inline \c tags).
+  function _karaokeHTML(cap, q, displayW) {
+    const wrapped = rewrapCaption(cap.text, displayW, captionFontSize);
+    const hl = document.getElementById('capHighlightColor')?.value || '#FFD400';
+    let k = 0;
+    return wrapped.split('\n').map(line =>
+      line.split(/\s+/).filter(Boolean).map(w => {
+        const html = (k >= q.i0 && k <= q.i1)
+          ? '<span style="color:' + hl + '">' + _escapeHtml(w) + '</span>'
+          : _escapeHtml(w);
+        k++;
+        return html;
+      }).join(' ')
+    ).join('\n');
   }
   function _wordCueAt(cap, t) {
     const cues = _wordCuesFor(cap);
@@ -4120,12 +4144,14 @@
     fontSizeSlider.value = '48';
     captionMarginPct = 0.08;
     const defs = { capFontColor: '#FFFFFF', capBorderColor: '#000000', capBorderSize: 2,
-                   capBgColor: '#000000', capBgOpacity: 0, capStyleMode: 'classic' };
+                   capBgColor: '#000000', capBgOpacity: 0, capStyleMode: 'classic',
+                   capHighlightColor: '#FFD400' };
     for (const [id, v] of Object.entries(defs)) {
       const el = document.getElementById(id); if (el) el.value = v;
     }
     { const e = document.getElementById('capBorderSizeVal'); if (e) e.textContent = '2px'; }
     { const e = document.getElementById('capBgOpacityVal'); if (e) e.textContent = '0%'; }
+    _syncStyleModeUI();
     try {
       localStorage.setItem('captionFontSize', '48');
       localStorage.removeItem('captionStyle');
@@ -4156,7 +4182,8 @@
         const map = { capFontColor: saved.font_color, capBorderColor: saved.border_color,
                       capBorderSize: saved.border_size, capBgColor: saved.bg_color,
                       capBgOpacity: Math.round((saved.bg_opacity || 0) * 100),
-                      capStyleMode: saved.mode || 'classic' };
+                      capStyleMode: saved.mode || 'classic',
+                      capHighlightColor: saved.highlight_color || '#FFD400' };
         for (const [id, v] of Object.entries(map)) {
           const el = document.getElementById(id);
           if (el && v != null) el.value = v;
@@ -4168,10 +4195,12 @@
       }
     } catch (_) {}
     const onEdit = () => {
+      _syncStyleModeUI();
       try { localStorage.setItem('captionStyle', JSON.stringify(_captionStylePayload())); } catch (_) {}
       updatePreviewCaption();
     };
-    ['capFontColor', 'capBorderColor', 'capBorderSize', 'capBgColor', 'capBgOpacity', 'capStyleMode'].forEach(id => {
+    _syncStyleModeUI();
+    ['capFontColor', 'capBorderColor', 'capBorderSize', 'capBgColor', 'capBgOpacity', 'capStyleMode', 'capHighlightColor'].forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
       el.addEventListener('input', onEdit);
@@ -4964,12 +4993,10 @@
       const t = vid.currentTime;
       const cap = captionsData && captionsData.find(c => t >= c.start && t <= c.end + 0.05);
       if (cap) {
-        if (_capMode() === 'word') {
-          const q = _wordCueAt(cap, t);
-          capEl.textContent = q ? q.text : '';
-        } else {
-          capEl.textContent = rewrapCaption(cap.text, displayW, captionFontSize);
-        }
+        const q = (_capMode() === 'word' || _capMode() === 'karaoke') ? _wordCueAt(cap, t) : null;
+        if (_capMode() === 'word') capEl.textContent = q ? q.text : '';
+        else if (_capMode() === 'karaoke' && q) capEl.innerHTML = _karaokeHTML(cap, q, displayW);
+        else capEl.textContent = rewrapCaption(cap.text, displayW, captionFontSize);
       }
     }
     // Keep the hook wrap (hidden measurement canvas) + on-player overlay in sync.
@@ -5042,18 +5069,25 @@
 
   async function _fetchExactFrame(t, hookPayload) {
     if (!videoKey || isAudioInput) return null;
-    const wordMode = _capMode() === 'word';
+    const mode = _capMode();
     const body = {
       video_key: videoKey, t,
       font: captionFont, font_size: captionFontSize, margin_v: captionMarginPct,
       // Word mode sends PRE-CUED single-word captions (grouping already
       // applied by the shared mirror), with mode stripped so the builder
       // renders them as-is - re-splitting a merged pair would diverge.
-      captions: (captionsData || []).flatMap(c => wordMode
-        ? _wordCuesFor(c).map(q => ({ start: q.start, end: q.end, text: q.text }))
-        : [{ start: c.start, end: c.end, text: c.text }]),
+      // Karaoke sends per-cue FULL-LINE entries carrying the highlight token
+      // range (hl) - absolute word timings can't survive the still-frame
+      // retime, the explicit range can.
+      captions: (captionsData || []).flatMap(c => {
+        if (mode === 'word')
+          return _wordCuesFor(c).map(q => ({ start: q.start, end: q.end, text: q.text }));
+        if (mode === 'karaoke')
+          return _wordCuesFor(c).map(q => ({ start: q.start, end: q.end, text: c.text, hl: [q.i0, q.i1] }));
+        return [{ start: c.start, end: c.end, text: c.text }];
+      }),
       hook: hookPayload || null,
-      caption_style: Object.assign(_captionStylePayload(), wordMode ? { mode: 'classic' } : {}),
+      caption_style: Object.assign(_captionStylePayload(), mode === 'word' ? { mode: 'classic' } : {}),
     };
     const resp = await apiFetch(`${API_BASE}/preview_frame`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -5324,18 +5358,20 @@
       // Touch the caption DOM only when the active CUE changes - the whole
       // line in classic mode, the current word in word-by-word mode.
       const cap = captionsData.find(c => t >= c.start && t <= c.end + 0.05) || null;
-      let cueKey = cap, cueText = cap ? cap.text : '';
-      if (cap && _capMode() === 'word') {
-        const q = _wordCueAt(cap, t);
-        cueKey = q ? cap.start + '@' + q.start : null;
-        cueText = q ? q.text : '';
+      const mode = _capMode();
+      let cueKey = cap, cueText = cap ? cap.text : '', cue = null;
+      if (cap && (mode === 'word' || mode === 'karaoke')) {
+        cue = _wordCueAt(cap, t);
+        cueKey = cue ? cap.start + '@' + cue.start : (mode === 'karaoke' ? cap : null);
+        if (mode === 'word') cueText = cue ? cue.text : '';
       }
       if (cueKey !== _lastCapCue) {
         _lastCapCue = cueKey;
         _lastCap = cap;
-        capEl.textContent = !cueText ? ''
-          : (_capMode() === 'word' ? cueText
-             : rewrapCaption(cueText, vid.videoWidth || 1080, captionFontSize));
+        if (!cap || (!cueText && mode === 'word')) capEl.textContent = '';
+        else if (mode === 'word') capEl.textContent = cueText;
+        else if (mode === 'karaoke' && cue) capEl.innerHTML = _karaokeHTML(cap, cue, vid.videoWidth || 1080);
+        else capEl.textContent = rewrapCaption(cap.text, vid.videoWidth || 1080, captionFontSize);
         if (cap) _applyCaptionStyles();
         _highlightRow();
       }
@@ -7818,7 +7854,8 @@
                   capBorderSize:  style.border_size,
                   capBgColor:     style.bg_color,
                   capBgOpacity:   style.bg_opacity != null ? Math.round(style.bg_opacity * 100) : null,
-                  capStyleMode:   style.mode || 'classic' };
+                  capStyleMode:   style.mode || 'classic',
+                  capHighlightColor: style.highlight_color || null };
     for (const [id, v] of Object.entries(map)) {
       const el = document.getElementById(id);
       if (el && v != null) el.value = v;
@@ -7827,6 +7864,7 @@
     if (bsv && style.border_size != null) bsv.textContent = style.border_size + 'px';
     const bov = document.getElementById('capBgOpacityVal');
     if (bov && style.bg_opacity != null) bov.textContent = Math.round(style.bg_opacity * 100) + '%';
+    _syncStyleModeUI();
   }
 
   // Only the CHOSEN hook is stored, so rebuild a one-option list and select it.

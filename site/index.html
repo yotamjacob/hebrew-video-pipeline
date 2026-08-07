@@ -496,7 +496,13 @@
           <select id="capStyleMode" style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);background:var(--white);color:var(--text);padding:0 10px;font:inherit;cursor:pointer;width:100%">
             <option value="classic" data-i18n="style.modeClassic">Classic lines</option>
             <option value="word" data-i18n="style.modeWord">One word at a time</option>
+            <option value="karaoke" data-i18n="style.modeKaraoke">Karaoke highlight</option>
           </select>
+        </label>
+        <label id="capHighlightRow" style="font-size:0.8rem;color:var(--muted);display:none;flex-direction:column;gap:4px;grid-column:1/-1">
+          <span data-i18n="style.highlightColor">Highlight color</span>
+          <input type="color" id="capHighlightColor" value="#FFD400"
+            style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
         </label>
         <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
           <span data-i18n="hook.textColor">Text color</span>

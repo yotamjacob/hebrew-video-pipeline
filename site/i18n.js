@@ -193,6 +193,8 @@
     'style.mode':        { en: 'Caption style', he: 'סגנון כתוביות' },
     'style.modeClassic': { en: 'Classic lines', he: 'שורות קלאסיות' },
     'style.modeWord':    { en: 'One word at a time', he: 'מילה אחת בכל פעם' },
+    'style.modeKaraoke': { en: 'Karaoke highlight', he: 'הדגשת קריוקי' },
+    'style.highlightColor': { en: 'Highlight color', he: 'צבע הדגשה' },
     'style.resetBtn':      { en: 'Restore default style', he: 'איפוס לעיצוב ברירת המחדל' },
     'style.resetTitle':    { en: 'Restore default style?', he: 'לאפס לעיצוב ברירת המחדל?' },
     'style.resetCapBody':  { en: 'Font, size, colors and position will return to their defaults. Your caption text is not affected.', he: 'הגופן, הגודל, הצבעים והמיקום יחזרו לברירת המחדל. טקסט הכתוביות לא ישתנה.' },

@@ -2325,7 +2325,13 @@ def api():
                         # Only the caption active at t (retimed onto the still frame).
                         active = [c for c in caps_in
                                   if float(c.get("start", 0)) <= t <= float(c.get("end", 0)) + 0.05]
-                        caps = [{"start": 0.0, "end": 9.0, "text": active[0].get("text", "")}] if active else []
+                        # `hl` (karaoke highlight token range) must survive the
+                        # retime - absolute word timings can't, so the client
+                        # pre-computes the range for the paused instant.
+                        caps = ([{"start": 0.0, "end": 9.0, "text": active[0].get("text", ""),
+                                  **({"hl": active[0]["hl"]}
+                                     if isinstance(active[0].get("hl"), list) else {})}]
+                                if active else [])
                         hk = {}
                         if hook.get("text"):
                             hs = float(hook.get("start_seconds", 1.0))

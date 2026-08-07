@@ -533,3 +533,56 @@ class TestWordMode:
         cap = {'start': 0.0, 'end': 1.0, 'text': 'שלום עולם'}
         lines = self._dialogues(self._build([cap], {'mode': 'word'}))
         assert len(lines) == 2
+
+
+class TestKaraokeMode:
+    """caption_style.mode == 'karaoke': the classic-wrapped line stays on
+    screen and the current word changes COLOR via inline \\c tags (metric-
+    neutral - never bold, which would re-flow the RTL line). A caption
+    carrying hl=[i0,i1] highlights that range directly (exact-preview path)."""
+
+    def _build(self, captions, cs):
+        from tests.backend.conftest import _extract_fn, _build_ns
+        ns = _build_ns()
+        ns.update({'_fix_rtl_punct': lambda s: s, '_censor_caption_text': lambda s: s,
+                   '_rtl_ass_text': lambda s: s, '_RLE': '', '_PDF': ''})
+        fn = _extract_fn(MODAL_SRC, 'build_caption_ass', extra_ns=ns)['build_caption_ass']
+        return fn(1080, 1920, 'Heebo', 48, 77, 153, captions, {}, caption_style=cs)
+
+    def _dialogues(self, ass):
+        return [l for l in ass.splitlines() if l.startswith('Dialogue:')]
+
+    CAP = {'start': 0.0, 'end': 3.0, 'text': 'שלום עולם טוב',
+           'words': [[0.0, 1.0, 'שלום'], [1.0, 2.0, 'עולם'], [2.0, 3.0, 'טוב']]}
+
+    def test_one_event_per_word_with_full_line(self):
+        lines = self._dialogues(self._build([self.CAP], {'mode': 'karaoke'}))
+        assert len(lines) == 3
+        # Every event shows the WHOLE line - only the color tags move.
+        for l in lines:
+            assert 'שלום' in l and 'עולם' in l and 'טוב' in l
+
+    def test_highlight_and_reset_tags(self):
+        lines = self._dialogues(self._build([self.CAP], {
+            'mode': 'karaoke', 'highlight_color': '#FF0000', 'font_color': '#FFFFFF'}))
+        # Second event highlights the second word: red (BGR 0000FF) around it,
+        # reset to white (FFFFFF) after.
+        assert '{\\c&H0000FF&}עולם{\\c&HFFFFFF&}' in lines[1]
+        # First word is plain in the second event.
+        assert '{\\c&H0000FF&}שלום' not in lines[1]
+
+    def test_hl_range_overrides_timings(self):
+        cap = {'start': 0.0, 'end': 9.0, 'text': 'אחת שתיים שלוש', 'hl': [1, 1]}
+        lines = self._dialogues(self._build([cap], {
+            'mode': 'karaoke', 'highlight_color': '#00FF00'}))
+        assert len(lines) == 1
+        assert '{\\c&H00FF00&}שתיים' in lines[0]
+        assert '{\\c&H00FF00&}אחת' not in lines[0]
+
+    def test_line_is_pixel_stable_across_events(self):
+        # Strip override blocks: the remaining text must be IDENTICAL in every
+        # event - color-only highlighting must never change the line content.
+        import re
+        lines = self._dialogues(self._build([self.CAP], {'mode': 'karaoke'}))
+        stripped = {re.sub(r'\{[^}]*\}', '', l.split(',,', 1)[1]) for l in lines}
+        assert len(stripped) == 1

@@ -193,3 +193,24 @@ test('burn payload carries mode=word and the per-word timings', async ({ page })
   // Word timings survive the editor round-trip (they ride the DOM rows).
   expect(burnBody.captions[0].words).toEqual([[0.2, 0.9, 'שלום'], [0.9, 1.6, 'עולם']]);
 });
+
+test('karaoke mode keeps the full line and highlights only the current word', async ({ page }) => {
+  await runEditor(page, WORD_CAPS);
+  await page.selectOption('#capStyleMode', 'karaoke');
+  // Highlight color control appears with the mode.
+  await expect(page.locator('#capHighlightRow')).toBeVisible();
+  await seekTo(page, 0.5);
+  await expect.poll(() => capText(page)).toContain('שלום עולם');   // full line stays
+  const hl1 = await page.evaluate(() =>
+    document.querySelector('#playerCap span')?.textContent || '');
+  expect(hl1).toBe('שלום');
+  await seekTo(page, 1.2);
+  await expect.poll(() => page.evaluate(() =>
+    document.querySelector('#playerCap span')?.textContent || '')).toBe('עולם');
+  // Back to classic: no highlight spans, control hidden.
+  await page.selectOption('#capStyleMode', 'classic');
+  await expect(page.locator('#capHighlightRow')).toBeHidden();
+  await seekTo(page, 0.5);
+  await expect.poll(() => page.evaluate(() =>
+    document.querySelectorAll('#playerCap span').length)).toBe(0);
+});
