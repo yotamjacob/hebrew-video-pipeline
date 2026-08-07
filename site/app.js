@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.27.1';
+  const APP_VERSION = '1.28.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -5817,7 +5817,7 @@
 
   // ── Editor tabs ──
   function switchEditorTab(name) {
-    const map = { captions: 'tabCaptions', hook: 'tabHook', broll: 'tabBroll' };
+    const map = { captions: 'tabCaptions', hook: 'tabHook', broll: 'tabBroll', effects: 'tabEffects' };
     for (const [key, id] of Object.entries(map)) {
       const panel = document.getElementById(id);
       const btn   = document.getElementById('tabBtn' + key.charAt(0).toUpperCase() + key.slice(1));

@@ -190,6 +190,7 @@
     'run.burn':         { en: 'Burn &amp; Download', he: 'צריבה והורדה' },
     'burn.success':     { en: 'Your video is downloading. If it did not start, tap Download again.', he: 'הסרטון שלכם יורד. אם ההורדה לא התחילה, הקישו על הורדה חוזרת.' },
     'burn.downloadAgain': { en: 'Download again', he: 'הורדה חוזרת' },
+    'editor.tabEffects': { en: 'Effects', he: 'אפקטים' },
     'style.presets':     { en: 'Quick styles', he: 'סגנונות מוכנים' },
     'preset.clean':      { en: 'Clean', he: 'נקי' },
     'preset.karaoke':    { en: 'Karaoke', he: 'קריוקי' },

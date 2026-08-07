@@ -219,6 +219,7 @@ test('progress bar preview mirrors the toggle and the playhead', async ({ page }
   await runEditor(page, CAPS);
   const pb = page.locator('#playerProgressBurn');
   await expect(pb).toBeHidden();
+  await page.click('#tabBtnEffects');   // the toggle lives on the Effects tab
   await page.locator('#capProgressBar').check();
   await expect(page.locator('#capProgressColor')).toBeVisible();   // inline on the toggle row
   await seekTo(page, 1.0);
@@ -251,8 +252,10 @@ test('keyword highlight: fetches indices once and colors only those tokens', asy
     return route.fulfill({ status: 200, contentType: 'application/json',
                            body: JSON.stringify({ keywords: kws }) });
   });
+  await page.click('#tabBtnEffects');   // the toggle lives on the Effects tab
   await page.locator('#capKeywords').check();
-  // Shared highlight-color row appears for the keyword mode too.
+  // Shared highlight-color row (captions tab) appears for keyword mode too.
+  await page.click('#tabBtnCaptions');
   await expect(page.locator('#capHighlightRow')).toBeVisible();
   await seekTo(page, 0.5);   // inside the first caption
   await expect.poll(() => page.evaluate(() =>
