@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.17.1';
+  const APP_VERSION = '1.17.2';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -6267,11 +6267,12 @@
                 emptyMsg = t('stock.noMoments');
               } else {
                 const dropParts = [];
-                if (fs.buf_drops)     dropParts.push(t('stock.edgeDrops', {n: fs.buf_drops}));
+                if (fs.buf_drops)     dropParts.push(t('stock.edgeDrops', {n: fs.buf_drops, them: fs.buf_drops === 1 ? 'it' : 'them'}));
                 if (fs.spacing_drops) dropParts.push(t('stock.spacingDrops', {n: fs.spacing_drops}));
                 const detail = dropParts.length ? ` (${dropParts.join('; ')})` : '';
                 const n = fs.sonnet_moments_raw;
-                emptyMsg = t('stock.dropped', {n: n, s: n === 1 ? '' : 's', detail: detail});
+                emptyMsg = t('stock.dropped', {n: n, s: n === 1 ? '' : 's',
+                                               them: n === 1 ? 'it' : 'them', detail: detail});
               }
               list.innerHTML = `<p style="color:var(--muted);font-size:0.85rem;padding:8px 0">${emptyMsg}</p>`;
               return;
