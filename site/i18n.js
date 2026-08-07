@@ -407,6 +407,10 @@
 
     // ── Confirm modals (dynamic) ──
     'confirm.ok':          { en: 'Confirm', he: 'אישור' },
+    'confirm.rerunTitle':  { en: 'Reprocess the video?', he: 'לעבד את הסרטון מחדש?' },
+    'confirm.rerunBody':   { en: 'The video will be processed again with the current options. Caption edits, the hook and B-roll picks from this session will be discarded.', he: 'הסרטון יעובד מחדש עם האפשרויות הנוכחיות. עריכות הכתוביות, ההוק ובחירות הבי-רול מהעריכה הנוכחית יימחקו.' },
+    'confirm.rerunCredit': { en: 'This will use {n} more credit(s).', he: 'הפעולה תנצל עוד {n} קרדיטים.' },
+    'confirm.rerunOk':     { en: 'Reprocess', he: 'עיבוד מחדש' },
     'confirm.startTitle':  { en: 'Start over?', he: 'להתחיל מחדש?' },
     'confirm.startBody':   { en: 'This will clear the current video and all edits, and stop any job still running on the server. Downloaded files are safe.', he: 'הפעולה תנקה את הסרטון הנוכחי ואת כל העריכות, ותעצור כל עבודה שעדיין רצה בשרת. קבצים שהורדתם בטוחים.' },
     'confirm.startOk':     { en: 'Start over', he: 'התחלה מחדש' },

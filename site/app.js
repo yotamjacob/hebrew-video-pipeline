@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.17.2';
+  const APP_VERSION = '1.18.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -3004,13 +3004,29 @@
     }
   }
 
+  // Reprocess overwrites the whole editing session, so EVERYONE confirms -
+  // not just quota-charged users (admins used to jump straight in). One
+  // modal: the discard warning, plus the credit line when it applies.
+  async function _confirmRerun() {
+    const charged = quotaInfo && quotaInfo.role !== 'admin' &&
+                    quotaInfo.video_limit != null && quotaInfo.video_limit >= 0;
+    const cost = _creditCost();
+    const body = t('confirm.rerunBody')
+      + (charged ? ' ' + t('confirm.rerunCredit', { n: cost }) : '');
+    return showConfirmModal(t('confirm.rerunTitle'), body, t('confirm.rerunOk'));
+  }
+
   async function rerun() {
     if (!currentUploadKey || !selectedFile) return;
     if (_quotaExhausted()) {
       showQuotaExhausted();
       return;
     }
-    if (!(await _confirmQuotaUse())) return;
+    if (!(await _confirmRerun())) return;
+    // Kill in-flight background tools (auto B-roll / hook) - their detached
+    // poll loops would otherwise keep painting rows on the NEW run's
+    // checklist ("stuck on looking for B-roll", field report).
+    _cancelActiveTools();
 
     // Hide editor cards and reset to pre-caption state
     burnMode = false;
@@ -6015,8 +6031,27 @@
       ? t('err.aiBusy') : (msg || '');
   }
 
+  // ── Background-tool cancellation (reprocess) ──
+  // The auto B-roll / hook generators poll in detached async loops. A
+  // reprocess resets the editor AROUND them, so their checklist rows sat
+  // stuck on "searching…" forever (field report). Bumping the epoch makes
+  // every in-flight loop exit at its next tick without touching the fresh
+  // run's UI, and the spawned server jobs are cancelled to stop burning
+  // compute on results nobody will see.
+  let _toolsEpoch = 0;
+  let _brollCallId = null, _hookCallId = null;
+  function _cancelActiveTools() {
+    _toolsEpoch++;
+    hookGenAborted = true;   // the hook loop also checks this flag between polls
+    for (const id of [_brollCallId, _hookCallId]) {
+      if (id) apiFetch(`${API_BASE}/cancel/${id}/`, { keepalive: true }).catch(() => {});
+    }
+    _brollCallId = _hookCallId = null;
+  }
+
   async function triggerGenerateHook(opts = {}) {
     const background = !!opts.background;   // auto-run: no confirm, no pipeline lock
+    const myEpoch = _toolsEpoch;
     if (!videoKey || !captionsData.length) return;
     // Options already on screen → regenerating discards them (and any edits).
     // Confirm first so a stray tap doesn't wipe a hook the user was refining.
@@ -6058,10 +6093,11 @@
         throw new Error(errBody.error || `HTTP ${resp.status}`);
       }
       const { call_id } = await resp.json();
+      _hookCallId = call_id;
 
       let retries = 0;
       while (true) {
-        if (hookGenAborted) break;
+        if (hookGenAborted || myEpoch !== _toolsEpoch) break;
         try {
           const poll = await apiFetch(`${API_BASE}/generate-hook-poll/${call_id}/`);
           if (poll.status === 200) {
@@ -6080,19 +6116,23 @@
         }
       }
     } catch (e) {
-      if (!hookGenAborted) {
+      if (!hookGenAborted && myEpoch === _toolsEpoch) {
         _reportError('hook', e.message);
         errEl.textContent   = t('hook.failed', {msg: _friendlyGenError(e.message).slice(0, 120)});
         errEl.style.display = 'block';
       }
     } finally {
+      _hookCallId = null;
+      const cancelledByReset = myEpoch !== _toolsEpoch;
       if (!background) {
         unlockPipelineActions();
         btn.disabled       = false;
-      } else {
+      } else if (!cancelledByReset) {
+        // A reprocess already reset the checklist - marking the row done here
+        // would stamp the NEW run's pending row with a stale result.
         _stepDone('hook');
       }
-      status.style.display = 'none';
+      if (!cancelledByReset) status.style.display = 'none';
       hookGenAborted       = false;
     }
   }
@@ -6204,6 +6244,8 @@
 
   async function startStockBrollAnalysis(captionsOverride, opts = {}) {
     const background = !!opts.background;   // auto-run: no lock, no scroll, no editor freeze
+    const myEpoch = _toolsEpoch;
+    const _tCancelled = () => myEpoch !== _toolsEpoch;
     const captions = captionsOverride || captionsData;
     if (!captions.length) return;
 
@@ -6240,11 +6282,14 @@
         throw new Error(body.error || `Spawn failed: ${resp.status}`);
       }
       const { call_id } = await resp.json();
+      _brollCallId = call_id;
 
       let netRetries = 0;
       while (true) {
+        if (_tCancelled()) return;
         try {
           const pollResp = await apiFetch(`${API_BASE}/stock-broll-poll/${call_id}/`);
+          if (_tCancelled()) return;
           if (pollResp.status === 200) {
             const result = await pollResp.json();
             clearInterval(stockTimer);
@@ -6297,21 +6342,28 @@
       }
     } catch (e) {
       clearInterval(stockTimer);
+      if (_tCancelled()) return;   // a reprocess reset the UI - leave it alone
       console.error('Stock B-roll error:', e.message);
       _reportError('broll', e.message);
       status.style.display = 'none';
       list.innerHTML = `<p style="color:var(--red);font-size:0.85rem;padding:8px 0">${t('stock.failedRetry', {msg: _friendlyGenError(e.message).slice(0, 160)})} <button onclick="triggerStockBroll()" style="margin-left:8px;font-size:0.8rem;padding:3px 10px;border-radius:6px;border:1px solid var(--red);background:none;color:var(--red);cursor:pointer">${t('stock.retry')}</button></p>`;
     } finally {
+      clearInterval(stockTimer);
+      _brollCallId = null;
       bumpPending(-1);
-      if (!background) {
-        unlockPipelineActions();
-        // Restore caption editor and button
-        document.querySelectorAll('#captionsList .caption-input, #captionsList .caption-time-input, #captionsList .cap-btn').forEach(el => { el.disabled = false; });
-        _updateDeleteButtons();
-        findBrollBtn.textContent = t('stock.find');
-        findBrollBtn.disabled = false;
-      } else {
-        _stepDone('broll');
+      if (!_tCancelled()) {
+        if (!background) {
+          unlockPipelineActions();
+          // Restore caption editor and button
+          document.querySelectorAll('#captionsList .caption-input, #captionsList .caption-time-input, #captionsList .cap-btn').forEach(el => { el.disabled = false; });
+          _updateDeleteButtons();
+          findBrollBtn.textContent = t('stock.find');
+          findBrollBtn.disabled = false;
+        } else {
+          // A reprocess already reset the checklist - marking the row done
+          // would stamp the NEW run's pending row with a stale result.
+          _stepDone('broll');
+        }
       }
     }
   }

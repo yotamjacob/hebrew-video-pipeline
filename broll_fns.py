@@ -447,7 +447,10 @@ def analyze_stock_broll(captions_json: str, video_key: str = "",
                 "  strict_eval_prompt: \"person with frustrated or blocked expression — introspective, searching, unable to find words. DISQUALIFY: happy, relaxed, confident, or productive-looking person.\"\n"
                 "  confidence: \"high\"\n\n"
 
-                "Return ONLY a JSON array (any length) with these exact fields:\n"
+                "Return ONLY a JSON array with AT MOST 14 moments - when more qualify, keep the strongest "
+                "(highest intensity, most concrete). Long videos MUST NOT list every candidate: a response "
+                "that exceeds the output budget is truncated mid-JSON and the whole analysis is lost. "
+                "Each moment has these exact fields:\n"
                 "- \"moment_type\": \"concrete\" | \"emotional\" | \"hybrid\" | \"coverage\"\n"
                 "- \"intensity_score\": number 1–10, emotional/narrative charge of this moment\n"
                 "- \"intensity_markers\": array of specific Hebrew words/phrases from the transcript that signal intensity (empty array [] if none)\n"
@@ -470,7 +473,12 @@ def analyze_stock_broll(captions_json: str, video_key: str = "",
     def _call_sonnet_for_moments():
         r = client.messages.create(
             model=SONNET_MODEL,
-            max_tokens=5000,
+            # 8000 (was 5000): a LONG video can yield a dozen verbose moment
+            # objects (~250-400 tokens each) - at 5000 the array truncated
+            # mid-JSON, parse failed, and the user saw "no moments found"
+            # (field report: long video, empty B-roll). The prompt also caps
+            # the ask at 14 moments now; this is the belt to that suspender.
+            max_tokens=8000,
             thinking={"type": "disabled"},
             system=system_content,
             messages=[{
@@ -479,6 +487,7 @@ def analyze_stock_broll(captions_json: str, video_key: str = "",
             }]
         )
         raw = r.content[0].text.strip()
+        truncated = getattr(r, "stop_reason", None) == "max_tokens"
         if "```" in raw:
             for part in raw.split("```"):
                 part = part.strip().lstrip("json").strip()
@@ -493,6 +502,17 @@ def analyze_stock_broll(captions_json: str, video_key: str = "",
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError:
+            # A truncated array still holds complete leading objects - salvage
+            # them instead of throwing the whole analysis away.
+            cut = raw.rfind("}")
+            if cut > 0:
+                try:
+                    parsed = json.loads(raw[:cut + 1] + "]")
+                    print(f"[stock] salvaged {len(parsed)} moments from a "
+                          f"truncated response (stop_reason={'max_tokens' if truncated else '?'})")
+                    return parsed
+                except json.JSONDecodeError:
+                    pass
             print(f"[stock] JSON parse failed: {raw[:300]}")
             return None
         if not isinstance(parsed, list):
