@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.31.0';
+  const APP_VERSION = '1.32.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -15,14 +15,6 @@
     f.appendChild(v);
   });
 
-  // Footer WhatsApp links: prefill the chat with a language-appropriate opener
-  // so the user doesn't face an empty message box. Re-applied on language switch.
-  function _syncWaLink() {
-    document.querySelectorAll('.footer-whatsapp').forEach(a => {
-      a.href = 'https://wa.me/972528828232?text=' + encodeURIComponent(t('wa.prefill'));
-    });
-  }
-  _syncWaLink();
   // Google Sign-In OAuth Web client ID (PUBLIC - ships in the app + web page).
   // Used as the native plugin's serverClientId and the web GIS client_id; the
   // backend verifies the returned ID token against this same audience.
@@ -6754,7 +6746,7 @@
     if (ov) ov.style.display = 'none';
   }
   function copyContactEmail(btn) {
-    const email = 'yotamjacob@gmail.com';
+    const email = 'contact@hebrew-pipeline.app';
     const done = () => {
       if (!btn) return;
       const prev = btn.textContent;
@@ -8038,22 +8030,35 @@
     return (n / 3600).toFixed(1) + 'h';
   }
 
-  async function loadCosts() {
+  // Reopening the Admin tab re-fetches in the background but only redraws when
+  // the data actually changed - no loading flash over an already-rendered card.
+  let _costSig = null;
+  async function loadCosts(opts) {
+    const force   = !!(opts && opts.force);
     const loading = document.getElementById('costLoading');
     const errBox  = document.getElementById('costError');
     const empty   = document.getElementById('costEmpty');
     const body    = document.getElementById('costBody');
     if (!loading) return;
-    loading.style.display = '';
-    errBox.style.display = 'none';
-    empty.style.display = 'none';
-    body.style.display = 'none';
+    if (_costSig === null) {
+      loading.style.display = '';
+      errBox.style.display = 'none';
+      empty.style.display = 'none';
+      body.style.display = 'none';
+    }
+    const days = _costDays;
     try {
-      const resp = await apiFetch(`${API_BASE}/admin/costs?days=${_costDays}`);
+      const resp = await apiFetch(`${API_BASE}/admin/costs?days=${days}`);
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const c = await resp.json();
+      if (days !== _costDays) return;   // a newer range request superseded this one
+      const sig = `${days}:${JSON.stringify(c)}`;
+      if (!force && _costSig !== null && sig === _costSig) return;   // nothing new
+      _costSig = sig;
       loading.style.display = 'none';
-      if (!c.videos) { empty.style.display = 'block'; return; }
+      errBox.style.display = 'none';
+      if (!c.videos) { body.style.display = 'none'; empty.style.display = 'block'; return; }
+      empty.style.display = 'none';
       document.getElementById('costPerVideo').textContent = '$' + (c.usd_per_video || 0).toFixed(3);
       document.getElementById('costVideos').textContent   = c.videos;
       document.getElementById('costTotal').textContent    = '$' + (c.usd || 0).toFixed(2);
@@ -8074,8 +8079,10 @@
       body.style.display = 'block';
     } catch (e) {
       loading.style.display = 'none';
-      errBox.textContent = t('admin.loadFailed');
-      errBox.style.display = 'block';
+      if (_costSig === null) {
+        errBox.textContent = t('admin.loadFailed');
+        errBox.style.display = 'block';
+      }
     }
   }
 
@@ -8088,24 +8095,35 @@
     loadCosts();
   });
 
-  async function loadAdmin() {
-    loadCosts();
+  let _adminSig = null;
+  async function loadAdmin(opts) {
+    const force = !!(opts && opts.force);
+    loadCosts(opts);
     const list = document.getElementById('adminList');
     const loading = document.getElementById('adminLoading');
     const errBox = document.getElementById('adminError');
-    loading.style.display = '';
-    errBox.style.display = 'none';
-    list.innerHTML = '';
+    if (_adminSig === null) {
+      loading.style.display = '';
+      errBox.style.display = 'none';
+      list.innerHTML = '';
+    }
     try {
       const resp = await apiFetch(`${API_BASE}/admin/users`);
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const { users } = await resp.json();
+      const sig = JSON.stringify(users);
+      if (!force && _adminSig !== null && sig === _adminSig) return;   // nothing new
+      _adminSig = sig;
       loading.style.display = 'none';
+      errBox.style.display = 'none';
+      list.innerHTML = '';
       users.forEach(u => list.appendChild(_adminRow(u)));
     } catch (e) {
       loading.style.display = 'none';
-      errBox.textContent = t('admin.loadFailed');
-      errBox.style.display = 'block';
+      if (_adminSig === null) {
+        errBox.textContent = t('admin.loadFailed');
+        errBox.style.display = 'block';
+      }
     }
   }
 
@@ -8222,24 +8240,39 @@
   }
 
   // ── History tab ──
-  async function loadHistory() {
+  // Reopening the tab renders instantly from the previous fetch and refetches
+  // in the BACKGROUND; the list is only rebuilt when the server data changed.
+  // A rebuild refetches every thumbnail (the media token rotates, so the URLs
+  // never browser-cache) and resets scroll - skipping it is the whole point.
+  let _historySig = null;
+  async function loadHistory(opts) {
+    const force   = !!(opts && opts.force);
     const list    = document.getElementById('historyList');
     const empty   = document.getElementById('historyEmpty');
     const loading = document.getElementById('historyLoading');
-    loading.style.display = '';
-    empty.style.display   = 'none';
-    list.innerHTML = '';
+    if (_historySig === null) {
+      loading.style.display = '';
+      empty.style.display   = 'none';
+      list.innerHTML = '';
+    }
     try {
       const resp = await apiFetch(`${API_BASE}/jobs/`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const { jobs } = await resp.json();
+      const sig = JSON.stringify(jobs || []);
+      if (!force && _historySig !== null && sig === _historySig) return;   // nothing new
+      _historySig = sig;
       loading.style.display = 'none';
-      if (!jobs || !jobs.length) { empty.style.display = ''; return; }
+      list.innerHTML = '';
+      if (!jobs || !jobs.length) { empty.textContent = t('hist.empty'); empty.style.display = ''; return; }
+      empty.style.display = 'none';
       jobs.forEach(job => list.appendChild(_historyCard(job)));
     } catch (e) {
       loading.style.display = 'none';
-      empty.textContent = t('hist.loadError');
-      empty.style.display = '';
+      if (_historySig === null) {
+        empty.textContent = t('hist.loadError');
+        empty.style.display = '';
+      }
     }
   }
 
@@ -8329,6 +8362,9 @@
         // parks and resumes instead of failing the delete.
         const resp = await apiFetchRetry(`${API_BASE}/jobs/${job.key}/`, { method: 'DELETE' });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        // Keep the tab cache in step with the in-place removal, so the next
+        // tab open doesn't see a "changed" list and rebuild everything.
+        try { _historySig = JSON.stringify(JSON.parse(_historySig || '[]').filter(j => j.key !== job.key)); } catch (_) {}
         card.style.overflow = 'hidden';
         card.style.transition = 'opacity 0.18s, max-height 0.25s 0.1s, margin 0.25s 0.1s, padding 0.25s 0.1s';
         card.style.maxHeight = card.offsetHeight + 'px';
@@ -8781,7 +8817,6 @@
     if (burnMode && !runBtn.disabled) updateBurnBtn();
     // Auth buttons (both steps) re-label on language switch (flow-aware).
     _syncAuthSubmitLabel();
-    _syncWaLink();
     { const b = document.getElementById('authVerifyBtn'); if (b) b.textContent = t('auth.verify'); }
     { const c = document.getElementById('authCodeHint');
       if (c && _authEmail && document.getElementById('authStepCode').style.display !== 'none')
@@ -8798,7 +8833,9 @@
     if (authToken) {
       const av = document.getElementById('adminView');
       const hv = document.getElementById('historyView');
-      if (av && av.style.display !== 'none') loadAdmin();
-      if (hv && hv.style.display !== 'none') loadHistory();
+      // force: rows are built with t() at render time, so a language switch
+      // must redraw them even when the server data is unchanged.
+      if (av && av.style.display !== 'none') loadAdmin({ force: true });
+      if (hv && hv.style.display !== 'none') loadHistory({ force: true });
     }
   });
