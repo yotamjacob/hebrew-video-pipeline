@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.32.0';
+  const APP_VERSION = '1.32.1';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -6746,7 +6746,7 @@
     if (ov) ov.style.display = 'none';
   }
   function copyContactEmail(btn) {
-    const email = 'contact@hebrew-pipeline.app';
+    const email = 'yotamjacob@gmail.com';
     const done = () => {
       if (!btn) return;
       const prev = btn.textContent;

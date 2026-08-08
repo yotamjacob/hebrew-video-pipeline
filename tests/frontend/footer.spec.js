@@ -57,12 +57,11 @@ test('footer actions form one symmetric equal-size row', async ({ page }) => {
   expect(versionBox.y).toBeGreaterThan(boxes[0].y + boxes[0].height - 1);
 });
 
-test('contact points at the app address, not a personal mailbox', async ({ page }) => {
+test('contact action and modal agree on the contact address', async ({ page }) => {
   const contact = page.locator('p.footer:visible a[data-i18n="footer.contact"]').first();
-  await expect(contact).toHaveAttribute('href', 'mailto:contact@hebrew-pipeline.app');
+  await expect(contact).toHaveAttribute('href', 'mailto:yotamjacob@gmail.com');
 
   await page.evaluate(() => openContactModal());
-  await expect(page.locator('#contactMailBtn')).toHaveAttribute('href', 'mailto:contact@hebrew-pipeline.app');
-  await expect(page.locator('#contactMailBtn')).toContainText('contact@hebrew-pipeline.app');
-  await expect(page.locator('body')).not.toContainText('yotamjacob@gmail.com');
+  await expect(page.locator('#contactMailBtn')).toHaveAttribute('href', 'mailto:yotamjacob@gmail.com');
+  await expect(page.locator('#contactMailBtn')).toContainText('yotamjacob@gmail.com');
 });

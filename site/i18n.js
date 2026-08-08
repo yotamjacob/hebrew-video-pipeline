@@ -52,7 +52,7 @@
     'auth.verify':     { en: 'Sign in', he: 'התחברות' },
     'auth.resend':     { en: 'Resend code', he: 'שליחת קוד מחדש' },
     'auth.changeEmail':{ en: 'Use a different email', he: 'שימוש באימייל אחר' },
-    'auth.migrationNote': { en: 'We have a new look! Signing in now works with your email or Google - passwords are gone. If you can\'t get into your account, <a href="mailto:contact@hebrew-pipeline.app" onclick="openContactModal();return false;">contact us</a> and we\'ll help.', he: 'התחדשנו! ההתחברות עכשיו עם קוד למייל או עם Google - בלי סיסמאות. אם לא מצליחים להיכנס לחשבון, <a href="mailto:contact@hebrew-pipeline.app" onclick="openContactModal();return false;">צרו קשר</a> ונעזור.' },
+    'auth.migrationNote': { en: 'We have a new look! Signing in now works with your email or Google - passwords are gone. If you can\'t get into your account, <a href="mailto:yotamjacob@gmail.com" onclick="openContactModal();return false;">contact us</a> and we\'ll help.', he: 'התחדשנו! ההתחברות עכשיו עם קוד למייל או עם Google - בלי סיסמאות. אם לא מצליחים להיכנס לחשבון, <a href="mailto:yotamjacob@gmail.com" onclick="openContactModal();return false;">צרו קשר</a> ונעזור.' },
     'auth.existingUser': { en: 'I have an account', he: 'יש לי חשבון' },
     'auth.newUser':      { en: "I'm new here - create account", he: 'חדשים כאן? יצירת חשבון' },
     'auth.back':         { en: 'Back to sign-in options', he: 'חזרה לאפשרויות הכניסה' },
