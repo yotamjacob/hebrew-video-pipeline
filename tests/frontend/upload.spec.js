@@ -473,3 +473,51 @@ test('a recorded video flows into the normal selection path', async ({ page }, t
   await page.waitForSelector('#runBtn:not([disabled])', { timeout: 10_000 });
   await expect(page.locator('#fileName')).toHaveText('recorded.mp4');
 });
+
+test('cut-only done is not a dead end: options unlock and re-process is offered', async ({ page }) => {
+  let spawnCalls = 0;
+  page.on('request', r => {
+    if (r.method() === 'POST' && /\/process\/\?/.test(r.url()) && !r.url().includes('defer=true')) spawnCalls++;
+  });
+  await mockAllApis(page, { captions: [] });
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await expect(page.locator('#statusDone')).toBeVisible({ timeout: 10_000 });
+
+  // The tool toggles are editable again and a re-process CTA is present
+  // (previously everything stayed setup-locked with no way back in).
+  await expect(page.locator('#optionsCard')).not.toHaveClass(/setup-locked/);
+  await expect(page.locator('#reprocessBtn')).toBeVisible();
+
+  // Clicking it confirms and spawns a fresh run with the current toggles.
+  await page.click('#reprocessBtn');
+  await page.click('#confirmOk');
+  await expect.poll(() => spawnCalls, { timeout: 10_000 }).toBe(1);
+});
+
+test('the save stage renders as a live checklist row with a flow-aware label', async ({ page }) => {
+  await mockAllApis(page, { captions: [] });
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await expect(page.locator('#statusDone')).toBeVisible({ timeout: 10_000 });
+
+  // Re-drive the checklist the way the poll's progress payload does: the
+  // server now reports a real 'save' stage while publishing the result.
+  // Cut-only run (captions toggle OFF): the label is the download one.
+  await page.evaluate(() => {
+    document.getElementById('burnCaptions').checked = false;
+    _resetChecklist();
+    _applyProgress({ stage: 'save', done: {} });
+  });
+  await expect(page.locator('#checkSave')).toHaveClass(/active/);
+  await expect(page.locator('#checkSave .check-label')).toHaveAttribute('data-i18n', 'prog.saveDl');
+  // A captions run labels the same row as plain saving (user lands in the
+  // editor, not the download panel).
+  await page.evaluate(() => {
+    document.getElementById('burnCaptions').checked = true;
+    _resetChecklist();
+  });
+  await expect(page.locator('#checkSave .check-label')).toHaveAttribute('data-i18n', 'prog.save');
+});

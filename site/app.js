@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.36.0';
+  const APP_VERSION = '1.36.1';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -812,6 +812,7 @@
     enhance: document.getElementById('checkEnhance'),
     cut:     document.getElementById('checkCut'),
     upscale: document.getElementById('checkUpscale'),
+    save:    document.getElementById('checkSave'),
     broll:   document.getElementById('checkBroll'),
     hook:    document.getElementById('checkHook'),
     burn:    document.getElementById('checkBurn'),
@@ -822,6 +823,7 @@
     enhance: document.getElementById('checkEnhanceTime'),
     cut:     document.getElementById('checkCutTime'),
     upscale: document.getElementById('checkUpscaleTime'),
+    save:    document.getElementById('checkSaveTime'),
     broll:   document.getElementById('checkBrollTime'),
     hook:    document.getElementById('checkHookTime'),
     burn:    document.getElementById('checkBurnTime'),
@@ -5167,6 +5169,17 @@
       if (l) l.textContent = t('prog.upscale');
     }
     const _editorRun = _capsOn && !isAudioInput;
+    // The save row is always listed (every run publishes its result to the
+    // volume) - only its LABEL depends on where the user lands next: a
+    // terminal run (no editor) is literally preparing the download.
+    {
+      const sl = checkItems.save && checkItems.save.querySelector('.check-label');
+      if (sl) {
+        const key = _editorRun ? 'prog.save' : 'prog.saveDl';
+        sl.setAttribute('data-i18n', key);
+        sl.textContent = t(key);
+      }
+    }
     if (_editorRun && checkItems.finalize) checkItems.finalize.style.display = '';
     if (_editorRun && document.getElementById('autoBroll')?.checked && checkItems.broll)
       checkItems.broll.style.display = '';
@@ -5258,7 +5271,7 @@
   // duration; steps the backend never ran are hidden, never estimated.
   function _stepsDoneProcessing(stepTimes) {
     const st = stepTimes || {};
-    ['enhance', 'cut', 'upscale'].forEach(name => {
+    ['enhance', 'cut', 'upscale', 'save'].forEach(name => {
       const item = checkItems[name];
       if (!item) return;
       if (st[name] != null) _forceDone(name, Math.max(1, Math.round(st[name])));
@@ -5366,6 +5379,18 @@
         dsb.style.display = 'block';
       } else {
         dsb.style.display = 'none';
+      }
+    }
+    if (videoKey && !burnMode) {
+      // A cut-only result is not a dead end: the source is still on the
+      // server, so unlock the tool toggles and offer a re-process - the same
+      // affordance the editor flow has (field report: "can't reselect tools").
+      document.getElementById('optionsCard')?.classList.remove('setup-locked');
+      // selectedFile too: after a reload-resume the picked File is gone and
+      // rerun() couldn't start - don't show a dead button.
+      if (currentUploadKey && selectedFile) {
+        const rb = document.getElementById('reprocessBtn');
+        if (rb) rb.style.display = 'block';
       }
     }
     triggerDownload();

@@ -308,6 +308,8 @@
     'startOver':        { en: 'Edit new video', he: 'עריכת סרטון חדש' },
 
     // ── History ──
+    'prog.save':       { en: 'Saving video', he: 'שומר את הסרטון' },
+    'prog.saveDl':     { en: 'Preparing download', he: 'מכין את הקובץ להורדה' },
     'hist.title':      { en: 'Previous Videos', he: 'סרטונים קודמים' },
     'hist.note':       { en: 'Videos are kept here for 30 days, then deleted automatically. Download anything you want to keep - we do not store backups.', he: 'סרטונים נשמרים כאן ל-30 יום ואז נמחקים אוטומטית. הורידו כל מה שחשוב לכם לשמור - איננו שומרים גיבוי.' },
     'hist.loading':    { en: 'Loading…', he: 'טוען…' },

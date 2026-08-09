@@ -1189,6 +1189,12 @@ def process_video(
             out_file = enhanced
             _mark(done="upscale")
 
+        # Publishing the result is REAL time the user watches: copying a
+        # CRF-18 output onto the network volume + commit (+ record/prune for
+        # terminal results) can take a minute on long videos - without a stage
+        # of its own the checklist showed everything done while nothing
+        # happened (field report: cut-only "hangs" before the ready panel).
+        _mark(stage="save")
         import uuid
         video_key = key_prefix + uuid.uuid4().hex + ("_cut.m4a" if is_audio else "_cut.mp4")
         cut_path = Path(TMP_DIR) / video_key
@@ -1223,6 +1229,7 @@ def process_video(
                               kind="edit_ready", tag="hebpipe-job")
             except Exception:
                 pass
+        _mark(done="save")
         if upload_key is not None:
             try:
                 progress_store.pop(upload_key)
