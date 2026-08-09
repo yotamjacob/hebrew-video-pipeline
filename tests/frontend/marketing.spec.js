@@ -30,10 +30,39 @@ async function bootAdmin(page, state) {
     return route.fulfill({ status: 200, contentType: 'application/json',
                            body: JSON.stringify(state) });
   });
-  await page.click('#tabAdmin');
+  await page.click('#tabMarketing');
   await expect(page.locator('#mktBody')).toBeVisible();
   return posted;
 }
+
+test('the Marketing tab is admin-only, sits next to Admin, and opens its own view', async ({ page }) => {
+  await bootApp(page);   // regular user
+  await mockAllApis(page);
+  await expect(page.locator('#tabMarketing')).toBeHidden();
+});
+
+test('admins see the tab and the copy button exports a WhatsApp-pasteable status', async ({ page }) => {
+  await bootAdmin(page, {
+    counters: { installs: 12, activated: 5, paid: 1 },
+    tasks: { ot1: '1', d2: today() },
+  });
+  await expect(page.locator('#marketingView')).toBeVisible();
+  await expect(page.locator('#adminView')).toBeHidden();
+  // Capture what lands on the clipboard.
+  await page.evaluate(() => {
+    window.__copied = null;
+    navigator.clipboard.writeText = text => { window.__copied = text; return Promise.resolve(); };
+  });
+  await page.click('#mktCopyBtn');
+  const text = await page.evaluate(() => window.__copied);
+  expect(text).toContain('Installs: 12 | Activated: 5 | Paid: 1');
+  expect(text).toContain('One-time setup (Week 1):');
+  expect(text).toContain('[x] (A) Build the hero before/after reel');
+  expect(text).toContain('[x] (B) DM + onboard every new signup within 24h');
+  expect(text).toContain('[ ] (B) Scan groups for pain-signals');
+  expect(text).toContain('[ ] (A) Batch: produce 3-4 short clips');
+  await expect(page.locator('#mktCopyBtn')).toHaveText('Copied');
+});
 
 test('renders counters + three sections; stale daily/weekly stamps read as unchecked', async ({ page }) => {
   await bootAdmin(page, {
@@ -61,22 +90,23 @@ test('renders counters + three sections; stale daily/weekly stamps read as unche
 
 test('checking a daily task saves a today-stamp; unchecking removes it', async ({ page }) => {
   const posted = await bootAdmin(page, { counters: {}, tasks: {} });
-  // d1 is the 7th task (6 one-time before it)
-  const d1 = page.locator('.mkt-task input').nth(6);
-  await d1.check();
+  // d1 is the 7th task (6 one-time before it). Click the label row - on the
+  // mobile viewport the label subtree intercepts pointer events over the input.
+  const d1 = page.locator('.mkt-task').nth(6);
+  await d1.click();
   await expect.poll(() => posted.length, { timeout: 5000 }).toBe(1);
   expect(posted[0].tasks.d1).toBe(today());
-  await d1.uncheck();
+  await d1.click();
   await expect.poll(() => posted.length, { timeout: 5000 }).toBe(2);
   expect(posted[1].tasks.d1).toBeUndefined();
 });
 
 test('one-time tasks store "1"; weekly tasks store this Monday', async ({ page }) => {
   const posted = await bootAdmin(page, { counters: {}, tasks: {} });
-  await page.locator('.mkt-task input').first().check();       // ot1
+  await page.locator('.mkt-task').first().click();             // ot1
   await expect.poll(() => posted.length, { timeout: 5000 }).toBe(1);
   expect(posted[0].tasks.ot1).toBe('1');
-  await page.locator('.mkt-task input').nth(11).check();       // w1 (6 once + 5 daily)
+  await page.locator('.mkt-task').nth(11).click();             // w1 (6 once + 5 daily)
   await expect.poll(() => posted.length, { timeout: 5000 }).toBe(2);
   expect(posted[1].tasks.w1).toBe(monday());
 });

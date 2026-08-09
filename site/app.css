@@ -1848,7 +1848,14 @@
       border: 1px solid var(--purple-400); border-radius: 999px;
     }
 
-    /* ── Admin: marketing launch checklist ── */
+    /* ── Marketing tab: launch checklist ── */
+    .mkt-copy-btn {
+      font-size: 0.72rem; font-weight: 700; padding: 6px 12px; border-radius: 999px;
+      border: 1.5px solid var(--purple-300); background: var(--white); color: var(--purple-700);
+      cursor: pointer; flex-shrink: 0; font-family: inherit;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .mkt-copy-btn:hover { color: var(--purple-700); border-color: var(--purple-700); }
     .mkt-counters { display: flex; gap: 10px; margin-bottom: 6px; }
     .mkt-counter {
       flex: 1; display: flex; flex-direction: column; gap: 5px; align-items: center;

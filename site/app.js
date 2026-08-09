@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.33.0';
+  const APP_VERSION = '1.34.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -256,7 +256,7 @@
     if (mc) mc.style.display = 'none';
     const lo = document.getElementById('logoutTab');
     if (lo) lo.style.display = 'none';
-    ['pipelineView', 'historyView', 'guideView', 'adminView'].forEach(id => {
+    ['pipelineView', 'historyView', 'guideView', 'adminView', 'marketingView'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
@@ -389,10 +389,14 @@
     }
     const adminTab = document.getElementById('tabAdmin');
     if (adminTab) adminTab.style.display = quotaInfo.role === 'admin' ? '' : 'none';
-    // A saved Admin tab could only be restored once the role loaded.
-    if (_pendingTabRestore === 'admin' && quotaInfo.role === 'admin') {
+    const mktTab = document.getElementById('tabMarketing');
+    if (mktTab) mktTab.style.display = quotaInfo.role === 'admin' ? '' : 'none';
+    // A saved Admin/Marketing tab could only be restored once the role loaded.
+    if ((_pendingTabRestore === 'admin' || _pendingTabRestore === 'marketing')
+        && quotaInfo.role === 'admin') {
+      const tb = _pendingTabRestore;
       _pendingTabRestore = null;
-      switchTab('admin');
+      switchTab(tb);
     }
     const pill = document.getElementById('quotaPill');
     if (!pill) return;
@@ -7906,8 +7910,8 @@
   }
 
   function switchTab(which, keepGuideCtx) {
-    const views = { pipeline: 'pipelineView', history: 'historyView', guide: 'guideView', admin: 'adminView' };
-    const tabs  = { pipeline: 'tabPipeline',  history: 'tabHistory',  guide: 'tabGuide',  admin: 'tabAdmin' };
+    const views = { pipeline: 'pipelineView', history: 'historyView', guide: 'guideView', admin: 'adminView', marketing: 'marketingView' };
+    const tabs  = { pipeline: 'tabPipeline',  history: 'tabHistory',  guide: 'tabGuide',  admin: 'tabAdmin',  marketing: 'tabMarketing' };
     for (const k of Object.keys(views)) {
       document.getElementById(views[k]).style.display = (k === which) ? '' : 'none';
       document.getElementById(tabs[k]).classList.toggle('active', k === which);
@@ -7915,6 +7919,7 @@
     }
     if (which === 'history') loadHistory();
     if (which === 'admin') loadAdmin();
+    if (which === 'marketing') loadMarketing();
     // Any tab change that isn't an "i"-icon jump into the guide clears the
     // "back to where you were" context.
     if (!keepGuideCtx) {
@@ -7933,9 +7938,9 @@
     let saved = null;
     try { saved = localStorage.getItem('hebpipe_tab'); } catch (_) {}
     if (!saved || saved === 'pipeline') return;
-    if (saved === 'admin') {
-      if (quotaInfo && quotaInfo.role === 'admin') switchTab('admin');
-      else _pendingTabRestore = 'admin';
+    if (saved === 'admin' || saved === 'marketing') {
+      if (quotaInfo && quotaInfo.role === 'admin') switchTab(saved);
+      else _pendingTabRestore = saved;
       return;
     }
     if (saved === 'history' || saved === 'guide') switchTab(saved);
@@ -8253,6 +8258,37 @@
       });
     });
   }
+  // Plain-text status export for pasting into WhatsApp: counters + every
+  // task as "[x] / [ ]" with its owner tag, grouped by section.
+  function copyMarketingStatus(btn) {
+    if (!_mktState) return;
+    const c = _mktState.counters || {};
+    const lines = ['Marketing - Launch Month (' + _mktToday() + ')',
+                   'Installs: ' + (c.installs || 0) + ' | Activated: ' + (c.activated || 0)
+                   + ' | Paid: ' + (c.paid || 0)];
+    MKT_SECTIONS.forEach(sec => {
+      lines.push('', sec.title + ':');
+      MKT_TASKS.filter(tk => tk.sec === sec.key).forEach(tk =>
+        lines.push((_mktChecked(tk) ? '[x]' : '[ ]') + ' (' + tk.owner + ') ' + tk.text));
+    });
+    const text = lines.join('\n');
+    const done = () => {
+      if (!btn) return;
+      const prev = btn.textContent;
+      btn.textContent = 'Copied';
+      setTimeout(() => { btn.textContent = prev; }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => {});
+    } else {
+      // Fallback for browsers without the async clipboard API.
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); done(); } catch (_) {}
+      ta.remove();
+    }
+  }
   let _mktSaveTimer = null;
   function _mktSave() {
     // Debounced full-blob write; last write wins - fine for two people.
@@ -8275,7 +8311,6 @@
   async function loadAdmin(opts) {
     const force = !!(opts && opts.force);
     loadCosts(opts);
-    loadMarketing(opts);
     const list = document.getElementById('adminList');
     const loading = document.getElementById('adminLoading');
     const errBox = document.getElementById('adminError');
