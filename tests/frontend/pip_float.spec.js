@@ -124,10 +124,11 @@ test('any editor text edit hides the docked mini-player - hook fields included',
   await page.waitForFunction(() =>
     document.getElementById('captionPlayer').classList.contains('is-stuck'), { timeout: 3000 });
 
-  // A checkbox must NOT hide it (only text-entry fields count).
+  // A non-text control must NOT hide it (only text-entry fields count).
+  // Stays on the SAME tab: switching tabs reshapes the page and can undock
+  // via the scroll observers on slow CI runners - unrelated to this check.
   await page.evaluate(() => {
-    switchEditorTab('effects');
-    document.getElementById('capProgressBar').focus({ preventScroll: true });
+    document.getElementById('hookBgOpacity').focus({ preventScroll: true });
   });
   await page.waitForTimeout(300);
   expect(await page.evaluate(() =>
