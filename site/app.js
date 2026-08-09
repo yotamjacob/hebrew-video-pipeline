@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.40.0';
+  const APP_VERSION = '1.40.1';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -4775,7 +4775,11 @@
     const nameEl = document.getElementById('profileName');
     const name = (nameEl?.value || '').trim().slice(0, 40);
     if (!name) { nameEl?.focus(); return; }
-    _profiles = _profiles.filter(p => p.name !== name);   // same name = overwrite
+    if (_profiles.some(p => p.name === name)) {
+      celebrateToast(t('profile.nameExists', { name }), { kind: 'error' });
+      nameEl?.focus(); nameEl?.select();
+      return;
+    }
     _profiles.unshift({ name, data: _profileData() });
     _profiles = _profiles.slice(0, 6);
     _activeProfile = name;

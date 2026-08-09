@@ -107,6 +107,26 @@ test('starring sets the default; delete confirms and persists', async ({ page })
   await expect(page.locator('.profile-chip-name')).toHaveCount(0);
 });
 
+test('saving under an existing name errors instead of overwriting', async ({ page }) => {
+  const posted = [];
+  await bootApp(page);
+  await mockAllApis(page);
+  await mockProfiles(page, { profiles: [PROFILE], default: null }, posted);
+  await page.reload();
+
+  await page.click('#profileAdd');
+  await page.fill('#profileName', 'רק חיתוך');
+  await page.click('#profileSaveBtn');
+  await expect(page.locator('#celebrateToast')).toHaveClass(/error/);
+  await expect(page.locator('#celebrateToastText')).toContainText('רק חיתוך');
+  // Nothing POSTed, the existing profile is untouched, and the save row stays
+  // open so the user can pick a different name.
+  await page.waitForTimeout(600);   // past the 400ms debounced save
+  expect(posted).toHaveLength(0);
+  await expect(page.locator('.profile-chip-name')).toHaveCount(1);
+  await expect(page.locator('#profileSaveRow')).toBeVisible();
+});
+
 test('at the 6-profile cap the save affordance disappears and the hint explains', async ({ page }) => {
   const posted = [];
   const six = Array.from({ length: 6 }, (_, i) => ({ name: 'p' + i, data: { options: {} } }));
