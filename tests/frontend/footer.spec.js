@@ -59,9 +59,9 @@ test('footer actions form one symmetric equal-size row', async ({ page }) => {
 
 test('contact action and modal agree on the contact address', async ({ page }) => {
   const contact = page.locator('p.footer:visible a[data-i18n="footer.contact"]').first();
-  await expect(contact).toHaveAttribute('href', 'mailto:yotamjacob@gmail.com');
+  await expect(contact).toHaveAttribute('href', 'mailto:hebrewpipeline@gmail.com');
 
   await page.evaluate(() => openContactModal());
-  await expect(page.locator('#contactMailBtn')).toHaveAttribute('href', 'mailto:yotamjacob@gmail.com');
-  await expect(page.locator('#contactMailBtn')).toContainText('yotamjacob@gmail.com');
+  await expect(page.locator('#contactMailBtn')).toHaveAttribute('href', 'mailto:hebrewpipeline@gmail.com');
+  await expect(page.locator('#contactMailBtn')).toContainText('hebrewpipeline@gmail.com');
 });

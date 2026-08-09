@@ -213,3 +213,18 @@ test('a burst of killed polls (backgrounded WebView) does not fail the run', asy
   await expect(page.locator('.moment-card')).toHaveCount(2, { timeout: 30_000 });
   expect(polls).toBeGreaterThan(5);
 });
+
+test('B-roll search is budgeted: 3 uses per video, then the button disables', async ({ page }) => {
+  await runFullUpload(page);
+  await mockBroll(page, TWO_MOMENTS);
+  await page.click('#tabBtnBroll');
+  const btn = page.locator('#findBrollBtn');
+  await expect(btn).toContainText('3');
+  for (let i = 0; i < 3; i++) {
+    await btn.click();
+    await page.waitForSelector('.moment-card', { timeout: 8_000 });
+    await expect.poll(() => page.evaluate(() =>
+      document.getElementById('findBrollBtn').textContent)).toContain(String(2 - i));
+  }
+  await expect(btn).toBeDisabled();
+});

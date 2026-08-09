@@ -2760,17 +2760,24 @@ def api():
                 await send_error("No captions", 400)
                 return
             numbered = "\n".join(f"{i}: {t}" for i, t in enumerate(caps))
+            # Scarcity IS the feature (2026-08-09): a highlight only reads as
+            # emphasis when it is rare. GLOBAL ranked picks under a hard budget
+            # replaced the old per-line "0-2 each" ask, which lit weak words on
+            # every line and felt random. The route enforces the budget - the
+            # model only ranks.
+            budget = max(3, min(10, len(caps) // 3 or 1))
             prompt = (
-                "Below are numbered Hebrew caption lines from a talking video. "
-                "For EACH line pick the 0-2 most emphasis-worthy KEYWORD tokens - "
-                "numbers, names, brands, and emotionally or informationally "
-                "charged words. Prefer none over weak picks; function words are "
-                "never keywords.\n"
-                "Tokens are the whitespace-separated words of the line, indexed "
+                "Below are numbered Hebrew caption lines from one talking video. "
+                "Highlighting only works when it is RARE - pick the few most "
+                "valuable tokens across the WHOLE video: concrete numbers and "
+                "amounts, names and brands, and truly pivotal charged words. "
+                f"Pick AT MOST {budget} tokens total (fewer is better), never "
+                "more than 2 in one line; most lines must get none. Function "
+                "words, generic verbs and weak adjectives are never keywords.\n"
+                "Tokens are the whitespace-separated words of a line, indexed "
                 "from 0.\n"
-                "Return ONLY a JSON array with exactly one element per line, "
-                "each an array of token indices (possibly empty). Example for 3 "
-                "lines: [[2],[],[0,4]]\n\n" + numbered)
+                "Return ONLY a JSON array of [line, token] pairs ranked MOST "
+                "valuable first, e.g. [[4,2],[0,1]]. No other text.\n\n" + numbered)
             def _pick():
                 client = _anthropic_client()
                 # Sonnet (was Haiku): keyword quality IS the feature - weak
@@ -2794,14 +2801,30 @@ def api():
                 out = json.loads(raw)
                 if not isinstance(out, list):
                     raise ValueError("not a list")
-                # Normalize: one entry per line, valid in-range int indices only.
-                norm = []
-                for i in range(len(caps)):
-                    kw = out[i] if i < len(out) and isinstance(out[i], list) else []
-                    ntok = len(caps[i].split())
-                    norm.append(sorted({int(k) for k in kw
-                                        if isinstance(k, (int, float)) and 0 <= int(k) < ntok})[:3])
-                return norm
+                # Ranked [line, token] pairs → one per-line list per caption.
+                # The ROUTE guarantees the contract: total ≤ budget (rank
+                # order wins), ≤2 per line, in-range indices, no dupes.
+                norm = [[] for i in range(len(caps))]
+                total = 0
+                for pair in out:
+                    if total >= budget:
+                        break
+                    if not (isinstance(pair, list) and len(pair) == 2):
+                        continue
+                    ln, k = pair
+                    if not isinstance(ln, (int, float)) or not isinstance(k, (int, float)):
+                        continue
+                    ln = int(ln)
+                    if not 0 <= ln < len(caps):
+                        continue
+                    ntok = len(caps[ln].split())
+                    if not (0 <= int(k) < ntok):
+                        continue
+                    if int(k) in norm[ln] or len(norm[ln]) >= 2:
+                        continue
+                    norm[ln].append(int(k))
+                    total += 1
+                return [sorted(v) for v in norm]
             try:
                 keywords = await asyncio.to_thread(_pick)
             except Exception as e:

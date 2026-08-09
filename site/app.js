@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.36.2';
+  const APP_VERSION = '1.37.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -1256,6 +1256,11 @@
       if (row.dataset.kw) {
         try { cap.kw = JSON.parse(row.dataset.kw); } catch (_) {}
       }
+      return cap;
+    }).map((cap, i) => {
+      // Keywords the user tapped OFF in the Effects list never reach the burn.
+      if (Array.isArray(cap.kw) && cap.kw.length && typeof _kwOff !== 'undefined' && _kwOff.size)
+        cap.kw = cap.kw.filter(k => !_kwOff.has(i + ':' + k));
       return cap;
     });
   }
@@ -4067,6 +4072,7 @@
         if (caps[i]) caps[i].kw = kw || [];
       });
       _kwSignature = sig;
+      _kwOff.clear();   // fresh picks - previous tap-offs no longer apply
       _renderKwList();
       updatePreviewCaption();
     } catch (e) {
@@ -4085,18 +4091,39 @@
     const el = document.getElementById('kwList');
     if (!el) return;
     const on = !!document.getElementById('capKeywords')?.checked;
-    const words = [];
-    ((typeof captionsData !== 'undefined' && captionsData) || []).forEach(c => {
+    const picks = [];   // {key, word}
+    ((typeof captionsData !== 'undefined' && captionsData) || []).forEach((c, i) => {
       const toks = String(c.text || '').split(/\s+/).filter(Boolean);
-      (c.kw || []).forEach(k => { if (toks[k] != null) words.push(toks[k]); });
+      (c.kw || []).forEach(k => { if (toks[k] != null) picks.push({ key: i + ':' + k, word: toks[k] }); });
     });
-    if (!on || !words.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    if (!on || !picks.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
     el.style.display = 'flex';
-    el.innerHTML = words.map(w => '<span class="kw-chip">' + _escapeHtml(w) + '</span>').join('');
+    el.innerHTML = '';
+    picks.forEach(p => {
+      // Tappable, zoom-chip style: tap to drop a weak pick, tap to restore.
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'kw-chip zoom-chip' + (_kwOff.has(p.key) ? ' off' : '');
+      chip.textContent = p.word;
+      chip.title = t('style.kwChipTip');
+      chip.addEventListener('click', () => {
+        if (_kwOff.has(p.key)) _kwOff.delete(p.key); else _kwOff.add(p.key);
+        chip.classList.toggle('off', _kwOff.has(p.key));
+        updatePreviewCaption();
+      });
+      el.appendChild(chip);
+    });
   }
+  // Keywords the user tapped OFF (keys "capIndex:tokenIndex"). Session-scoped
+  // like the zoom exclusions; cleared whenever a fresh keyword fetch lands.
+  const _kwOff = new Set();
   function _kwIdxSet(cap) {
     if (!document.getElementById('capKeywords')?.checked) return null;
-    const kw = (cap.kw || []).map(Number).filter(n => isFinite(n));
+    let kw = (cap.kw || []).map(Number).filter(n => isFinite(n));
+    if (_kwOff.size && kw.length) {
+      const i = (typeof captionsData !== 'undefined' && captionsData) ? captionsData.indexOf(cap) : -1;
+      if (i >= 0) kw = kw.filter(k => !_kwOff.has(i + ':' + k));
+    }
     return kw.length ? new Set(kw) : null;
   }
   // Static keyword coloring for a classic-mode line (preview mirror of the
@@ -6985,7 +7012,7 @@
     if (ov) ov.style.display = 'none';
   }
   function copyContactEmail(btn) {
-    const email = 'yotamjacob@gmail.com';
+    const email = 'hebrewpipeline@gmail.com';
     const done = () => {
       if (!btn) return;
       const prev = btn.textContent;
@@ -7041,10 +7068,32 @@
     _brollCallId = _hookCallId = null;
   }
 
+  // ── AI-cost budget (2026-08-09) ───────────────────────────────────────────
+  // Each processed video gets GEN_LIMIT hook generations and GEN_LIMIT B-roll
+  // searches - these are the two priciest per-tap AI calls. The buttons show
+  // what's left in parentheses and disable at 0; budgets reset with every
+  // fresh editor (new process / re-process / History re-edit).
+  const GEN_LIMIT = 3;
+  let _hookGenLeft = GEN_LIMIT, _brollGenLeft = GEN_LIMIT;
+  function _resetGenBudgets() { _hookGenLeft = GEN_LIMIT; _brollGenLeft = GEN_LIMIT; }
+  function _syncGenButtons() {
+    const hb = document.getElementById('generateHookBtn');
+    if (hb) {
+      hb.textContent = t('hook.generate') + ' ' + t('gen.left', { n: _hookGenLeft });
+      if (_hookGenLeft <= 0) hb.disabled = true;
+    }
+    const fb = document.getElementById('findBrollBtn');
+    if (fb) {
+      fb.textContent = t('stock.find') + ' ' + t('gen.left', { n: _brollGenLeft });
+      if (_brollGenLeft <= 0) fb.disabled = true;
+    }
+  }
+
   async function triggerGenerateHook(opts = {}) {
     const background = !!opts.background;   // auto-run: no confirm, no pipeline lock
     const myEpoch = _toolsEpoch;
     if (!videoKey || !captionsData.length) return;
+    if (_hookGenLeft <= 0) { _syncGenButtons(); return; }
     // Options already on screen → regenerating discards them (and any edits).
     // Confirm first so a stray tap doesn't wipe a hook the user was refining.
     const optsEl = document.getElementById('hookOptions');
@@ -7086,6 +7135,7 @@
       }
       const { call_id } = await resp.json();
       _hookCallId = call_id;
+      _hookGenLeft = Math.max(0, _hookGenLeft - 1);   // a real spawn = one use
 
       const pollDeadline = Date.now() + 600_000;
       while (true) {
@@ -7121,9 +7171,10 @@
     } finally {
       _hookCallId = null;
       const cancelledByReset = myEpoch !== _toolsEpoch;
+      _syncGenButtons();   // reflect the spent use (and disable at 0)
       if (!background) {
         unlockPipelineActions();
-        btn.disabled       = false;
+        btn.disabled       = _hookGenLeft <= 0;
       } else if (!cancelledByReset) {
         // A reprocess already reset the checklist - marking the row done here
         // would stamp the NEW run's pending row with a stale result.
@@ -7245,6 +7296,7 @@
     const _tCancelled = () => myEpoch !== _toolsEpoch;
     const captions = captionsOverride || captionsData;
     if (!captions.length) return;
+    if (_brollGenLeft <= 0) { _syncGenButtons(); return; }
 
     const status = document.getElementById('stockBrollStatus');
     const list   = document.getElementById('stockBrollList');
@@ -7280,6 +7332,7 @@
       }
       const { call_id } = await resp.json();
       _brollCallId = call_id;
+      _brollGenLeft = Math.max(0, _brollGenLeft - 1);   // a real spawn = one use
 
       const pollDeadline = Date.now() + 900_000;
       while (true) {
@@ -7360,8 +7413,8 @@
           // Restore caption editor and button
           document.querySelectorAll('#captionsList .caption-input, #captionsList .caption-time-input, #captionsList .cap-btn').forEach(el => { el.disabled = false; });
           _updateDeleteButtons();
-          findBrollBtn.textContent = t('stock.find');
           findBrollBtn.disabled = false;
+          _syncGenButtons();   // restore the label WITH the remaining count
         } else {
           // A reprocess already reset the checklist - marking the row done
           // would stamp the NEW run's pending row with a stale result.
@@ -7941,11 +7994,13 @@
     const _au = document.getElementById('cutAudio'); if (_au) { _au.pause(); _au.removeAttribute('src'); _au.load(); }
     document.getElementById('editorTabs').style.display = 'flex';
     switchEditorTab('captions');
-    // Fresh video → clear any prior hooks and reset the button back to "Generate".
+    // Fresh video → clear any prior hooks, reset the AI budgets, and label
+    // the generator buttons with their remaining uses.
+    _resetGenBudgets();
     const ghb = document.getElementById('generateHookBtn');
     ghb.disabled = false;
-    ghb.setAttribute('data-i18n', 'hook.generate');
-    ghb.textContent = t('hook.generate');
+    ghb.removeAttribute('data-i18n');   // label is JS-owned (carries the count)
+    _syncGenButtons();
     const hookOpts = document.getElementById('hookOptions');
     hookOpts.innerHTML = '';
     hookOpts.style.display = 'none';
@@ -9075,6 +9130,7 @@
     if (ap && ap.checked) document.getElementById('autoPublishDesc').textContent = t('sched.apOn');
     const sb = document.getElementById('suggestCaptionBtn');
     if (sb) sb.textContent = t('sched.suggest');
+    _syncGenButtons();   // generator labels carry the remaining-uses count
     const upLbl = document.querySelector('#checkUpscale .check-label');
     if (upLbl) upLbl.textContent = _enhanceVideoMode() === 'esrgan' ? t('prog.upscale') : t('prog.enhanceVideo');
     updateQuotaUI();

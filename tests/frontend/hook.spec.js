@@ -209,3 +209,18 @@ test('burn sends the exact hook lines the preview wrapped (WYSIWYG)', async ({ p
   const words = s => s.split(/\s+/).filter(Boolean).join(' ');
   expect(words(burnBody.hook.lines.join(' '))).toBe(words(burnBody.hook.text));
 });
+
+test('hook generation is budgeted: 3 uses per video, label counts down, disables at 0', async ({ page }) => {
+  await runFullUpload(page);
+  await page.click('#tabBtnHook');
+  const btn = page.locator('#generateHookBtn');
+  await expect(btn).toContainText('3');   // fresh editor → (3 left)
+  for (let i = 0; i < 3; i++) {
+    await btn.click();
+    const ok = page.locator('#confirmOk');   // regen confirm from the 2nd run on
+    if (await ok.isVisible().catch(() => false)) await ok.click();
+    await page.waitForSelector('#hookOptions', { state: 'visible', timeout: 8_000 });
+    await expect(btn).toContainText(String(2 - i));
+  }
+  await expect(btn).toBeDisabled();
+});
