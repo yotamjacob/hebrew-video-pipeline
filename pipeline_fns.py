@@ -672,6 +672,41 @@ def _upscale_target(w: int, h: int, cap_short: int = 2160):
 ENHANCE_VIDEO_VF = "hqdn3d=1.5:1.5:6:6,unsharp=5:5:0.5:5:5:0.0,eq=contrast=1.02:saturation=1.05"
 
 
+# ── Hardware encode on the GPU worker (2026-08-09) ─────────────────────────
+# process_video already holds an L4 whose dedicated NVENC chip encodes H.264
+# ~5-10x faster than libx264 on CPU - and it was sitting idle during renders.
+# One cheap probe per container decides the encoder for all render paths in
+# process_video (render / no-cut re-encode / esrgan): NVENC when the ffmpeg
+# build + driver expose it, else the previous libx264 path unchanged. Quality:
+# -cq 19 -preset p5 -tune hq is visually equivalent to x264 veryfast CRF 18
+# (matters because the cut-only flow delivers this output directly, no burn
+# re-encode after it). burn_captions_fn runs on a CPU-only container and MUST
+# stay libx264. NVENC needs the "video" driver capability - the full ML image
+# sets NVIDIA_DRIVER_CAPABILITIES in pipeline_core.py.
+_NVENC_OK = None
+
+
+def _nvenc_available():
+    global _NVENC_OK
+    if _NVENC_OK is None:
+        r = subprocess.run(
+            ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=black:s=256x256:d=0.1",
+             "-c:v", "h264_nvenc", "-f", "null", "-"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        _NVENC_OK = r.returncode == 0
+        print(f"[render] h264_nvenc {'available' if _NVENC_OK else 'unavailable - using libx264'}")
+    return _NVENC_OK
+
+
+def _vcodec_args(crf=18):
+    """Video-encoder args for renders on the GPU worker: NVENC when present,
+    else libx264 (identical to the pre-2026-08-09 behavior)."""
+    if _nvenc_available():
+        return ["-c:v", "h264_nvenc", "-rc", "vbr", "-cq", str(crf + 1), "-b:v", "0",
+                "-preset", "p5", "-tune", "hq", "-profile:v", "high"]
+    return ["-c:v", "libx264", "-crf", str(crf), "-preset", "veryfast"]
+
+
 def render(video, audio, segs, ass_file, out, crf=18, rotation=0, extra_vf=""):
     v_parts, a_parts = [], []
     for i, s in enumerate(segs):
@@ -692,9 +727,9 @@ def render(video, audio, segs, ass_file, out, crf=18, rotation=0, extra_vf=""):
     meta_args  = ["-metadata:s:v:0", "rotate=0"] if rotation else []
     run(["ffmpeg", "-y"] + input_args + ["-i", str(video), "-i", str(audio),
          "-filter_complex", fc,
-         "-map", "[vout]", "-map", "[ac]",
-         "-c:v", "libx264", "-crf", str(crf), "-preset", "veryfast",
-         "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+         "-map", "[vout]", "-map", "[ac]"]
+        + _vcodec_args(crf) +
+        ["-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
          "-movflags", "+faststart"] + meta_args + [str(out)])
 
 
@@ -890,9 +925,9 @@ def process_video(
              "-map", "0:v", "-map", "1:a?",
              # cas: contrast-adaptive sharpen — the "smart sharpen" pop on the
              # final delivery frames, applied after the model + downscale
-             "-vf", "cas=0.4",
-             "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
-             "-pix_fmt", "yuv420p", "-c:a", "copy",
+             "-vf", "cas=0.4"]
+            + _vcodec_args(18) +
+            ["-pix_fmt", "yuv420p", "-c:a", "copy",
              "-movflags", "+faststart", str(video_out)],
             stdin=_sp.PIPE, stdout=_sp.DEVNULL, stderr=_sp.PIPE)
 
@@ -1223,8 +1258,8 @@ def process_video(
             input_args = ["-noautorotate"] if rotation else []
             meta_args  = ["-metadata:s:v:0", "rotate=0"] if rotation else []
             run(["ffmpeg", "-y"] + input_args + ["-i", str(src),
-                 "-vf", vf, "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
-                 "-pix_fmt", "yuv420p", "-c:a", "copy"] + meta_args +
+                 "-vf", vf] + _vcodec_args(18) +
+                ["-pix_fmt", "yuv420p", "-c:a", "copy"] + meta_args +
                 ["-movflags", "+faststart", str(out_file)])
             if _standalone_enh:
                 _mark(done="upscale")

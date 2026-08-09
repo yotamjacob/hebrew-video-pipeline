@@ -55,6 +55,10 @@ _YUNET_CMD = [
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg", "git", "libsndfile1", "fontconfig", "wget")
+    # "video" exposes libnvidia-encode in the container so ffmpeg's h264_nvenc
+    # (hardware encoder on the L4) works - the default capability set is
+    # compute+utility only. See _nvenc_available() in pipeline_fns.py.
+    .env({"NVIDIA_DRIVER_CAPABILITIES": "compute,utility,video"})
     # CUDA torch: needed by the Real-ESRGAN video-upscale pass (fp16 on the L4).
     # DeepFilterNet's Python layer also uses torch (CPU path, CUDA build is a
     # superset); Whisper is unaffected (CTranslate2 brings its own CUDA).

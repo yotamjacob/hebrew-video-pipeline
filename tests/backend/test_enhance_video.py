@@ -9,6 +9,9 @@ _ns = _build_ns()
 _captured = []
 _ns["run"] = lambda cmd: _captured.append(cmd)
 _ns["_rotation_vf"] = _extract_fn(MODAL_SRC, "_rotation_vf")["_rotation_vf"]
+# Encoder selection is probed at runtime (NVENC vs libx264) - pin the CPU path
+# here; test_render_encoder.py covers the selection itself.
+_ns["_vcodec_args"] = lambda crf=18: ["-c:v", "libx264", "-crf", str(crf), "-preset", "veryfast"]
 
 _render = _extract_fn(MODAL_SRC, "render", extra_ns=_ns)["render"]
 
