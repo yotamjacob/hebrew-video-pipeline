@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.40.1';
+  const APP_VERSION = '1.41.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -8545,6 +8545,16 @@
       setTimeout(() => sec.classList.remove('gsec-flash'), 1600);
     });
     try { history.replaceState(null, '', '#guide/' + key); } catch (_) {}
+  }
+
+  // The editor card's info-dot is context-aware: it opens the guide section
+  // for whichever editor tab is active (captions / hook / b-roll / effects).
+  function openGuideEditorSection() {
+    const key = document.getElementById('tabBtnHook')?.classList.contains('active') ? 'hook'
+              : document.getElementById('tabBtnBroll')?.classList.contains('active') ? 'broll'
+              : document.getElementById('tabBtnEffects')?.classList.contains('active') ? 'effects'
+              : 'captions';
+    openGuideSection(key, 'captionEditorCard');
   }
 
   function returnFromGuide() {

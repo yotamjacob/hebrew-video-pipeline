@@ -284,7 +284,7 @@
          (options toggles + caption look + effects + hook design). Synced
          per-account via /profiles; the starred one auto-applies at boot. -->
     <div class="profile-row" id="profileRow" style="display:none">
-      <span class="profile-row-label" data-i18n="profile.title">My profiles</span>
+      <span class="profile-row-label"><span data-i18n="profile.title">My profiles</span><button type="button" class="info-dot" onclick="openGuideSection('profiles','optionsCard')" data-i18n-title="guide.infoTip" aria-label="?"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="16" x2="12" y2="11"/><circle cx="12" cy="8" r="0.9" fill="currentColor" stroke="none"/></svg></button></span>
       <div id="profileChips" class="profile-chips"></div>
       <div id="profileSaveRow" style="display:none;gap:8px;margin-top:8px">
         <input id="profileName" type="text" maxlength="40" data-i18n-placeholder="profile.namePh" placeholder="Profile name"
@@ -415,7 +415,7 @@
        are always visible while scrolling the editors. ── -->
   <div class="card" id="captionEditorCard" style="display:none">
     <div class="card-header" onclick="toggleCard('captionBody', this)">
-      <p class="options-title"><span data-i18n="editor.title">Video Editor</span><button type="button" class="info-dot" onclick="event.stopPropagation();openGuideSection('captions','captionEditorCard')" data-i18n-title="guide.infoTip" aria-label="?"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="16" x2="12" y2="11"/><circle cx="12" cy="8" r="0.9" fill="currentColor" stroke="none"/></svg></button></p>
+      <p class="options-title"><span data-i18n="editor.title">Video Editor</span><button type="button" class="info-dot" onclick="event.stopPropagation();openGuideEditorSection()" data-i18n-title="guide.infoTip" aria-label="?"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="16" x2="12" y2="11"/><circle cx="12" cy="8" r="0.9" fill="currentColor" stroke="none"/></svg></button></p>
       <i class="collapse-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></i>
     </div>
     <div id="captionBody" style="padding-top:16px">
@@ -1037,6 +1037,10 @@
         <button type="button" class="guide-sec-head" onclick="toggleGuideSec(this)" aria-expanded="false"><span class="guide-sec-title" data-i18n="guide.options.title"></span><i class="collapse-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></i></button>
         <div class="guide-sec-body"><img class="guide-shot" src="/guide/options.png" alt="" loading="lazy" /><div class="guide-sec-text" data-i18n="guide.options.body"></div></div>
       </div>
+      <div class="guide-sec" id="gsec-profiles" data-gkey="profiles">
+        <button type="button" class="guide-sec-head" onclick="toggleGuideSec(this)" aria-expanded="false"><span class="guide-sec-title" data-i18n="guide.profiles.title"></span><i class="collapse-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></i></button>
+        <div class="guide-sec-body"><div class="guide-sec-text" data-i18n="guide.profiles.body"></div></div>
+      </div>
       <div class="guide-sec" id="gsec-captions" data-gkey="captions">
         <button type="button" class="guide-sec-head" onclick="toggleGuideSec(this)" aria-expanded="false"><span class="guide-sec-title" data-i18n="guide.captions.title"></span><i class="collapse-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></i></button>
         <div class="guide-sec-body"><img class="guide-shot" src="/guide/captions.png" alt="" loading="lazy" /><div class="guide-sec-text" data-i18n="guide.captions.body"></div></div>
@@ -1048,6 +1052,10 @@
       <div class="guide-sec" id="gsec-broll" data-gkey="broll">
         <button type="button" class="guide-sec-head" onclick="toggleGuideSec(this)" aria-expanded="false"><span class="guide-sec-title" data-i18n="guide.broll.title"></span><i class="collapse-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></i></button>
         <div class="guide-sec-body"><img class="guide-shot" src="/guide/broll.png" alt="" loading="lazy" /><div class="guide-sec-text" data-i18n="guide.broll.body"></div></div>
+      </div>
+      <div class="guide-sec" id="gsec-effects" data-gkey="effects">
+        <button type="button" class="guide-sec-head" onclick="toggleGuideSec(this)" aria-expanded="false"><span class="guide-sec-title" data-i18n="guide.effects.title"></span><i class="collapse-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></i></button>
+        <div class="guide-sec-body"><div class="guide-sec-text" data-i18n="guide.effects.body"></div></div>
       </div>
       <div class="guide-sec" id="gsec-burn" data-gkey="burn">
         <button type="button" class="guide-sec-head" onclick="toggleGuideSec(this)" aria-expanded="false"><span class="guide-sec-title" data-i18n="guide.burn.title"></span><i class="collapse-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></i></button>

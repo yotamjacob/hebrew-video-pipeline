@@ -1912,8 +1912,9 @@
       padding: 10px 12px; margin-bottom: 14px; background: var(--white);
     }
     .profile-row-label {
-      display: block; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em;
-      text-transform: uppercase; color: var(--purple-500); margin-bottom: 8px;
+      display: flex; align-items: center; font-size: 0.72rem; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase; color: var(--purple-500);
+      margin-bottom: 8px;
     }
     .profile-chips { display: flex; flex-wrap: wrap; gap: 8px; }
     .profile-chip {
