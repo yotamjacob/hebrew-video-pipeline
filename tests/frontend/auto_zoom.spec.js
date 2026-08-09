@@ -20,9 +20,9 @@ test('window heuristic: sentence starts, spaced, clamped durations', async ({ pa
     { start: 2.2,  end: 4.0 },    // continuous + too close → skipped
     { start: 9.0,  end: 11.0 },   // pause before it, but only 8.5s since last → skipped
     { start: 20.0, end: 20.4 },   // pause + 19.5s gap → window (short cap → 1.0s floor)
-    { start: 40.0, end: 49.0 },   // → window, duration clamped to 2.6s max
+    { start: 40.0, end: 49.0 },   // → window, holds for the caption, 6s safety cap
   ]));
-  expect(wins).toEqual([[0.5, 2.0], [20.0, 21.0], [40.0, 42.6]]);
+  expect(wins).toEqual([[0.5, 2.0], [20.0, 21.0], [40.0, 46.0]]);
   // start-to-start spacing is at least 15s everywhere
   for (let i = 1; i < wins.length; i++) expect(wins[i][0] - wins[i - 1][0]).toBeGreaterThanOrEqual(15);
 });

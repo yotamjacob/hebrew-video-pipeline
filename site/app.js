@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.36.1';
+  const APP_VERSION = '1.36.2';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -4124,7 +4124,10 @@
   // start after a real speech pause (sentence starts), at most one per
   // ZOOM_MIN_GAP seconds (≤4/min), snap in and out (the trendy cut, not a
   // smooth ramp).
-  const ZOOM_MIN_GAP = 15, ZOOM_MIN_DUR = 1.0, ZOOM_MAX_DUR = 2.6;
+  // The punch holds for the WHOLE caption it lands on (user request,
+  // 2026-08-09): zoom in with the sentence, ease back out when it ends.
+  // MAX_DUR is only a safety cap for unusually long lines.
+  const ZOOM_MIN_GAP = 15, ZOOM_MIN_DUR = 1.0, ZOOM_MAX_DUR = 6.0;
   // Factors raised 2026-08-09 (the old 1.06-1.16 read as "nothing happened"
   // even on strong - field report). Keep in sync with _zoom_filters
   // (pipeline_fns.py). ZOOM_FOCUS_Y biases the punch toward the FACE: crop /
