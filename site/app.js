@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.39.1';
+  const APP_VERSION = '1.39.2';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -4747,16 +4747,26 @@
       chip.append(name, star, del);
       box.appendChild(chip);
     });
-    const add = document.createElement('button');
-    add.type = 'button';
-    add.className = 'profile-chip-add';
-    add.id = 'profileAdd';
-    add.textContent = '+ ' + t('profile.save');
-    add.addEventListener('click', () => {
+    if (_profiles.length < 6) {
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'profile-chip-add';
+      add.id = 'profileAdd';
+      add.textContent = '+ ' + t('profile.save');
+      add.addEventListener('click', () => {
+        const sr = document.getElementById('profileSaveRow');
+        if (sr) { sr.style.display = 'flex'; document.getElementById('profileName')?.focus(); }
+      });
+      box.appendChild(add);
+    } else {
+      // At the cap the save affordance disappears entirely - the hint says why.
+      const hint = document.createElement('p');
+      hint.className = 'profile-hint';
+      hint.textContent = t('profile.maxHint');
+      box.appendChild(hint);
       const sr = document.getElementById('profileSaveRow');
-      if (sr) { sr.style.display = 'flex'; document.getElementById('profileName')?.focus(); }
-    });
-    box.appendChild(add);
+      if (sr) sr.style.display = 'none';
+    }
   }
   document.getElementById('profileSaveBtn')?.addEventListener('click', () => {
     const nameEl = document.getElementById('profileName');

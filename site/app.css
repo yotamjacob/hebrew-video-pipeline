@@ -1935,7 +1935,14 @@
       background: none; cursor: pointer; font: inherit; font-size: 0.82rem;
       font-weight: 600; color: var(--purple-500); padding: 6px 12px;
     }
-    #profileSaveRow { display: flex; }
+    #profileSaveRow { display: flex; align-items: center; }
+    .profile-save-btn {
+      flex-shrink: 0; padding: 8px 18px; border-radius: 9px;
+      border: 1.5px solid var(--purple-400); background: none; color: var(--purple-700);
+      font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer;
+    }
+    .profile-save-btn:hover { background: var(--purple-50); }
+    .profile-hint { flex-basis: 100%; font-size: 0.72rem; color: var(--muted); margin: 2px 2px 0; }
 
     /* ── Schedule card ── */
     .sched-intro { font-size: 0.82rem; color: var(--muted); line-height: 1.5; margin-bottom: 16px; }

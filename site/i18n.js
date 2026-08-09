@@ -224,6 +224,7 @@
     'profile.applied': { en: 'Profile "{name}" applied', he: 'הפרופיל "{name}" הוחל' },
     'profile.saved':   { en: 'Profile "{name}" saved', he: 'הפרופיל "{name}" נשמר' },
     'profile.deleteTitle': { en: 'Delete this profile?', he: 'למחוק את הפרופיל?' },
+    'profile.maxHint': { en: 'Profile limit reached (6) - delete one to save a new setup', he: 'הגעתם למקסימום פרופילים (6) - מחקו פרופיל קיים כדי לשמור חדש' },
     'profile.defaultTip': { en: 'Default profile - applied automatically when the app opens', he: 'פרופיל ברירת מחדל - מוחל אוטומטית בפתיחת האפליקציה' },
     'cost.allPerVideo': { en: 'True cost per video (compute + AI)', he: 'עלות אמיתית לסרטון (עיבוד + AI)' },
     'cost.aiTotal':    { en: 'AI tokens', he: 'טוקנים של AI' },

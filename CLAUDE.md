@@ -103,3 +103,4 @@ HAIKU_MODEL  = "claude-haiku-4-5-20251001"   # stock clip frame scoring
 - Frontend tests MUST stub every boot/error side-call (see `docs/frontend.md`) — unmocked calls 401 against the real API and flake the suite.
 - Run `python -m pytest test_stock_helpers.py tests/backend/` before deploying backend changes; `npx playwright test` after `site/` changes (or the affected specs during a fix batch, full suite at the end).
 - No em dashes in user-facing copy (EN or HE) — use regular dashes.
+- **UI layout rule (user directive, 2026-08-09):** every new or changed control layout must be symmetrical or clearly UX-motivated — no stretched full-width buttons/controls where a compact one belongs, no half-empty grid cells, reuse the shared components (`.design-field` rows, color swatches, chip patterns). Screenshot-verify layout changes before shipping (see `docs/frontend.md`).

@@ -106,3 +106,34 @@ test('starring sets the default; delete confirms and persists', async ({ page })
   expect(posted[1].default).toBe(null);
   await expect(page.locator('.profile-chip-name')).toHaveCount(0);
 });
+
+test('at the 6-profile cap the save affordance disappears and the hint explains', async ({ page }) => {
+  const posted = [];
+  const six = Array.from({ length: 6 }, (_, i) => ({ name: 'p' + i, data: { options: {} } }));
+  await bootApp(page);
+  await mockAllApis(page);
+  await mockProfiles(page, { profiles: six, default: null }, posted);
+  await page.reload();
+  await expect(page.locator('.profile-chip-name')).toHaveCount(6);
+  await expect(page.locator('#profileAdd')).toHaveCount(0);
+  await expect(page.locator('.profile-hint')).toBeVisible();
+  // Deleting one brings the + chip back.
+  await page.locator('.profile-chip-del').first().click();
+  await page.click('#confirmOk');
+  await expect(page.locator('#profileAdd')).toBeVisible();
+  await expect(page.locator('.profile-hint')).toHaveCount(0);
+});
+
+test('the save row is a compact input + small button, not a stretched CTA', async ({ page }) => {
+  await bootApp(page);
+  await mockAllApis(page);
+  await page.route(/\/profiles\/?(\?.*)?$/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"profiles":[],"default":null}' }));
+  await page.reload();
+  await page.click('#profileAdd');
+  const input = await page.locator('#profileName').boundingBox();
+  const btn = await page.locator('#profileSaveBtn').boundingBox();
+  // The text field gets the width; the button stays compact beside it.
+  expect(input.width).toBeGreaterThan(btn.width * 1.5);
+  expect(btn.width).toBeLessThan(140);
+});
