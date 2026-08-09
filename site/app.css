@@ -1803,6 +1803,25 @@
     .caption-time-input[data-seek]:hover { border-color: var(--purple-400); }
     .caption-time-input.time-invalid { border-color: var(--red) !important; background: #F5E7DC; }
     .caption-time-input.time-invalid:focus { border-color: #dc2626 !important; }
+    /* Shared design fields (2026-08-09): the caption AND hook design cards
+       use the SAME compact row component - label at the start, control
+       pinned at the end. The old stacked column labels left each grid cell
+       mostly empty once the color swatches went compact. */
+    .design-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; margin-bottom: 12px; }
+    .design-field {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 0.8rem; color: var(--muted); min-height: 34px; min-width: 0;
+    }
+    .design-field > :last-child { margin-inline-start: auto; }
+    .design-field.wide { grid-column: 1 / -1; }
+    .design-field input[type="range"] { flex: 1; min-width: 60px; }
+    .design-field select, .design-field input[type="number"] {
+      height: 32px; border-radius: 8px; border: 1.5px solid var(--purple-200);
+      background: var(--white); color: var(--text); font: inherit; font-size: 0.82rem;
+      padding: 0 8px; cursor: pointer; max-width: 60%;
+    }
+    .design-field .color-swatch-btn { align-self: center; }
+
     .caption-controls {
       display: flex; align-items: center; gap: 10px; margin-bottom: 4px;
     }

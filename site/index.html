@@ -484,18 +484,17 @@
           <i class="collapse-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></i>
         </button>
         <div id="capDesignBody" style="display:none;padding-top:10px">
-        <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px;margin-bottom:10px">
+        <label class="design-field" style="margin-bottom:6px">
           <span data-i18n="style.mode">Caption style</span>
-          <select id="capStyleMode" style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);background:var(--white);color:var(--text);padding:0 10px;font:inherit;cursor:pointer;width:100%">
+          <select id="capStyleMode">
             <option value="classic" data-i18n="style.modeClassic">Classic lines</option>
             <option value="word" data-i18n="style.modeWord">One word at a time</option>
             <option value="karaoke" data-i18n="style.modeKaraoke">Karaoke highlight</option>
           </select>
         </label>
-        <label id="capHighlightRow" style="font-size:0.8rem;color:var(--muted);display:none;flex-direction:column;gap:4px;margin-bottom:10px">
+        <label id="capHighlightRow" class="design-field" style="display:none;margin-bottom:6px">
           <span data-i18n="style.highlightColor">Highlight color</span>
-          <input type="color" id="capHighlightColor" value="#FFD400"
-            style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
+          <input type="color" id="capHighlightColor" value="#FFD400">
         </label>
       <div class="caption-controls">
         <label class="ctrl-label" for="fontSelect" data-i18n="capedit.font">Font</label>
@@ -541,31 +540,28 @@
            background box. Flows through build_caption_ass for WYSIWYG burns. -->
       <!-- One-tap style presets: each chip is a full caption_style payload
            (+ font) applied through the same controls users can then tweak. -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-        <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+      <div class="design-grid">
+        <label class="design-field">
           <span data-i18n="hook.textColor">Text color</span>
-          <input type="color" id="capFontColor" value="#FFFFFF"
-            style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
+          <input type="color" id="capFontColor" value="#FFFFFF">
         </label>
-        <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+        <label class="design-field">
+          <span data-i18n="hook.bgColor">Background color</span>
+          <input type="color" id="capBgColor" value="#000000">
+        </label>
+        <label class="design-field">
           <span data-i18n="hook.borderColor">Border color</span>
-          <input type="color" id="capBorderColor" value="#000000"
-            style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
+          <input type="color" id="capBorderColor" value="#000000">
         </label>
-        <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+        <label class="design-field">
           <span><span data-i18n="hook.borderSize">Border size:</span> <span id="capBorderSizeVal">2px</span></span>
           <input type="range" id="capBorderSize" min="0" max="8" value="2" step="1"
-            oninput="document.getElementById('capBorderSizeVal').textContent=this.value+'px'" style="width:100%;margin-top:4px">
+            oninput="document.getElementById('capBorderSizeVal').textContent=this.value+'px'">
         </label>
-        <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
-          <span data-i18n="hook.bgColor">Background color</span>
-          <input type="color" id="capBgColor" value="#000000"
-            style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
-        </label>
-        <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px;grid-column:1/-1">
+        <label class="design-field wide">
           <span><span data-i18n="hook.bgOpacity">Background opacity:</span> <span id="capBgOpacityVal">0%</span></span>
           <input type="range" id="capBgOpacity" min="0" max="100" value="0"
-            oninput="document.getElementById('capBgOpacityVal').textContent=this.value+'%'" style="width:100%;margin-top:4px">
+            oninput="document.getElementById('capBgOpacityVal').textContent=this.value+'%'">
         </label>
       </div>
 
@@ -612,47 +608,22 @@
              line wrap (_hookLines) on it; the visible hook preview lives on the
              main player above. -->
         <canvas id="hookPreviewCanvas" width="270" height="480" style="display:none"></canvas>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-          <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+        <div class="design-grid">
+          <label class="design-field">
             <span data-i18n="hook.font">Font</span>
-            <select id="hookFont" style="padding:6px 8px;border-radius:8px;border:1.5px solid var(--purple-200);font-size:0.85rem">
+            <select id="hookFont">
               <option value="Heebo">Heebo</option>
               <option value="Assistant">Assistant</option>
               <option value="FrankRuhlLibre">Frank Ruhl Libre</option>
               <option value="SecularOne">Secular One</option>
             </select>
           </label>
-          <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
-            <span data-i18n="hook.textColor">Text color</span>
-            <input type="color" id="hookFontColor" value="#FFFFFF"
-              style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
-          </label>
-          <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
-            <span data-i18n="hook.bgColor">Background color</span>
-            <input type="color" id="hookBgColor" value="#000000"
-              style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
-          </label>
-          <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
-            <span><span data-i18n="hook.bgOpacity">Background opacity:</span> <span id="hookBgOpacityVal">60%</span></span>
-            <input type="range" id="hookBgOpacity" min="0" max="100" value="60"
-              oninput="document.getElementById('hookBgOpacityVal').textContent=this.value+'%'" style="width:100%;margin-top:4px">
-          </label>
-          <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
-            <span data-i18n="hook.borderColor">Border color</span>
-            <input type="color" id="hookBorderColor" value="#000000"
-              style="height:36px;border-radius:8px;border:1.5px solid var(--purple-200);cursor:pointer;padding:2px 4px;width:100%">
-          </label>
-          <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
-            <span><span data-i18n="hook.borderSize">Border size:</span> <span id="hookBorderSizeVal">0px</span></span>
-            <input type="range" id="hookBorderSize" min="0" max="12" value="0" step="1"
-              oninput="document.getElementById('hookBorderSizeVal').textContent=this.value+'px'" style="width:100%;margin-top:4px">
-          </label>
-          <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px;grid-column:1/-1">
+          <label class="design-field">
             <span data-i18n="hook.textSize">Text size:</span>
             <!-- Values are % of the base hook size (kept for saved templates);
                  labels are relabeled to real burn px once the video's
                  dimensions are known (_syncHookSizeLabels). -->
-            <select id="hookFontSize" style="padding:6px 8px;border-radius:8px;border:1.5px solid var(--purple-200);font-size:0.85rem">
+            <select id="hookFontSize">
               <option value="50">50%</option>
               <option value="60">60%</option>
               <option value="70">70%</option>
@@ -666,27 +637,43 @@
               <option value="200">200%</option>
             </select>
           </label>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-          <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+          <label class="design-field">
+            <span data-i18n="hook.textColor">Text color</span>
+            <input type="color" id="hookFontColor" value="#FFFFFF">
+          </label>
+          <label class="design-field">
+            <span data-i18n="hook.bgColor">Background color</span>
+            <input type="color" id="hookBgColor" value="#000000">
+          </label>
+          <label class="design-field">
+            <span data-i18n="hook.borderColor">Border color</span>
+            <input type="color" id="hookBorderColor" value="#000000">
+          </label>
+          <label class="design-field">
+            <span><span data-i18n="hook.borderSize">Border size:</span> <span id="hookBorderSizeVal">0px</span></span>
+            <input type="range" id="hookBorderSize" min="0" max="12" value="0" step="1"
+              oninput="document.getElementById('hookBorderSizeVal').textContent=this.value+'px'">
+          </label>
+          <label class="design-field wide">
+            <span><span data-i18n="hook.bgOpacity">Background opacity:</span> <span id="hookBgOpacityVal">60%</span></span>
+            <input type="range" id="hookBgOpacity" min="0" max="100" value="60"
+              oninput="document.getElementById('hookBgOpacityVal').textContent=this.value+'%'">
+          </label>
+          <label class="design-field">
             <span data-i18n="hook.startSec">Start (seconds)</span>
-            <input type="number" id="hookStartSec" value="0" min="0" max="30" step="0.5"
-              style="padding:6px 8px;border-radius:8px;border:1.5px solid var(--purple-200);font-size:0.85rem">
+            <input type="number" id="hookStartSec" value="0" min="0" max="30" step="0.5" style="width:82px">
           </label>
-          <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+          <label class="design-field">
             <span data-i18n="hook.durationSec">Duration (seconds)</span>
-            <input type="number" id="hookDurationSec" value="3" min="1" max="10" step="0.5"
-              style="padding:6px 8px;border-radius:8px;border:1.5px solid var(--purple-200);font-size:0.85rem">
+            <input type="number" id="hookDurationSec" value="3" min="1" max="10" step="0.5" style="width:82px">
+          </label>
+          <label class="design-field wide">
+            <span data-i18n="hook.vpos">Vertical position</span>
+            <span style="font-size:0.75rem" data-i18n="hook.top">Top</span>
+            <input type="range" id="hookPosition" min="0" max="100" value="10">
+            <span style="font-size:0.75rem;margin-inline-start:0" data-i18n="hook.bottom">Bottom</span>
           </label>
         </div>
-        <label style="font-size:0.8rem;color:var(--muted);display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
-          <span data-i18n="hook.vpos">Vertical position</span>
-          <div style="display:flex;align-items:center;gap:10px">
-            <span style="font-size:0.75rem;color:var(--muted)" data-i18n="hook.top">Top</span>
-            <input type="range" id="hookPosition" min="0" max="100" value="10" style="flex:1">
-            <span style="font-size:0.75rem;color:var(--muted)" data-i18n="hook.bottom">Bottom</span>
-          </div>
-        </label>
         <div style="display:flex;gap:8px;align-items:center;justify-content:center;margin-bottom:12px;flex-wrap:wrap">
           <button type="button" id="hookStyleResetBtn" class="style-reset-btn btn-refresh-icon" onclick="resetHookStyle()" data-i18n="style.resetBtn">Restore default style</button>
           <button onclick="openHookTemplateModal()"
