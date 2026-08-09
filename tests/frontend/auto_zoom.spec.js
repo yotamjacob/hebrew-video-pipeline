@@ -154,3 +154,24 @@ test('moment list: each punch-in is a tappable chip; tapping one excludes it fro
   await expect.poll(() => page.evaluate(() =>
     document.getElementById('cutVideo').style.transform)).toBe('scale(1.18)');
 });
+
+test('the punch ramps in and out like a camera (eased factor, not a snap)', async ({ page }) => {
+  await runFullUpload(page);
+  await page.click('#tabBtnEffects');
+  await page.check('#fxAutoZoom');
+  const zAt = async (t) => page.evaluate(async (tt) => {
+    _syncZoomPreview(tt);
+    const tr = document.getElementById('cutVideo').style.transform;
+    return tr ? parseFloat(tr.slice(6)) : 1;
+  }, t);
+  // window is 0.5-2.3 (medium 1.18): early in the ramp the factor is partial
+  const early = await zAt(0.6);
+  expect(early).toBeGreaterThan(1);
+  expect(early).toBeLessThan(1.1);
+  // by mid-window the ramp has settled at the full factor
+  expect(await zAt(1.0)).toBe(1.18);
+  // and it eases back down near the end
+  const late = await zAt(2.25);
+  expect(late).toBeGreaterThan(1);
+  expect(late).toBeLessThan(1.1);
+});

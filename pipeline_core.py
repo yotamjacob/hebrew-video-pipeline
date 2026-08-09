@@ -43,6 +43,15 @@ _FONT_CMDS = [
     f"fc-cache -f {_FONT_DIR}",
 ]
 
+# YuNet face-detection ONNX (232 KB) for the punch-in zoom's face framing.
+# media.githubusercontent resolves opencv_zoo's Git-LFS pointer to the real
+# binary (raw.githubusercontent would fetch the pointer text file).
+_YUNET_CMD = [
+    "mkdir -p /usr/local/share/models",
+    'wget -q "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"'
+    " -O /usr/local/share/models/yunet.onnx",
+]
+
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg", "git", "libsndfile1", "fontconfig", "wget")
@@ -76,8 +85,9 @@ image = (
 burn_image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg", "fontconfig", "wget")
-    .pip_install("requests", "google-auth")   # google-auth: FCM "video ready" push
-    .run_commands(*_FONT_CMDS)
+    # opencv-headless: YuNet face detection for the punch-in zoom framing
+    .pip_install("requests", "google-auth", "opencv-python-headless")
+    .run_commands(*_FONT_CMDS, *_YUNET_CMD)
     .add_local_python_source(
         "pipeline_core", "pipeline_fns", "stock_helpers",
         "broll_fns", "content_fns", "metricool_fns",
@@ -91,10 +101,11 @@ light_image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg", "fontconfig", "wget")
     .pip_install("requests", "anthropic>=0.40.0", "fastapi", "python-multipart", "boto3",
-                 "google-auth")   # verify Google Sign-In ID tokens (/auth/google)
+                 "google-auth",              # verify Google Sign-In ID tokens (/auth/google)
+                 "opencv-python-headless")   # face-framed zoom in /preview_frame
     # Hebrew caption/hook fonts so /preview_frame renders the WYSIWYG editor
     # preview through libass with the SAME faces the burn uses (see _FONT_CMDS).
-    .run_commands(*_FONT_CMDS)
+    .run_commands(*_FONT_CMDS, *_YUNET_CMD)
     .add_local_python_source(
         "pipeline_core", "pipeline_fns", "stock_helpers",
         "broll_fns", "content_fns", "metricool_fns",
@@ -727,6 +738,44 @@ def _usage_since(quota_store, since_ts: float):
 COST_RETENTION_DAYS = 90
 GPU_USD_PER_SEC = 0.000222 + 0.00000222 * 4
 CPU_USD_PER_SEC = 0.0000131 * 2 + 0.00000222 * 4
+
+
+# YuNet face-detection model, baked into burn_image + light_image (see
+# _YUNET_CMD). OpenCV 5 removed the legacy Haar CascadeClassifier, so the
+# modern ONNX detector is the only (and better) option.
+_YUNET_MODEL_PATH = "/usr/local/share/models/yunet.onnx"
+
+
+def _face_center_from_image(img_path):
+    """Best-effort face center for the auto punch-in zoom, as (fx, fy)
+    fractions of the frame. YuNet (cv2.FaceDetectorYN, CPU, ~50ms on a
+    downscaled frame); the LARGEST face wins (the speaker in a talking-head
+    video). Returns None when no face is found, cv2 is missing, or the model
+    file is absent - callers fall back to the fixed upper-third framing
+    (0.5, 0.30). Fractions are clamped away from the edges so the crop
+    window never pins to a corner."""
+    try:
+        import cv2, os
+        model = os.environ.get("YUNET_MODEL", _YUNET_MODEL_PATH)
+        if not os.path.exists(model):
+            return None
+        img = cv2.imread(str(img_path))
+        if img is None:
+            return None
+        h, w = img.shape[:2]
+        scale = 480.0 / max(w, h) if max(w, h) > 480 else 1.0
+        small = cv2.resize(img, (max(1, int(w * scale)), max(1, int(h * scale)))) if scale < 1.0 else img
+        sh, sw = small.shape[:2]
+        det = cv2.FaceDetectorYN.create(model, "", (sw, sh), score_threshold=0.6)
+        _, faces = det.detect(small)
+        if faces is None or len(faces) == 0:
+            return None
+        x, y, fw, fh = max(faces, key=lambda f: float(f[2]) * float(f[3]))[:4]
+        fx = (x + fw / 2.0) / sw
+        fy = (y + fh / 2.0) / sh
+        return (min(0.9, max(0.1, float(fx))), min(0.85, max(0.1, float(fy))))
+    except Exception:
+        return None
 
 
 def _cost_summary(costs_store, since_ts: float):

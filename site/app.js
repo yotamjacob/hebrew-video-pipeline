@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.35.1';
+  const APP_VERSION = '1.36.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -4130,6 +4130,13 @@
   // mirrored by the server crop y=(ih-oh)*0.30 and /preview_frame.
   const ZOOM_FACTORS = { subtle: 1.10, medium: 1.18, strong: 1.28 };
   const ZOOM_FOCUS_Y = '50% 30%';
+  // Smooth camera ramp (2026-08-09): ease in/out with a smoothstep, mirroring
+  // _zoom_filters' zoompan expression - the same constants on both sides keep
+  // the CSS preview, the exact still (which receives the RAMPED factor at the
+  // paused t) and the burn moving in step. The burn additionally centers on
+  // the DETECTED face; the instant CSS preview keeps the fixed upper-third
+  // origin (no face detector in the browser) - the exact frame corrects it.
+  const ZOOM_RAMP_IN = 0.45, ZOOM_RAMP_OUT = 0.35;
   function _computeZoomWindows(caps) {
     const wins = [];
     let lastStart = -Infinity, prevEnd = null;
@@ -4195,8 +4202,13 @@
   function _zoomFactorAt(t) {
     const wins = _zoomWindows();
     for (const [s, e] of wins) {
-      if (t >= s && t <= e)
-        return ZOOM_FACTORS[document.getElementById('fxZoomStrength')?.value] || 1.10;
+      if (t >= s && t <= e) {
+        const F = ZOOM_FACTORS[document.getElementById('fxZoomStrength')?.value] || 1.18;
+        const ri = Math.min(ZOOM_RAMP_IN, (e - s) / 2), ro = Math.min(ZOOM_RAMP_OUT, (e - s) / 2);
+        const u = Math.max(0, Math.min(1, (t - s) / ri, (e - t) / ro));
+        const p = u * u * (3 - 2 * u);   // smoothstep
+        return 1 + (F - 1) * p;
+      }
     }
     return 1;
   }
@@ -4206,7 +4218,7 @@
     const vid = document.getElementById('cutVideo');
     if (!vid) return;
     const z = _zoomFactorAt(t != null ? t : (vid.currentTime || 0));
-    const tr = z > 1 ? 'scale(' + z + ')' : '';
+    const tr = z > 1.001 ? 'scale(' + (+z.toFixed(4)) + ')' : '';
     if (vid.style.transformOrigin !== ZOOM_FOCUS_Y) vid.style.transformOrigin = ZOOM_FOCUS_Y;
     if (vid.style.transform !== tr) vid.style.transform = tr;
   }

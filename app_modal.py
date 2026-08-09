@@ -19,6 +19,7 @@ from pipeline_core import (
     light_image,
     jobs_store, progress_store, users_store, calls_store, quota_store, purchases_store, fcm_store,
     pending_store, errors_store, _alert_admins, costs_store, _cost_summary,
+    _face_center_from_image,
     codes_store, _normalize_email, _gen_login_code,
     _verify_google_id_token, GOOGLE_WEB_CLIENT_ID,
     app, image, tmp_vol, TMP_DIR,
@@ -2357,10 +2358,14 @@ def api():
                         ap.write_text(ass, encoding="utf-8")
                         # Zoom before ass= mirrors the burn's filter order
                         # (zoom → B-roll → subtitles): captions never zoom.
-                        # Face-biased crop (center at 30% height) - must match
-                        # _zoom_filters + the CSS transform-origin in app.js.
-                        zoom_vf = (f"scale=trunc(iw*{zoom}/2)*2:trunc(ih*{zoom}/2)*2,"
-                                   f"crop={W}:{Hh}:(iw-ow)/2:(ih-oh)*0.30," if zoom else "")
+                        # Same face framing as the burn: Haar-detect on THIS
+                        # still (the burn detects per window - both are "the
+                        # speaker's face"), upper-third default when none.
+                        zoom_vf = ""
+                        if zoom:
+                            fx, fy = _face_center_from_image(fr) or (0.5, 0.30)
+                            zoom_vf = (f"scale=trunc(iw*{zoom}/2)*2:trunc(ih*{zoom}/2)*2,"
+                                       f"crop={W}:{Hh}:(iw-ow)*{fx:.4f}:(ih-oh)*{fy:.4f},")
                         _sp.run(["ffmpeg", "-y", "-i", str(fr), "-vf", f"{zoom_vf}ass={ap}",
                                  "-frames:v", "1", str(out)],
                                 stdout=_sp.DEVNULL, stderr=_sp.PIPE, timeout=60, check=True)

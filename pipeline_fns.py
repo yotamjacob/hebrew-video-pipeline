@@ -1658,47 +1658,115 @@ def _peak_window(path, want_dur):
 # ---------------------------------------------------------------------------
 # Auto punch-in zoom (Effects tab)
 # ---------------------------------------------------------------------------
-def _zoom_filters(caption_style, width, height, in_label, out_label):
-    """filter_complex snippets for snap punch-in zooms (`caption_style.zooms`).
+def _probe_fps(path):
+    """Average video frame rate, defaulting to 30. Feeds zoompan's fps so the
+    smooth punch-in segments keep source cadence."""
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=avg_frame_rate", "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, check=True)
+        num, _, den = r.stdout.strip().partition("/")
+        fps = float(num) / float(den or 1)
+        return fps if 1.0 <= fps <= 240.0 else 30.0
+    except Exception:
+        return 30.0
+
+
+def _zoom_spans(caption_style, cap=40):
+    """The validated [start, end] zoom windows out of caption_style - shared
+    by _zoom_filters and the burn's face-detection pass so their per-window
+    indices always line up."""
+    try:
+        spans = []
+        for it in list((caption_style or {}).get("zooms") or [])[:cap]:
+            s, e = float(it[0]), float(it[1])
+            if e > s >= 0:
+                spans.append((s, e))
+        return spans
+    except Exception:
+        return []
+
+
+def _face_center(video_path, t):
+    """Face center (fx, fy fractions) for a zoom window - extracts one frame
+    and runs the Haar detector from pipeline_core. Best-effort: None → the
+    caller's framing default. ffmpeg auto-rotates on decode, so the fractions
+    are in DISPLAY orientation, matching the post-rotation filter chain."""
+    import tempfile, os
+    from pipeline_core import _face_center_from_image
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            fr = os.path.join(td, "f.jpg")
+            subprocess.run(["ffmpeg", "-y", "-ss", f"{max(0.0, float(t)):.3f}",
+                            "-i", str(video_path), "-frames:v", "1", "-q:v", "4", fr],
+                           capture_output=True, check=True)
+            return _face_center_from_image(fr)
+    except Exception:
+        return None
+
+
+def _zoom_filters(caption_style, width, height, in_label, out_label, fps=30.0, faces=None):
+    """filter_complex snippets for SMOOTH punch-in zooms (`caption_style.zooms`).
 
     Windows arrive PRE-COMPUTED from the client as explicit [start, end] pairs
     on the post-cut timeline (the hook.lines contract: the burn renders exactly
     what the preview showed - the JS window heuristic can evolve without
-    touching this). Render = a full-length scaled + center-cropped copy of the
-    main track overlaid only inside the windows: an instant punch-in cut with
-    the input's own timestamps, deliberately NOT zoompan (which regenerates
-    PTS against its `fps` option and can desync audio on non-25fps sources).
+    touching this). Each window becomes its own trim → zoompan → overlay
+    chain: zoompan ramps the zoom with a smoothstep ease (ramp constants
+    mirrored by ZOOM_RAMP_* in app.js so the CSS preview moves in step) and
+    keeps the window's face point (fx, fy fractions - Haar-detected at burn
+    time, upper-third default) fixed while zooming. zoompan is safe HERE,
+    unlike on the full track: it regenerates PTS, so each zoomed copy is
+    re-offset with setpts and only ever SHOWN inside its own enable window -
+    the base track (and the audio) keep their original timestamps.
     Applied BEFORE B-roll overlays and subtitles, so inserts and captions are
     never zoomed. Returns [] when there is nothing to do.
     """
     # Raised 2026-08-09 (1.06-1.16 was invisible in the field). Mirrored by
     # ZOOM_FACTORS in site/app.js - keep in sync.
     _ZOOM_FACTOR = {"subtle": 1.10, "medium": 1.18, "strong": 1.28}
-    _MAX_ZOOM_WINDOWS = 60
+    _RAMP_IN, _RAMP_OUT = 0.45, 0.35   # seconds; mirrored by app.js ZOOM_RAMP_*
     style = caption_style or {}
     try:
         factor = _ZOOM_FACTOR.get(str(style.get("zoom_strength", "medium")), 1.18)
-        spans = []
-        for it in list(style.get("zooms") or [])[:_MAX_ZOOM_WINDOWS]:
-            s, e = float(it[0]), float(it[1])
-            if e > s >= 0:
-                spans.append((s, e))
     except Exception:
         return []
+    spans = _zoom_spans(style)
     if not spans:
         return []
-    zw = int(round(width * factor / 2)) * 2
-    zh = int(round(height * factor / 2)) * 2
-    enable = "+".join(f"between(t,{s:.3f},{e:.3f})" for s, e in spans)
-    # Crop center sits at 30% height, not 50%: a talking head lives in the
-    # upper third, so the punch reads as "into the face". Mirrors the CSS
-    # preview's transform-origin 50% 30% (ZOOM_FOCUS_Y in app.js) and the
-    # /preview_frame crop - keep all three at the same fraction.
-    return [
-        f"[{in_label}]split[zsa][zsb]",
-        f"[zsb]scale={zw}:{zh},crop={width}:{height}:(iw-ow)/2:(ih-oh)*0.30[zsc]",
-        f"[zsa][zsc]overlay=0:0:enable='{enable}'[{out_label}]",
-    ]
+    try:
+        fps = float(fps)
+        if not (1.0 <= fps <= 240.0):
+            fps = 30.0
+    except (TypeError, ValueError):
+        fps = 30.0
+    faces = list(faces or [])
+    n = len(spans)
+    filters = [f"[{in_label}]split={n + 1}[zbase]"
+               + "".join(f"[zin{i}]" for i in range(n))]
+    prev = "zbase"
+    for i, (s, e) in enumerate(spans):
+        d = e - s
+        ri = min(_RAMP_IN, d / 2.0)
+        ro = min(_RAMP_OUT, d / 2.0)
+        fc = faces[i] if i < len(faces) else None
+        fx, fy = fc if fc else (0.5, 0.30)
+        # smoothstep ease: u = clip(min(t/ri, (d-t)/ro), 0, 1); z = 1+(F-1)*u²(3-2u)
+        u = f"clip(min(it/{ri:.3f},({d:.3f}-it)/{ro:.3f}),0,1)"
+        z = f"1+{factor - 1:.4f}*{u}*{u}*(3-2*{u})"
+        x = f"{fx:.4f}*(iw-iw/zoom)"
+        y = f"{fy:.4f}*(ih-ih/zoom)"
+        nxt = out_label if i == n - 1 else f"zo{i}"
+        filters.append(
+            f"[zin{i}]trim=start={s:.3f}:end={e:.3f},setpts=PTS-STARTPTS,"
+            f"zoompan=z='{z}':x='{x}':y='{y}':d=1:fps={fps:.6g}:s={width}x{height},"
+            f"setpts=PTS+{s:.3f}/TB[zc{i}]")
+        filters.append(
+            f"[{prev}][zc{i}]overlay=0:0:eof_action=pass:"
+            f"enable='between(t,{s:.3f},{e:.3f})'[{nxt}]")
+        prev = nxt
+    return filters
 
 
 # ---------------------------------------------------------------------------
@@ -1833,8 +1901,13 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
 
         # Punch-in zoom windows (Effects tab) force the filter_complex path
         # even without B-roll - the split/overlay chain can't ride a plain -vf.
+        # One face detection per window (a third in, past the cut boundary);
+        # None entries fall back to the upper-third framing inside the filter.
+        _zspans = _zoom_spans(caption_style)
+        _zfaces = [_face_center(video_in, s + (e - s) * 0.3) for s, e in _zspans]
         zoom_fs = _zoom_filters(caption_style, width, height,
-                                "vrot" if _rotation else "0:v", "vzoom")
+                                "vrot" if _rotation else "0:v", "vzoom",
+                                fps=_probe_fps(video_in), faces=_zfaces)
 
         if not broll_files and not zoom_fs:
             # Simple path: just subtitle burn (or copy if no captions)
