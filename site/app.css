@@ -1511,6 +1511,9 @@
       flex: 1; border: 1.5px solid var(--purple-100); border-radius: 8px;
       padding: 5px 10px; font-size: 0.85rem; direction: rtl;
       font-family: inherit; color: var(--text); background: var(--white);
+      /* textarea since 2026-08-09 (Enter = manual line break) - single-row
+         look, grows with content, never user-resizable */
+      resize: none; overflow: hidden; min-height: 32px; line-height: 1.4;
     }
     .caption-input:focus { outline: none; border-color: var(--purple-600); }
     .caption-actions {

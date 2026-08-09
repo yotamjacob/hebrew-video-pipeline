@@ -800,7 +800,7 @@ def process_video(
         _uid0 = upload_key[1:33] if upload_key and _UID_PREFIX_RE.match(upload_key) else None
         if _uid0:
             _send_fcm(_uid0, "ההעלאה הסתיימה",
-                      "מעבד את הסרטון בשרת - אפשר לסגור את האפליקציה, נעדכן כשיהיה מוכן.",
+                      "הסרטון בעיבוד בשרת - אפשר לסגור את האפליקציה, נעדכן כשיהיה מוכן.",
                       kind="processing", tag="hebpipe-job")
     except Exception:
         pass
@@ -1335,25 +1335,34 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
         return f"&H{alpha_byte:02X}{b:02X}{g:02X}{r:02X}&"
 
     def _rewrap_cap(text: str) -> str:
-        words = text.replace(r"\N", " ").split()
-        if not words:
-            return text
         avail = width - 2 * margin_h
         # Measured Heebo advance ~0.46/char (400 weight, incl. spaces). 0.50 packs
         # lines close to full while staying just above the real width, so libass
         # (rendering at the same margins) never re-wraps. 0.60 wrapped ~25% early,
         # leaving the allowed width underfilled.
         char_w = font_size * 0.50
-        lines, cur, cur_w = [], [], 0.0
-        for word in words:
-            ww = len(word) * char_w
-            gap = char_w if cur else 0.0
-            if cur and cur_w + gap + ww > avail:
-                lines.append(" ".join(cur)); cur, cur_w = [word], ww
-            else:
-                cur.append(word); cur_w += gap + ww
-        if cur:
-            lines.append(" ".join(cur))
+        # Typed newlines (and \N markers) are HARD breaks - wrap each segment
+        # independently; a segment that fits keeps its EXACT spacing. MUST
+        # mirror rewrapCaption in app.js.
+        lines = []
+        for seg in text.replace("\n", r"\N").split(r"\N"):
+            words = seg.split()
+            if not words:
+                lines.append("")
+                continue
+            if len(seg.strip()) * char_w <= avail:
+                lines.append(seg.strip())
+                continue
+            cur, cur_w = [], 0.0
+            for word in words:
+                ww = len(word) * char_w
+                gap = char_w if cur else 0.0
+                if cur and cur_w + gap + ww > avail:
+                    lines.append(" ".join(cur)); cur, cur_w = [word], ww
+                else:
+                    cur.append(word); cur_w += gap + ww
+            if cur:
+                lines.append(" ".join(cur))
         return r"\N".join(lines) if lines else text
 
     def _fix_cap_lines(t):

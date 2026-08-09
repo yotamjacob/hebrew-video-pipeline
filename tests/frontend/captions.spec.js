@@ -78,3 +78,20 @@ test('caption editor is scrollable when many captions', async ({ page }) => {
   await page.locator('.caption-input').last().scrollIntoViewIfNeeded();
   await expect(page.locator('.caption-input').last()).toBeInViewport();
 });
+
+test('typed newlines are hard breaks; fitting lines keep their exact spacing', async ({ page }) => {
+  await runFullUpload(page);
+  // rewrapCaption honors manual breaks and preserves multi-spaces on lines
+  // that fit (mirrors the server's _rewrap_cap).
+  const kept = await page.evaluate(() => rewrapCaption('שלום\nעולם', 1080, 48));
+  expect(kept).toBe('שלום\nעולם');
+  const spaced = await page.evaluate(() => rewrapCaption('אחת  שתיים', 1080, 48));
+  expect(spaced).toBe('אחת  שתיים');
+
+  // The caption field is a textarea now - Enter really lands in the value
+  // and flows into the edited captions.
+  const inp = page.locator('.caption-input').first();
+  await inp.fill('שורה ראשונה\nשורה שנייה');
+  const caps = await page.evaluate(() => getCaptionsFromEditor());
+  expect(caps[0].text).toBe('שורה ראשונה\nשורה שנייה');
+});

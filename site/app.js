@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.39.2';
+  const APP_VERSION = '1.40.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -4322,6 +4322,7 @@
         try { localStorage.setItem('captionFontSize', String(captionFontSize)); } catch (_) {}
       }
     }
+    if (p.margin_v != null && isFinite(p.margin_v)) captionMarginPct = p.margin_v;
     try { localStorage.setItem('captionStyle', JSON.stringify(_captionStylePayload())); } catch (_) {}
     updatePreviewCaption();
     _markActivePreset(p.id);
@@ -4647,6 +4648,7 @@
       },
       font: captionFont,
       font_size: captionFontSize,
+      margin_v: captionMarginPct,
       caption_style: cs,
       hook: {
         font: val('hookFont'), font_color: val('hookFontColor'),
@@ -4685,6 +4687,7 @@
       if (ss) { captionFontSize = _snapSizeOption(ss, parseInt(d.font_size, 10) || 48); ss.value = String(captionFontSize); }
       try { localStorage.setItem('captionFontSize', String(d.font_size)); } catch (_) {}
     }
+    if (d.margin_v != null && isFinite(d.margin_v)) captionMarginPct = d.margin_v;
     try { localStorage.setItem('captionStyle', JSON.stringify(_captionStylePayload())); } catch (_) {}
     // Hook design: set values only (no events - the hook preview redraws when
     // its UI is next active; firing draw handlers with no hook selected is
@@ -4900,6 +4903,7 @@
       name,
       font: captionFont,
       size: captionFontSize,
+      margin_v: captionMarginPct,   // caption position rides the saved style
       // LOOK fields only - orthogonal toggles (progress bar, keywords) are
       // deliberately not part of a saved style.
       style: { font_color: cs.font_color, border_color: cs.border_color,
@@ -4919,7 +4923,7 @@
   // redistribution fallback and the same 0.15s anti-strobe merge, so the
   // moving preview groups words exactly like the burn will.
   function _wordCuesFor(cap) {
-    const text = String(cap.text || '').replace(/\\N/g, ' ');
+    const text = String(cap.text || '').replace(/\\N|\n/g, ' ');
     if (cap.__cueText === text && cap.__cues) return cap.__cues;
     const toks = text.split(/\s+/).filter(Boolean);
     const start = +cap.start || 0, end = +cap.end || 0;
@@ -5865,25 +5869,33 @@
 
   // ── Caption line-wrapping - mirrors Python _rewrap_cap (char_w = fontSize * 0.60) ──
   function rewrapCaption(text, videoWidth, fontSize) {
-    const words = text.replace(/\\N/g, ' ').split(' ').filter(w => w.length);
-    if (!words.length) return text;
     const marginH = Math.max(25, Math.floor(videoWidth / 14));
     const avail   = videoWidth - 2 * marginH;
     const charW   = fontSize * 0.50;
-    const lines   = [];
-    let cur = [], curW = 0;
-    for (const word of words) {
-      const ww  = word.length * charW;
-      const gap = cur.length ? charW : 0;
-      if (cur.length && curW + gap + ww > avail) {
-        lines.push(cur.join(' '));
-        cur = [word]; curW = ww;
-      } else {
-        cur.push(word); curW += gap + ww;
+    // Typed newlines (and \N markers) are HARD breaks: each segment wraps
+    // independently. A segment that already fits keeps its EXACT text, so
+    // deliberate multi-spaces survive; only overflowing segments re-wrap
+    // (which collapses whitespace runs - the greedy estimate needs tokens).
+    // MUST mirror _rewrap_cap in pipeline_fns.py.
+    const lines = [];
+    for (const seg of text.split(/\\N|\n/)) {
+      const words = seg.split(' ').filter(w => w.length);
+      if (!words.length) { lines.push(''); continue; }   // blank line kept
+      if (seg.trim().length * charW <= avail) { lines.push(seg.trim()); continue; }
+      let cur = [], curW = 0;
+      for (const word of words) {
+        const ww  = word.length * charW;
+        const gap = cur.length ? charW : 0;
+        if (cur.length && curW + gap + ww > avail) {
+          lines.push(cur.join(' '));
+          cur = [word]; curW = ww;
+        } else {
+          cur.push(word); curW += gap + ww;
+        }
       }
+      if (cur.length) lines.push(cur.join(' '));
     }
-    if (cur.length) lines.push(cur.join(' '));
-    return lines.join('\n');
+    return lines.length ? lines.join('\n') : text;
   }
 
   // ── Caption preview & positioning ──
@@ -7026,16 +7038,21 @@
     const padV    = Math.round(fontSize * 0.35); // vertical box padding
     const lineH   = Math.round(fontSize * 1.10); // line height - matches ASS renderer (~1.0-1.1×)
 
-    // Word-wrap text into lines that fit within maxW
-    const words = text.split(' ').filter(Boolean);
+    // Word-wrap text into lines that fit within maxW. Typed newlines are
+    // HARD breaks; a paragraph that already fits keeps its exact spacing.
     const lines = [];
-    let cur = '';
-    for (const w of words) {
-      const test = cur ? cur + ' ' + w : w;
-      if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = w; }
-      else cur = test;
+    for (const para of text.split('\n')) {
+      if (!para.trim()) { lines.push(''); continue; }
+      if (ctx.measureText(para.trim()).width <= maxW) { lines.push(para.trim()); continue; }
+      const words = para.split(' ').filter(Boolean);
+      let cur = '';
+      for (const w of words) {
+        const test = cur ? cur + ' ' + w : w;
+        if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = w; }
+        else cur = test;
+      }
+      if (cur) lines.push(cur);
     }
-    if (cur) lines.push(cur);
     // Remember the exact wrap so the burn can reproduce it (WYSIWYG).
     _hookLines = lines.slice();
 
@@ -7130,6 +7147,11 @@
     if (borderValEl)  borderValEl.textContent  = d.borderSize + 'px';
     _refreshColorSwatches();
     drawHookPreview();
+    // The on-player overlay (same element docked or floating) + the exact
+    // still don't watch input events - refresh them so a loaded template
+    // (incl. its saved POSITION) shows immediately (field report).
+    _hideExactHook();
+    scheduleExactHook();
   }
   function _renderTemplateList() {
     const list = _getHookTemplates();
@@ -8066,15 +8088,19 @@
     timeWrap.appendChild(startRow);
     timeWrap.appendChild(endRow);
 
-    // Text input
-    const textInp = document.createElement('input');
-    textInp.type      = 'text';
+    // Text field - a TEXTAREA so Enter inserts a real line break (a manual
+    // hard break the preview + burn both honor; see rewrapCaption).
+    const textInp = document.createElement('textarea');
+    textInp.rows      = 1;
     textInp.className = 'caption-input';
     textInp.value     = cap.text;
     textInp.dir       = 'rtl';
+    const _growText = () => { textInp.style.height = 'auto'; textInp.style.height = textInp.scrollHeight + 'px'; };
+    setTimeout(_growText, 0);   // initial fit once it's in the DOM
     let _preTextEdit = null;
     textInp.addEventListener('focus', () => { _preTextEdit = getCaptionsFromEditor(); });
     textInp.addEventListener('input', () => {
+      _growText();
       if (_preTextEdit) { _pushCaptionUndo(_preTextEdit); _preTextEdit = null; }  // one undo point per edit session
       captionsData = getCaptionsFromEditor();
       updatePreviewCaption();
