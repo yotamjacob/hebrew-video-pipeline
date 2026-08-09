@@ -280,6 +280,20 @@
     </div>
     <div id="optionsBody" style="padding-top:14px">
 
+    <!-- ── Settings profiles: one named snapshot of everything configurable
+         (options toggles + caption look + effects + hook design). Synced
+         per-account via /profiles; the starred one auto-applies at boot. -->
+    <div class="profile-row" id="profileRow" style="display:none">
+      <span class="profile-row-label" data-i18n="profile.title">My profiles</span>
+      <div id="profileChips" class="profile-chips"></div>
+      <div id="profileSaveRow" style="display:none;gap:8px;margin-top:8px">
+        <input id="profileName" type="text" maxlength="40" data-i18n-placeholder="profile.namePh" placeholder="Profile name"
+          style="flex:1;min-width:0;padding:8px 12px;border-radius:9px;border:1.5px solid var(--purple-200);font-size:0.85rem;outline:none"
+          onkeydown="if(event.key==='Enter')document.getElementById('profileSaveBtn').click()">
+        <button type="button" id="profileSaveBtn" class="action-btn" data-i18n="profile.saveBtn">Save</button>
+      </div>
+    </div>
+
     <div class="option-row" style="border-bottom:none">
       <div class="option-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="7" r="2.6"/><circle cx="6" cy="17" r="2.6"/><path d="M8.2 8.7 20 17M8.2 15.3 20 7"/></svg></div>
       <div class="option-text">

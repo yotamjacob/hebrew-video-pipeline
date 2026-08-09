@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.38.0';
+  const APP_VERSION = '1.39.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -271,6 +271,7 @@
     document.getElementById('pipelineView').style.display = 'block';
     refreshMediaToken();
     refreshMetricoolChip();
+    loadProfiles();
     if (quotaInfo) { updateQuotaUI(); updateVerifyBanner(); } else refreshQuota();
     restoreTab();
     if (typeof _initPush === 'function') _initPush();
@@ -4595,6 +4596,182 @@
   try {
     if (localStorage.getItem('capDesignOpen') !== '0') toggleCapDesign(true);
   } catch (_) { toggleCapDesign(true); }
+
+  // ── Settings profiles (2026-08-09) ────────────────────────────────────────
+  // One named snapshot of EVERYTHING configurable: options toggles, caption
+  // look (font/size/style), effects (progress bar, auto-zoom) and hook design.
+  // Stored on the ACCOUNT (/profiles, [{name, data}] + default name, bounded
+  // server-side) so profiles sync web ↔ Android and ride the daily backup.
+  // The starred default auto-applies once per boot - never mid-editor.
+  let _profiles = [], _profileDefault = null, _profilesLoaded = false, _activeProfile = null;
+  async function loadProfiles() {
+    try {
+      const resp = await apiFetch(`${API_BASE}/profiles`);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const d = await resp.json();
+      _profiles = Array.isArray(d.profiles) ? d.profiles : [];
+      _profileDefault = d.default || null;
+      _renderProfiles();
+      if (!_profilesLoaded && _profileDefault && !videoKey) {
+        const p = _profiles.find(x => x.name === _profileDefault);
+        if (p) applyProfile(p, { silent: true });
+      }
+      _profilesLoaded = true;
+    } catch (_) { /* best-effort - profiles are a convenience */ }
+  }
+  let _profileSaveTimer = null;
+  function _saveProfiles() {
+    clearTimeout(_profileSaveTimer);
+    _profileSaveTimer = setTimeout(async () => {
+      try {
+        await apiFetch(`${API_BASE}/profiles`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profiles: _profiles, default: _profileDefault }),
+        });
+      } catch (_) {}
+    }, 400);
+  }
+  function _profileData() {
+    const cs = _captionStylePayload();
+    delete cs.highlight_keywords;   // per-session by design (each fetch costs an AI call)
+    const val = id => document.getElementById(id)?.value;
+    return {
+      options: {
+        cut: !!document.getElementById('cutSilences')?.checked,
+        aggr: parseInt(aggrSlider.value, 10) || 3,
+        captions: !!document.getElementById('burnCaptions')?.checked,
+        enhance_audio: !!document.getElementById('enhanceAudio')?.checked,
+        enhance_video: _enhanceVideoMode(),
+        auto_broll: !!document.getElementById('autoBroll')?.checked,
+        auto_hook: !!document.getElementById('autoHook')?.checked,
+      },
+      font: captionFont,
+      font_size: captionFontSize,
+      caption_style: cs,
+      hook: {
+        font: val('hookFont'), font_color: val('hookFontColor'),
+        bg_color: val('hookBgColor'), bg_opacity: val('hookBgOpacity'),
+        border_color: val('hookBorderColor'), border_size: val('hookBorderSize'),
+        size: val('hookFontSize'),
+      },
+    };
+  }
+  function applyProfile(p, opts = {}) {
+    const d = p.data || {};
+    const o = d.options || {};
+    const setChk = (id, v) => { const e = document.getElementById(id); if (e && v != null) e.checked = !!v; };
+    setChk('cutSilences', o.cut);
+    setChk('burnCaptions', o.captions);
+    setChk('enhanceAudio', o.enhance_audio);
+    setChk('autoBroll', o.auto_broll);
+    setChk('autoHook', o.auto_hook);
+    if (o.aggr) { aggrSlider.value = o.aggr; aggrSlider.dispatchEvent(new Event('input', { bubbles: true })); }
+    if (o.enhance_video) {
+      const r = document.querySelector(`input[name="enhanceVideo"][value="${o.enhance_video}"]`);
+      if (r && !r.checked) { r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); }
+    }
+    _syncCaptionChildren();
+    updateTimeEstimate();
+    // Caption look drives the SAME controls the user would ('in' guards keep
+    // any field an older profile doesn't carry).
+    if (d.caption_style) _applyCaptionStyleValues(d.caption_style);
+    if (d.font) {
+      captionFont = d.font;
+      const fs = document.getElementById('fontSelect'); if (fs) fs.value = d.font;
+      _ensureCaptionFont(d.font);
+    }
+    if (d.font_size) {
+      const ss = document.getElementById('captionFontSizeSlider');
+      if (ss) { captionFontSize = _snapSizeOption(ss, parseInt(d.font_size, 10) || 48); ss.value = String(captionFontSize); }
+      try { localStorage.setItem('captionFontSize', String(d.font_size)); } catch (_) {}
+    }
+    try { localStorage.setItem('captionStyle', JSON.stringify(_captionStylePayload())); } catch (_) {}
+    // Hook design: set values only (no events - the hook preview redraws when
+    // its UI is next active; firing draw handlers with no hook selected is
+    // the editor's business, not the profile's).
+    const hk = d.hook || {};
+    const setVal = (id, v) => { const e = document.getElementById(id); if (e && v != null) e.value = v; };
+    setVal('hookFont', hk.font);
+    setVal('hookFontColor', hk.font_color);
+    setVal('hookBgColor', hk.bg_color);
+    setVal('hookBgOpacity', hk.bg_opacity);
+    setVal('hookBorderColor', hk.border_color);
+    setVal('hookBorderSize', hk.border_size);
+    setVal('hookFontSize', hk.size);
+    { const e = document.getElementById('hookBgOpacityVal'); if (e && hk.bg_opacity != null) e.textContent = hk.bg_opacity + '%'; }
+    { const e = document.getElementById('hookBorderSizeVal'); if (e && hk.border_size != null) e.textContent = hk.border_size + 'px'; }
+    _refreshColorSwatches();
+    if (videoKey) { try { updatePreviewCaption(); } catch (_) {} }
+    _activeProfile = p.name;
+    _renderProfiles();
+    if (!opts.silent) celebrateToast(t('profile.applied', { name: p.name }));
+  }
+  function _renderProfiles() {
+    const row = document.getElementById('profileRow');
+    const box = document.getElementById('profileChips');
+    if (!row || !box) return;
+    row.style.display = '';
+    box.innerHTML = '';
+    _profiles.forEach(p => {
+      const chip = document.createElement('div');
+      chip.className = 'profile-chip' + (p.name === _activeProfile ? ' active' : '');
+      const name = document.createElement('button');
+      name.type = 'button';
+      name.className = 'profile-chip-name';
+      name.textContent = p.name;
+      name.addEventListener('click', () => applyProfile(p));
+      const star = document.createElement('button');
+      star.type = 'button';
+      star.className = 'profile-chip-star' + (p.name === _profileDefault ? ' on' : '');
+      star.innerHTML = ICON.star;
+      star.title = t('profile.defaultTip');
+      star.addEventListener('click', () => {
+        _profileDefault = _profileDefault === p.name ? null : p.name;
+        _saveProfiles();
+        _renderProfiles();
+      });
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'profile-chip-del';
+      del.setAttribute('aria-label', 'delete');
+      del.innerHTML = ICON.x;
+      del.addEventListener('click', async () => {
+        const ok = await showConfirmModal(t('profile.deleteTitle'), p.name, t('confirm.delete'));
+        if (!ok) return;
+        _profiles = _profiles.filter(x => x !== p);
+        if (_profileDefault === p.name) _profileDefault = null;
+        if (_activeProfile === p.name) _activeProfile = null;
+        _saveProfiles();
+        _renderProfiles();
+      });
+      chip.append(name, star, del);
+      box.appendChild(chip);
+    });
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'profile-chip-add';
+    add.id = 'profileAdd';
+    add.textContent = '+ ' + t('profile.save');
+    add.addEventListener('click', () => {
+      const sr = document.getElementById('profileSaveRow');
+      if (sr) { sr.style.display = 'flex'; document.getElementById('profileName')?.focus(); }
+    });
+    box.appendChild(add);
+  }
+  document.getElementById('profileSaveBtn')?.addEventListener('click', () => {
+    const nameEl = document.getElementById('profileName');
+    const name = (nameEl?.value || '').trim().slice(0, 40);
+    if (!name) { nameEl?.focus(); return; }
+    _profiles = _profiles.filter(p => p.name !== name);   // same name = overwrite
+    _profiles.unshift({ name, data: _profileData() });
+    _profiles = _profiles.slice(0, 6);
+    _activeProfile = name;
+    if (nameEl) nameEl.value = '';
+    { const sr = document.getElementById('profileSaveRow'); if (sr) sr.style.display = 'none'; }
+    _saveProfiles();
+    _renderProfiles();
+    celebrateToast(t('profile.saved', { name }));
+  });
 
   function _markActivePreset(id) {
     // Guard on a real id: an undefined id would match every chip missing

@@ -1884,6 +1884,40 @@
     .zoom-chip { cursor: pointer; font: inherit; font-size: 0.75rem; }
     .zoom-chip.off { opacity: 0.45; text-decoration: line-through; }
 
+    /* ── Settings profiles (Options card) ── */
+    .profile-row {
+      border: 1.5px solid var(--sage-100, #DDE3D0); border-radius: 14px;
+      padding: 10px 12px; margin-bottom: 14px; background: var(--white);
+    }
+    .profile-row-label {
+      display: block; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--purple-500); margin-bottom: 8px;
+    }
+    .profile-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .profile-chip {
+      display: inline-flex; align-items: center; gap: 2px;
+      border: 1.5px solid var(--sage-100, #DDE3D0); border-radius: 999px;
+      background: var(--white); padding: 3px 6px 3px 4px;
+    }
+    .profile-chip.active { border-color: var(--terracotta); }
+    .profile-chip-name {
+      border: none; background: none; cursor: pointer; font: inherit;
+      font-size: 0.82rem; font-weight: 600; color: var(--text); padding: 3px 6px;
+    }
+    .profile-chip-star, .profile-chip-del {
+      border: none; background: none; cursor: pointer; padding: 3px;
+      display: inline-flex; align-items: center; color: var(--purple-300);
+      font-size: 0.9em;
+    }
+    .profile-chip-star.on { color: var(--terracotta); }
+    .profile-chip-del:hover { color: var(--red, #C0392B); }
+    .profile-chip-add {
+      border: 1.5px dashed var(--purple-300); border-radius: 999px;
+      background: none; cursor: pointer; font: inherit; font-size: 0.82rem;
+      font-weight: 600; color: var(--purple-500); padding: 6px 12px;
+    }
+    #profileSaveRow { display: flex; }
+
     /* ── Schedule card ── */
     .sched-intro { font-size: 0.82rem; color: var(--muted); line-height: 1.5; margin-bottom: 16px; }
     .sched-intro b { color: var(--purple-700); }

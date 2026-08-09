@@ -46,6 +46,11 @@ async function bootApp(page, { me } = {}) {
   await page.route(/\/admin\/costs/, r =>
     r.fulfill({ status: 200, contentType: 'application/json',
                 body: '{"days":7,"videos":0,"burns":0,"usd":0,"usd_per_video":0,"by_mode":{}}' }));
+  // Settings profiles load on every boot (showApp) - benign empty default;
+  // profiles.spec.js re-registers its own handler (last route wins).
+  await page.route(/\/profiles\/?(\?.*)?$/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json',
+                body: '{"profiles":[],"default":null}' }));
   await page.goto('/');
 }
 

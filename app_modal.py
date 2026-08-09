@@ -1769,6 +1769,49 @@ def api():
             await send({"type": "http.response.body", "body": body})
             return
 
+        # ── Per-user settings profiles ──
+        # ONE bounded array on the user record (client owns the payload shape,
+        # like the hook.lines contract): [{name, data}] plus the auto-applied
+        # default's name. Account-level so profiles sync across web + Android,
+        # and they ride the daily metadata backup for free.
+        if path in ("/profiles", "/profiles/") and method in ("GET", "POST"):
+            if not uid:
+                await send_error("unauthorized", 401)
+                return
+            uname, urec = _user_by_uid()
+            if not isinstance(urec, dict):
+                await send_error("unauthorized", 401)
+                return
+            if method == "POST":
+                try:
+                    data = json.loads((await _read_body(receive)).decode("utf-8"))
+                except Exception:
+                    data = None
+                profs = (data or {}).get("profiles")
+                default = (data or {}).get("default")
+                ok = isinstance(profs, list) and len(profs) <= 6
+                if ok:
+                    for p in profs:
+                        if not (isinstance(p, dict) and isinstance(p.get("name"), str)
+                                and 1 <= len(p["name"]) <= 40
+                                and isinstance(p.get("data"), dict)):
+                            ok = False
+                            break
+                if not ok or len(json.dumps(profs, ensure_ascii=False)) > 16384:
+                    await send_error("bad_request", 400)
+                    return
+                urec["profiles"] = profs
+                urec["default_profile"] = default if (
+                    isinstance(default, str)
+                    and any(p["name"] == default for p in profs)) else None
+                users_store[uname] = urec
+            body = json.dumps({"profiles": urec.get("profiles") or [],
+                               "default": urec.get("default_profile")}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
         # Process endpoint — spawn job, return call_id immediately
         if path in ("/process", "/process/") and method == "POST":
             qs = parse_qs(scope.get("query_string", b"").decode())

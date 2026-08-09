@@ -514,3 +514,29 @@ class TestKeywordsRoute:
 
     def test_api_mounts_anthropic_secret(self):
         assert 'modal.Secret.from_name("anthropic-secret")' in MODAL_SRC.split("def api()")[0]
+
+
+class TestProfilesRoute:
+    """/profiles: bounded per-account settings snapshots ([{name, data}] +
+    the auto-applied default's name) on the user record. Route bodies are
+    closures - guard the source."""
+
+    def _block(self):
+        i = MODAL_SRC.index('("/profiles"')
+        return MODAL_SRC[i:i + 2500]
+
+    def test_authed_and_bounded(self):
+        block = self._block()
+        assert '"unauthorized", 401' in block
+        assert "len(profs) <= 6" in block
+        assert "16384" in block
+        assert '1 <= len(p["name"]) <= 40' in block
+
+    def test_default_validated_against_profile_names(self):
+        block = self._block()
+        assert 'any(p["name"] == default for p in profs)' in block
+
+    def test_stored_on_the_user_record(self):
+        block = self._block()
+        assert 'urec["profiles"] = profs' in block
+        assert "users_store[uname] = urec" in block
