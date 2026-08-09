@@ -107,6 +107,7 @@
   <button class="tab" id="tabHistory" role="tab" aria-selected="false" onclick="switchTab('history')" data-i18n="tab.history">History</button>
   <button class="tab" id="tabGuide" role="tab" aria-selected="false" onclick="switchTab('guide')" data-i18n="tab.guide">Guide</button>
   <button class="tab" id="tabAdmin" role="tab" aria-selected="false" onclick="switchTab('admin')" style="display:none" data-i18n="tab.admin">Admin</button>
+  <button class="tab" id="tabCosts" role="tab" aria-selected="false" onclick="switchTab('costs')" style="display:none" data-i18n="tab.costs">Costs</button>
 </div>
 <div class="quota-pill-row">
   <button id="metricoolChip" class="mc-chip" style="display:none" onclick="onMetricoolChip()"></button>
@@ -933,11 +934,28 @@
 
 <!-- ── Admin view ── -->
 <div class="container" id="adminView" style="display:none">
-  <!-- Measured compute behind a credit. Not a chart: a handful of aggregates,
-       so a headline figure plus a small table reads faster than any plot. -->
   <div class="card">
     <div class="card-header" style="cursor:default">
-      <p class="options-title" data-i18n="cost.title">Compute cost</p>
+      <p class="options-title" data-i18n="admin.title">User Limits</p>
+    </div>
+    <div style="padding-top:14px">
+      <p class="history-note" data-i18n="admin.note">How many videos each account can process (minus 1 = unlimited).</p>
+      <div id="adminLoading" class="history-loading" style="display:none" data-i18n="admin.loading">Loading…</div>
+      <div id="adminError" class="sched-error" style="display:none"></div>
+      <div id="adminList"></div>
+    </div>
+  </div>
+  <p class="footer"><a class="footer-contact" href="mailto:hebrewpipeline@gmail.com" onclick="openContactModal();return false;" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" onclick="openLegalModal();return false;" data-i18n="footer.legal">פרטיות ותנאי שימוש</a> <a class="footer-contact" href="/delete-account.html" onclick="openLegalModal('/delete-account.html','footer.deleteData');return false;" data-i18n="footer.deleteData">מחיקת חשבון</a></p>
+</div>
+
+<!-- ── Costs tab (admin-only) ──
+     The pricing-decision dashboard: Modal compute AND Anthropic API token
+     spend, aggregated server-side (/admin/costs). Not a chart on purpose -
+     a handful of aggregates reads faster than any plot. -->
+<div class="container" id="costsView" style="display:none">
+  <div class="card">
+    <div class="card-header" style="cursor:default">
+      <p class="options-title" data-i18n="cost.title">Costs</p>
     </div>
     <div style="padding-top:14px">
       <div class="cost-range" id="costRange">
@@ -950,12 +968,13 @@
       <div id="costEmpty" class="history-note" style="display:none" data-i18n="cost.empty">No jobs recorded in this window yet.</div>
       <div id="costBody" style="display:none">
         <div class="cost-hero">
-          <div class="cost-hero-value" id="costPerVideo">-</div>
-          <div class="cost-hero-label" data-i18n="cost.perVideo">Compute per video</div>
+          <div class="cost-hero-value" id="costAllPerVideo">-</div>
+          <div class="cost-hero-label" data-i18n="cost.allPerVideo">True cost per video (compute + AI)</div>
         </div>
         <div class="cost-stats">
           <div class="cost-stat"><span class="cost-stat-value" id="costVideos">-</span><span class="cost-stat-label" data-i18n="cost.videos">Videos</span></div>
-          <div class="cost-stat"><span class="cost-stat-value" id="costTotal">-</span><span class="cost-stat-label" data-i18n="cost.total">Total</span></div>
+          <div class="cost-stat"><span class="cost-stat-value" id="costTotal">-</span><span class="cost-stat-label" data-i18n="cost.total">Compute</span></div>
+          <div class="cost-stat"><span class="cost-stat-value" id="costAi">-</span><span class="cost-stat-label" data-i18n="cost.aiTotal">AI tokens</span></div>
           <div class="cost-stat"><span class="cost-stat-value" id="costGpu">-</span><span class="cost-stat-label" data-i18n="cost.gpu">GPU time</span></div>
         </div>
         <table class="cost-table">
@@ -968,19 +987,18 @@
           </thead>
           <tbody id="costModes"></tbody>
         </table>
-        <p class="history-note" data-i18n="cost.note">Modal list rates, excluding container startup and idle. A floor for comparing jobs, not an invoice.</p>
+        <table class="cost-table" id="costAiTable" style="display:none">
+          <thead>
+            <tr>
+              <th data-i18n="cost.aiFeature">AI feature</th>
+              <th data-i18n="cost.calls">Calls</th>
+              <th data-i18n="cost.spend">Spend</th>
+            </tr>
+          </thead>
+          <tbody id="costAiKinds"></tbody>
+        </table>
+        <p class="history-note" data-i18n="cost.note">Modal + Anthropic list rates, excluding container startup and idle. A floor for pricing decisions, not an invoice.</p>
       </div>
-    </div>
-  </div>
-  <div class="card">
-    <div class="card-header" style="cursor:default">
-      <p class="options-title" data-i18n="admin.title">User Limits</p>
-    </div>
-    <div style="padding-top:14px">
-      <p class="history-note" data-i18n="admin.note">How many videos each account can process (minus 1 = unlimited).</p>
-      <div id="adminLoading" class="history-loading" style="display:none" data-i18n="admin.loading">Loading…</div>
-      <div id="adminError" class="sched-error" style="display:none"></div>
-      <div id="adminList"></div>
     </div>
   </div>
   <p class="footer"><a class="footer-contact" href="mailto:hebrewpipeline@gmail.com" onclick="openContactModal();return false;" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" onclick="openLegalModal();return false;" data-i18n="footer.legal">פרטיות ותנאי שימוש</a> <a class="footer-contact" href="/delete-account.html" onclick="openLegalModal('/delete-account.html','footer.deleteData');return false;" data-i18n="footer.deleteData">מחיקת חשבון</a></p>

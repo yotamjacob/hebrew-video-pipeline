@@ -13,7 +13,7 @@ from pipeline_core import (
     jobs_store, JOB_RETENTION_DAYS, SCRATCH_RETENTION_HOURS, pending_store,
     progress_store, calls_store, CALL_RETENTION_SECONDS, _UID_PREFIX_RE,
     quota_store, _usage_since, _send_email, _email_html, SONNET_MODEL,
-    _send_fcm, costs_store, COST_RETENTION_DAYS, _cost_summary,
+    _send_fcm, costs_store, COST_RETENTION_DAYS, _cost_summary, _record_ai_spend,
     _credit_cost, _upscale_allowed, UPSCALE_MAX_SECONDS,
 )
 
@@ -377,11 +377,13 @@ def proofread_words(texts, client, model, chunk_size=400, max_tokens=8000):
             f"{json.dumps(chunk, ensure_ascii=False)}"
         )
         try:
-            raw = client.messages.create(
+            _pr = client.messages.create(
                 model=model, max_tokens=max_tokens,
                 thinking={"type": "disabled"},
                 messages=[{"role": "user", "content": prompt}],
-            ).content[0].text.strip()
+            )
+            _record_ai_spend(costs_store, "proofread", model, _pr.usage)
+            raw = _pr.content[0].text.strip()
             if "```" in raw:
                 for part in raw.split("```"):
                     part = part.strip().lstrip("json").strip()

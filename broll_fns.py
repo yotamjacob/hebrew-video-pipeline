@@ -8,9 +8,10 @@ import modal
 from pipeline_core import (
     light_image,
     app, tmp_vol, TMP_DIR,
-    SONNET_MODEL,
+    SONNET_MODEL, HAIKU_MODEL,
     _sanitize_transcript,
     _anthropic_client, _plain_anthropic_errors,
+    costs_store, _record_ai_spend,
 )
 from stock_helpers import (
     fetch_pexels, fetch_pixabay, sample_frames, extract_disqualify_clause,
@@ -77,6 +78,7 @@ def _get_video_context(video_path: str, transcript: str, client) -> dict:
             thinking={"type": "disabled"},
             messages=[{"role": "user", "content": content}],
         )
+        _record_ai_spend(costs_store, "broll_context", SONNET_MODEL, resp.usage)
         raw = resp.content[0].text.strip()
         if "```" in raw:
             for part in raw.split("```"):
@@ -160,7 +162,9 @@ def _process_moment(m: dict, pexels_key: str, pixabay_key: str, client,
             }
             scored = score_clips(clips, strict_eval, client,
                                  video_context=video_context or None,
-                                 moment_ctx=moment_ctx_s)
+                                 moment_ctx=moment_ctx_s,
+                                 on_usage=lambda u: _record_ai_spend(
+                                     costs_store, "broll_vision", HAIKU_MODEL, u))
             m["clips"]          = [add_clip_window(c, broll_dur) for c in scored]
             m["_variant_stats"] = variant_stats
             if scored:
@@ -486,6 +490,7 @@ def analyze_stock_broll(captions_json: str, video_key: str = "",
                 "content": f"Transcript (Hebrew with timestamps):\n<transcript>\n{transcript}\n</transcript>",
             }]
         )
+        _record_ai_spend(costs_store, "broll_moments", SONNET_MODEL, r.usage)
         raw = r.content[0].text.strip()
         truncated = getattr(r, "stop_reason", None) == "max_tokens"
         if "```" in raw:
@@ -831,7 +836,9 @@ def search_stock_clips(search_query: str, page: int = 2, moment_context: str = "
         broll_dur   = float(ctx.get("broll_duration_seconds", 3.0))
         strict_eval = ctx.get("strict_eval_prompt") or search_query
         ac = _anthropic_client(api_key=anthropic_key) if anthropic_key else None
-        clips = [add_clip_window(c, broll_dur) for c in score_clips(clips, strict_eval, ac)]
+        clips = [add_clip_window(c, broll_dur) for c in score_clips(
+            clips, strict_eval, ac,
+            on_usage=lambda u: _record_ai_spend(costs_store, "broll_vision", HAIKU_MODEL, u))]
 
     return clips
 

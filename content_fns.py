@@ -9,6 +9,7 @@ from pipeline_core import (
     app, image, tmp_vol, TMP_DIR,
     SONNET_MODEL,
     _anthropic_client, _plain_anthropic_errors,
+    costs_store, _record_ai_spend,
 )
 from stock_helpers import sample_frames
 
@@ -68,6 +69,7 @@ def generate_hook_options(captions_json: str, video_key: str = "") -> dict:
         model=SONNET_MODEL, max_tokens=800, thinking={"type": "disabled"},
         messages=[{"role": "user", "content": content}],
     )
+    _record_ai_spend(costs_store, "hook", SONNET_MODEL, resp.usage)
     raw = resp.content[0].text.strip()
     if "```" in raw:
         for part in raw.split("```"):
@@ -146,6 +148,7 @@ def generate_caption_options(captions_json: str, video_key: str = "", platforms:
         model=SONNET_MODEL, max_tokens=1000, thinking={"type": "disabled"},
         messages=[{"role": "user", "content": content}],
     )
+    _record_ai_spend(costs_store, "post_caption", SONNET_MODEL, resp.usage)
     raw = resp.content[0].text.strip()
     if "```" in raw:
         for part in raw.split("```"):

@@ -257,7 +257,8 @@ def extract_disqualify_clause(strict_eval_prompt: str) -> str:
 
 
 def score_clips(clips: list, strict_eval: str, anthropic_client,
-                video_context: dict = None, moment_ctx: dict = None) -> list:
+                video_context: dict = None, moment_ctx: dict = None,
+                on_usage=None) -> list:
     """Score clips against strict_eval via Haiku vision. Returns clips scored >= 6, sorted desc.
 
     When video_context is provided (set by analyze_stock_broll after the video-context pass),
@@ -305,12 +306,20 @@ def score_clips(clips: list, strict_eval: str, anthropic_client,
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _call_haiku_sync(content, mt, temp):
-        return anthropic_client.messages.create(
+        r = anthropic_client.messages.create(
             model=HAIKU_MODEL,
             max_tokens=mt,
             temperature=temp,
             messages=[{"role": "user", "content": content}],
-        ).content[0].text.strip()
+        )
+        if on_usage:
+            # Cost metering callback (kept as a callback so this module stays
+            # pure - no Modal imports). Best-effort by contract.
+            try:
+                on_usage(r.usage)
+            except Exception:
+                pass
+        return r.content[0].text.strip()
 
     def _parse_json_array(raw):
         if "```" in raw:

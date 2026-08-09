@@ -92,6 +92,35 @@ public class NativeDownloaderPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void openFile(PluginCall call) {
+        // Open the downloaded VIDEO itself (field report 2026-08-09: the toast
+        // link surfaced a folder/share UI instead of the file). The id comes
+        // from download()'s resolve payload; getUriForDownloadedFile returns a
+        // content:// URI only once the download SUCCEEDED, so an in-flight or
+        // failed download falls back to the system Downloads UI - never an
+        // ACTION_VIEW on a half-written file.
+        Long id = call.getLong("id", -1L);
+        String mimeType = call.getString("mimeType", "video/mp4");
+        DownloadManager manager =
+            (DownloadManager) getContext().getSystemService(Context.DOWNLOAD_SERVICE);
+        Uri uri = (manager != null && id != null && id >= 0)
+            ? manager.getUriForDownloadedFile(id) : null;
+        if (uri == null) {
+            openDownloads(call);
+            return;
+        }
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, mimeType)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            getActivity().startActivity(intent);
+            call.resolve();
+        } catch (Exception error) {
+            call.reject("Could not open the downloaded file", error);
+        }
+    }
+
+    @PluginMethod
     public void openDownloads(PluginCall call) {
         // ACTION_VIEW_DOWNLOADS is an OEM lottery: some shells have no
         // matching activity and some resolve it to a STORE download UI

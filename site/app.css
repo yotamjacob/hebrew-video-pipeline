@@ -1032,6 +1032,10 @@
       display: inline-flex; align-items: center; gap: 6px;
       height: 30px; padding: 3px; border-radius: 9px; cursor: pointer;
       border: 1.5px solid var(--sage-100, #DDE3D0); background: var(--white);
+      /* Compact like the progress-bar color box everywhere: inside the
+         caption/hook editors' COLUMN labels the default flex stretch blew
+         the button up to full width (field report, 2026-08-09). */
+      align-self: flex-start; width: fit-content;
     }
     .color-swatch-btn .csb-chip {
       width: 40px; height: 22px; border-radius: 6px;

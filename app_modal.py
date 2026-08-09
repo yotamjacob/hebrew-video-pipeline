@@ -19,7 +19,7 @@ from pipeline_core import (
     light_image,
     jobs_store, progress_store, users_store, calls_store, quota_store, purchases_store, fcm_store,
     pending_store, errors_store, _alert_admins, costs_store, _cost_summary,
-    _face_center_from_image,
+    _record_ai_spend, _face_center_from_image,
     codes_store, _normalize_email, _gen_login_code,
     _verify_google_id_token, GOOGLE_WEB_CLIENT_ID,
     app, image, tmp_vol, TMP_DIR,
@@ -2787,6 +2787,7 @@ def api():
                     model=SONNET_MODEL, max_tokens=2000,
                     thinking={"type": "disabled"},
                     messages=[{"role": "user", "content": prompt}])
+                _record_ai_spend(costs_store, "keywords", SONNET_MODEL, r.usage)
                 raw = r.content[0].text.strip()
                 if "```" in raw:
                     for part in raw.split("```"):

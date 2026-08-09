@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.37.1';
+  const APP_VERSION = '1.38.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -256,7 +256,7 @@
     if (mc) mc.style.display = 'none';
     const lo = document.getElementById('logoutTab');
     if (lo) lo.style.display = 'none';
-    ['pipelineView', 'historyView', 'guideView', 'adminView'].forEach(id => {
+    ['pipelineView', 'historyView', 'guideView', 'adminView', 'costsView'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
@@ -389,10 +389,14 @@
     }
     const adminTab = document.getElementById('tabAdmin');
     if (adminTab) adminTab.style.display = quotaInfo.role === 'admin' ? '' : 'none';
-    // A saved Admin tab could only be restored once the role loaded.
-    if (_pendingTabRestore === 'admin' && quotaInfo.role === 'admin') {
+    const costsTab = document.getElementById('tabCosts');
+    if (costsTab) costsTab.style.display = quotaInfo.role === 'admin' ? '' : 'none';
+    // A saved Admin/Costs tab could only be restored once the role loaded.
+    if ((_pendingTabRestore === 'admin' || _pendingTabRestore === 'costs')
+        && quotaInfo.role === 'admin') {
+      const tb = _pendingTabRestore;
       _pendingTabRestore = null;
-      switchTab('admin');
+      switchTab(tb);
     }
     const pill = document.getElementById('quotaPill');
     if (!pill) return;
@@ -4559,6 +4563,10 @@
       chip.className = 'csb-chip';
       chip.style.background = inp.value;
       btn.appendChild(chip);
+      // The hidden input's flex-layout margin (e.g. the progress row's
+      // margin-inline-start:auto end-pin) dies with display:none - carry it
+      // over so the swatch sits where the input did.
+      if (inp.style.marginInlineStart) btn.style.marginInlineStart = inp.style.marginInlineStart;
       btn.addEventListener('click', (e) => {
         // Inside a <label>: without preventDefault the label forwards the
         // click to its input and the OS dialog opens anyway.
@@ -4934,18 +4942,24 @@
       button.textContent = t('download.starting');
     });
     try {
-      await Downloader.download({
+      const res = await Downloader.download({
         url: _withToken(url),
         filename: safe,
         mimeType: 'video/mp4',
         description: t('download.notification'),
       });
-      celebrateToast(t('download.started'), {
-        duration: 8000,
-        action: Downloader.openDownloads
+      // Prefer opening the VIDEO itself (openFile, next binary onward - it
+      // opens the finished file, or the Downloads UI while still in flight).
+      // Older shells with only openDownloads keep the folder action.
+      const dlId = res && res.id;
+      const action = (Downloader.openFile && dlId != null)
+        ? { label: t('download.openVideo'),
+            onClick: () => { Downloader.openFile({ id: dlId, mimeType: 'video/mp4' })
+              .catch(() => { if (Downloader.openDownloads) Downloader.openDownloads().catch(() => {}); }); } }
+        : (Downloader.openDownloads
           ? { label: t('download.openFolder'), onClick: () => { Downloader.openDownloads().catch(() => {}); } }
-          : null,
-      });
+          : null);
+      celebrateToast(t('download.started'), { duration: 8000, action });
     } catch (error) {
       console.error('native system download failed', error);
       _reportError('download', (error && error.message) || t('err.downloadFailed'));
@@ -8211,8 +8225,8 @@
   }
 
   function switchTab(which, keepGuideCtx) {
-    const views = { pipeline: 'pipelineView', history: 'historyView', guide: 'guideView', admin: 'adminView' };
-    const tabs  = { pipeline: 'tabPipeline',  history: 'tabHistory',  guide: 'tabGuide',  admin: 'tabAdmin' };
+    const views = { pipeline: 'pipelineView', history: 'historyView', guide: 'guideView', admin: 'adminView', costs: 'costsView' };
+    const tabs  = { pipeline: 'tabPipeline',  history: 'tabHistory',  guide: 'tabGuide',  admin: 'tabAdmin',  costs: 'tabCosts' };
     for (const k of Object.keys(views)) {
       document.getElementById(views[k]).style.display = (k === which) ? '' : 'none';
       document.getElementById(tabs[k]).classList.toggle('active', k === which);
@@ -8220,6 +8234,7 @@
     }
     if (which === 'history') loadHistory();
     if (which === 'admin') loadAdmin();
+    if (which === 'costs') loadCosts();
     // Any tab change that isn't an "i"-icon jump into the guide clears the
     // "back to where you were" context.
     if (!keepGuideCtx) {
@@ -8238,9 +8253,9 @@
     let saved = null;
     try { saved = localStorage.getItem('hebpipe_tab'); } catch (_) {}
     if (!saved || saved === 'pipeline') return;
-    if (saved === 'admin') {
-      if (quotaInfo && quotaInfo.role === 'admin') switchTab('admin');
-      else _pendingTabRestore = 'admin';
+    if (saved === 'admin' || saved === 'costs') {
+      if (quotaInfo && quotaInfo.role === 'admin') switchTab(saved);
+      else _pendingTabRestore = saved;
       return;
     }
     if (saved === 'history' || saved === 'guide') switchTab(saved);
@@ -8383,12 +8398,31 @@
       _costSig = sig;
       loading.style.display = 'none';
       errBox.style.display = 'none';
-      if (!c.videos) { body.style.display = 'none'; empty.style.display = 'block'; return; }
+      if (!c.videos && !c.ai_calls) { body.style.display = 'none'; empty.style.display = 'block'; return; }
       empty.style.display = 'none';
-      document.getElementById('costPerVideo').textContent = '$' + (c.usd_per_video || 0).toFixed(3);
+      // The pricing-decision hero: compute + AI, per delivered video.
+      document.getElementById('costAllPerVideo').textContent = '$' + (c.all_per_video || 0).toFixed(3);
       document.getElementById('costVideos').textContent   = c.videos;
       document.getElementById('costTotal').textContent    = '$' + (c.usd || 0).toFixed(2);
+      document.getElementById('costAi').textContent       = '$' + (c.ai_usd || 0).toFixed(2);
       document.getElementById('costGpu').textContent      = _fmtSecs(c.gpu_secs);
+      const aiTable = document.getElementById('costAiTable');
+      const aiBody  = document.getElementById('costAiKinds');
+      const kinds = Object.keys(c.ai_by_kind || {}).sort(
+        (a, b) => (c.ai_by_kind[b].usd || 0) - (c.ai_by_kind[a].usd || 0));
+      aiBody.innerHTML = '';
+      kinds.forEach(kind => {
+        const kk = c.ai_by_kind[kind];
+        const tr = document.createElement('tr');
+        [kind, kk.n, '$' + (kk.usd || 0).toFixed(3)].forEach((v, i) => {
+          const td = document.createElement('td');
+          td.textContent = v;
+          if (i === 0) td.className = 'cost-mode-name';
+          tr.appendChild(td);
+        });
+        aiBody.appendChild(tr);
+      });
+      aiTable.style.display = kinds.length ? '' : 'none';
       const modes = document.getElementById('costModes');
       modes.innerHTML = '';
       Object.keys(c.by_mode || {}).sort().forEach(mode => {
@@ -8424,7 +8458,6 @@
   let _adminSig = null;
   async function loadAdmin(opts) {
     const force = !!(opts && opts.force);
-    loadCosts(opts);
     const list = document.getElementById('adminList');
     const loading = document.getElementById('adminLoading');
     const errBox = document.getElementById('adminError');

@@ -120,3 +120,82 @@ def test_zero_duration_source_does_not_divide_by_zero():
     store = _FakeStore({"a": _proc(1_000, dur=0.0, gpu=30.0)})
     out = _cost_summary(store, 0)
     assert out["by_mode"]["none"]["gpu_per_src"] == 0.0
+
+
+# ── AI token spend (2026-08-09): _ai_usd / _record_ai_spend / summary ─────────
+
+_ai_ns = dict(_ns)
+_ai_ns["AI_USD_PER_MTOK"] = {"claude-sonnet-5": (3.0, 15.0), "claude-haiku-4-5": (1.0, 5.0)}
+_ai_fns = _extract_fn(MODAL_SRC, "_ai_usd", "_record_ai_spend", extra_ns=_ai_ns)
+_ai_usd = _ai_fns["_ai_usd"]
+_record_ai_spend = _ai_fns["_record_ai_spend"]
+
+
+def test_ai_usd_uses_family_rates_and_cache_multipliers():
+    # Sonnet: $3/$15 per MTok. 1M in + 1M out = $18.
+    assert abs(_ai_usd("claude-sonnet-5", 1_000_000, 1_000_000) - 18.0) < 1e-9
+    # Haiku matched by PREFIX (dated id): $1/$5.
+    assert abs(_ai_usd("claude-haiku-4-5-20251001", 1_000_000, 0) - 1.0) < 1e-9
+    # Cache read bills at 0.1x input, write at 1.25x.
+    assert abs(_ai_usd("claude-sonnet-5", 0, 0, cache_read=1_000_000) - 0.3) < 1e-9
+    assert abs(_ai_usd("claude-sonnet-5", 0, 0, cache_write=1_000_000) - 3.75) < 1e-9
+    # Unknown model falls back to Sonnet-tier, never zero.
+    assert _ai_usd("claude-mystery-9", 1_000_000, 0) > 0
+
+
+def test_record_ai_spend_writes_a_ledger_entry():
+    class _U:
+        input_tokens = 1000
+        output_tokens = 500
+        cache_read_input_tokens = 200
+        cache_creation_input_tokens = 0
+    store = {}
+    _record_ai_spend(store, "hook", "claude-sonnet-5", _U())
+    (k, rec), = store.items()
+    assert k.startswith("ai:") and k.endswith(":hook")
+    assert rec["tin"] == 1000 and rec["tout"] == 500 and rec["cr"] == 200
+    assert rec["usd"] > 0 and rec["ts"] > 0
+
+
+def test_record_ai_spend_never_raises():
+    class _Broken:
+        def __setitem__(self, k, v):
+            raise RuntimeError("store down")
+    _record_ai_spend(_Broken(), "hook", "claude-sonnet-5", None)   # no raise
+
+
+def test_cost_summary_aggregates_ai_separately_from_videos():
+    store = _FakeStore({
+        "a": _proc(1_000, dur=60.0, enhance="none", gpu=60.0),
+        "ai:1:hook":  {"ts": 1_000, "kind": "hook", "tin": 100, "tout": 50, "usd": 0.01},
+        "ai:2:hook":  {"ts": 1_001, "kind": "hook", "tin": 100, "tout": 50, "usd": 0.01},
+        "ai:3:keywords": {"ts": 1_002, "kind": "keywords", "tin": 10, "tout": 5, "usd": 0.002},
+    })
+    out = _cost_summary(store, 0)
+    assert out["videos"] == 1               # ai entries never count as videos
+    assert out["ai_calls"] == 3
+    assert abs(out["ai_usd"] - 0.022) < 1e-9
+    assert out["ai_by_kind"]["hook"]["n"] == 2
+    assert out["ai_tokens"] == 315
+    # The pricing-decision figures: compute + AI, per delivered video.
+    assert abs(out["all_usd"] - (out["usd"] + out["ai_usd"])) < 1e-6
+    assert out["all_per_video"] > out["usd_per_video"]
+
+
+def test_every_ai_call_site_is_metered():
+    """Source tripwires: each Anthropic call site records its spend."""
+    from pathlib import Path
+    root = Path(__file__).parent.parent.parent
+    fns = (root / "pipeline_fns.py").read_text()
+    content = (root / "content_fns.py").read_text()
+    broll = (root / "broll_fns.py").read_text()
+    stock = (root / "stock_helpers.py").read_text()
+    asgi = (root / "app_modal.py").read_text()
+    assert '_record_ai_spend(costs_store, "proofread"' in fns
+    assert '_record_ai_spend(costs_store, "hook"' in content
+    assert '_record_ai_spend(costs_store, "post_caption"' in content
+    assert '_record_ai_spend(costs_store, "broll_moments"' in broll
+    assert '_record_ai_spend(costs_store, "broll_context"' in broll
+    assert broll.count('"broll_vision"') == 2      # both score_clips call sites
+    assert "on_usage(r.usage)" in stock            # helper stays pure - callback only
+    assert '_record_ai_spend(costs_store, "keywords"' in asgi

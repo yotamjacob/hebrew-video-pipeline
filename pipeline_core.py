@@ -778,6 +778,44 @@ def _face_center_from_image(img_path):
         return None
 
 
+# Anthropic list prices per MTok (input, output). Cache reads bill at 0.1x
+# input, cache writes at 1.25x. Matched by model-id PREFIX so dated ids
+# (claude-haiku-4-5-20251001) hit their family row. Dashboard-only figures -
+# update when models change; unknown models assume Sonnet-tier.
+AI_USD_PER_MTOK = {
+    "claude-sonnet-5": (3.0, 15.0),
+    "claude-haiku-4-5": (1.0, 5.0),
+}
+
+
+def _ai_usd(model, tin, tout, cache_read=0, cache_write=0):
+    rates = next((r for p, r in AI_USD_PER_MTOK.items() if str(model).startswith(p)),
+                 (3.0, 15.0))
+    rin, rout = rates
+    return (tin * rin + cache_read * rin * 0.1 + cache_write * rin * 1.25
+            + tout * rout) / 1_000_000.0
+
+
+def _record_ai_spend(costs_store, kind, model, usage):
+    """Ledger entry for ONE Anthropic API call (feeds the admin Costs tab -
+    per-video compute alone understated the true cost since AI spend is not
+    tied to a video key). `usage` is the SDK response usage object.
+    Best-effort: a metering failure must never fail the feature call."""
+    try:
+        import time as _t
+        tin = int(getattr(usage, "input_tokens", 0) or 0)
+        tout = int(getattr(usage, "output_tokens", 0) or 0)
+        cr = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+        cw = int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+        costs_store[f"ai:{int(_t.time() * 1000)}:{kind}"] = {
+            "ts": _t.time(), "kind": str(kind)[:24], "model": str(model)[:48],
+            "tin": tin, "tout": tout, "cr": cr, "cw": cw,
+            "usd": round(_ai_usd(model, tin, tout, cr, cw), 6),
+        }
+    except Exception:
+        pass
+
+
 def _cost_summary(costs_store, since_ts: float):
     """Aggregate recorded job costs since `since_ts`.
 
@@ -786,7 +824,8 @@ def _cost_summary(costs_store, since_ts: float):
     per-enhance-mode breakdown, so the cost of the 4K upscale option is
     visible next to a plain run rather than buried in the average."""
     out = {"videos": 0, "burns": 0, "gpu_secs": 0.0, "cpu_secs": 0.0,
-           "src_secs": 0.0, "broll_jobs": 0, "by_mode": {}, "usd": 0.0}
+           "src_secs": 0.0, "broll_jobs": 0, "by_mode": {}, "usd": 0.0,
+           "ai_usd": 0.0, "ai_calls": 0, "ai_tokens": 0, "ai_by_kind": {}}
     try:
         keys = list(costs_store.keys())
     except Exception:
@@ -800,6 +839,17 @@ def _cost_summary(costs_store, since_ts: float):
             continue
         ts = rec.get("ts")
         if not isinstance(ts, (int, float)) or ts < since_ts:
+            continue
+        # AI-call ledger entries (see _record_ai_spend) aggregate separately -
+        # they carry no video key and must never count as a "video".
+        if isinstance(k, str) and k.startswith("ai:"):
+            usd = float(rec.get("usd") or 0)
+            out["ai_calls"] += 1
+            out["ai_usd"] += usd
+            out["ai_tokens"] += int(rec.get("tin") or 0) + int(rec.get("tout") or 0)
+            kk = out["ai_by_kind"].setdefault(rec.get("kind") or "?", {"n": 0, "usd": 0.0})
+            kk["n"] += 1
+            kk["usd"] += usd
             continue
         gpu = float(rec.get("gpu_secs") or 0)
         cpu = float(rec.get("burn_secs") or 0)
@@ -825,6 +875,12 @@ def _cost_summary(costs_store, since_ts: float):
     # Cost of one delivered video: the burn belongs to the same video as the
     # process run, so divide by videos (not by videos + burns).
     out["usd_per_video"] = round(out["usd"] / out["videos"], 4) if out["videos"] else 0.0
+    # The pricing-decision figures: compute + AI together, per delivered video.
+    out["ai_usd"] = round(out["ai_usd"], 4)
+    for kk in out["ai_by_kind"].values():
+        kk["usd"] = round(kk["usd"], 4)
+    out["all_usd"] = round(out["usd"] + out["ai_usd"], 4)
+    out["all_per_video"] = round(out["all_usd"] / out["videos"], 4) if out["videos"] else 0.0
     for m in out["by_mode"].values():
         m["gpu_secs"] = round(m["gpu_secs"], 1)
         m["src_secs"] = round(m["src_secs"], 1)

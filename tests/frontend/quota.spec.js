@@ -222,6 +222,9 @@ const COSTS = {
     none:   { n: 3, gpu_secs: 300,  src_secs: 300, gpu_per_src: 1.0 },
     esrgan: { n: 1, gpu_secs: 6000, src_secs: 300, gpu_per_src: 20.0 },
   },
+  ai_usd: 0.0864, ai_calls: 12, ai_tokens: 25000,
+  ai_by_kind: { broll_vision: { n: 8, usd: 0.05 }, hook: { n: 2, usd: 0.02 }, keywords: { n: 2, usd: 0.0164 } },
+  all_usd: 0.3, all_per_video: 0.075,
 };
 
 async function bootAdminWithCosts(page, costs = COSTS) {
@@ -234,17 +237,24 @@ async function bootAdminWithCosts(page, costs = COSTS) {
     return route.fulfill({ status: 200, contentType: 'application/json',
                            body: JSON.stringify(costs) });
   });
-  await page.locator('#tabAdmin').click();
+  await page.locator('#tabCosts').click();
   return seen;
 }
 
-test('the admin cost panel shows the per-video figure and the per-mode split', async ({ page }) => {
+test('the Costs tab shows the all-in per-video figure, AI spend, and the per-mode split', async ({ page }) => {
   const seen = await bootAdminWithCosts(page);
   await expect(page.locator('#costBody')).toBeVisible();
-  await expect(page.locator('#costPerVideo')).toHaveText('$0.053');
+  // The pricing-decision hero: compute + AI per delivered video.
+  await expect(page.locator('#costAllPerVideo')).toHaveText('$0.075');
   await expect(page.locator('#costVideos')).toHaveText('4');
   await expect(page.locator('#costTotal')).toHaveText('$0.21');
+  await expect(page.locator('#costAi')).toHaveText('$0.09');
   await expect(page.locator('#costGpu')).toHaveText('15m');
+  // AI features ranked by spend.
+  const aiRows = page.locator('#costAiKinds tr');
+  await expect(aiRows).toHaveCount(3);
+  await expect(aiRows.nth(0)).toContainText('broll_vision');
+  await expect(aiRows.nth(0)).toContainText('$0.050');
   // The whole point of the panel: the upscale's cost per second of source is
   // visible next to a plain run instead of buried in the average.
   const rows = page.locator('#costModes tr');
@@ -266,7 +276,7 @@ test('switching the range refetches for that window', async ({ page }) => {
 });
 
 test('a window with no jobs says so instead of showing zeros', async ({ page }) => {
-  await bootAdminWithCosts(page, { days: 7, videos: 0, burns: 0, usd: 0, usd_per_video: 0, by_mode: {} });
+  await bootAdminWithCosts(page, { days: 7, videos: 0, burns: 0, usd: 0, usd_per_video: 0, by_mode: {}, ai_calls: 0, ai_usd: 0, ai_by_kind: {} });
   await expect(page.locator('#costEmpty')).toBeVisible();
   await expect(page.locator('#costBody')).toBeHidden();
 });
@@ -276,7 +286,7 @@ test('a failed cost fetch surfaces an error, not a blank card', async ({ page })
   await page.route(`${API_BASE}/admin/users`, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"users":[]}' }));
   await page.route(/\/admin\/costs/, r => r.fulfill({ status: 500, body: 'boom' }));
-  await page.locator('#tabAdmin').click();
+  await page.locator('#tabCosts').click();
   await expect(page.locator('#costError')).toBeVisible();
   await expect(page.locator('#costLoading')).toBeHidden();
 });
