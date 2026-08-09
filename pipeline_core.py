@@ -60,7 +60,7 @@ image = (
     # superset); Whisper is unaffected (CTranslate2 brings its own CUDA).
     .pip_install("torch", "torchaudio", extra_options="--index-url https://download.pytorch.org/whl/cu124")
     .pip_install(
-        "faster-whisper>=1.0.0",
+        "faster-whisper>=1.1.0",   # ≥1.1: BatchedInferencePipeline (parallel chunk decode)
         "nvidia-cublas-cu12",
         "nvidia-cudnn-cu12",
         "deepfilternet>=0.5",
@@ -731,13 +731,16 @@ def _usage_since(quota_store, since_ts: float):
 # credit was never measured - only estimated. Every job now records what it
 # actually burned, and the daily digest turns that into dollars.
 # Rates are Modal list prices (2026-07): L4 $0.000222/s, CPU $0.0000131/core/s,
-# memory $0.00000222/GiB/s. process_video holds an L4 with 4 GiB for its whole
-# run; burn_captions_fn is CPU-only. Both are approximations of the billed
-# amount (container startup and idle are not attributed here), so treat the
-# output as a floor for comparing jobs, not as an invoice.
+# memory $0.00000222/GiB/s. process_video holds an L4 with 4 GiB + 8 cores for
+# its whole run; burn_captions_fn is CPU-only with 8 cores (2026-08-09: both
+# request cpu=8 so the ffmpeg x264 encodes get guaranteed threads instead of
+# the 0.125-core default - pennies per job, roughly halves encode wall time).
+# Both are approximations of the billed amount (container startup and idle are
+# not attributed here), so treat the output as a floor for comparing jobs, not
+# as an invoice.
 COST_RETENTION_DAYS = 90
-GPU_USD_PER_SEC = 0.000222 + 0.00000222 * 4
-CPU_USD_PER_SEC = 0.0000131 * 2 + 0.00000222 * 4
+GPU_USD_PER_SEC = 0.000222 + 0.00000222 * 4 + 0.0000131 * 8
+CPU_USD_PER_SEC = 0.0000131 * 8 + 0.00000222 * 4
 
 
 # YuNet face-detection model, baked into burn_image + light_image (see

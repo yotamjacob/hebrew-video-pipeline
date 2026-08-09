@@ -8,6 +8,8 @@ update it in place when behavior changes.
 
 **CUDA fallback** — `transcribe()` tries float16 on CUDA first; auto-downgrades to int8 on CPU. No manual config needed.
 
+**Batched Whisper decode (2026-08-09)** — the CUDA path decodes via `BatchedInferencePipeline` (`faster-whisper>=1.1`, `batch_size=8`): Silero VAD splits the audio into chunks decoded in parallel on the SAME full `large-v3` model — 2-4x faster at equal accuracy, and each chunk gets the `initial_prompt` bias. Chunk independence matches our deliberate `condition_on_previous_text=False`. Any batched failure falls back to sequential decode mid-flight (`_decode` in `transcribe`); the CPU path is always sequential. `process_video` and `burn_captions_fn` both request `cpu=8` so their ffmpeg x264 encodes get guaranteed threads (mirrored in `GPU_USD_PER_SEC`/`CPU_USD_PER_SEC` — update those if the allocations change).
+
 **Modal warmup pattern** — `GET /warmup` fires `process_video` with `filename="__warmup__"` asynchronously to pre-warm the L4 GPU container. The real `/process` endpoint benefits on the next call.
 
 **Whisper model cache** — first run downloads ~1.5 GB to the local faster-whisper cache; Modal uses a persistent volume so it survives redeployments.

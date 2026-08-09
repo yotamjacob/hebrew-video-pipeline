@@ -721,6 +721,11 @@ def render_audio(audio_in, segs, out):
 # ---------------------------------------------------------------------------
 @app.function(
     gpu="L4",
+    # 8 guaranteed cores for the ffmpeg x264 encodes (extract/render/esrgan
+    # re-encode) - without cpu= Modal guarantees only 0.125 cores and the
+    # encode speed depended on host luck. Costs ~$0.0001/s, trivially repaid
+    # by ending the L4 billing sooner. Mirrored in GPU_USD_PER_SEC.
+    cpu=8,
     timeout=1800,
     # Hard ceiling on simultaneous L4 containers. Modal otherwise autoscales
     # GPU containers without bound — this caps peak GPU spend during a burst
@@ -1043,16 +1048,34 @@ def process_video(
             compression_ratio_threshold=2.4,
             initial_prompt=WHISPER_INITIAL_PROMPT,
         )
+        # Batched decode (faster-whisper >=1.1): VAD splits the audio into
+        # chunks that are decoded in parallel on the SAME full model - 2-4x
+        # faster at equal accuracy, and each chunk gets the initial_prompt
+        # bias. Chunks are independent, which matches our deliberate
+        # condition_on_previous_text=False. Any batched failure falls back to
+        # the sequential path mid-flight (whisper_segs is only assigned once
+        # _segments() has fully consumed the generator).
+        def _decode(m, batched):
+            if batched:
+                from faster_whisper import BatchedInferencePipeline
+                segs, _ = BatchedInferencePipeline(model=m).transcribe(
+                    str(wav), batch_size=8, **common)
+            else:
+                segs, _ = m.transcribe(str(wav), **common)
+            return _segments(segs)
+
         try:
             m = WhisperModel(WHISPER_MODEL, device="cuda", compute_type="float16",
                              download_root=MODEL_DIR)
-            segs, _ = m.transcribe(str(wav), **common)
-            whisper_segs = _segments(segs)
+            try:
+                whisper_segs = _decode(m, batched=True)
+            except Exception as e:
+                print(f"[transcribe] batched decode failed ({e!r}) - sequential fallback")
+                whisper_segs = _decode(m, batched=False)
         except Exception:
             m = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8",
                              download_root=MODEL_DIR)
-            segs, _ = m.transcribe(str(wav), **common)
-            whisper_segs = _segments(segs)
+            whisper_segs = _decode(m, batched=False)
         model_volume.commit()
         return whisper_segs
 
@@ -1817,6 +1840,10 @@ def _zoom_filters(caption_style, width, height, in_label, out_label, fps=30.0, f
 # Caption-burn worker — CPU only, no GPU needed
 # ---------------------------------------------------------------------------
 @app.function(image=burn_image, timeout=600, volumes={TMP_DIR: tmp_vol},
+              # 8 guaranteed cores: the burn is one CPU-bound x264 encode and
+              # scales nearly linearly with threads (~$0.005/burn, roughly
+              # halves the wall time). Mirrored in CPU_USD_PER_SEC.
+              cpu=8,
               secrets=[modal.Secret.from_name("hebpipe-fcm")])
 def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", margin_v_pct: float = 0.08, broll_json: str = "[]", font_size: int = 48, hook_json: str = "", caption_style_json: str = "", source_name: str = "") -> dict:
     import json, subprocess, tempfile, uuid, shutil
