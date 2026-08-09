@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.34.1';
+  const APP_VERSION = '1.35.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -4032,6 +4032,7 @@
     if (row) row.style.display = (_capMode() === 'karaoke' || kwOn) ? 'flex' : 'none';
     _syncProgressBarPreview();
     _syncZoomPreview();
+    _renderZoomList();
     if (kwOn) _ensureKeywords();
     _renderKwList();
     _refreshColorSwatches();
@@ -4122,7 +4123,13 @@
   // ZOOM_MIN_GAP seconds (≤4/min), snap in and out (the trendy cut, not a
   // smooth ramp).
   const ZOOM_MIN_GAP = 15, ZOOM_MIN_DUR = 1.0, ZOOM_MAX_DUR = 2.6;
-  const ZOOM_FACTORS = { subtle: 1.06, medium: 1.10, strong: 1.16 };  // keep in sync with _zoom_filters (pipeline_fns.py)
+  // Factors raised 2026-08-09 (the old 1.06-1.16 read as "nothing happened"
+  // even on strong - field report). Keep in sync with _zoom_filters
+  // (pipeline_fns.py). ZOOM_FOCUS_Y biases the punch toward the FACE: crop /
+  // transform-origin center sits at 30% height, where a talking head lives -
+  // mirrored by the server crop y=(ih-oh)*0.30 and /preview_frame.
+  const ZOOM_FACTORS = { subtle: 1.10, medium: 1.18, strong: 1.28 };
+  const ZOOM_FOCUS_Y = '50% 30%';
   function _computeZoomWindows(caps) {
     const wins = [];
     let lastStart = -Infinity, prevEnd = null;
@@ -4142,12 +4149,48 @@
     return wins;
   }
   let _zoomWinCache = { sig: null, wins: [] };
+  // Moments the user tapped OFF in the Effects list (keys = window start,
+  // 3-decimal string). Session-scoped: windows recompute deterministically,
+  // so a re-edit simply starts with everything on again.
+  const _zoomOff = new Set();
   function _zoomWindows() {
     if (!document.getElementById('fxAutoZoom')?.checked) return [];
     const caps = (typeof captionsData !== 'undefined' && captionsData) || [];
     const sig = caps.map(c => (+c.start).toFixed(2) + '-' + (+c.end).toFixed(2)).join(',');
-    if (sig !== _zoomWinCache.sig) _zoomWinCache = { sig, wins: _computeZoomWindows(caps) };
-    return _zoomWinCache.wins;
+    if (sig !== _zoomWinCache.sig) {
+      _zoomWinCache = { sig, wins: _computeZoomWindows(caps) };
+      _renderZoomList();
+    }
+    return _zoomWinCache.wins.filter(w => !_zoomOff.has(w[0].toFixed(3)));
+  }
+  // The Effects-tab moment list: every computed punch-in as a tappable chip
+  // (time + the caption it lands on); tapping toggles that moment off/on.
+  function _renderZoomList() {
+    const el = document.getElementById('zoomList');
+    if (!el) return;
+    const on = !!document.getElementById('fxAutoZoom')?.checked;
+    const wins = on ? _zoomWinCache.wins : [];
+    if (!wins.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.style.display = 'flex';
+    el.innerHTML = '';
+    const caps = (typeof captionsData !== 'undefined' && captionsData) || [];
+    wins.forEach(([s]) => {
+      const key = s.toFixed(3);
+      const cap = caps.find(c => Math.abs(+c.start - s) < 0.05);
+      const words = String((cap && cap.text) || '').replace(/\\N/g, ' ').split(/\s+/).filter(Boolean);
+      const snippet = words.slice(0, 4).join(' ') + (words.length > 4 ? '…' : '');
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'kw-chip zoom-chip' + (_zoomOff.has(key) ? ' off' : '');
+      chip.textContent = formatTime(Math.round(s)) + (snippet ? ' · ' + snippet : '');
+      chip.title = t('fx.zoomChipTip');
+      chip.addEventListener('click', () => {
+        if (_zoomOff.has(key)) _zoomOff.delete(key); else _zoomOff.add(key);
+        chip.classList.toggle('off', _zoomOff.has(key));
+        _syncZoomPreview();
+      });
+      el.appendChild(chip);
+    });
   }
   function _zoomFactorAt(t) {
     const wins = _zoomWindows();
@@ -4164,6 +4207,7 @@
     if (!vid) return;
     const z = _zoomFactorAt(t != null ? t : (vid.currentTime || 0));
     const tr = z > 1 ? 'scale(' + z + ')' : '';
+    if (vid.style.transformOrigin !== ZOOM_FOCUS_Y) vid.style.transformOrigin = ZOOM_FOCUS_Y;
     if (vid.style.transform !== tr) vid.style.transform = tr;
   }
 
@@ -4273,13 +4317,18 @@
     custom.type = 'button';
     custom.className = 'color-tile color-tile-custom';
     custom.title = 'custom';
-    custom.addEventListener('click', () => {
-      const target = _colorPopTarget;
-      _closeColorPopover();
-      if (target) target.click();   // the native picker, as the escape hatch
+    custom.addEventListener('click', (e) => {
+      // In-app custom creator, NOT the OS dialog (the native picker clashed
+      // with the app design - removed 2026-08-09).
+      e.stopPropagation();
+      const panel = document.getElementById('colorCustomPanel');
+      const opening = panel.style.display === 'none';
+      panel.style.display = opening ? 'block' : 'none';
+      if (opening) _customFromHex(_colorPopTarget ? _colorPopTarget.value : '#FFFFFF');
     });
     grid.appendChild(custom);
     pop.appendChild(grid);
+    pop.appendChild(_buildCustomPanel());
     document.body.appendChild(pop);
     document.addEventListener('click', (e) => {
       if (pop.classList.contains('open') && !pop.contains(e.target)
@@ -4293,9 +4342,123 @@
     if (pop) pop.classList.remove('open');
     _colorPopTarget = null;
   }
+  // ── App-styled custom color creator ───────────────────────────────────────
+  // Lives inside the color popover (revealed by the "custom" tile): an HSV
+  // saturation/brightness canvas + hue slider + hex field. Applies LIVE to
+  // the target input through the SAME 'input'/'change' event path the tiles
+  // use, so every existing handler keeps working unchanged.
+  let _hsvH = 0, _hsvS = 1, _hsvV = 1;
+  function _hsvToHex(h, s, v) {
+    const f = (n) => {
+      const k = (n + h / 60) % 6;
+      const c = v - v * s * Math.max(0, Math.min(k, 4 - k, 1));
+      return Math.round(c * 255).toString(16).padStart(2, '0');
+    };
+    return '#' + f(5) + f(3) + f(1);
+  }
+  function _hexToHsv(hex) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+    if (!m) return null;
+    const n = parseInt(m[1], 16);
+    const r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    let h = 0;
+    if (d) {
+      if (max === r) h = 60 * (((g - b) / d) % 6);
+      else if (max === g) h = 60 * ((b - r) / d + 2);
+      else h = 60 * ((r - g) / d + 4);
+    }
+    if (h < 0) h += 360;
+    return { h, s: max ? d / max : 0, v: max };
+  }
+  function _buildCustomPanel() {
+    const panel = document.createElement('div');
+    panel.id = 'colorCustomPanel';
+    panel.className = 'color-custom-panel';
+    panel.style.display = 'none';
+    const sv = document.createElement('canvas');
+    sv.className = 'color-sv';
+    sv.width = 220; sv.height = 130;
+    const hue = document.createElement('input');
+    hue.type = 'range'; hue.min = '0'; hue.max = '360'; hue.step = '1';
+    hue.className = 'color-hue';
+    hue.setAttribute('aria-label', 'hue');
+    const row = document.createElement('div');
+    row.className = 'color-hex-row';
+    const chip = document.createElement('span');
+    chip.className = 'color-hex-chip';
+    const hex = document.createElement('input');
+    hex.type = 'text'; hex.className = 'color-hex'; hex.maxLength = 7;
+    hex.id = 'colorCustomHex';
+    hex.setAttribute('spellcheck', 'false');
+    row.append(chip, hex);
+    panel.append(sv, hue, row);
+
+    const ctx = sv.getContext('2d');
+    const paint = () => {
+      const w = sv.width, h = sv.height;
+      ctx.fillStyle = `hsl(${_hsvH}, 100%, 50%)`;
+      ctx.fillRect(0, 0, w, h);
+      let g = ctx.createLinearGradient(0, 0, w, 0);
+      g.addColorStop(0, '#fff'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+      g = ctx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, '#000');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+      const x = _hsvS * w, y = (1 - _hsvV) * h;
+      ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y, 7.5, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 1; ctx.stroke();
+    };
+    const sync = (apply, keepHexText) => {
+      const hexVal = _hsvToHex(_hsvH, _hsvS, _hsvV);
+      if (!keepHexText) hex.value = hexVal;
+      chip.style.background = hexVal;
+      hue.value = String(Math.round(_hsvH));
+      paint();
+      if (apply && _colorPopTarget) {
+        _colorPopTarget.value = hexVal;
+        _colorPopTarget.dispatchEvent(new Event('input',  { bubbles: true }));
+        _colorPopTarget.dispatchEvent(new Event('change', { bubbles: true }));
+        _refreshColorSwatches();
+        document.querySelectorAll('#colorPopover .color-tile').forEach(tl =>
+          tl.classList.toggle('selected', (tl.dataset.hex || '').toUpperCase() === hexVal.toUpperCase()));
+      }
+    };
+    const pick = (ev) => {
+      const r = sv.getBoundingClientRect();
+      _hsvS = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+      _hsvV = Math.max(0, Math.min(1, 1 - (ev.clientY - r.top) / r.height));
+      sync(true);
+    };
+    sv.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault();
+      try { sv.setPointerCapture(ev.pointerId); } catch (_) {}
+      pick(ev);
+    });
+    sv.addEventListener('pointermove', (ev) => { if (ev.buttons) pick(ev); });
+    hue.addEventListener('input', () => { _hsvH = parseFloat(hue.value) || 0; sync(true); });
+    hex.addEventListener('input', () => {
+      const p = _hexToHsv(hex.value);
+      if (!p) return;   // partial typing - wait for a full #rrggbb
+      _hsvH = p.h; _hsvS = p.s; _hsvV = p.v;
+      sync(true, true);
+    });
+    panel._sync = sync;   // used by _customFromHex when the panel opens
+    return panel;
+  }
+  function _customFromHex(hexVal) {
+    const p = _hexToHsv(hexVal) || { h: 0, s: 0, v: 1 };
+    _hsvH = p.h; _hsvS = p.s; _hsvV = p.v;
+    const panel = document.getElementById('colorCustomPanel');
+    if (panel && panel._sync) panel._sync(false);
+  }
   function _openColorPopover(input, anchorBtn) {
     const pop = _colorPopover();
     _colorPopTarget = input;
+    // Fresh open starts on the tile grid; the custom panel re-opens on demand.
+    { const cp = document.getElementById('colorCustomPanel'); if (cp) cp.style.display = 'none'; }
     const cur = (input.value || '').toUpperCase();
     pop.querySelectorAll('.color-tile').forEach(tl =>
       tl.classList.toggle('selected', (tl.dataset.hex || '').toUpperCase() === cur));
@@ -6869,7 +7032,7 @@
       const { call_id } = await resp.json();
       _hookCallId = call_id;
 
-      let retries = 0;
+      const pollDeadline = Date.now() + 600_000;
       while (true) {
         if (hookGenAborted || myEpoch !== _toolsEpoch) break;
         try {
@@ -6879,11 +7042,16 @@
             if (!hookGenAborted) { renderHookOptions(result.hooks || []); _hookGenSignature = getCaptionsSignature(); }
             break;
           }
-          if (poll.status === 202) { await new Promise(r => setTimeout(r, 3000)); retries = 0; continue; }
+          if (poll.status === 202) { await new Promise(r => setTimeout(r, 3000)); continue; }
           const errBody = await poll.json().catch(() => ({}));
-          throw new Error(errBody.error || `Server error ${poll.status}`);
+          const err = new Error(errBody.error || `Server error ${poll.status}`);
+          err.isServer = true;   // a real job failure, not a connection blip
+          throw err;
         } catch (e) {
-          if (!e.message.startsWith('Server error') && ++retries <= 3) {
+          // Same backgrounding story as the B-roll poll: a killed in-flight
+          // fetch is not a failed job - park while hidden and keep polling.
+          if (!e.isServer && Date.now() < pollDeadline) {
+            await _whenVisible();
             await new Promise(r => setTimeout(r, 2000)); continue;
           }
           throw e;
@@ -7058,7 +7226,7 @@
       const { call_id } = await resp.json();
       _brollCallId = call_id;
 
-      let netRetries = 0;
+      const pollDeadline = Date.now() + 900_000;
       while (true) {
         if (_tCancelled()) return;
         try {
@@ -7101,13 +7269,19 @@
           }
           if (pollResp.status === 202) {
             await new Promise(r => setTimeout(r, 5000));
-            netRetries = 0;
             continue;
           }
           const body = await pollResp.json().catch(() => ({}));
-          throw new Error(body.error || `Server error ${pollResp.status}`);
+          const err = new Error(body.error || `Server error ${pollResp.status}`);
+          err.isServer = true;   // a real job failure, not a connection blip
+          throw err;
         } catch (e) {
-          if (!e.message.startsWith('Server error') && ++netRetries <= 3) {
+          // Network failures are never fatal before the deadline: minimizing
+          // the app freezes the WebView and kills the in-flight poll while
+          // the job keeps running server-side (field report: B-roll "failed"
+          // mid-process when backgrounded). Park while hidden, then resume.
+          if (!e.isServer && Date.now() < pollDeadline) {
+            await _whenVisible();
             await new Promise(r => setTimeout(r, 2000));
             continue;
           }

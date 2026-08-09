@@ -72,10 +72,12 @@ test('preview: the video snaps to scale() inside a window and back outside', asy
   await page.click('#tabBtnEffects');
   await page.check('#fxAutoZoom');
 
-  // Inside the first window (0.5-2.3 at medium = 1.10)
+  // Inside the first window (0.5-2.3 at medium = 1.18), face-biased origin
   await page.evaluate(() => _syncZoomPreview(1.0));
   await expect.poll(() => page.evaluate(() =>
-    document.getElementById('cutVideo').style.transform)).toBe('scale(1.1)');
+    document.getElementById('cutVideo').style.transform)).toBe('scale(1.18)');
+  expect(await page.evaluate(() =>
+    document.getElementById('cutVideo').style.transformOrigin)).toBe('50% 30%');
 
   // Outside any window → transform cleared
   await page.evaluate(() => _syncZoomPreview(4.0));
@@ -86,7 +88,7 @@ test('preview: the video snaps to scale() inside a window and back outside', asy
   await page.selectOption('#fxZoomStrength', 'subtle');
   await page.evaluate(() => _syncZoomPreview(1.0));
   await expect.poll(() => page.evaluate(() =>
-    document.getElementById('cutVideo').style.transform)).toBe('scale(1.06)');
+    document.getElementById('cutVideo').style.transform)).toBe('scale(1.1)');
 
   // Toggle off → cleared even inside the window
   await page.uncheck('#fxAutoZoom');
@@ -113,4 +115,42 @@ test('applying a look-only preset does not reset the zoom toggle', async ({ page
   // (the progress-bar "resets every time I change a setting" class of bug).
   await page.evaluate(() => _applyCaptionStyleValues({ font_color: '#FFD400' }));
   await expect(page.locator('#fxAutoZoom')).toBeChecked();
+});
+
+test('moment list: each punch-in is a tappable chip; tapping one excludes it from the burn', async ({ page }) => {
+  let burnBody = null;
+  await runFullUpload(page);
+  await page.route(/\/burn\/?(\?|$)/, async (route, request) => {
+    try { burnBody = JSON.parse(request.postData() || '{}'); } catch {}
+    await route.fallback();
+  });
+
+  await page.click('#tabBtnEffects');
+  await page.check('#fxAutoZoom');
+  // DEFAULT_CAPTIONS produce exactly one window (0.5-2.3) → one chip with
+  // the caption snippet it lands on.
+  const chips = page.locator('#zoomList .zoom-chip');
+  await expect(chips).toHaveCount(1);
+  await expect(chips.first()).toContainText('שלום עולם');
+
+  // Tap to skip: the chip greys out, the preview stops zooming there, and
+  // the burn payload carries no zooms at all.
+  await chips.first().click();
+  await expect(chips.first()).toHaveClass(/off/);
+  await page.evaluate(() => _syncZoomPreview(1.0));
+  await expect.poll(() => page.evaluate(() =>
+    document.getElementById('cutVideo').style.transform)).toBe('');
+
+  await page.locator('#runBtn').dispatchEvent('click');
+  const ok = page.locator('#confirmOk');
+  if (await ok.isVisible().catch(() => false)) await ok.click();
+  await expect.poll(() => (burnBody ? 'y' : 'n'), { timeout: 10_000 }).toBe('y');
+  expect('zooms' in burnBody.caption_style).toBe(false);
+
+  // Tap again restores it.
+  await chips.first().click();
+  await expect(chips.first()).not.toHaveClass(/off/);
+  await page.evaluate(() => _syncZoomPreview(1.0));
+  await expect.poll(() => page.evaluate(() =>
+    document.getElementById('cutVideo').style.transform)).toBe('scale(1.18)');
 });

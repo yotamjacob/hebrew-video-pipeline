@@ -2357,8 +2357,10 @@ def api():
                         ap.write_text(ass, encoding="utf-8")
                         # Zoom before ass= mirrors the burn's filter order
                         # (zoom → B-roll → subtitles): captions never zoom.
+                        # Face-biased crop (center at 30% height) - must match
+                        # _zoom_filters + the CSS transform-origin in app.js.
                         zoom_vf = (f"scale=trunc(iw*{zoom}/2)*2:trunc(ih*{zoom}/2)*2,"
-                                   f"crop={W}:{Hh}," if zoom else "")
+                                   f"crop={W}:{Hh}:(iw-ow)/2:(ih-oh)*0.30," if zoom else "")
                         _sp.run(["ffmpeg", "-y", "-i", str(fr), "-vf", f"{zoom_vf}ass={ap}",
                                  "-frames:v", "1", str(out)],
                                 stdout=_sp.DEVNULL, stderr=_sp.PIPE, timeout=60, check=True)

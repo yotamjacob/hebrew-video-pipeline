@@ -189,3 +189,27 @@ test('tapping a clip thumbnail plays the clip inline instead of opening the stoc
   await thumb.click();
   await expect(thumb.locator('video.clip-inline-video')).toHaveCount(0);
 });
+
+test('a burst of killed polls (backgrounded WebView) does not fail the run', async ({ page }) => {
+  // Minimizing the app kills in-flight polls; the old loop gave up after 3
+  // such failures and showed "failed" while the job was still running.
+  test.setTimeout(45_000);
+  await runFullUpload(page);
+  let polls = 0;
+  await page.route(/\/stock-broll\/?(\?.*)?$/, (route, request) => {
+    if (request.method() !== 'POST') return route.fallback();
+    return route.fulfill({ status: 202, contentType: 'application/json',
+                           body: JSON.stringify({ call_id: 'mock-stock-call-id' }) });
+  });
+  await page.route(`${API_BASE}/stock-broll-poll/**`, r => {
+    polls++;
+    if (polls <= 5) return r.abort('connectionfailed');   // > the old 3-retry budget
+    return r.fulfill({ status: 200, contentType: 'application/json',
+                       body: JSON.stringify(TWO_MOMENTS) });
+  });
+  await page.route(/images\.pexels\.com|videos\.pexels\.com/, r => r.abort());
+  await page.click('#tabBtnBroll');
+  await page.click('#findBrollBtn');
+  await expect(page.locator('.moment-card')).toHaveCount(2, { timeout: 30_000 });
+  expect(polls).toBeGreaterThan(5);
+});

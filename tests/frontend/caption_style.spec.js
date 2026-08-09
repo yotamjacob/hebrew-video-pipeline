@@ -200,3 +200,33 @@ test('keyword highlight shows a spinner while the words are being chosen', async
   release();
   await expect(busy).toBeHidden();
 });
+
+test('custom color tile opens the in-app creator, not the OS dialog; hex + hue apply live', async ({ page }) => {
+  await runFullUpload(page);
+  await page.evaluate(() => toggleCapDesign(true));
+  await page.click('#capFontColorSwatch');
+  await expect(page.locator('#colorPopover')).toBeVisible();
+
+  // A click on the native input would open the OS dialog - trap it.
+  await page.evaluate(() => {
+    window.__nativeOpened = false;
+    document.getElementById('capFontColor').addEventListener('click', () => { window.__nativeOpened = true; });
+  });
+  await page.click('.color-tile-custom');
+  await expect(page.locator('#colorCustomPanel')).toBeVisible();
+  expect(await page.evaluate(() => window.__nativeOpened)).toBe(false);
+
+  // Typing a full hex applies through the same input-event path as the tiles.
+  await page.fill('#colorCustomHex', '#12ab34');
+  await expect(page.locator('#capFontColor')).toHaveValue('#12ab34');
+  await expect.poll(() =>
+    page.evaluate(() => document.getElementById('playerCap').style.color)
+  ).toBe('rgb(18, 171, 52)');
+
+  // The hue slider keeps applying live.
+  await page.locator('.color-hue').evaluate(el => {
+    el.value = '0'; el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const v = await page.locator('#capFontColor').inputValue();
+  expect(v).not.toBe('#12ab34');
+});

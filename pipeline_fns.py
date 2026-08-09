@@ -1671,11 +1671,13 @@ def _zoom_filters(caption_style, width, height, in_label, out_label):
     Applied BEFORE B-roll overlays and subtitles, so inserts and captions are
     never zoomed. Returns [] when there is nothing to do.
     """
-    _ZOOM_FACTOR = {"subtle": 1.06, "medium": 1.10, "strong": 1.16}
+    # Raised 2026-08-09 (1.06-1.16 was invisible in the field). Mirrored by
+    # ZOOM_FACTORS in site/app.js - keep in sync.
+    _ZOOM_FACTOR = {"subtle": 1.10, "medium": 1.18, "strong": 1.28}
     _MAX_ZOOM_WINDOWS = 60
     style = caption_style or {}
     try:
-        factor = _ZOOM_FACTOR.get(str(style.get("zoom_strength", "medium")), 1.10)
+        factor = _ZOOM_FACTOR.get(str(style.get("zoom_strength", "medium")), 1.18)
         spans = []
         for it in list(style.get("zooms") or [])[:_MAX_ZOOM_WINDOWS]:
             s, e = float(it[0]), float(it[1])
@@ -1688,9 +1690,13 @@ def _zoom_filters(caption_style, width, height, in_label, out_label):
     zw = int(round(width * factor / 2)) * 2
     zh = int(round(height * factor / 2)) * 2
     enable = "+".join(f"between(t,{s:.3f},{e:.3f})" for s, e in spans)
+    # Crop center sits at 30% height, not 50%: a talking head lives in the
+    # upper third, so the punch reads as "into the face". Mirrors the CSS
+    # preview's transform-origin 50% 30% (ZOOM_FOCUS_Y in app.js) and the
+    # /preview_frame crop - keep all three at the same fraction.
     return [
         f"[{in_label}]split[zsa][zsb]",
-        f"[zsb]scale={zw}:{zh},crop={width}:{height}[zsc]",
+        f"[zsb]scale={zw}:{zh},crop={width}:{height}:(iw-ow)/2:(ih-oh)*0.30[zsc]",
         f"[zsa][zsc]overlay=0:0:enable='{enable}'[{out_label}]",
     ]
 

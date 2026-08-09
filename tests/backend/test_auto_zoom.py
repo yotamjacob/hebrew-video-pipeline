@@ -34,8 +34,11 @@ class TestZoomFilters:
         fs = _zoom_filters(_mk([[1.0, 3.0]]), 1080, 1920, "0:v", "vzoom")
         assert len(fs) == 3
         assert fs[0] == "[0:v]split[zsa][zsb]"
-        # medium default = 1.10 → 1188x2112 (even dims), cropped back to source
-        assert "scale=1188:2112" in fs[1] and "crop=1080:1920" in fs[1]
+        # medium default = 1.18 → 1274x2266 (even dims), cropped back to source
+        assert "scale=1274:2266" in fs[1] and "crop=1080:1920" in fs[1]
+        # face bias: crop center at 30% height (matches CSS transform-origin
+        # 50% 30% and the /preview_frame crop)
+        assert "(ih-oh)*0.30" in fs[1]
         assert fs[2].startswith("[zsa][zsc]overlay=0:0:enable=")
         assert "between(t,1.000,3.000)" in fs[2]
         assert fs[2].endswith("[vzoom]")
@@ -48,15 +51,15 @@ class TestZoomFilters:
         assert fs[0].startswith("[vrot]")
 
     def test_strength_mapping(self):
-        # subtle 1.06 / medium 1.10 / strong 1.16 — mirror of app.js ZOOM_FACTORS
-        for strength, w in (("subtle", 1145), ("medium", 1188), ("strong", 1253)):
+        # subtle 1.10 / medium 1.18 / strong 1.28 — mirror of app.js ZOOM_FACTORS
+        for strength, w in (("subtle", 1188), ("medium", 1274), ("strong", 1382)):
             fs = _zoom_filters(_mk([[0, 1]], strength), 1080, 1920, "a", "b")
             # even-rounded width
-            assert f"scale={round(w / 2) * 2}:" in fs[1], (strength, fs[1])
+            assert f"scale={w}:" in fs[1], (strength, fs[1])
 
     def test_unknown_strength_falls_back_to_medium(self):
         fs = _zoom_filters(_mk([[0, 1]], "mega"), 1080, 1920, "a", "b")
-        assert "scale=1188:" in fs[1]
+        assert "scale=1274:" in fs[1]
 
     def test_empty_and_missing_zooms(self):
         assert _zoom_filters({}, 1080, 1920, "a", "b") == []
@@ -105,3 +108,5 @@ class TestBurnWiring:
         assert "1.001 < zoom <= 2.0" in route
         # zoom prefix precedes the ass= burn in the vf chain
         assert 'f"{zoom_vf}ass={ap}"' in route
+        # same face bias as _zoom_filters
+        assert "(ih-oh)*0.30" in route

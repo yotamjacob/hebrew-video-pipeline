@@ -1848,6 +1848,35 @@
       border: 1px solid var(--purple-400); border-radius: 999px;
     }
 
+    /* ── App-styled custom color creator (inside the color popover) ── */
+    .color-custom-panel { padding: 10px 2px 2px; width: 100%; box-sizing: border-box; }
+    .color-sv { display: block; width: 100%; border-radius: 10px; cursor: crosshair; touch-action: none; }
+    .color-hue {
+      -webkit-appearance: none; appearance: none; width: 100%; height: 12px;
+      border-radius: 999px; margin: 10px 0 8px; outline: none; border: none; display: block;
+      background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+    }
+    .color-hue::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
+      background: var(--white); border: 2px solid var(--purple-700);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.25); cursor: pointer;
+    }
+    .color-hue::-moz-range-thumb {
+      width: 18px; height: 18px; border-radius: 50%;
+      background: var(--white); border: 2px solid var(--purple-700); cursor: pointer;
+    }
+    .color-hex-row { display: flex; align-items: center; gap: 8px; }
+    .color-hex-chip { width: 26px; height: 26px; border-radius: 8px; border: 1.5px solid var(--purple-200); flex-shrink: 0; }
+    .color-hex {
+      flex: 1; min-width: 0; font-family: inherit; font-size: 0.82rem; font-weight: 600;
+      padding: 5px 9px; border-radius: 9px; border: 1.5px solid var(--purple-200);
+      background: var(--white); color: var(--text); direction: ltr; text-align: left;
+    }
+
+    /* ── Auto-zoom moment chips (Effects tab) ── */
+    .zoom-chip { cursor: pointer; font: inherit; font-size: 0.75rem; }
+    .zoom-chip.off { opacity: 0.45; text-decoration: line-through; }
+
     /* ── Schedule card ── */
     .sched-intro { font-size: 0.82rem; color: var(--muted); line-height: 1.5; margin-bottom: 16px; }
     .sched-intro b { color: var(--purple-700); }
