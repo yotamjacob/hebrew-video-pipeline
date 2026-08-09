@@ -152,3 +152,51 @@ test('color swatch opens the app-styled popover; a tile applies instantly', asyn
     document.querySelector('#capFontColorSwatch .csb-chip').style.background);
   expect(chip).toContain('255, 212, 0');
 });
+
+test('selecting one saved style marks only that chip, and its delete badge is not clipped', async ({ page }) => {
+  await runFullUpload(page);
+  await page.click('#capPresetTabMine');
+  // Save two distinct styles.
+  await page.click('#capPresetAdd');
+  await page.fill('#capPresetName', 'סגנון א');
+  await page.click('#capPresetSaveBtn');
+  await page.click('#capPresetAdd');
+  await page.fill('#capPresetName', 'סגנון ב');
+  await page.click('#capPresetSaveBtn');
+  await expect(page.locator('#capPresetRow .cap-preset-del')).toHaveCount(2);
+
+  // Selecting ONE lights exactly one chip (pre-fix: undefined ids matched all).
+  await page.locator('#capPresetRow .cap-preset-chip').first().click();
+  await expect(page.locator('#capPresetRow .cap-preset-chip.active')).toHaveCount(1);
+  await page.locator('#capPresetRow .cap-preset-chip').nth(1).click();
+  await expect(page.locator('#capPresetRow .cap-preset-chip.active')).toHaveCount(1);
+
+  // The delete badge overhangs its chip corner - it must be fully hit-testable
+  // (pre-fix the chip's overflow:hidden + the row's 2px padding cut it in half).
+  const clickable = await page.evaluate(() => {
+    const del = document.querySelector('#capPresetRow .cap-preset-del');
+    const r = del.getBoundingClientRect();
+    const probe = document.elementFromPoint(r.left + r.width / 2, r.top + 2);
+    return !!probe && (probe === del || del.contains(probe));
+  });
+  expect(clickable).toBe(true);
+});
+
+test('keyword highlight shows a spinner while the words are being chosen', async ({ page }) => {
+  await runFullUpload(page);
+  // Hold the /keywords response open so the busy state is observable.
+  let release;
+  const gate = new Promise(r => { release = r; });
+  await page.route(/\/keywords\/?/, async route => {
+    await gate;
+    return route.fulfill({ status: 200, contentType: 'application/json',
+                           body: JSON.stringify({ keywords: [[0], []] }) });
+  });
+  await page.click('#tabBtnEffects');
+  await page.locator('#capKeywords').check();
+  const busy = page.locator('#capKeywordsBusy');
+  await expect(busy).toBeVisible();
+  await expect(busy.locator('.spinner')).toBeVisible();   // a real spinner, not just text
+  release();
+  await expect(busy).toBeHidden();
+});

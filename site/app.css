@@ -1094,7 +1094,9 @@
     }
 
     .cap-preset-row {
-      display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 10px;
+      /* 8px top/side padding: the saved-chip delete button overhangs its chip
+         by 6px and the row's own overflow clipped it in half. */
+      display: flex; gap: 8px; overflow-x: auto; padding: 8px 8px 10px;
       -webkit-overflow-scrolling: touch;
     }
     .cap-preset-chip {
@@ -1102,7 +1104,8 @@
       /* FIXED geometry: the sample text renders in each preset's webfont, and
          fonts stream in lazily - flexible chips reflowed on every arrival and
          everything below the row jumped (mobile clicks flaked on it). */
-      width: 84px; height: 62px; box-sizing: border-box; overflow: hidden;
+      /* overflow VISIBLE: the delete badge sits half outside the corner. */
+      width: 84px; height: 62px; box-sizing: border-box; overflow: visible;
       padding: 6px 8px; border-radius: 12px; cursor: pointer;
       border: 1.5px solid var(--sage-100, #DDE3D0); background: var(--white);
       flex-shrink: 0;

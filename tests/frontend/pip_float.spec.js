@@ -77,3 +77,59 @@ test('docking the player FLIPs (transform present mid-flight, cleared after)', a
   const residual2 = await page.evaluate(() => document.getElementById('playerWrap').style.transform);
   expect(residual2 === '' || residual2 === 'none').toBeTruthy();
 });
+
+test('any editor text edit hides the docked mini-player - hook fields included', async ({ page }) => {
+  test.setTimeout(45_000);
+  await bootApp(page);
+  await mockAllApis(page);
+  const buf = fs.readFileSync(MP4);
+  await page.route(`${API_BASE}/download/**`, r =>
+    r.fulfill({ status: 200, headers: { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes',
+                'Content-Length': String(buf.length) }, body: buf }));
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 10_000 });
+  await page.waitForFunction(() => {
+    const w = document.getElementById('playerWrap');
+    return w && w.offsetHeight > 100;
+  });
+
+  // Dock the player (same anchoring as the FLIP test above).
+  await page.evaluate(() => {
+    const sentinel = document.getElementById('playerStickySentinel');
+    const topbar = document.querySelector('.app-topbar');
+    const tbH = topbar ? topbar.offsetHeight : 52;
+    window.scrollTo(0, sentinel.getBoundingClientRect().top + window.scrollY - tbH + 120);
+  });
+  await page.waitForFunction(() =>
+    document.getElementById('captionPlayer').classList.contains('is-stuck'), { timeout: 5000 });
+
+  // Focusing a hook-panel textarea (created exactly like the generated hook
+  // options are) must undock - pre-fix only #captionsList fields did.
+  await page.evaluate(() => {
+    switchEditorTab('hook');
+    const opts = document.getElementById('hookOptions');
+    opts.style.display = 'block';
+    const ta = document.createElement('textarea');
+    ta.id = 'hookTextProbe';
+    opts.appendChild(ta);
+    ta.focus({ preventScroll: true });
+  });
+  await page.waitForFunction(() =>
+    !document.getElementById('captionPlayer').classList.contains('is-stuck'), { timeout: 3000 });
+
+  // Blur → the mini-player comes back (scroll position unchanged).
+  await page.evaluate(() => document.getElementById('hookTextProbe').blur());
+  await page.waitForFunction(() =>
+    document.getElementById('captionPlayer').classList.contains('is-stuck'), { timeout: 3000 });
+
+  // A checkbox must NOT hide it (only text-entry fields count).
+  await page.evaluate(() => {
+    switchEditorTab('effects');
+    document.getElementById('capProgressBar').focus({ preventScroll: true });
+  });
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() =>
+    document.getElementById('captionPlayer').classList.contains('is-stuck'))).toBe(true);
+});

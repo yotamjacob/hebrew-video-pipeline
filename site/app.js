@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.32.1';
+  const APP_VERSION = '1.32.2';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -4050,7 +4050,7 @@
     if (sig === _kwSignature) return;
     _kwBusy = true;
     const busy = document.getElementById('capKeywordsBusy');
-    if (busy) busy.style.display = '';
+    if (busy) busy.style.display = 'inline-flex';   // spinner + label row
     try {
       const resp = await apiFetchRetry(`${API_BASE}/keywords/`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -4359,12 +4359,22 @@
   } catch (_) { toggleCapDesign(true); }
 
   function _markActivePreset(id) {
+    // Guard on a real id: an undefined id would match every chip missing
+    // dataset.preset (undefined === undefined) and light ALL of them.
     document.querySelectorAll('.cap-preset-chip').forEach(ch =>
-      ch.classList.toggle('active', ch.dataset.preset === id));
+      ch.classList.toggle('active', !!id && ch.dataset.preset === id));
   }
   // User-saved caption styles (localStorage), shown on the "My styles" view.
   function _getUserPresets() {
-    try { return JSON.parse(localStorage.getItem('captionUserPresets') || '[]'); } catch { return []; }
+    try {
+      const list = JSON.parse(localStorage.getItem('captionUserPresets') || '[]');
+      // Pre-2026-08-09 saves had no id - selecting one then marked every
+      // saved chip active. Backfill once and persist.
+      let migrated = false;
+      list.forEach((p, i) => { if (!p.id) { p.id = 'u' + Date.now() + '_' + i; migrated = true; } });
+      if (migrated) _saveUserPresets(list);
+      return list;
+    } catch { return []; }
   }
   function _saveUserPresets(list) {
     try { localStorage.setItem('captionUserPresets', JSON.stringify(list)); } catch (_) {}
@@ -4461,6 +4471,7 @@
     const cs = _captionStylePayload();
     const list = _getUserPresets();
     list.unshift({
+      id: 'u' + Date.now(),
       name,
       font: captionFont,
       size: captionFontSize,
@@ -6187,9 +6198,9 @@
     // Float ONLY while the user is inside the editor area: the sentinel has
     // scrolled past the top AND part of the editor card is still on screen.
     // Scrolling above the card, or past it (burn button / status), un-floats.
-    // While a caption line is being EDITED the mini-player also gets out of
-    // the way - it covered the very text being typed (field report). It
-    // returns on blur (tapping outside) or on scrolling back up.
+    // While ANY editor text field is being EDITED the mini-player also gets
+    // out of the way - it covered the very text being typed (field report).
+    // It returns on blur (tapping outside) or on scrolling back up.
     const stick = _sentinelAboveTop && _editorInView && !_captionEditFocus;
     if (stick === player.classList.contains('is-stuck')) return;
     const wrap = player.querySelector('.player-wrap');
@@ -6210,22 +6221,32 @@
   }
   let _captionEditFocus = false;
   (() => {
-    const list = document.getElementById('captionsList');
-    if (!list) return;
-    const isEditField = el => !!(el && el.matches
-      && el.matches('input, textarea, [contenteditable="true"]'));
-    list.addEventListener('focusin', e => {
+    // ANY text edit in the editor (caption rows, hook text, preset name, ...)
+    // hides the floating mini-player - it covered the very field being typed
+    // into. Scoped to the whole editor card, but TEXT-entry fields only:
+    // sliders/checkboxes/selects stay out, since while adjusting those you
+    // WANT the mini-player visible to see the effect.
+    const card = document.getElementById('captionEditorCard');
+    if (!card) return;
+    const isEditField = el => {
+      if (!el || !el.matches) return false;
+      if (el.matches('textarea, [contenteditable="true"]')) return true;
+      if (!el.matches('input')) return false;
+      const type = (el.getAttribute('type') || 'text').toLowerCase();
+      return ['text', 'search', 'email', 'url', 'tel', 'number', 'password'].includes(type);
+    };
+    card.addEventListener('focusin', e => {
       if (!isEditField(e.target)) return;
       _captionEditFocus = true;
       const player = document.getElementById('captionPlayer');
       if (player) _applyStickyState(player);
     });
-    list.addEventListener('focusout', () => {
-      // Hopping between two caption fields fires focusout before the next
+    card.addEventListener('focusout', () => {
+      // Hopping between two text fields fires focusout before the next
       // focusin - re-check on the next tick so the player doesn't flash back.
       setTimeout(() => {
         const a = document.activeElement;
-        const next = !!(a && list.contains(a) && isEditField(a));
+        const next = !!(a && card.contains(a) && isEditField(a));
         if (next === _captionEditFocus) return;
         _captionEditFocus = next;
         const player = document.getElementById('captionPlayer');
