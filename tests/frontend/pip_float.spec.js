@@ -127,10 +127,25 @@ test('any editor text edit hides the docked mini-player - hook fields included',
   // A non-text control must NOT hide it (only text-entry fields count).
   // Stays on the SAME tab: switching tabs reshapes the page and can undock
   // via the scroll observers on slow CI runners - unrelated to this check.
+  // The undock/redock layout shifts can also land the sentinel right at the
+  // 40px hysteresis band and legitimately drop the dock - so re-establish a
+  // decisively docked, SETTLED state (re-scroll + hold through a quiet
+  // window) before asserting anything about the range-input focus.
+  await expect.poll(async () => {
+    await page.evaluate(() => {
+      const sentinel = document.getElementById('playerStickySentinel');
+      const topbar = document.querySelector('.app-topbar');
+      const tbH = topbar ? topbar.offsetHeight : 52;
+      window.scrollTo(0, sentinel.getBoundingClientRect().top + window.scrollY - tbH + 120);
+    });
+    await page.waitForTimeout(900);
+    return page.evaluate(() =>
+      document.getElementById('captionPlayer').classList.contains('is-stuck'));
+  }, { timeout: 20_000 }).toBe(true);
   await page.evaluate(() => {
     document.getElementById('hookBgOpacity').focus({ preventScroll: true });
   });
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(400);
   expect(await page.evaluate(() =>
     document.getElementById('captionPlayer').classList.contains('is-stuck'))).toBe(true);
 });

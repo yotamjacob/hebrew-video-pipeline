@@ -20,6 +20,10 @@ test.beforeEach(async ({ page }) => {
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"token":"m.test"}' }));
   await page.route(/\/oauth\/status/, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"connected":false}' }));
+  await page.route(/\/profiles/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"profiles":[],"default":null}' }));
+  await page.route(/\/error-report/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
 });
 
 test('no session: the choice landing shows, app hidden', async ({ page }) => {
