@@ -147,7 +147,6 @@ purchases_store = modal.Dict.from_name("hebpipe-purchases", create_if_missing=Tr
 fcm_store   = modal.Dict.from_name("hebpipe-fcm", create_if_missing=True)     # uid → [device FCM tokens] for "video ready" push notifications
 errors_store = modal.Dict.from_name("hebpipe-errors", create_if_missing=True)  # e:{ts}:{uid} → error report (admin alerting + /admin/errors)
 costs_store = modal.Dict.from_name("hebpipe-costs", create_if_missing=True)   # output key → per-job compute record (see _cost_summary)
-marketing_store = modal.Dict.from_name("hebpipe-marketing", create_if_missing=True)  # "state" → the launch-month checklist blob (see /admin/marketing)
 # Deferred processing jobs: full upload key → {params, uid, uname, uprefix,
 # total_chunks, ts} registered BEFORE the upload, so the SERVER spawns
 # process_video the moment the last byte lands - the app may be closed by then

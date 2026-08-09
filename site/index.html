@@ -107,7 +107,6 @@
   <button class="tab" id="tabHistory" role="tab" aria-selected="false" onclick="switchTab('history')" data-i18n="tab.history">History</button>
   <button class="tab" id="tabGuide" role="tab" aria-selected="false" onclick="switchTab('guide')" data-i18n="tab.guide">Guide</button>
   <button class="tab" id="tabAdmin" role="tab" aria-selected="false" onclick="switchTab('admin')" style="display:none" data-i18n="tab.admin">Admin</button>
-  <button class="tab" id="tabMarketing" role="tab" aria-selected="false" onclick="switchTab('marketing')" style="display:none">Marketing</button>
 </div>
 <div class="quota-pill-row">
   <button id="metricoolChip" class="mc-chip" style="display:none" onclick="onMetricoolChip()"></button>
@@ -969,26 +968,6 @@
       <div id="adminLoading" class="history-loading" style="display:none" data-i18n="admin.loading">Loading…</div>
       <div id="adminError" class="sched-error" style="display:none"></div>
       <div id="adminList"></div>
-    </div>
-  </div>
-  <p class="footer"><a class="footer-contact" href="mailto:yotamjacob@gmail.com" onclick="openContactModal();return false;" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" onclick="openLegalModal();return false;" data-i18n="footer.legal">פרטיות ותנאי שימוש</a> <a class="footer-contact" href="/delete-account.html" onclick="openLegalModal('/delete-account.html','footer.deleteData');return false;" data-i18n="footer.deleteData">מחיקת חשבון</a></p>
-</div>
-
-<!-- ── Marketing tab (admin-only) ──
-     "Marketing - Launch Month": a deliberately minimal 2-person checklist.
-     Task definitions + reset semantics live in app.js (MKT_TASKS); the
-     backend keeps one shared JSON blob so both admins see the same state.
-     Internal tool - English-only on purpose, no i18n keys. -->
-<div class="container" id="marketingView" style="display:none">
-  <div class="card">
-    <div class="card-header" style="cursor:default">
-      <p class="options-title">Marketing - Launch Month</p>
-      <button type="button" id="mktCopyBtn" class="mkt-copy-btn" onclick="copyMarketingStatus(this)">Copy for WhatsApp</button>
-    </div>
-    <div style="padding-top:14px">
-      <div id="mktLoading" class="history-loading" style="display:none" data-i18n="admin.loading">Loading…</div>
-      <div id="mktError" class="sched-error" style="display:none"></div>
-      <div id="mktBody" style="display:none"></div>
     </div>
   </div>
   <p class="footer"><a class="footer-contact" href="mailto:yotamjacob@gmail.com" onclick="openContactModal();return false;" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" onclick="openLegalModal();return false;" data-i18n="footer.legal">פרטיות ותנאי שימוש</a> <a class="footer-contact" href="/delete-account.html" onclick="openLegalModal('/delete-account.html','footer.deleteData');return false;" data-i18n="footer.deleteData">מחיקת חשבון</a></p>

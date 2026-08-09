@@ -46,10 +46,6 @@ async function bootApp(page, { me } = {}) {
   await page.route(/\/admin\/costs/, r =>
     r.fulfill({ status: 200, contentType: 'application/json',
                 body: '{"days":7,"videos":0,"burns":0,"usd":0,"usd_per_video":0,"by_mode":{}}' }));
-  // Same story for the marketing checklist the Admin tab loads.
-  await page.route(/\/admin\/marketing/, r =>
-    r.fulfill({ status: 200, contentType: 'application/json',
-                body: '{"counters":{"installs":0,"activated":0,"paid":0},"tasks":{}}' }));
   await page.goto('/');
 }
 

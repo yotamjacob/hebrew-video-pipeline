@@ -509,30 +509,3 @@ class TestKeywordsRoute:
 
     def test_api_mounts_anthropic_secret(self):
         assert 'modal.Secret.from_name("anthropic-secret")' in MODAL_SRC.split("def api()")[0]
-
-
-class TestMarketingChecklist:
-    """/admin/marketing: ONE shared JSON blob for the 2-person launch
-    checklist (client owns tasks + reset semantics via date stamps).
-    Route bodies are closures - guard the source."""
-
-    def _block(self):
-        i = MODAL_SRC.index('("/admin/marketing"')
-        return MODAL_SRC[i:i + 3500]
-
-    def test_route_covers_both_methods_and_is_admin_gated(self):
-        block = self._block()
-        assert '"GET", "POST"' in block
-        assert "caller_admin" in block
-        assert '"Forbidden", 403' in block
-        # the admin check must come before any store access
-        assert block.index("Forbidden") < block.index("marketing_store")
-
-    def test_post_normalizes_and_bounds_the_blob(self):
-        block = self._block()
-        assert '"installs", "activated", "paid"' in block   # counters whitelist
-        assert "[:24]" in block and "[:10]" in block         # task ids + stamps bounded
-        assert "> 64" in block                               # task-count cap
-
-    def test_store_is_declared(self):
-        assert 'modal.Dict.from_name("hebpipe-marketing"' in MODAL_SRC
