@@ -959,6 +959,20 @@
       </div>
     </div>
   </div>
+  <!-- Marketing - Launch Month: a deliberately minimal 2-person checklist.
+       Task definitions + reset semantics live in app.js (MKT_TASKS); the
+       backend keeps one shared JSON blob so both admins see the same state.
+       Internal tool - English-only on purpose, no i18n keys. -->
+  <div class="card">
+    <div class="card-header" style="cursor:default">
+      <p class="options-title">Marketing - Launch Month</p>
+    </div>
+    <div style="padding-top:14px">
+      <div id="mktLoading" class="history-loading" style="display:none" data-i18n="admin.loading">Loading…</div>
+      <div id="mktError" class="sched-error" style="display:none"></div>
+      <div id="mktBody" style="display:none"></div>
+    </div>
+  </div>
   <div class="card">
     <div class="card-header" style="cursor:default">
       <p class="options-title" data-i18n="admin.title">User Limits</p>

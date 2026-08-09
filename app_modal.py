@@ -18,7 +18,7 @@ import modal
 from pipeline_core import (
     light_image,
     jobs_store, progress_store, users_store, calls_store, quota_store, purchases_store, fcm_store,
-    pending_store, errors_store, _alert_admins, costs_store, _cost_summary,
+    pending_store, errors_store, _alert_admins, costs_store, _cost_summary, marketing_store,
     codes_store, _normalize_email, _gen_login_code,
     _verify_google_id_token, GOOGLE_WEB_CLIENT_ID,
     app, image, tmp_vol, TMP_DIR,
@@ -1763,6 +1763,54 @@ def api():
                 _days = 7
             summary = _cost_summary(costs_store, _ct.time() - _days * 86400)
             body = json.dumps({"days": _days, **summary}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── Admin: "Marketing - Launch Month" checklist ──
+        # Deliberately minimal (a 2-person checklist, not task management):
+        # ONE shared JSON blob. The client owns the task list and the reset
+        # semantics - a daily task stores the DATE it was checked, a weekly
+        # task its week's Monday, one-time tasks store "1"; "reset" is just
+        # the stamp no longer matching, so there is no reset engine at all.
+        # The server only normalizes + bounds the blob so both admins share it.
+        if path in ("/admin/marketing", "/admin/marketing/") and method in ("GET", "POST"):
+            import os as _os
+            uname, urec = _user_by_uid()
+            caller_admin, _, _ = _quota_state(urec, _os.environ.get("ADMIN_USERS"), uname)
+            if not caller_admin:
+                await send_error("Forbidden", 403)
+                return
+            if method == "POST":
+                try:
+                    data = json.loads((await _read_body(receive)).decode("utf-8"))
+                except Exception:
+                    data = None
+                if not isinstance(data, dict):
+                    await send_error("bad_request", 400)
+                    return
+                _ctr = data.get("counters") or {}
+                _tks = data.get("tasks") or {}
+                if not isinstance(_ctr, dict) or not isinstance(_tks, dict) or len(_tks) > 64:
+                    await send_error("bad_request", 400)
+                    return
+                def _mk_num(v):
+                    try:
+                        return max(0, min(10**9, int(v)))
+                    except (ValueError, TypeError):
+                        return 0
+                out = {
+                    "counters": {k: _mk_num(_ctr.get(k)) for k in ("installs", "activated", "paid")},
+                    # id → stamp ("1" / "YYYY-MM-DD"); falsy values = unchecked, dropped
+                    "tasks": {str(k)[:24]: str(v)[:10] for k, v in _tks.items() if v},
+                }
+                marketing_store["state"] = out
+            else:
+                out = marketing_store.get("state")
+                if not isinstance(out, dict):
+                    out = {"counters": {"installs": 0, "activated": 0, "paid": 0}, "tasks": {}}
+            body = json.dumps(out).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})

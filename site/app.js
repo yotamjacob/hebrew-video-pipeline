@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.32.2';
+  const APP_VERSION = '1.33.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -8116,10 +8116,166 @@
     loadCosts();
   });
 
+  // ── Admin: "Marketing - Launch Month" checklist ───────────────────────────
+  // Deliberately minimal for a two-person launch: a fixed task list here, one
+  // shared JSON blob behind /admin/marketing, no task engine. Resets are
+  // implicit in the stored stamp: a daily task stores the DATE it was checked
+  // and only counts as done today; a weekly task stores its week's Monday;
+  // one-time tasks store "1" and stay done. Internal tool - English on purpose.
+  const MKT_TASKS = [
+    { id: 'ot1', sec: 'once',   owner: 'A',    text: 'Build the hero before/after reel (same Hebrew clip: competitor captions vs Pipeline)' },
+    { id: 'ot2', sec: 'once',   owner: 'B',    text: 'Join 5-8 target creator groups (FB/WhatsApp)' },
+    { id: 'ot3', sec: 'once',   owner: 'B',    text: 'Write the group list into this panel' },
+    { id: 'ot4', sec: 'once',   owner: 'A',    text: 'Reserve brand handle (reserve only - do not invest in growing it)' },
+    { id: 'ot5', sec: 'once',   owner: 'Both', text: 'Message personal network: first 5-8 installs' },
+    { id: 'ot6', sec: 'once',   owner: 'B',    text: 'Personally onboard each first user (concierge DM)' },
+    { id: 'd1',  sec: 'daily',  owner: 'B',    text: 'Scan groups for pain-signals, post 2-3 genuine helpful replies' },
+    { id: 'd2',  sec: 'daily',  owner: 'B',    text: 'DM + onboard every new signup within 24h (never skip this one)' },
+    { id: 'd3',  sec: 'daily',  owner: 'B',    text: 'Reply to any stuck user' },
+    { id: 'd4',  sec: 'daily',  owner: 'A',    text: 'One small content action (edit/schedule a clip, reply to comments)' },
+    { id: 'd5',  sec: 'daily',  owner: 'Both', text: 'Update the 3 counters (Installs / Activated / Paid)' },
+    { id: 'w1',  sec: 'weekly', owner: 'A',    text: 'Batch: produce 3-4 short clips with Pipeline, schedule via Metricool' },
+    { id: 'w2',  sec: 'weekly', owner: 'Both', text: '15-min review: what drove installs, where people dropped off, adjust next week' },
+    { id: 'w3',  sec: 'weekly', owner: 'B',    text: '(Week 3+) Ask happy users for permission to share their result' },
+    { id: 'w4',  sec: 'weekly', owner: 'B',    text: '(Week 4) Soft paid-nudge DM to users who finished their 3 free videos' },
+  ];
+  const MKT_SECTIONS = [
+    { key: 'once',   title: 'One-time setup (Week 1)' },
+    { key: 'daily',  title: 'Daily recurring - unchecks every day' },
+    { key: 'weekly', title: 'Weekly recurring - unchecks every Monday' },
+  ];
+  const MKT_COUNTERS = [
+    { key: 'installs',  label: 'Installs' },
+    { key: 'activated', label: 'Activated (1+ reel)' },
+    { key: 'paid',      label: 'Paid' },
+  ];
+  function _mktDateStr(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+      + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function _mktToday() { return _mktDateStr(new Date()); }
+  function _mktMonday() {
+    const d = new Date();
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));   // back to this week's Monday
+    return _mktDateStr(d);
+  }
+  function _mktStamp(sec) {
+    return sec === 'once' ? '1' : sec === 'daily' ? _mktToday() : _mktMonday();
+  }
+  function _mktChecked(task) {
+    const v = ((_mktState && _mktState.tasks) || {})[task.id];
+    if (!v) return false;
+    return task.sec === 'once' ? true : v === _mktStamp(task.sec);
+  }
+  let _mktState = null, _mktSig = null;
+  async function loadMarketing(opts) {
+    const force   = !!(opts && opts.force);
+    const loading = document.getElementById('mktLoading');
+    const errBox  = document.getElementById('mktError');
+    const body    = document.getElementById('mktBody');
+    if (!body) return;
+    if (_mktSig === null) {
+      loading.style.display = '';
+      errBox.style.display = 'none';
+      body.style.display = 'none';
+    }
+    try {
+      const resp = await apiFetch(`${API_BASE}/admin/marketing`);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const data = await resp.json();
+      // The stamp-derived checkmarks change at midnight / Monday even when
+      // the stored data doesn't - fold the current day into the signature.
+      const sig = JSON.stringify(data) + '|' + _mktToday();
+      if (!force && _mktSig !== null && sig === _mktSig) return;   // nothing new
+      _mktSig = sig;
+      _mktState = { counters: data.counters || {}, tasks: data.tasks || {} };
+      loading.style.display = 'none';
+      errBox.style.display = 'none';
+      _renderMarketing();
+      body.style.display = 'block';
+    } catch (e) {
+      loading.style.display = 'none';
+      if (_mktSig === null) {
+        errBox.textContent = t('admin.loadFailed');
+        errBox.style.display = 'block';
+      }
+    }
+  }
+  function _renderMarketing() {
+    const body = document.getElementById('mktBody');
+    body.innerHTML = '';
+    const cRow = document.createElement('div');
+    cRow.className = 'mkt-counters';
+    MKT_COUNTERS.forEach(c => {
+      const box = document.createElement('label');
+      box.className = 'mkt-counter';
+      const inp = document.createElement('input');
+      inp.type = 'number'; inp.min = 0; inp.id = 'mktC_' + c.key;
+      inp.value = String((_mktState.counters && _mktState.counters[c.key]) || 0);
+      inp.addEventListener('change', () => {
+        const v = Math.max(0, parseInt(inp.value, 10) || 0);
+        inp.value = String(v);
+        _mktState.counters[c.key] = v;
+        _mktSave();
+      });
+      const lbl = document.createElement('span');
+      lbl.textContent = c.label;
+      box.append(inp, lbl);
+      cRow.appendChild(box);
+    });
+    body.appendChild(cRow);
+    MKT_SECTIONS.forEach(sec => {
+      const h = document.createElement('p');
+      h.className = 'mkt-sec-title';
+      h.textContent = sec.title;
+      body.appendChild(h);
+      MKT_TASKS.filter(tk => tk.sec === sec.key).forEach(tk => {
+        const row = document.createElement('label');
+        row.className = 'mkt-task';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = _mktChecked(tk);
+        cb.addEventListener('change', () => {
+          if (cb.checked) _mktState.tasks[tk.id] = _mktStamp(tk.sec);
+          else delete _mktState.tasks[tk.id];
+          row.classList.toggle('done', cb.checked);
+          _mktSave();
+        });
+        const owner = document.createElement('span');
+        owner.className = 'mkt-owner mkt-owner-' + tk.owner.toLowerCase();
+        owner.textContent = tk.owner;
+        const txt = document.createElement('span');
+        txt.className = 'mkt-text';
+        txt.textContent = tk.text;
+        if (cb.checked) row.classList.add('done');
+        row.append(cb, owner, txt);
+        body.appendChild(row);
+      });
+    });
+  }
+  let _mktSaveTimer = null;
+  function _mktSave() {
+    // Debounced full-blob write; last write wins - fine for two people.
+    clearTimeout(_mktSaveTimer);
+    _mktSaveTimer = setTimeout(async () => {
+      try {
+        const resp = await apiFetch(`${API_BASE}/admin/marketing`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(_mktState),
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        _mktSig = JSON.stringify(await resp.json()) + '|' + _mktToday();
+      } catch (e) {
+        celebrateToast(t('admin.saveFailed'), { kind: 'error', duration: 4000 });
+      }
+    }, 400);
+  }
+
   let _adminSig = null;
   async function loadAdmin(opts) {
     const force = !!(opts && opts.force);
     loadCosts(opts);
+    loadMarketing(opts);
     const list = document.getElementById('adminList');
     const loading = document.getElementById('adminLoading');
     const errBox = document.getElementById('adminError');
