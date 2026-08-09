@@ -216,6 +216,13 @@ test('custom color tile opens the in-app creator, not the OS dialog; hex + hue a
   await expect(page.locator('#colorCustomPanel')).toBeVisible();
   expect(await page.evaluate(() => window.__nativeOpened)).toBe(false);
 
+  // The expanded popover must stay fully on-screen (it grew after being
+  // positioned - the panel used to hang past the bottom edge).
+  const box = await page.locator('#colorPopover').boundingBox();
+  const vp = page.viewportSize();
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(vp.height + 1);
+
   // Typing a full hex applies through the same input-event path as the tiles.
   await page.fill('#colorCustomHex', '#12ab34');
   await expect(page.locator('#capFontColor')).toHaveValue('#12ab34');

@@ -1043,6 +1043,9 @@
       border-radius: 14px; padding: 10px;
       box-shadow: 0 10px 30px rgba(120,90,60,0.22);
       max-width: 216px;
+      /* Backstop for tiny viewports: never taller than the screen - scroll
+         inside instead of getting clipped by the edge. */
+      max-height: calc(100vh - 16px); overflow-y: auto;
     }
     .color-popover.open { display: block; }
     .color-popover-grid {

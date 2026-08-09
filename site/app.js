@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.35.0';
+  const APP_VERSION = '1.35.1';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -4325,6 +4325,7 @@
       const opening = panel.style.display === 'none';
       panel.style.display = opening ? 'block' : 'none';
       if (opening) _customFromHex(_colorPopTarget ? _colorPopTarget.value : '#FFFFFF');
+      _positionColorPopover();   // the popover just changed height - re-clamp to the screen
     });
     grid.appendChild(custom);
     pop.appendChild(grid);
@@ -4454,22 +4455,36 @@
     const panel = document.getElementById('colorCustomPanel');
     if (panel && panel._sync) panel._sync(false);
   }
+  let _colorPopAnchor = null;
+  // Positioning is its own function because the popover CHANGES SIZE while
+  // open (the custom panel expands it): re-run after any resize or the
+  // bottom half ends up past the screen edge (field report, 2026-08-09).
+  function _positionColorPopover() {
+    const pop = document.getElementById('colorPopover');
+    const anchorBtn = _colorPopAnchor;
+    if (!pop || !anchorBtn || !pop.classList.contains('open')) return;
+    const r = anchorBtn.getBoundingClientRect();
+    const pw = pop.offsetWidth, ph = pop.offsetHeight;
+    let left = Math.min(Math.max(8, r.left), window.innerWidth - pw - 8);
+    let top = r.bottom + 6;
+    if (top + ph > window.innerHeight - 8) top = Math.max(8, r.top - ph - 6);
+    // Fits on neither side of the anchor? Pin to the bottom edge; the
+    // popover's own max-height/scroll takes it from there.
+    if (top + ph > window.innerHeight - 8) top = Math.max(8, window.innerHeight - ph - 8);
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
+  }
   function _openColorPopover(input, anchorBtn) {
     const pop = _colorPopover();
     _colorPopTarget = input;
+    _colorPopAnchor = anchorBtn;
     // Fresh open starts on the tile grid; the custom panel re-opens on demand.
     { const cp = document.getElementById('colorCustomPanel'); if (cp) cp.style.display = 'none'; }
     const cur = (input.value || '').toUpperCase();
     pop.querySelectorAll('.color-tile').forEach(tl =>
       tl.classList.toggle('selected', (tl.dataset.hex || '').toUpperCase() === cur));
     pop.classList.add('open');
-    const r = anchorBtn.getBoundingClientRect();
-    const pw = pop.offsetWidth, ph = pop.offsetHeight;
-    let left = Math.min(Math.max(8, r.left), window.innerWidth - pw - 8);
-    let top = r.bottom + 6;
-    if (top + ph > window.innerHeight - 8) top = Math.max(8, r.top - ph - 6);
-    pop.style.left = left + 'px';
-    pop.style.top = top + 'px';
+    _positionColorPopover();
   }
   function _refreshColorSwatches() {
     document.querySelectorAll('.color-swatch-btn').forEach(btn => {
