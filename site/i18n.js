@@ -215,6 +215,7 @@
     'fx.zoomChipTip': { en: 'Tap to skip / restore this punch-in', he: 'הקישו כדי לדלג על הזום הזה או להחזירו' },
     'style.kwChipTip': { en: 'Tap to drop / restore this keyword', he: 'הקישו כדי להסיר את המילה או להחזירה' },
     'gen.left':      { en: '({n} left)', he: '(נותרו {n})' },
+    'gen.noneLeft':  { en: 'No AI uses left for this feature on this video', he: 'לא נותרו שימושי AI לכלי הזה בסרטון הנוכחי' },
     'style.progress':       { en: 'Progress bar (top of video)', he: 'פס התקדמות (בראש הסרטון)' },
     'style.keywords':       { en: 'Auto keyword highlight', he: 'הדגשת מילות מפתח' },
     'style.kwBusy':         { en: 'choosing words...', he: 'בוחר מילים...' },

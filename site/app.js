@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.37.0';
+  const APP_VERSION = '1.37.1';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -4055,7 +4055,13 @@
     const caps = (typeof captionsData !== 'undefined' && captionsData) || [];
     if (!caps.length || _kwBusy) return;
     const sig = caps.map(c => c.text).join('\u0001');
-    if (sig === _kwSignature) return;
+    if (sig === _kwSignature) return;   // cached picks - no API call, no budget use
+    if (_kwGenLeft <= 0) {
+      celebrateToast(t('gen.noneLeft'), { kind: 'error', duration: 4000 });
+      const cb = document.getElementById('capKeywords');
+      if (cb && _kwSignature === null) cb.checked = false;   // nothing cached to show
+      return;
+    }
     _kwBusy = true;
     const busy = document.getElementById('capKeywordsBusy');
     if (busy) busy.style.display = 'inline-flex';   // spinner + label row
@@ -4072,6 +4078,8 @@
         if (caps[i]) caps[i].kw = kw || [];
       });
       _kwSignature = sig;
+      _kwGenLeft = Math.max(0, _kwGenLeft - 1);   // a real Sonnet call = one use
+      _syncGenButtons();
       _kwOff.clear();   // fresh picks - previous tap-offs no longer apply
       _renderKwList();
       updatePreviewCaption();
@@ -7074,8 +7082,12 @@
   // what's left in parentheses and disable at 0; budgets reset with every
   // fresh editor (new process / re-process / History re-edit).
   const GEN_LIMIT = 3;
-  let _hookGenLeft = GEN_LIMIT, _brollGenLeft = GEN_LIMIT;
-  function _resetGenBudgets() { _hookGenLeft = GEN_LIMIT; _brollGenLeft = GEN_LIMIT; }
+  let _hookGenLeft = GEN_LIMIT, _brollGenLeft = GEN_LIMIT,
+      _kwGenLeft = GEN_LIMIT, _suggestGenLeft = GEN_LIMIT;
+  function _resetGenBudgets() {
+    _hookGenLeft = GEN_LIMIT; _brollGenLeft = GEN_LIMIT;
+    _kwGenLeft = GEN_LIMIT; _suggestGenLeft = GEN_LIMIT;
+  }
   function _syncGenButtons() {
     const hb = document.getElementById('generateHookBtn');
     if (hb) {
@@ -7086,6 +7098,15 @@
     if (fb) {
       fb.textContent = t('stock.find') + ' ' + t('gen.left', { n: _brollGenLeft });
       if (_brollGenLeft <= 0) fb.disabled = true;
+    }
+    // Keyword picking refetches only when the text signature changes, but each
+    // real fetch is a Sonnet call - same budget, count shown on the label.
+    const kl = document.getElementById('capKeywordsLabel');
+    if (kl) kl.textContent = t('style.keywords') + ' ' + t('gen.left', { n: _kwGenLeft });
+    const sb = document.getElementById('suggestCaptionBtn');
+    if (sb) {
+      sb.textContent = t('sched.suggest') + ' ' + t('gen.left', { n: _suggestGenLeft });
+      if (_suggestGenLeft <= 0) sb.disabled = true;
     }
   }
 
@@ -8882,8 +8903,8 @@
     if (sb) {
       const has = !!(video && video.hasTranscript);
       sb.style.display = has ? 'block' : 'none';
-      sb.disabled = !has;
-      sb.textContent = t('sched.suggest');
+      sb.disabled = !has || _suggestGenLeft <= 0;
+      _syncGenButtons();   // label carries the remaining-uses count
     }
     checkMetricoolStatus();
     document.getElementById('scheduleOverlay').style.display = 'flex';
@@ -8980,10 +9001,10 @@
 
   async function suggestCaption() {
     if (!_hasTranscript()) return;
+    if (_suggestGenLeft <= 0) { _syncGenButtons(); return; }
     const btn = document.getElementById('suggestCaptionBtn');
     const ta = document.getElementById('schedCaption');
     const errEl = document.getElementById('schedError');
-    const orig = btn.textContent;
     btn.disabled = true; btn.textContent = t('sched.generating');
     errEl.style.display = 'none';
     try {
@@ -8998,6 +9019,7 @@
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const { call_id } = await resp.json();
+      _suggestGenLeft = Math.max(0, _suggestGenLeft - 1);   // a real spawn = one use
       while (true) {
         const poll = await apiFetch(`${API_BASE}/generate-caption-poll/${call_id}/`);
         if (poll.status === 200) {
@@ -9012,7 +9034,8 @@
       errEl.textContent = t('sched.captionFailed', {msg: String(e.message).slice(0, 80)});
       errEl.style.display = 'block';
     } finally {
-      btn.disabled = false; btn.textContent = orig;
+      btn.disabled = _suggestGenLeft <= 0;
+      _syncGenButtons();   // restore the label WITH the remaining count
     }
   }
 
@@ -9128,8 +9151,6 @@
         c.textContent = t('auth.codeHint', { email: _authEmail }); }
     const ap = document.getElementById('schedAutoPublish');
     if (ap && ap.checked) document.getElementById('autoPublishDesc').textContent = t('sched.apOn');
-    const sb = document.getElementById('suggestCaptionBtn');
-    if (sb) sb.textContent = t('sched.suggest');
     _syncGenButtons();   // generator labels carry the remaining-uses count
     const upLbl = document.querySelector('#checkUpscale .check-label');
     if (upLbl) upLbl.textContent = _enhanceVideoMode() === 'esrgan' ? t('prog.upscale') : t('prog.enhanceVideo');
