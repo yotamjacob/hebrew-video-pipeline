@@ -169,14 +169,13 @@ def test_cost_summary_aggregates_ai_separately_from_videos():
         "a": _proc(1_000, dur=60.0, enhance="none", gpu=60.0),
         "ai:1:hook":  {"ts": 1_000, "kind": "hook", "tin": 100, "tout": 50, "usd": 0.01},
         "ai:2:hook":  {"ts": 1_001, "kind": "hook", "tin": 100, "tout": 50, "usd": 0.01},
-        "ai:3:keywords": {"ts": 1_002, "kind": "keywords", "tin": 10, "tout": 5, "usd": 0.002},
     })
     out = _cost_summary(store, 0)
     assert out["videos"] == 1               # ai entries never count as videos
-    assert out["ai_calls"] == 3
-    assert abs(out["ai_usd"] - 0.022) < 1e-9
+    assert out["ai_calls"] == 2
+    assert abs(out["ai_usd"] - 0.02) < 1e-9
     assert out["ai_by_kind"]["hook"]["n"] == 2
-    assert out["ai_tokens"] == 315
+    assert out["ai_tokens"] == 300
     # The pricing-decision figures: compute + AI, per delivered video.
     assert abs(out["all_usd"] - (out["usd"] + out["ai_usd"])) < 1e-6
     assert out["all_per_video"] > out["usd_per_video"]
@@ -198,4 +197,3 @@ def test_every_ai_call_site_is_metered():
     assert '_record_ai_spend(costs_store, "broll_context"' in broll
     assert broll.count('"broll_vision"') == 2      # both score_clips call sites
     assert "on_usage(r.usage)" in stock            # helper stays pure - callback only
-    assert '_record_ai_spend(costs_store, "keywords"' in asgi

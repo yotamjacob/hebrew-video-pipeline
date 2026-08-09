@@ -9,7 +9,7 @@ violation has shipped real bugs before. Update them in place when behavior chang
 
 | Doc | Read before touching |
 |-----|----------------------|
-| `docs/captions.md` | Caption/hook rendering, ASS/libass, fonts, RTL/bidi, caption modes (word/karaoke/keyword), style presets, color picker, exact-frame preview |
+| `docs/captions.md` | Caption/hook rendering, ASS/libass, fonts, RTL/bidi, caption modes (word/karaoke), style presets, color picker, exact-frame preview |
 | `docs/effects.md` | Auto punch-in zoom (windows, chips, smooth ramp, face framing) |
 | `docs/uploads.md` | Chunked/R2/native uploads, resume/reconcile, deferred spawn, CORS |
 | `docs/processing.md` | Transcription, silence cutter, audio-only mode, enhance/upscale, progress stages, push notifications, Anthropic API usage |

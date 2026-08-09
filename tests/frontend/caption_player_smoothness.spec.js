@@ -246,34 +246,3 @@ test('progress bar preview mirrors the toggle and the playhead', async ({ page }
   expect(payload.progress_bar).toBe(false);
 });
 
-test('keyword highlight: fetches indices once and colors only those tokens', async ({ page }) => {
-  await runEditor(page, CAPS);
-  let kwCalls = 0;
-  await page.route(/\/keywords\/?$/, (route, request) => {
-    kwCalls++;
-    const n = (request.postDataJSON().captions || []).length;
-    // Highlight token 0 of the first line only.
-    const kws = Array.from({ length: n }, (_, i) => (i === 0 ? [0] : []));
-    return route.fulfill({ status: 200, contentType: 'application/json',
-                           body: JSON.stringify({ keywords: kws }) });
-  });
-  await page.click('#tabBtnEffects');   // the toggle lives on the Effects tab
-  await page.locator('#capKeywords').check();
-  // Shared highlight-color row (captions tab, inside the collapsed design
-  // card) appears for keyword mode too.
-  await page.click('#tabBtnCaptions');
-  await page.evaluate(() => toggleCapDesign(true));
-  await expect(page.locator('#capHighlightRow')).toBeVisible();
-  await seekTo(page, 0.5);   // inside the first caption
-  await expect.poll(() => page.evaluate(() =>
-    document.querySelectorAll('#playerCap span').length)).toBeGreaterThan(0);
-  // Toggling other style controls must not refetch (signature cache).
-  await page.locator('#capBorderSize').evaluate(el => {
-    el.value = '3'; el.dispatchEvent(new Event('input', { bubbles: true }));
-  });
-  await page.waitForTimeout(300);
-  expect(kwCalls).toBe(1);
-  // The style payload carries the flag for the burn.
-  const payload = await page.evaluate(() => _captionStylePayload());
-  expect(payload.highlight_keywords).toBe(true);
-});

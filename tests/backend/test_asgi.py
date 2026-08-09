@@ -494,28 +494,6 @@ class TestR2Upload:
         assert 'modal.Secret.from_name("hebpipe-backup")' in MODAL_SRC
 
 
-class TestKeywordsRoute:
-    """/keywords: inline Haiku keyword picking with strict normalization -
-    the route (not the model) guarantees one entry per line and in-range
-    indices. Route bodies are closures; guard the source."""
-
-    def test_route_exists_and_normalizes(self):
-        block = MODAL_SRC[MODAL_SRC.index('("/keywords"'):MODAL_SRC.index('("/generate-hook"')]
-        assert "0 <= int(k) < ntok" in block, "indices must be validated in-range"
-        assert "for i in range(len(caps))" in block, "one entry per input line, always"
-        assert "SONNET_MODEL" in block
-        assert 'thinking={"type": "disabled"}' in block
-        assert "[:300]" in block, "caption count/length must be bounded"
-        # Scarcity contract (2026-08-09): ranked global picks under a hard
-        # budget the ROUTE enforces, capped per line.
-        assert "budget = max(3, min(10," in block
-        assert "total >= budget" in block
-        assert "len(norm[ln]) >= 2" in block
-
-    def test_api_mounts_anthropic_secret(self):
-        assert 'modal.Secret.from_name("anthropic-secret")' in MODAL_SRC.split("def api()")[0]
-
-
 class TestProfilesRoute:
     """/profiles: bounded per-account settings snapshots ([{name, data}] +
     the auto-applied default's name) on the user record. Route bodies are

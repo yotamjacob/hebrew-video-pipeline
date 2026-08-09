@@ -182,25 +182,6 @@ test('selecting one saved style marks only that chip, and its delete badge is no
   expect(clickable).toBe(true);
 });
 
-test('keyword highlight shows a spinner while the words are being chosen', async ({ page }) => {
-  await runFullUpload(page);
-  // Hold the /keywords response open so the busy state is observable.
-  let release;
-  const gate = new Promise(r => { release = r; });
-  await page.route(/\/keywords\/?/, async route => {
-    await gate;
-    return route.fulfill({ status: 200, contentType: 'application/json',
-                           body: JSON.stringify({ keywords: [[0], []] }) });
-  });
-  await page.click('#tabBtnEffects');
-  await page.locator('#capKeywords').check();
-  const busy = page.locator('#capKeywordsBusy');
-  await expect(busy).toBeVisible();
-  await expect(busy.locator('.spinner')).toBeVisible();   // a real spinner, not just text
-  release();
-  await expect(busy).toBeHidden();
-});
-
 test('custom color tile opens the in-app creator, not the OS dialog; hex + hue apply live', async ({ page }) => {
   await runFullUpload(page);
   await page.evaluate(() => toggleCapDesign(true));

@@ -1478,8 +1478,7 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
         """Classic-wrapped text with the given token indices color-tagged.
         Inline \\c tags are metric-neutral (unlike bold, which re-flows the
         RTL line), so tagged and untagged renders are pixel-identical apart
-        from color. Shared by karaoke (current-word range) and the keyword
-        highlighter (static keyword set)."""
+        from color. Used by karaoke (current-word range)."""
         wrapped = _rewrap_cap(text)
         hl_tag   = "{\\c&H" + _ibgr(_cs.get("highlight_color", "#FFD400")) + "&}"
         base_tag = "{\\c&H" + _ibgr(_cs.get("font_color", "#FFFFFF")) + "&}"
@@ -1509,31 +1508,14 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
                 for q in _word_events(c)]
 
     _cap_mode = str(_cs.get("mode") or "classic")
-    _kw_on = bool(_cs.get("highlight_keywords"))
-
-    def _kw_set(c):
-        if not _kw_on:
-            return set()
-        try:
-            ntok = len(_censor_caption_text(c["text"]).replace(r"\N", " ").split())
-            return {int(k) for k in (c.get("kw") or [])
-                    if isinstance(k, (int, float)) and 0 <= int(k) < ntok}
-        except (TypeError, ValueError):
-            return set()
 
     if _cap_mode == "word":
         # One event per word: no wrapping, no reflow - the single word renders
-        # centered with the exact same style the classic mode uses. Keyword
-        # cues (if the toggle is on) render whole in the highlight color.
-        hl_tag = "{\\c&H" + _ibgr(_cs.get("highlight_color", "#FFD400")) + "&}"
+        # centered with the exact same style the classic mode uses.
         _cued = []
         for c in captions:
-            kws = _kw_set(c)
             for q in _word_events(c):
-                txt = q["text"]
-                if kws and any(q["i0"] <= k <= q["i1"] for k in kws):
-                    txt = hl_tag + txt
-                _cued.append({"start": q["start"], "end": q["end"], "text": txt})
+                _cued.append({"start": q["start"], "end": q["end"], "text": q["text"]})
         captions = _cued
     elif _cap_mode == "karaoke":
         _cued = []
@@ -1541,12 +1523,8 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
             _cued.extend(_karaoke_events(c))
         captions = _cued
     else:
-        def _classic_text(c):
-            kws = _kw_set(c)
-            if kws:
-                return _tag_tokens(_censor_caption_text(c["text"]), kws)
-            return _fix_cap_lines(_rewrap_cap(_censor_caption_text(c["text"])))
-        captions = [{"start": c["start"], "end": c["end"], "text": _classic_text(c)}
+        captions = [{"start": c["start"], "end": c["end"],
+                     "text": _fix_cap_lines(_rewrap_cap(_censor_caption_text(c["text"])))}
                     for c in captions]
 
     hook = hook or {}

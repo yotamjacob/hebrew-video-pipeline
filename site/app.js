@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.41.0';
+  const APP_VERSION = '1.42.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -1258,14 +1258,6 @@
       if (row.dataset.words) {
         try { cap.words = JSON.parse(row.dataset.words); } catch (_) {}
       }
-      if (row.dataset.kw) {
-        try { cap.kw = JSON.parse(row.dataset.kw); } catch (_) {}
-      }
-      return cap;
-    }).map((cap, i) => {
-      // Keywords the user tapped OFF in the Effects list never reach the burn.
-      if (Array.isArray(cap.kw) && cap.kw.length && typeof _kwOff !== 'undefined' && _kwOff.size)
-        cap.kw = cap.kw.filter(k => !_kwOff.has(i + ':' + k));
       return cap;
     });
   }
@@ -4032,130 +4024,20 @@
       highlight_color: document.getElementById('capHighlightColor')?.value || '#FFD400',
       progress_bar:    !!document.getElementById('capProgressBar')?.checked,
       progress_color:  document.getElementById('capProgressColor')?.value || '#C26D4B',
-      highlight_keywords: !!document.getElementById('capKeywords')?.checked,
       auto_zoom:       !!document.getElementById('fxAutoZoom')?.checked,
       zoom_strength:   document.getElementById('fxZoomStrength')?.value || 'medium',
     };
   }
   // The highlight color only means something in karaoke mode - show it there.
   function _syncStyleModeUI() {
-    const kwOn = !!document.getElementById('capKeywords')?.checked;
     const row = document.getElementById('capHighlightRow');
-    if (row) row.style.display = (_capMode() === 'karaoke' || kwOn) ? 'flex' : 'none';
+    if (row) row.style.display = _capMode() === 'karaoke' ? 'flex' : 'none';
     _syncProgressBarPreview();
     _syncZoomPreview();
     _renderZoomList();
-    if (kwOn) _ensureKeywords();
-    _renderKwList();
     _refreshColorSwatches();
   }
 
-  // ── Auto keyword highlight: one Haiku call picks the money words ──────────
-  // Indices ride each caption (and its DOM row) as `kw`; the burn colors them
-  // (classic: token tags; word mode: whole-cue color). Signature-cached so
-  // re-toggles and style edits don't refetch; edited text drops stale indices
-  // via the in-range guards on both sides.
-  let _kwSignature = null, _kwBusy = false;
-  async function _ensureKeywords() {
-    const caps = (typeof captionsData !== 'undefined' && captionsData) || [];
-    if (!caps.length || _kwBusy) return;
-    const sig = caps.map(c => c.text).join('\u0001');
-    if (sig === _kwSignature) return;   // cached picks - no API call, no budget use
-    if (_kwGenLeft <= 0) {
-      celebrateToast(t('gen.noneLeft'), { kind: 'error', duration: 4000 });
-      const cb = document.getElementById('capKeywords');
-      if (cb && _kwSignature === null) cb.checked = false;   // nothing cached to show
-      return;
-    }
-    _kwBusy = true;
-    const busy = document.getElementById('capKeywordsBusy');
-    if (busy) busy.style.display = 'inline-flex';   // spinner + label row
-    try {
-      const resp = await apiFetchRetry(`${API_BASE}/keywords/`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ captions: caps.map(c => ({ text: c.text })) }),
-      });
-      if (!resp.ok) throw new Error('keywords ' + resp.status);
-      const d = await resp.json();
-      const rows = document.querySelectorAll('#captionsList .caption-row');
-      (d.keywords || []).forEach((kw, i) => {
-        if (rows[i]) { try { rows[i].dataset.kw = JSON.stringify(kw || []); } catch (_) {} }
-        if (caps[i]) caps[i].kw = kw || [];
-      });
-      _kwSignature = sig;
-      _kwGenLeft = Math.max(0, _kwGenLeft - 1);   // a real Sonnet call = one use
-      _syncGenButtons();
-      _kwOff.clear();   // fresh picks - previous tap-offs no longer apply
-      _renderKwList();
-      updatePreviewCaption();
-    } catch (e) {
-      console.warn('keyword highlight failed', e && e.message);
-      celebrateToast(t('style.kwFailed'), { kind: 'error', duration: 5000 });
-      const cb = document.getElementById('capKeywords');
-      if (cb) cb.checked = false;
-    } finally {
-      _kwBusy = false;
-      if (busy) busy.style.display = 'none';
-    }
-  }
-  // Chip list of the chosen words on the Effects tab - the user sees exactly
-  // what will light up.
-  function _renderKwList() {
-    const el = document.getElementById('kwList');
-    if (!el) return;
-    const on = !!document.getElementById('capKeywords')?.checked;
-    const picks = [];   // {key, word}
-    ((typeof captionsData !== 'undefined' && captionsData) || []).forEach((c, i) => {
-      const toks = String(c.text || '').split(/\s+/).filter(Boolean);
-      (c.kw || []).forEach(k => { if (toks[k] != null) picks.push({ key: i + ':' + k, word: toks[k] }); });
-    });
-    if (!on || !picks.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
-    el.style.display = 'flex';
-    el.innerHTML = '';
-    picks.forEach(p => {
-      // Tappable, zoom-chip style: tap to drop a weak pick, tap to restore.
-      const chip = document.createElement('button');
-      chip.type = 'button';
-      chip.className = 'kw-chip zoom-chip' + (_kwOff.has(p.key) ? ' off' : '');
-      chip.textContent = p.word;
-      chip.title = t('style.kwChipTip');
-      chip.addEventListener('click', () => {
-        if (_kwOff.has(p.key)) _kwOff.delete(p.key); else _kwOff.add(p.key);
-        chip.classList.toggle('off', _kwOff.has(p.key));
-        updatePreviewCaption();
-      });
-      el.appendChild(chip);
-    });
-  }
-  // Keywords the user tapped OFF (keys "capIndex:tokenIndex"). Session-scoped
-  // like the zoom exclusions; cleared whenever a fresh keyword fetch lands.
-  const _kwOff = new Set();
-  function _kwIdxSet(cap) {
-    if (!document.getElementById('capKeywords')?.checked) return null;
-    let kw = (cap.kw || []).map(Number).filter(n => isFinite(n));
-    if (_kwOff.size && kw.length) {
-      const i = (typeof captionsData !== 'undefined' && captionsData) ? captionsData.indexOf(cap) : -1;
-      if (i >= 0) kw = kw.filter(k => !_kwOff.has(i + ':' + k));
-    }
-    return kw.length ? new Set(kw) : null;
-  }
-  // Static keyword coloring for a classic-mode line (preview mirror of the
-  // burn's _tag_tokens).
-  function _kwStaticHTML(cap, displayW) {
-    const wrapped = rewrapCaption(cap.text, displayW, captionFontSize);
-    const hl = document.getElementById('capHighlightColor')?.value || '#FFD400';
-    const idx = _kwIdxSet(cap) || new Set();
-    let k = 0;
-    return wrapped.split('\n').map(line =>
-      line.split(/\s+/).filter(Boolean).map(w => {
-        const html = idx.has(k)
-          ? '<span style="color:' + hl + '">' + _escapeHtml(w) + '</span>'
-          : _escapeHtml(w);
-        k++;
-        return html;
-      }).join(' ')
-    ).join('\n');
-  }
   // ── Auto punch-in zoom (Effects tab) ──────────────────────────────────────
   // Windows are computed HERE and ride the burn body as caption_style.zooms -
   // explicit [start, end] pairs the server renders verbatim (the hook.lines
@@ -4166,8 +4048,11 @@
   // smooth ramp).
   // The punch holds for the WHOLE caption it lands on (user request,
   // 2026-08-09): zoom in with the sentence, ease back out when it ends.
-  // MAX_DUR is only a safety cap for unusually long lines.
-  const ZOOM_MIN_GAP = 15, ZOOM_MIN_DUR = 1.0, ZOOM_MAX_DUR = 6.0;
+  // MAX_DUR is only a safety cap for unusually long lines. ZOOM_LEAD starts
+  // the move half a second BEFORE the sentence (user request, 2026-08-09) -
+  // the camera anticipates the emphasis instead of reacting to it, and the
+  // total zoomed span grows by the same 0.5s.
+  const ZOOM_MIN_GAP = 15, ZOOM_MIN_DUR = 1.0, ZOOM_MAX_DUR = 6.0, ZOOM_LEAD = 0.5;
   // Factors raised 2026-08-09 (the old 1.06-1.16 read as "nothing happened"
   // even on strong - field report). Keep in sync with _zoom_filters
   // (pipeline_fns.py). ZOOM_FOCUS_Y biases the punch toward the FACE: crop /
@@ -4195,7 +4080,7 @@
       const minGap = sentenceStart ? ZOOM_MIN_GAP : ZOOM_MIN_GAP * 1.5;
       if (s - lastStart < minGap) continue;
       const dur = Math.max(ZOOM_MIN_DUR, Math.min(ZOOM_MAX_DUR, e - s));
-      wins.push([+s.toFixed(3), +(s + dur).toFixed(3)]);
+      wins.push([+Math.max(0, s - ZOOM_LEAD).toFixed(3), +(s + dur).toFixed(3)]);
       lastStart = s;
     }
     return wins;
@@ -4228,7 +4113,9 @@
     const caps = (typeof captionsData !== 'undefined' && captionsData) || [];
     wins.forEach(([s]) => {
       const key = s.toFixed(3);
-      const cap = caps.find(c => Math.abs(+c.start - s) < 0.05);
+      // The window starts ZOOM_LEAD before its anchor caption - look the
+      // caption up at the anchor, tolerating the t=0 clamp.
+      const cap = caps.find(c => +c.start >= s - 0.05 && +c.start <= s + ZOOM_LEAD + 0.05);
       const words = String((cap && cap.text) || '').replace(/\\N/g, ' ').split(/\s+/).filter(Boolean);
       const snippet = words.slice(0, 4).join(' ') + (words.length > 4 ? '…' : '');
       const chip = document.createElement('button');
@@ -4634,7 +4521,6 @@
   }
   function _profileData() {
     const cs = _captionStylePayload();
-    delete cs.highlight_keywords;   // per-session by design (each fetch costs an AI call)
     const val = id => document.getElementById(id)?.value;
     return {
       options: {
@@ -4908,7 +4794,7 @@
       font: captionFont,
       size: captionFontSize,
       margin_v: captionMarginPct,   // caption position rides the saved style
-      // LOOK fields only - orthogonal toggles (progress bar, keywords) are
+      // LOOK fields only - orthogonal toggles (progress bar, zoom) are
       // deliberately not part of a saved style.
       style: { font_color: cs.font_color, border_color: cs.border_color,
                border_size: cs.border_size, bg_color: cs.bg_color,
@@ -5043,7 +4929,6 @@
     { const e = document.getElementById('capBorderSizeVal'); if (e) e.textContent = '2px'; }
     { const e = document.getElementById('capBgOpacityVal'); if (e) e.textContent = '0%'; }
     { const e = document.getElementById('capProgressBar'); if (e) e.checked = false; }
-    { const e = document.getElementById('capKeywords'); if (e) e.checked = false; }
     { const e = document.getElementById('fxAutoZoom'); if (e) e.checked = false; }
     { const e = document.getElementById('fxZoomStrength'); if (e) e.value = 'medium'; }
     _syncStyleModeUI();
@@ -5092,9 +4977,6 @@
         { const e = document.getElementById('capProgressBar'); if (e) e.checked = !!saved.progress_bar; }
         { const e = document.getElementById('fxAutoZoom'); if (e) e.checked = !!saved.auto_zoom; }
         { const e = document.getElementById('fxZoomStrength'); if (e && saved.zoom_strength) e.value = saved.zoom_strength; }
-        // highlight_keywords deliberately NOT restored - the feature starts
-        // off for every session (user decision, 2026-08-07); history re-edits
-        // still restore it explicitly via _applyCaptionStyleValues.
       }
     } catch (_) {}
     const onEdit = () => {
@@ -5104,7 +4986,7 @@
       updatePreviewCaption();
     };
     _syncStyleModeUI();
-    ['capFontColor', 'capBorderColor', 'capBorderSize', 'capBgColor', 'capBgOpacity', 'capStyleMode', 'capHighlightColor', 'capProgressBar', 'capProgressColor', 'capKeywords', 'fxAutoZoom', 'fxZoomStrength'].forEach(id => {
+    ['capFontColor', 'capBorderColor', 'capBorderSize', 'capBgColor', 'capBgOpacity', 'capStyleMode', 'capHighlightColor', 'capProgressBar', 'capProgressColor', 'fxAutoZoom', 'fxZoomStrength'].forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
       el.addEventListener('input', onEdit);
@@ -5937,7 +5819,6 @@
         const q = (_capMode() === 'word' || _capMode() === 'karaoke') ? _wordCueAt(cap, t) : null;
         if (_capMode() === 'word') capEl.textContent = q ? q.text : '';
         else if (_capMode() === 'karaoke' && q) capEl.innerHTML = _karaokeHTML(cap, q, displayW);
-        else if (_kwIdxSet(cap)) capEl.innerHTML = _kwStaticHTML(cap, displayW);
         else capEl.textContent = rewrapCaption(cap.text, displayW, captionFontSize);
       }
     }
@@ -6022,19 +5903,11 @@
       // range (hl) - absolute word timings can't survive the still-frame
       // retime, the explicit range can.
       captions: (captionsData || []).flatMap(c => {
-        const kws = _kwIdxSet(c);
         if (mode === 'word')
-          return _wordCuesFor(c).map(q => {
-            const hit = kws && [...kws].some(k => q.i0 <= k && k <= q.i1);
-            // A matched cue is colored WHOLE at burn - mirror via relative kw
-            // indices over the cue's own tokens.
-            const ntok = q.text.split(/\s+/).filter(Boolean).length;
-            return Object.assign({ start: q.start, end: q.end, text: q.text },
-              hit ? { kw: Array.from({ length: ntok }, (_, i) => i) } : {});
-          });
+          return _wordCuesFor(c).map(q => ({ start: q.start, end: q.end, text: q.text }));
         if (mode === 'karaoke')
           return _wordCuesFor(c).map(q => ({ start: q.start, end: q.end, text: c.text, hl: [q.i0, q.i1] }));
-        return [{ start: c.start, end: c.end, text: c.text, ...(kws ? { kw: [...kws] } : {}) }];
+        return [{ start: c.start, end: c.end, text: c.text }];
       }),
       hook: hookPayload || null,
       caption_style: Object.assign(
@@ -6329,15 +6202,8 @@
         _lastCapCue = cueKey;
         _lastCap = cap;
         if (!cap || (!cueText && mode === 'word')) capEl.textContent = '';
-        else if (mode === 'word') {
-          const kws = _kwIdxSet(cap);
-          if (kws && cue && [...kws].some(k => cue.i0 <= k && k <= cue.i1)) {
-            const hl = document.getElementById('capHighlightColor')?.value || '#FFD400';
-            capEl.innerHTML = '<span style="color:' + hl + '">' + _escapeHtml(cueText) + '</span>';
-          } else capEl.textContent = cueText;
-        }
+        else if (mode === 'word') capEl.textContent = cueText;
         else if (mode === 'karaoke' && cue) capEl.innerHTML = _karaokeHTML(cap, cue, vid.videoWidth || 1080);
-        else if (_kwIdxSet(cap)) capEl.innerHTML = _kwStaticHTML(cap, vid.videoWidth || 1080);
         else capEl.textContent = rewrapCaption(cap.text, vid.videoWidth || 1080, captionFontSize);
         if (cap) _applyCaptionStyles();
         _highlightRow();
@@ -7309,11 +7175,9 @@
   // what's left in parentheses and disable at 0; budgets reset with every
   // fresh editor (new process / re-process / History re-edit).
   const GEN_LIMIT = 3;
-  let _hookGenLeft = GEN_LIMIT, _brollGenLeft = GEN_LIMIT,
-      _kwGenLeft = GEN_LIMIT, _suggestGenLeft = GEN_LIMIT;
+  let _hookGenLeft = GEN_LIMIT, _brollGenLeft = GEN_LIMIT, _suggestGenLeft = GEN_LIMIT;
   function _resetGenBudgets() {
-    _hookGenLeft = GEN_LIMIT; _brollGenLeft = GEN_LIMIT;
-    _kwGenLeft = GEN_LIMIT; _suggestGenLeft = GEN_LIMIT;
+    _hookGenLeft = GEN_LIMIT; _brollGenLeft = GEN_LIMIT; _suggestGenLeft = GEN_LIMIT;
   }
   function _syncGenButtons() {
     const hb = document.getElementById('generateHookBtn');
@@ -7326,10 +7190,6 @@
       fb.textContent = t('stock.find') + ' ' + t('gen.left', { n: _brollGenLeft });
       if (_brollGenLeft <= 0) fb.disabled = true;
     }
-    // Keyword picking refetches only when the text signature changes, but each
-    // real fetch is a Sonnet call - same budget, count shown on the label.
-    const kl = document.getElementById('capKeywordsLabel');
-    if (kl) kl.textContent = t('style.keywords') + ' ' + t('gen.left', { n: _kwGenLeft });
     const sb = document.getElementById('suggestCaptionBtn');
     if (sb) {
       sb.textContent = t('sched.suggest') + ' ' + t('gen.left', { n: _suggestGenLeft });
@@ -7798,20 +7658,6 @@
       }
       card.appendChild(clipsContainer);
 
-      // Find different clips button
-      let clipPage = 2;
-      const findBtn = document.createElement('button');
-      findBtn.className = 'find-clips-btn btn-refresh-icon';
-      findBtn.textContent = t('stock.findDifferent');
-      findBtn.addEventListener('click', async () => {
-        findBtn.disabled = true;
-        findBtn.textContent = t('stock.scoring');
-        delete stockBrollSelections[momentIdx];
-        syncBrollPreviewPool();
-        await retryStockMomentClips(momentCtx.broad_search_prompt || m.search_query, clipsContainer, clipPage++, findBtn, momentCtx);
-      });
-      card.appendChild(findBtn);
-
       wrapper.appendChild(card);
     });
   }
@@ -7979,45 +7825,6 @@
     });
 
     container.appendChild(row);
-  }
-
-  async function retryStockMomentClips(searchQuery, container, page, btn, momentCtx) {
-    try {
-      const ctxPayload = momentCtx
-        ? JSON.stringify({
-            label: momentCtx.label,
-            reasoning: momentCtx.reasoning,
-            strict_eval_prompt: momentCtx.strict_eval_prompt || '',
-            broll_duration_seconds: momentCtx.broll_duration_seconds || 3.0,
-          })
-        : '';
-      const resp = await apiFetchRetry(`${API_BASE}/stock-broll-clips/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ search_query: searchQuery, page: page || 2, moment_context: ctxPayload, orientation: videoOrientation }),
-      });
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}));
-        throw new Error(body.error || `Spawn failed: ${resp.status}`);
-      }
-      const { call_id } = await resp.json();
-
-      while (true) {
-        const poll = await apiFetch(`${API_BASE}/stock-broll-clips-poll/${call_id}/`);
-        if (poll.status === 202) { await new Promise(r => setTimeout(r, 3000)); continue; }
-        if (!poll.ok) throw new Error(`Poll error: ${poll.status}`);
-        const result = await poll.json();
-        renderClips(container, result.clips || [], searchQuery, momentCtx);
-        break;
-      }
-    } catch (e) {
-      console.error('Retry clips failed:', e.message);
-    } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = t('stock.findDifferent');
-      }
-    }
   }
 
   function _selectCaption(row, seekSecs) {
@@ -9019,13 +8826,10 @@
     const bov = document.getElementById('capBgOpacityVal');
     if (bov && style.bg_opacity != null) bov.textContent = Math.round(style.bg_opacity * 100) + '%';
     // Only write toggles the payload actually CARRIES: presets are looks and
-    // deliberately omit progress_bar/highlight_keywords - forcing them false
-    // here was the "progress bar resets when I change a setting" bug.
+    // deliberately omit progress_bar - forcing it false here was the
+    // "progress bar resets when I change a setting" bug.
     if ('progress_bar' in style) {
       const e = document.getElementById('capProgressBar'); if (e) e.checked = !!style.progress_bar;
-    }
-    if ('highlight_keywords' in style) {
-      const e = document.getElementById('capKeywords'); if (e) e.checked = !!style.highlight_keywords;
     }
     if ('auto_zoom' in style) {
       const e = document.getElementById('fxAutoZoom'); if (e) e.checked = !!style.auto_zoom;

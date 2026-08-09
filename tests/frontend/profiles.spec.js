@@ -63,7 +63,7 @@ test('the starred default auto-applies at boot, silently', async ({ page }) => {
   await expect(page.locator('.profile-chip-star')).toHaveClass(/on/);
 });
 
-test('saving harvests the current setup (keywords excluded) and POSTs it', async ({ page }) => {
+test('saving harvests the current setup and POSTs it', async ({ page }) => {
   const posted = [];
   await bootApp(page);
   await mockAllApis(page);
@@ -84,7 +84,6 @@ test('saving harvests the current setup (keywords excluded) and POSTs it', async
   expect(p.name).toBe('שלי');
   expect(p.data.options.captions).toBe(false);
   expect(p.data.caption_style).toBeTruthy();
-  expect('highlight_keywords' in p.data.caption_style).toBe(false);
   expect(p.data.hook.font_color).toBeTruthy();
 });
 

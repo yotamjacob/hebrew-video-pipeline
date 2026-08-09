@@ -73,14 +73,6 @@ async function mockAllApis(page, {
   await page.route(/\/error-report/, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
 
-  // Keyword-highlight selection - benign empty default so a toggled checkbox
-  // never escapes to the real API; specs asserting real indices re-route.
-  await page.route(/\/keywords\/?$/, (route, request) => {
-    const n = ((request.postDataJSON() || {}).captions || []).length;
-    return route.fulfill({ status: 200, contentType: 'application/json',
-                           body: JSON.stringify({ keywords: Array.from({ length: n }, () => []) }) });
-  });
-
   // R2 fast upload path - default OFF in tests (503 → the uploader falls back
   // to the chunked path every existing spec exercises). r2_upload.spec.js
   // re-registers these routes to exercise the fast path (last route wins).

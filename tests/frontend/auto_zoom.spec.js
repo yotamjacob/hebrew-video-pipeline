@@ -22,7 +22,8 @@ test('window heuristic: sentence starts, spaced, clamped durations', async ({ pa
     { start: 20.0, end: 20.4 },   // pause + 19.5s gap → window (short cap → 1.0s floor)
     { start: 40.0, end: 49.0 },   // → window, holds for the caption, 6s safety cap
   ]));
-  expect(wins).toEqual([[0.5, 2.0], [20.0, 21.0], [40.0, 46.0]]);
+  // Each window opens ZOOM_LEAD (0.5s) before its anchor caption, clamped at 0.
+  expect(wins).toEqual([[0.0, 2.0], [19.5, 21.0], [39.5, 46.0]]);
   // start-to-start spacing is at least 15s everywhere
   for (let i = 1; i < wins.length; i++) expect(wins[i][0] - wins[i - 1][0]).toBeGreaterThanOrEqual(15);
 });
@@ -47,8 +48,9 @@ test('enabled toggle sends the computed windows in the burn payload', async ({ p
   expect(cs.auto_zoom).toBe(true);
   expect(cs.zoom_strength).toBe('strong');
   // DEFAULT_CAPTIONS (0.5-2.3, 3.0-5.1, 5.8-8.4): one window at the first
-  // sentence; the rest are inside the 15s spacing.
-  expect(cs.zooms).toEqual([[0.5, 2.3]]);
+  // sentence (opening 0.5s early, clamped to 0); the rest are inside the
+  // 15s spacing.
+  expect(cs.zooms).toEqual([[0.0, 2.3]]);
 });
 
 test('disabled toggle sends no zooms key at all', async ({ page }) => {
@@ -72,7 +74,7 @@ test('preview: the video snaps to scale() inside a window and back outside', asy
   await page.click('#tabBtnEffects');
   await page.check('#fxAutoZoom');
 
-  // Inside the first window (0.5-2.3 at medium = 1.18), face-biased origin
+  // Inside the first window (0.0-2.3 at medium = 1.18), face-biased origin
   await page.evaluate(() => _syncZoomPreview(1.0));
   await expect.poll(() => page.evaluate(() =>
     document.getElementById('cutVideo').style.transform)).toBe('scale(1.18)');
@@ -127,7 +129,7 @@ test('moment list: each punch-in is a tappable chip; tapping one excludes it fro
 
   await page.click('#tabBtnEffects');
   await page.check('#fxAutoZoom');
-  // DEFAULT_CAPTIONS produce exactly one window (0.5-2.3) → one chip with
+  // DEFAULT_CAPTIONS produce exactly one window (0.0-2.3) → one chip with
   // the caption snippet it lands on.
   const chips = page.locator('#zoomList .zoom-chip');
   await expect(chips).toHaveCount(1);
@@ -164,8 +166,8 @@ test('the punch ramps in and out like a camera (eased factor, not a snap)', asyn
     const tr = document.getElementById('cutVideo').style.transform;
     return tr ? parseFloat(tr.slice(6)) : 1;
   }, t);
-  // window is 0.5-2.3 (medium 1.18): early in the ramp the factor is partial
-  const early = await zAt(0.6);
+  // window is 0.0-2.3 (medium 1.18): early in the ramp the factor is partial
+  const early = await zAt(0.1);
   expect(early).toBeGreaterThan(1);
   expect(early).toBeLessThan(1.1);
   // by mid-window the ramp has settled at the full factor

@@ -223,7 +223,7 @@ const COSTS = {
     esrgan: { n: 1, gpu_secs: 6000, src_secs: 300, gpu_per_src: 20.0 },
   },
   ai_usd: 0.0864, ai_calls: 12, ai_tokens: 25000,
-  ai_by_kind: { broll_vision: { n: 8, usd: 0.05 }, hook: { n: 2, usd: 0.02 }, keywords: { n: 2, usd: 0.0164 } },
+  ai_by_kind: { broll_vision: { n: 8, usd: 0.05 }, hook: { n: 2, usd: 0.02 } },
   all_usd: 0.3, all_per_video: 0.075,
 };
 
@@ -252,7 +252,7 @@ test('the Costs tab shows the all-in per-video figure, AI spend, and the per-mod
   await expect(page.locator('#costGpu')).toHaveText('15m');
   // AI features ranked by spend.
   const aiRows = page.locator('#costAiKinds tr');
-  await expect(aiRows).toHaveCount(3);
+  await expect(aiRows).toHaveCount(2);
   await expect(aiRows.nth(0)).toContainText('broll_vision');
   await expect(aiRows.nth(0)).toContainText('$0.050');
   // The whole point of the panel: the upscale's cost per second of source is

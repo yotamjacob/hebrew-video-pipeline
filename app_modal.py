@@ -31,7 +31,7 @@ from pipeline_core import (
     _EMAIL_RE, _sign_scoped_token, _verify_scoped_token, _send_email, _email_html,
     EMAIL_VERIFY_TTL_SECONDS,
     _user_prefix, _owned_key, _broll_item_safe,
-    _anthropic_client, SONNET_MODEL,
+    SONNET_MODEL,
     _is_review_email, _review_login_ok, REVIEW_VIDEO_LIMIT,
     DEFAULT_VIDEO_LIMIT, LEGACY_VIDEO_LIMIT, _quota_state, _quota_allows,
     _count_quota_used, _credit_cost, _upscale_allowed, _charge_credits,
@@ -370,10 +370,7 @@ def sweep_r2_uploads():
                        modal.Secret.from_name("hebpipe-review"),
                        # S3/R2 creds: presigned direct-upload URLs (/upload_r2/*)
                        # use the same bucket as the metadata backup.
-                       modal.Secret.from_name("hebpipe-backup"),
-                       # Inline Haiku call for /keywords (keyword-highlight
-                       # selection is a ~1s request - no worker spawn needed).
-                       modal.Secret.from_name("anthropic-secret")])
+                       modal.Secret.from_name("hebpipe-backup")])
 @modal.concurrent(max_inputs=50)   # headroom: chunk uploads + their CORS preflights + polls
 @modal.asgi_app()
 def api():
@@ -2786,101 +2783,6 @@ def api():
             return
 
         # Hook generation
-        # Keyword-highlight selection: pick the 'money words' per caption line
-        # (numbers, names, charged/emphasized words) so the style layer can
-        # color them. One inline Haiku call - fast enough to answer in-request.
-        if path in ("/keywords", "/keywords/") and method == "POST":
-            if not _check_rate_limit(_get_client_ip(scope)):
-                await send_error("Rate limit exceeded. Try again in a minute.", 429, code="rate_limited")
-                return
-            try:
-                data = json.loads((await _read_body(receive)).decode("utf-8"))
-                caps = [str(c.get("text", ""))[:300] for c in (data.get("captions") or [])][:300]
-            except Exception:
-                await send_error("Invalid body", 400)
-                return
-            if not caps:
-                await send_error("No captions", 400)
-                return
-            numbered = "\n".join(f"{i}: {t}" for i, t in enumerate(caps))
-            # Scarcity IS the feature (2026-08-09): a highlight only reads as
-            # emphasis when it is rare. GLOBAL ranked picks under a hard budget
-            # replaced the old per-line "0-2 each" ask, which lit weak words on
-            # every line and felt random. The route enforces the budget - the
-            # model only ranks.
-            budget = max(3, min(10, len(caps) // 3 or 1))
-            prompt = (
-                "Below are numbered Hebrew caption lines from one talking video. "
-                "Highlighting only works when it is RARE - pick the few most "
-                "valuable tokens across the WHOLE video: concrete numbers and "
-                "amounts, names and brands, and truly pivotal charged words. "
-                f"Pick AT MOST {budget} tokens total (fewer is better), never "
-                "more than 2 in one line; most lines must get none. Function "
-                "words, generic verbs and weak adjectives are never keywords.\n"
-                "Tokens are the whitespace-separated words of a line, indexed "
-                "from 0.\n"
-                "Return ONLY a JSON array of [line, token] pairs ranked MOST "
-                "valuable first, e.g. [[4,2],[0,1]]. No other text.\n\n" + numbered)
-            def _pick():
-                client = _anthropic_client()
-                # Sonnet (was Haiku): keyword quality IS the feature - weak
-                # picks made it feel random. Sonnet requires thinking disabled
-                # (adaptive thinking otherwise eats max_tokens).
-                r = client.messages.create(
-                    model=SONNET_MODEL, max_tokens=2000,
-                    thinking={"type": "disabled"},
-                    messages=[{"role": "user", "content": prompt}])
-                _record_ai_spend(costs_store, "keywords", SONNET_MODEL, r.usage)
-                raw = r.content[0].text.strip()
-                if "```" in raw:
-                    for part in raw.split("```"):
-                        part = part.strip().lstrip("json").strip()
-                        if part.startswith("["):
-                            raw = part
-                            break
-                if not raw.startswith("["):
-                    idx = raw.find("[")
-                    if idx >= 0:
-                        raw = raw[idx:]
-                out = json.loads(raw)
-                if not isinstance(out, list):
-                    raise ValueError("not a list")
-                # Ranked [line, token] pairs → one per-line list per caption.
-                # The ROUTE guarantees the contract: total ≤ budget (rank
-                # order wins), ≤2 per line, in-range indices, no dupes.
-                norm = [[] for i in range(len(caps))]
-                total = 0
-                for pair in out:
-                    if total >= budget:
-                        break
-                    if not (isinstance(pair, list) and len(pair) == 2):
-                        continue
-                    ln, k = pair
-                    if not isinstance(ln, (int, float)) or not isinstance(k, (int, float)):
-                        continue
-                    ln = int(ln)
-                    if not 0 <= ln < len(caps):
-                        continue
-                    ntok = len(caps[ln].split())
-                    if not (0 <= int(k) < ntok):
-                        continue
-                    if int(k) in norm[ln] or len(norm[ln]) >= 2:
-                        continue
-                    norm[ln].append(int(k))
-                    total += 1
-                return [sorted(v) for v in norm]
-            try:
-                keywords = await asyncio.to_thread(_pick)
-            except Exception as e:
-                print(f"[keywords] failed: {e!r}")
-                await send_error("Keyword selection failed - try again.", 502, code="kw_failed")
-                return
-            body = json.dumps({"keywords": keywords}).encode()
-            await send({"type": "http.response.start", "status": 200,
-                        "headers": CORS + [(b"content-type", b"application/json")]})
-            await send({"type": "http.response.body", "body": body})
-            return
-
         if path in ("/generate-hook", "/generate-hook/") and method == "POST":
             if not _check_rate_limit(_get_client_ip(scope)):
                 await send_error("Rate limit exceeded. Try again in a minute.", 429, code="rate_limited")
