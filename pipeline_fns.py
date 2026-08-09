@@ -284,6 +284,29 @@ def has_video_stream(path):
 # check rejects any per-word fix whose consonant skeleton barely overlaps the
 # original's: homophone repairs (קולטה→כל תא) share nearly all consonants,
 # meaning-swaps share almost none.
+def _glue_split_tokens(seg_words):
+    """Whisper sometimes splits a loan word at the geresh into two tokens
+    ("פיצ׳רים" arriving as "פיצ" + "׳רים") - the later space-join then renders
+    "פיצ ׳רים" mid-word (field report, 2026-08-09). Glue a token that STARTS
+    with a geresh/apostrophe back onto its predecessor: text concatenated, the
+    merged word spans both audio spans. Deliberately ONLY the single geresh
+    family (׳ ' ’) - gershayim (״) and ASCII double quotes can legitimately
+    OPEN a quotation, so gluing them would corrupt quoted speech."""
+    _GLUE = ("׳", "'", "’")
+    merged = []
+    for word in seg_words:
+        prev = merged[-1] if merged else None
+        if (prev is not None and len(word.text) > 1
+                and word.text.startswith(_GLUE)
+                and prev.text and "א" <= prev.text[-1] <= "ת"):
+            prev.text += word.text
+            prev.end = word.end
+            prev.filler = prev.filler and getattr(word, "filler", False)
+        else:
+            merged.append(word)
+    return merged
+
+
 def _consonant_key(word):
     """Multiset of phonetically-normalized consonants (vowel-letters dropped).
     Tables live in-function so the AST-extraction tests get them for free."""
@@ -351,7 +374,9 @@ def proofread_words(texts, client, model, chunk_size=400, max_tokens=8000):
             "edit that fits the sentence beats a tiny edit that doesn't.\n"
             "Rules:\n"
             "- Fix homophone letter swaps (ט/ת, כ/ק, א/ע/ה, ש/ס), a missing or "
-            "extra letter, or a wrong conjugation (e.g. 'אשמחה' -> 'שמחה').\n"
+            "extra letter, a single mis-heard letter that yields a non-word "
+            "(e.g. 'הפרטון' -> 'הסרטון'), or a wrong conjugation (e.g. "
+            "'אשמחה' -> 'שמחה').\n"
             "- If the recognizer merged words into one token, expand it into "
             "the same-sounding phrase that fits context, keeping the space(s) "
             "INSIDE that one element. Choose by meaning, not edit size: e.g. in "
@@ -987,6 +1012,7 @@ def process_video(
                     # quiet/fast Hebrew words are NOT clipped).
                     word.filler = _is_filler(txt) or prob < _WORD_PROB_MIN
                     seg_words.append(word)
+                seg_words = _glue_split_tokens(seg_words)
                 # Segment that is entirely filler / noise fragments — drop it.
                 if not any(not w.filler for w in seg_words):
                     continue
