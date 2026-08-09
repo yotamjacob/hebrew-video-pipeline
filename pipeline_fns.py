@@ -765,7 +765,11 @@ def render_audio(audio_in, segs, out):
     # Hard ceiling on simultaneous L4 containers. Modal otherwise autoscales
     # GPU containers without bound — this caps peak GPU spend during a burst
     # (excess /process calls queue rather than spin up unbounded GPUs).
-    max_containers=12,
+    # 2026-08-09: the Modal plan hard-caps the workspace at 10 concurrent
+    # GPUs anyway (a 12 here just triggers limit-warning emails when a burst
+    # hits it - observed during the launch load test). Keep this ≤ the plan
+    # limit; raise BOTH (plan upgrade + this) if launch demand needs more.
+    max_containers=10,
     volumes={MODEL_DIR: model_volume, TMP_DIR: tmp_vol},
     memory=4096,
     secrets=[modal.Secret.from_name("anthropic-secret"),
