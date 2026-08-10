@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.44.0';
+  const APP_VERSION = '1.45.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -4848,7 +4848,7 @@
   // tokens wrapped in a colored span (color only - metric-neutral, like the
   // burn's inline \c tags).
   function _karaokeHTML(cap, q, displayW) {
-    const wrapped = rewrapCaption(cap.text, displayW, captionFontSize);
+    const wrapped = rewrapCaption(cap.text, displayW, _capBurnPx());
     const hl = document.getElementById('capHighlightColor')?.value || '#FFD400';
     let k = 0;
     return wrapped.split('\n').map(line =>
@@ -5770,6 +5770,25 @@
   }
 
   // ── Caption line-wrapping - mirrors Python _rewrap_cap (char_w = fontSize * 0.60) ──
+  // Caption size is chosen in REFERENCE px - what it would measure on a
+  // 1080-short-side export. The burn scales it to the real frame so one
+  // choice looks identical on 720p, 1080p and 4K; everything the user picks,
+  // saves or SENDS stays in reference px (the server does the same scaling),
+  // and only display/wrap math below converts to real frame px.
+  // MUST mirror the _CAPTION_REF_SHORT block in build_caption_ass.
+  const CAPTION_REF_SHORT = 1080;
+  function _capResScale() {
+    // min(w,h) is rotation-invariant, so an auto-rotated video needs no
+    // special case. Unknown dimensions (metadata not in yet) => 1, i.e. the
+    // pre-2026-08-10 behavior; the next redraw corrects it.
+    const vid = document.getElementById('cutVideo');
+    const w = (vid && vid.videoWidth) || 0, h = (vid && vid.videoHeight) || 0;
+    if (!w || !h) return 1;
+    return Math.max(0.25, Math.min(4, Math.min(w, h) / CAPTION_REF_SHORT));
+  }
+  // The caption's size in REAL frame px - what the burn will use.
+  function _capBurnPx() { return captionFontSize * _capResScale(); }
+
   function rewrapCaption(text, videoWidth, fontSize) {
     const marginH = Math.max(25, Math.floor(videoWidth / 14));
     const avail   = videoWidth - 2 * marginH;
@@ -5828,14 +5847,14 @@
       // videoWidth reports stream width, not display width)
       const displayW = _playerDispW || vid.videoWidth;
       const scale = vid.clientWidth / displayW;
-      capEl.style.fontSize = Math.max(7, captionFontSize * scale) + 'px';
+      capEl.style.fontSize = Math.max(7, _capBurnPx() * scale) + 'px';
       const t = vid.currentTime;
       const cap = captionsData && captionsData.find(c => t >= c.start && t <= c.end + 0.05);
       if (cap) {
         const q = (_capMode() === 'word' || _capMode() === 'karaoke') ? _wordCueAt(cap, t) : null;
         if (_capMode() === 'word') capEl.textContent = q ? q.text : '';
         else if (_capMode() === 'karaoke' && q) capEl.innerHTML = _karaokeHTML(cap, q, displayW);
-        else capEl.textContent = rewrapCaption(cap.text, displayW, captionFontSize);
+        else capEl.textContent = rewrapCaption(cap.text, displayW, _capBurnPx());
       }
     }
     // Keep the hook wrap (hidden measurement canvas) + on-player overlay in sync.
@@ -6175,7 +6194,7 @@
       capEl.style.bottom     = (captionMarginPct * 100) + '%';
       const scale = vid.videoWidth ? vid.clientWidth / vid.videoWidth
                                    : vid.clientHeight / (vid.videoHeight || 1920);
-      capEl.style.fontSize = Math.max(7, captionFontSize * scale) + 'px';
+      capEl.style.fontSize = Math.max(7, _capBurnPx() * scale) + 'px';
       _applyCapStyleColors(capEl, scale);
       if (vid.videoWidth) {
         const marginH = Math.max(25, Math.floor(vid.videoWidth / 14));
@@ -6220,7 +6239,7 @@
         if (!cap || (!cueText && mode === 'word')) capEl.textContent = '';
         else if (mode === 'word') capEl.textContent = cueText;
         else if (mode === 'karaoke' && cue) capEl.innerHTML = _karaokeHTML(cap, cue, vid.videoWidth || 1080);
-        else capEl.textContent = rewrapCaption(cap.text, vid.videoWidth || 1080, captionFontSize);
+        else capEl.textContent = rewrapCaption(cap.text, vid.videoWidth || 1080, _capBurnPx());
         if (cap) _applyCaptionStyles();
         _highlightRow();
       }
@@ -6844,9 +6863,9 @@
     // reliable source and fell back to 1920, which made the caption tiny. Aspects
     // match, so W/realVW == H/realVH whenever both are known - this just removes
     // the bad fallback.
-    const capFs = Math.max(7, captionFontSize * (W / realVW));
+    const capFs = Math.max(7, _capBurnPx() * (W / realVW));
     window.__hookCapFs = capFs;   // exposed for tests (size must track the editor, not the thumbnail)
-    const lines = rewrapCaption(text, realVW, captionFontSize).split('\n');
+    const lines = rewrapCaption(text, realVW, _capBurnPx()).split('\n');
     const lineH = capFs * 1.35;
     // captionMarginPct = the caption block's bottom edge distance from the
     // video bottom, as a fraction of height (same as the player + burn).

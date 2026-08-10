@@ -30,8 +30,27 @@ def _extract_snippet(source: str, fn_name: str) -> str:
 
 # ─── Pure-math helpers extracted inline (no Modal deps needed) ────────────────
 
-def clamp_font_size(font_size: int) -> int:
-    return max(12, min(120, font_size))
+def build_ass(width=1080, height=1920, font='Heebo', font_size=48, cs=None):
+    """Call the REAL shared builder (the one both /burn and /preview_frame use)."""
+    from tests.backend.conftest import _extract_fn, _build_ns
+    ns = _build_ns()
+    ns.update({'_fix_rtl_punct': lambda s: s, '_censor_caption_text': lambda s: s,
+               '_rtl_ass_text': lambda s: s, '_RLE': '', '_PDF': ''})
+    fn = _extract_fn(MODAL_SRC, 'build_caption_ass', extra_ns=ns)['build_caption_ass']
+    return fn(width, height, font, font_size, max(25, width // 14), int(0.08 * height),
+              [{'start': 0, 'end': 1, 'text': 'שלום'}], {}, caption_style=cs)
+
+
+def ass_fontsize(ass: str) -> int:
+    """The Style line's Fontsize field (already libass-compensated)."""
+    line = next(l for l in ass.splitlines() if l.startswith('Style: Default,'))
+    return int(line.split(',')[2])
+
+
+def nominal_font_size(font_size: int, width=1080, height=1920, font='Karantina') -> int:
+    """Effective (frame-px) size the builder resolved, undoing the per-font
+    libass compensation. Karantina's factor is 1.012, the closest to 1.0."""
+    return round(ass_fontsize(build_ass(width, height, font, font_size)) / 1.012)
 
 
 def compute_margin_v(margin_v_pct: float, height: int) -> int:
@@ -49,29 +68,67 @@ def preview_font_size_px(caption_font_size: int, client_height: int, video_heigh
 
 
 class TestFontSizeClamping:
-    """burn_captions_fn clamps font_size to [12, 120] before writing the ASS."""
+    """The REAL clamp inside build_caption_ass: [12, 240] reference px.
 
-    def test_default_passes_through(self):
-        assert clamp_font_size(48) == 48
+    Asserted against the builder itself - a hand-written mirror of the clamp
+    silently drifted (it still claimed 120 and "slider max is 80" long after
+    both had moved), which is exactly the false confidence this suite is
+    supposed to prevent.
+    """
 
-    def test_slider_max_passes_through(self):
-        # Slider max is 80 in the UI — must not be clamped
-        assert clamp_font_size(80) == 80
-
-    def test_slider_min_passes_through(self):
-        assert clamp_font_size(24) == 24
+    def test_ui_range_passes_through(self):
+        # Every value the dropdown can send survives untouched at 1080p.
+        for px in (24, 48, 80, 150, 175, 200):
+            assert nominal_font_size(px) == px
 
     def test_below_min_clamped(self):
-        assert clamp_font_size(0) == 12
-        assert clamp_font_size(11) == 12
+        assert nominal_font_size(0) == 12
+        assert nominal_font_size(11) == 12
 
     def test_above_max_clamped(self):
-        assert clamp_font_size(200) == 120
-        assert clamp_font_size(121) == 120
+        assert nominal_font_size(1000) == 240
+        assert nominal_font_size(241) == 240
 
     def test_boundary_values(self):
-        assert clamp_font_size(12)  == 12
-        assert clamp_font_size(120) == 120
+        assert nominal_font_size(12) == 12
+        assert nominal_font_size(240) == 240
+
+
+class TestResolutionRelativeSize:
+    """Size is REFERENCE px (1080 short side), scaled to the real frame so one
+    choice looks the same on 720p, 1080p and 4K (2026-08-10).
+
+    Before this, font_size was absolute video px: the same 150 px covered
+    7.8% of a 1080x1920 frame but only 3.9% of a 4K one, so captions silently
+    shrank on high-res sources and with the 4K upscale enabled.
+    """
+
+    def test_1080_portrait_is_a_no_op(self):
+        # The common case must stay byte-identical - every saved style,
+        # profile and past burn depends on it.
+        assert nominal_font_size(48, 1080, 1920) == 48
+        assert nominal_font_size(150, 1080, 1920) == 150
+
+    def test_4k_doubles_the_rendered_size(self):
+        assert nominal_font_size(48, 2160, 3840) == 96
+
+    def test_720_shrinks_proportionally(self):
+        assert nominal_font_size(48, 720, 1280) == 32
+
+    def test_landscape_scales_on_the_short_side(self):
+        # 1920x1080 landscape has the same 1080 short side as a portrait reel.
+        assert nominal_font_size(48, 1920, 1080) == 48
+
+    def test_same_frame_fraction_across_resolutions(self):
+        """The whole point: identical proportion of frame height."""
+        for w, h in ((720, 1280), (1080, 1920), (1440, 2560), (2160, 3840)):
+            frac = nominal_font_size(96, w, h) / h
+            assert abs(frac - 96 / 1920) < 0.002, f"{w}x{h} drifted: {frac}"
+
+    def test_extreme_frames_are_bounded(self):
+        # A pathological frame can't explode or vanish the text.
+        assert nominal_font_size(48, 12000, 12000) == 48 * 4
+        assert nominal_font_size(48, 120, 120) == round(48 * 0.25)
 
 
 class TestMarginV:
@@ -106,66 +163,76 @@ class TestPreviewBurnParity:
     # Minimum CSS px that the JS formula will produce (the 'max(7, ...)' floor).
     FLOOR_PX = 7
 
-    def _floor_active(self, font_size: int, video_h: int, client_h: int) -> bool:
-        """Return True when the 7-px floor in preview_font_size_px would be hit."""
-        return round(clamp_font_size(font_size) * client_h / video_h) < self.FLOOR_PX
+    def _effective(self, font_size: int, video_w: int, video_h: int) -> int:
+        """The frame-px size BOTH sides resolve to: reference px clamped to
+        [12, 240], then scaled by the frame's short side against 1080.
+        Mirrors build_caption_ass and _capBurnPx() in app.js."""
+        ref = max(12, min(240, font_size))
+        scale = max(0.25, min(4.0, min(video_w, video_h) / 1080.0))
+        return max(12, round(ref * scale))
 
-    def _ratio_ok(self, font_size: int, video_h: int, client_h: int):
-        if self._floor_active(font_size, video_h, client_h):
+    def _floor_active(self, font_size: int, video_w: int, video_h: int, client_h: int) -> bool:
+        """Return True when the 7-px floor in preview_font_size_px would be hit."""
+        return round(self._effective(font_size, video_w, video_h) * client_h / video_h) < self.FLOOR_PX
+
+    def _ratio_ok(self, font_size: int, video_w: int, video_h: int, client_h: int):
+        if self._floor_active(font_size, video_w, video_h, client_h):
             return  # floor regime — ratio parity doesn't apply (too small to matter)
-        clamped   = clamp_font_size(font_size)
-        ass_ratio = clamped / video_h
-        css_px    = preview_font_size_px(clamped, client_h, video_h)
+        effective = self._effective(font_size, video_w, video_h)
+        # The burn really does write this size (modulo the per-font libass
+        # compensation, which the preview mirrors via line-height) - assert it
+        # against the builder rather than trusting the local mirror.
+        assert nominal_font_size(font_size, video_w, video_h) == effective
+        ass_ratio = effective / video_h
+        css_px    = preview_font_size_px(effective, client_h, video_h)
         css_ratio = css_px / client_h
         # Allow rounding tolerance of ±1px
         tolerance = 1 / client_h
         assert abs(css_ratio - ass_ratio) <= tolerance, (
-            f"font_size={font_size} video_h={video_h} client_h={client_h}: "
+            f"font_size={font_size} video={video_w}x{video_h} client_h={client_h}: "
             f"ass_ratio={ass_ratio:.5f}  css_ratio={css_ratio:.5f}  diff={abs(css_ratio-ass_ratio):.5f}"
         )
 
     def test_default_1920p(self):
         # 9:16 portrait video at 240-wide player → height ≈ 427
-        self._ratio_ok(48, 1920, 427)
+        self._ratio_ok(48, 1080, 1920, 427)
 
     def test_4k_large_font(self):
-        # 4K video: default font_size=48 hits the 7px floor at 427px preview height.
-        # Use font_size=72 which stays above the floor.
-        self._ratio_ok(72, 3840, 427)
+        self._ratio_ok(72, 2160, 3840, 427)
 
-    def test_4k_floor_behavior(self):
-        # Explicitly verify that at 4K with font_size=48, the floor IS active.
-        # This documents why the user should increase font size for 4K content.
-        assert self._floor_active(48, 3840, 427), (
-            "Expected 7px floor to be active for font_size=48 at 4K — "
-            "scaled value would be ~5px which rounds to 5 < 7"
-        )
+    def test_4k_no_longer_collapses_to_the_floor(self):
+        # BEFORE 2026-08-10 a 4K source rendered font_size=48 at ~5 preview px
+        # (below the 7px floor) because the size was absolute video px - the
+        # old test documented that as "the user should increase font size for
+        # 4K content". Reference-px scaling removes the trap entirely.
+        assert not self._floor_active(48, 2160, 3840, 427)
+        assert nominal_font_size(48, 2160, 3840) == 96
 
     def test_1080p_wide(self):
         # landscape video — player adapts aspect ratio
-        self._ratio_ok(48, 1080, 135)
+        self._ratio_ok(48, 1920, 1080, 135)
 
     def test_font_size_24_floor_behavior(self):
-        # font_size=24 at 1920p also hits the floor (24 * 427/1920 ≈ 5.3 < 7)
-        assert self._floor_active(24, 1920, 427)
+        # font_size=24 at 1080x1920 also hits the floor (24 * 427/1920 ≈ 5.3 < 7)
+        assert self._floor_active(24, 1080, 1920, 427)
 
     def test_font_size_32_above_floor(self):
         # 32 * 427/1920 ≈ 7.1 → just above the floor
-        self._ratio_ok(32, 1920, 427)
+        self._ratio_ok(32, 1080, 1920, 427)
 
     def test_font_size_80(self):
-        self._ratio_ok(80, 1920, 427)
+        self._ratio_ok(80, 1080, 1920, 427)
 
     def test_font_size_70(self):
-        self._ratio_ok(70, 1920, 427)
+        self._ratio_ok(70, 1080, 1920, 427)
 
     def test_font_size_range(self):
-        for fs in range(24, 81, 4):
-            self._ratio_ok(fs, 1920, 427)  # skips floor cases automatically
+        for fs in range(24, 201, 4):
+            self._ratio_ok(fs, 1080, 1920, 427)  # skips floor cases automatically
 
     def test_various_resolutions(self):
-        for h in [720, 1080, 1440, 1920, 2160]:
-            self._ratio_ok(48, h, 427)  # 3840 is skipped above via floor check
+        for w, h in [(720, 1280), (1080, 1920), (1440, 2560), (2160, 3840)]:
+            self._ratio_ok(48, w, h, 427)
 
 
 class TestASSPlayResEqualsVideoHeight:

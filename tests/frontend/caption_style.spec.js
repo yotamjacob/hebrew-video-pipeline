@@ -78,6 +78,60 @@ test('style presets: chips render and one tap applies the whole look', async ({ 
   await expect(page.locator('.cap-preset-chip.active')).toHaveCount(0);
 });
 
+// Caption size is REFERENCE px (a 1080 short side); the burn scales it to the
+// real frame so one choice looks the same on 720p, 1080p and 4K (2026-08-10).
+// These pin the JS half of that mirror - the Python half lives in
+// tests/backend/test_ass_generation.py (TestResolutionRelativeSize).
+async function fakeVideoDims(page, w, h) {
+  await page.evaluate(({ w, h }) => {
+    const v = document.getElementById('cutVideo');
+    Object.defineProperty(v, 'videoWidth', { value: w, configurable: true });
+    Object.defineProperty(v, 'videoHeight', { value: h, configurable: true });
+  }, { w, h });
+}
+
+test('size dropdown reaches 200 px and every option is a real burn size', async ({ page }) => {
+  await runFullUpload(page);
+  const values = await page.locator('#captionFontSizeSlider option')
+    .evaluateAll(opts => opts.map(o => parseInt(o.value, 10)));
+  expect(Math.max(...values)).toBe(200);           // was 150 - "small even on max"
+  expect(values).toEqual([...values].sort((a, b) => a - b));   // ascending, no dupes
+  expect(new Set(values).size).toBe(values.length);
+  // The server clamps at 240 reference px, so nothing here can be silently cut.
+  expect(Math.max(...values)).toBeLessThanOrEqual(240);
+});
+
+test('the burn size scales with video resolution, the SENT size stays reference px', async ({ page }) => {
+  await runFullUpload(page);
+  await page.selectOption('#captionFontSizeSlider', '48');
+
+  // 1080-short-side portrait is the reference frame: a pure no-op.
+  await fakeVideoDims(page, 1080, 1920);
+  expect(await page.evaluate(() => _capBurnPx())).toBe(48);
+  // 4K doubles it, 720p shrinks it - same fraction of the frame either way.
+  await fakeVideoDims(page, 2160, 3840);
+  expect(await page.evaluate(() => _capBurnPx())).toBe(96);
+  await fakeVideoDims(page, 720, 1280);
+  expect(await page.evaluate(() => _capBurnPx())).toBeCloseTo(32, 5);
+  // Landscape scales on the short side too.
+  await fakeVideoDims(page, 1920, 1080);
+  expect(await page.evaluate(() => _capBurnPx())).toBe(48);
+
+  // What travels to the server stays REFERENCE px - the burn does the scaling,
+  // so sending a pre-scaled size would double it.
+  await fakeVideoDims(page, 2160, 3840);
+  let burnUrl = null;
+  await page.route(/\/burn\/\?/, (route, request) => {
+    burnUrl = request.url();
+    return route.fulfill({ status: 202, contentType: 'application/json',
+                           body: JSON.stringify({ call_id: 'mock-burn-call-id' }) });
+  });
+  await page.click('#runBtn');
+  await page.click('#confirmOk');
+  await expect.poll(() => burnUrl, { timeout: 10_000 }).not.toBeNull();
+  expect(new URL(burnUrl).searchParams.get('font_size')).toBe('48');
+});
+
 test('a preset look flows into the burn payload', async ({ page }) => {
   await runFullUpload(page);
   await page.click('.cap-preset-chip[data-preset="news"]');

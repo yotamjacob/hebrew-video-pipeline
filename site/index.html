@@ -512,7 +512,9 @@
       </div>
       <div class="caption-controls size-controls">
         <label class="ctrl-label" for="captionFontSizeSlider" data-i18n="capedit.size">Size</label>
-        <!-- px in the BURNED video (the preview scales it to the player). The id
+        <!-- Size in REFERENCE px: what the text measures on a 1080-short-side
+             export. The burn scales it to the real frame (build_caption_ass),
+             so one choice looks the same on 720p, 1080p and 4K. The id
              predates the dropdown - kept so JS/tests stay stable. -->
         <select id="captionFontSizeSlider" class="font-select" style="max-width:130px"
           aria-label="Caption text size in burned video" data-i18n-aria-label="capedit.sizeTitle">
@@ -534,6 +536,8 @@
           <option value="115">115 px</option>
           <option value="130">130 px</option>
           <option value="150">150 px</option>
+          <option value="175">175 px</option>
+          <option value="200">200 px</option>
         </select>
       </div>
       <!-- Caption styling (hook-parity): text/outline colours + optional

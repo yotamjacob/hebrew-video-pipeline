@@ -1353,7 +1353,26 @@ def process_video(
 # the burn — pixel-identical (no browser-vs-libass font-metric/outline drift).
 def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captions, hook,
                       caption_style=None, duration=None):
-    font_size = max(12, min(200, int(font_size)))
+    # Caption size is expressed in REFERENCE px - the size it would have on a
+    # 1080-short-side export (the standard 1080x1920 reel). Here it is scaled
+    # to the frame actually being rendered, so ONE choice looks identical on
+    # 720p, 1080p and 4K (2026-08-10; field report "captions look small even
+    # on max px"). Before this the value was absolute video px, so a 4K source
+    # - or any run with the 4K upscale on - rendered captions at half the
+    # proportion the editor's preview implied, and the size ceiling shrank
+    # with resolution. `docs/captions.md` claimed this scaling already existed;
+    # it described the retired CLI, never the web burn.
+    # A 1080-short-side frame is a NO-OP (factor 1.0), so every existing burn,
+    # profile and saved style keeps rendering byte-identically.
+    # MUST mirror `_capResScale`/`_capBurnPx` in site/app.js (the editor
+    # preview) - the two must agree or WYSIWYG breaks.
+    # Both are defined in-function so the AST test extraction stays
+    # self-contained (same reason as _LIBASS_FONT_SCALE below).
+    _CAPTION_SIZE_MAX  = 240      # reference px the UI may request
+    _CAPTION_REF_SHORT = 1080     # reference frame short side
+    font_size = max(12, min(_CAPTION_SIZE_MAX, int(font_size)))
+    _res_scale = max(0.25, min(4.0, min(width, height) / float(_CAPTION_REF_SHORT)))
+    font_size = max(12, int(round(font_size * _res_scale)))
     # libass sizes glyphs by the font's LINE metrics (hhea ascent-descent),
     # while CSS font-size uses the em square - so at the same nominal size
     # libass renders (asc-desc)/upem SMALLER (Heebo: /1.469 ≈ 32% smaller;
@@ -1923,7 +1942,9 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
             _rot_vf = ""
         _rot_input  = ["-noautorotate"] if _rotation else []
         _rot_meta   = ["-metadata:s:v:0", "rotate=0"] if _rotation else []
-        font_size = max(12, min(200, font_size))
+        # Guard only - build_caption_ass owns the real clamp AND the
+        # reference-px -> frame-px scaling (keep the ceilings equal).
+        font_size = max(12, min(240, font_size))
         margin_h  = max(25, width  // 14)
         margin_v  = int(margin_v_pct * height)
 
