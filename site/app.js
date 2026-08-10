@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.43.0';
+  const APP_VERSION = '1.44.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -4974,7 +4974,11 @@
         const bov = document.getElementById('capBgOpacityVal');
         if (bov) bov.textContent = Math.round((saved.bg_opacity || 0) * 100) + '%';
         { const e = document.getElementById('capProgressBar'); if (e) e.checked = !!saved.progress_bar; }
-        { const e = document.getElementById('fxAutoZoom'); if (e) e.checked = !!saved.auto_zoom; }
+        // auto_zoom is deliberately NOT restored (user directive, 2026-08-10):
+        // the punch-in starts OFF for every video, so it is never applied
+        // without a deliberate tap. Only the STRENGTH is remembered (a
+        // preference, like a color). Explicit paths still set the toggle:
+        // profiles and History re-edits go through _applyCaptionStyleValues.
         { const e = document.getElementById('fxZoomStrength'); if (e && saved.zoom_strength) e.value = saved.zoom_strength; }
       }
     } catch (_) {}

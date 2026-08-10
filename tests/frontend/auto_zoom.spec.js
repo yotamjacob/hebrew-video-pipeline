@@ -99,14 +99,36 @@ test('preview: the video snaps to scale() inside a window and back outside', asy
     document.getElementById('cutVideo').style.transform)).toBe('');
 });
 
-test('toggle persists per device via the captionStyle payload', async ({ page }) => {
+test('the toggle starts OFF on every launch; only the strength is remembered', async ({ page }) => {
   await runFullUpload(page);
   await page.click('#tabBtnEffects');
+  await expect(page.locator('#fxAutoZoom')).not.toBeChecked();   // default: off
   await page.check('#fxAutoZoom');
   await page.selectOption('#fxZoomStrength', 'strong');
+  // The burn payload still carries the live state...
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('captionStyle')));
   expect(saved.auto_zoom).toBe(true);
   expect(saved.zoom_strength).toBe('strong');
+
+  // ...but a fresh launch never re-applies the punch-in on its own (user
+  // directive, 2026-08-10) - the remembered STRENGTH survives.
+  await page.reload();
+  await runFullUpload(page);
+  await page.click('#tabBtnEffects');
+  await expect(page.locator('#fxAutoZoom')).not.toBeChecked();
+  expect(await page.locator('#fxZoomStrength').inputValue()).toBe('strong');
+});
+
+test('an explicit profile / re-edit style can still switch the zoom on', async ({ page }) => {
+  await runFullUpload(page);
+  await page.click('#tabBtnEffects');
+  await expect(page.locator('#fxAutoZoom')).not.toBeChecked();
+  // profiles + History re-edits go through _applyCaptionStyleValues, which
+  // must keep honoring an explicit auto_zoom (only the implicit per-device
+  // restore was dropped).
+  await page.evaluate(() => _applyCaptionStyleValues({ auto_zoom: true, zoom_strength: 'subtle' }));
+  await expect(page.locator('#fxAutoZoom')).toBeChecked();
+  expect(await page.locator('#fxZoomStrength').inputValue()).toBe('subtle');
 });
 
 test('applying a look-only preset does not reset the zoom toggle', async ({ page }) => {
