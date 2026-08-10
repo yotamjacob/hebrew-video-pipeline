@@ -1442,6 +1442,19 @@
     }
     .cost-table td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--purple-100); }
     .cost-mode-name { font-weight: 600; color: var(--purple-700); }
+    /* Pricing plans block: separated from the cost tables above by a rule, so
+       "what it costs" and "what to charge" read as two sections of one card. */
+    .cost-plans { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--purple-200); }
+    .cost-plans-title {
+      font-family: 'Frank Ruhl Libre', serif; font-size: 1.05rem; font-weight: 500;
+      color: var(--purple-800); margin: 0 0 12px;
+    }
+    /* Price + per-credit sit under the pack name rather than in their own
+       columns: four numeric columns overflowed the card on a phone, and three
+       columns match the rhythm of the other tables in this card. */
+    .cost-plan-each { display: block; font-weight: 400; font-size: 0.72rem; color: var(--muted); }
+    /* The three headline figures wrap instead of stretching the card. */
+    .cost-plans .cost-stats { gap: 14px 22px; }
 
     /* Lightbox */
     #brollLightbox {

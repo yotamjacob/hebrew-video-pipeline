@@ -123,7 +123,7 @@
 </div>
 
 <!-- ── Boot loader (shown until the session check resolves) ── -->
-<div id="bootLoader" class="boot-loader"><span class="spinner spinner-lg"></span><span class="boot-msg" data-i18n="boot.waking">רק רגע, מעירים את השרת...</span></div>
+<div id="bootLoader" class="boot-loader"><span class="spinner spinner-lg"></span><span class="boot-msg" data-i18n="boot.waking">טוענים את העדכונים האחרונים מהשרת...</span></div>
 
 <!-- ── Sign in / register ── -->
 <div class="container" id="authView" style="display:none">
@@ -997,6 +997,29 @@
           <tbody id="costAiKinds"></tbody>
         </table>
         <p class="history-note" data-i18n="cost.note">Modal + Anthropic list rates, excluding container startup and idle. A floor for pricing decisions, not an invoice.</p>
+
+        <!-- Pricing plans: every figure below is DERIVED from the measured
+             cost per video above (never hardcoded), so it tracks reality as
+             the pipeline gets cheaper or costlier. -->
+        <div class="cost-plans" id="costPlans" style="display:none">
+          <p class="cost-plans-title" data-i18n="cost.plansTitle">Pricing plans</p>
+          <div class="cost-stats">
+            <div class="cost-stat"><span class="cost-stat-value" id="costServe">-</span><span class="cost-stat-label" data-i18n="cost.serveCost">Cost to serve one credit</span></div>
+            <div class="cost-stat"><span class="cost-stat-value" id="costBreakEven">-</span><span class="cost-stat-label" data-i18n="cost.breakEven">Break-even price</span></div>
+            <div class="cost-stat"><span class="cost-stat-value" id="costFloor">-</span><span class="cost-stat-label" data-i18n="cost.floor">Floor for a 90% margin</span></div>
+          </div>
+          <table class="cost-table">
+            <thead>
+              <tr>
+                <th data-i18n="cost.plan">Pack</th>
+                <th data-i18n="cost.planProfit">Profit</th>
+                <th data-i18n="cost.planMargin">Margin</th>
+              </tr>
+            </thead>
+            <tbody id="costPlanRows"></tbody>
+          </table>
+          <p class="history-note" id="costPlansNote"></p>
+        </div>
       </div>
     </div>
   </div>

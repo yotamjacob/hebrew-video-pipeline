@@ -266,6 +266,43 @@ test('the Costs tab shows the all-in per-video figure, AI spend, and the per-mod
   expect(seen[0]).toBe('7');
 });
 
+test('pricing plans are derived from the measured cost, not hardcoded', async ({ page }) => {
+  await bootAdminWithCosts(page);
+  // all_per_video = $0.075 → ₪0.2775 per credit at the panel's stated rate.
+  // Play keeps 15%, so break-even is 0.2775/0.85 = ₪0.33 and the 90%-margin
+  // floor is 0.2775/(0.85*0.10) = ₪3.26.
+  await expect(page.locator('#costPlans')).toBeVisible();
+  await expect(page.locator('#costServe')).toHaveText('₪0.28');
+  await expect(page.locator('#costBreakEven')).toHaveText('₪0.33');
+  await expect(page.locator('#costFloor')).toHaveText('₪3.26');
+
+  const rows = page.locator('#costPlanRows tr');
+  await expect(rows).toHaveCount(3);
+  // 10-credit pack at ₪59: net 50.15, cost 2.775, profit ₪47.38 → 94%.
+  await expect(rows.nth(0)).toContainText('10');
+  await expect(rows.nth(0)).toContainText('₪59');      // price rides the pack cell
+  await expect(rows.nth(0)).toContainText('₪5.90');    // per credit
+  await expect(rows.nth(0)).toContainText('₪47.38');
+  await expect(rows.nth(0)).toContainText('94%');
+  // 100-credit pack: the cost side actually bites (₪27.75 of ₪339 net).
+  await expect(rows.nth(2)).toContainText('₪311');
+  await expect(rows.nth(2)).toContainText('92%');
+  // Three columns, like every other table in this card (a fourth overflowed
+  // the card on a phone).
+  await expect(page.locator('#costPlanRows tr').first().locator('td')).toHaveCount(3);
+  // The assumptions are stated, not buried.
+  await expect(page.locator('#costPlansNote')).toContainText('15%');
+});
+
+test('pricing plans refuse to invent a margin with no measured cost', async ({ page }) => {
+  // A window with AI spend but no delivered video → all_per_video = 0. Showing
+  // a confident 100% margin there would be fabricated, so it must say so.
+  await bootAdminWithCosts(page, { ...COSTS, all_per_video: 0 });
+  await expect(page.locator('#costPlanRows tr')).toHaveCount(0);
+  await expect(page.locator('#costServe')).toHaveText('-');
+  await expect(page.locator('#costPlansNote')).not.toHaveText('');
+});
+
 test('switching the range refetches for that window', async ({ page }) => {
   const seen = await bootAdminWithCosts(page);
   await page.locator('.cost-range-btn[data-days="30"]').click();

@@ -35,6 +35,22 @@ test('no session: the choice landing shows, app hidden', async ({ page }) => {
   await expect(page.locator('#tabsBar')).toBeHidden();
 });
 
+test('the boot wait is explained as loading, not as a sleeping server', async ({ page }) => {
+  // The wait is a cold API container; the copy deliberately does not say the
+  // server was asleep (user directive, 2026-08-10). The message itself only
+  // fades in after 1.5s so fast loads never flash it.
+  await page.addInitScript(() => localStorage.setItem('hebpipe_token', 'tok'));
+  await page.route(/\/auth\/me/, async r => {
+    await new Promise(res => setTimeout(res, 2500));   // hold the boot loader open
+    return r.fulfill({ status: 200, contentType: 'application/json',
+                       body: '{"username":"tester","role":"user","videos_used":0,"video_limit":-1}' });
+  });
+  await page.goto('/');
+  const msg = page.locator('#bootLoader .boot-msg');
+  await expect(msg).toHaveText('טוענים את העדכונים האחרונים מהשרת...');
+  await expect(msg).not.toContainText('מעירים');
+});
+
 test('expired session drops back to login', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('hebpipe_token', 'stale-token'));
   await page.route(/\/auth\/me/, r =>

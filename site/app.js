@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.45.0';
+  const APP_VERSION = '1.46.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -8444,6 +8444,76 @@
   // Reopening the Admin tab re-fetches in the background but only redraws when
   // the data actually changed - no loading flash over an already-rendered card.
   let _costSig = null;
+  // ── Pricing plans (admin Costs tab, 2026-08-10) ───────────────────────────
+  // The packs sold through Google Play. Prices are configured in Play Console
+  // (the store is the source of truth - the app shows `formattedPrice` from
+  // ProductDetails at purchase time), so this ladder exists ONLY to reason
+  // about margin here. Keep it in sync when a price changes in the console.
+  const PLAY_PACKS = [
+    { credits: 10,  ils: 59 },
+    { credits: 30,  ils: 149 },
+    { credits: 100, ils: 399 },
+  ];
+  const PLAY_FEE = 0.15;   // Google Play commission, standard program (<$1M/yr)
+  const USD_ILS  = 3.7;    // shown in the note so the assumption is auditable
+  const MARGIN_TARGET = 0.90;
+  const _ils = v => '₪' + (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(2));
+
+  // Everything here is DERIVED from the measured cost per video, so the panel
+  // re-prices itself as the pipeline gets cheaper or more expensive.
+  function _renderPricingPlans(allPerVideoUsd) {
+    const wrap = document.getElementById('costPlans');
+    if (!wrap) return;
+    const rows = document.getElementById('costPlanRows');
+    const note = document.getElementById('costPlansNote');
+    wrap.style.display = 'block';
+    const costCredit = (allPerVideoUsd || 0) * USD_ILS;   // one credit ~ one average video
+    if (!(costCredit > 0)) {
+      // No measured cost in this window - say so instead of printing a
+      // confident 100% margin derived from nothing.
+      rows.innerHTML = '';
+      note.textContent = t('cost.plansNeedData');
+      ['costServe', 'costBreakEven', 'costFloor'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.textContent = '-';
+      });
+      return;
+    }
+    const keep      = 1 - PLAY_FEE;             // share of the price we actually receive
+    const breakEven = costCredit / keep;        // price where profit is exactly zero
+    const floor     = costCredit / (keep * (1 - MARGIN_TARGET));
+    document.getElementById('costServe').textContent     = _ils(costCredit);
+    document.getElementById('costBreakEven').textContent = _ils(breakEven);
+    document.getElementById('costFloor').textContent     = _ils(floor);
+
+    rows.innerHTML = '';
+    PLAY_PACKS.forEach(pack => {
+      const net    = pack.ils * keep;
+      const cost   = pack.credits * costCredit;
+      const profit = net - cost;
+      const margin = net > 0 ? (profit / net) * 100 : 0;
+      const tr = document.createElement('tr');
+
+      const name = document.createElement('td');
+      name.className = 'cost-mode-name';
+      name.textContent = t('cost.planCredits', { n: pack.credits });
+      const each = document.createElement('span');
+      each.className = 'cost-plan-each';
+      each.textContent = t('cost.planEach', { total: _ils(pack.ils),
+                                              each: _ils(pack.ils / pack.credits) });
+      name.appendChild(each);
+      tr.appendChild(name);
+
+      [_ils(profit), margin.toFixed(0) + '%'].forEach(v => {
+        const td = document.createElement('td');
+        td.textContent = v;
+        tr.appendChild(td);
+      });
+      rows.appendChild(tr);
+    });
+    note.textContent = t('cost.plansNote', { fee: Math.round(PLAY_FEE * 100),
+                                             fx: USD_ILS.toFixed(2) });
+  }
+
   async function loadCosts(opts) {
     const force   = !!(opts && opts.force);
     const loading = document.getElementById('costLoading');
@@ -8506,6 +8576,7 @@
         });
         modes.appendChild(tr);
       });
+      _renderPricingPlans(c.all_per_video);
       body.style.display = 'block';
     } catch (e) {
       loading.style.display = 'none';
