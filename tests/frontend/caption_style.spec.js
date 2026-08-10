@@ -96,15 +96,15 @@ test('a preset look flows into the burn payload', async ({ page }) => {
   expect(decodeURIComponent(burnUrl)).toContain('font=Frank+Ruhl+Libre');
 });
 
-test('caption design card is open by default, collapses on tap, and the choice persists', async ({ page }) => {
+test('caption design card is open by default, collapses on tap, and reopens on a fresh editor', async ({ page }) => {
   await runFullUpload(page);
   await expect(page.locator('#capDesignBody')).toBeVisible();
   await expect(page.locator('#capStyleMode')).toBeVisible();
   await page.click('#capDesignHead');
   await expect(page.locator('#capDesignBody')).toBeHidden();
-  // The collapsed choice is remembered per device.
-  expect(await page.evaluate(() => localStorage.getItem('capDesignOpen'))).toBe('0');
-  await page.click('#capDesignHead');
+  // The collapse is session-scoped only (user directive, 2026-08-10): every
+  // fresh editor open re-expands the design card.
+  await page.evaluate(() => showCaptionEditor());
   await expect(page.locator('#capDesignBody')).toBeVisible();
 });
 

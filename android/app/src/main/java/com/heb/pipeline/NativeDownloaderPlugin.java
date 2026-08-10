@@ -121,6 +121,55 @@ public class NativeDownloaderPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void notifySaved(PluginCall call) {
+        // "Video ready to watch" system notification for the LOCAL-SAVE path
+        // (Filesystem copy of a warm-cached burn) - that path bypasses
+        // DownloadManager, so it gets no system notification of its own.
+        // Tapping opens the saved video (ACTION_VIEW through the Capacitor
+        // FileProvider - a raw file:// crashes with FileUriExposedException
+        // on N+). Best-effort: no POST_NOTIFICATIONS grant (the FCM flow asks
+        // for it) or any failure just resolves - the in-app toast already
+        // covers the UX.
+        String uriStr = call.getString("uri");
+        String title = call.getString("title", "Video ready");
+        String text = call.getString("text", "Tap to watch");
+        String mimeType = call.getString("mimeType", "video/mp4");
+        try {
+            Uri uri = Uri.parse(uriStr);
+            if ("file".equals(uri.getScheme())) {
+                uri = androidx.core.content.FileProvider.getUriForFile(
+                    getContext(), getContext().getPackageName() + ".fileprovider",
+                    new File(uri.getPath()));
+            }
+            Intent view = new Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, mimeType)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            android.app.PendingIntent pending = android.app.PendingIntent.getActivity(
+                getContext(), (int) (System.currentTimeMillis() & 0x7fffffff), view,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                    | android.app.PendingIntent.FLAG_IMMUTABLE);
+            android.app.NotificationManager nm = (android.app.NotificationManager)
+                getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                nm.createNotificationChannel(new android.app.NotificationChannel(
+                    "downloads", "Downloads",
+                    android.app.NotificationManager.IMPORTANCE_DEFAULT));
+            }
+            androidx.core.app.NotificationCompat.Builder builder =
+                new androidx.core.app.NotificationCompat.Builder(getContext(), "downloads")
+                    .setSmallIcon(getContext().getApplicationInfo().icon)
+                    .setContentTitle(title)
+                    .setContentText(text)
+                    .setContentIntent(pending)
+                    .setAutoCancel(true);
+            nm.notify((int) (System.currentTimeMillis() & 0x7fffffff), builder.build());
+        } catch (Exception ignored) {
+            // Missing permission, unparseable uri, no provider path - all fine.
+        }
+        call.resolve();
+    }
+
+    @PluginMethod
     public void openDownloads(PluginCall call) {
         // ACTION_VIEW_DOWNLOADS is an OEM lottery: some shells have no
         // matching activity and some resolve it to a STORE download UI

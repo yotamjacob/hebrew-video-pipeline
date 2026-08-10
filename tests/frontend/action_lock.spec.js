@@ -54,6 +54,32 @@ test('hook generation greys out every other section but keeps its own card live'
 });
 
 
+test('hook generation and B-roll search run simultaneously - neither blocks the other', async ({ page }) => {
+  await runFullUpload(page);
+  // Keep BOTH operations in flight long enough to overlap.
+  await page.unroute(`${API_BASE}/generate-hook-poll/**`);
+  await delayedFulfill(page, `${API_BASE}/generate-hook-poll/**`,
+    { hooks: [{ text: 'hook', rationale: 'r' }] }, 2500);
+  await page.unroute(`${API_BASE}/analyze-stock-broll-poll/**`);
+  await delayedFulfill(page, `${API_BASE}/analyze-stock-broll-poll/**`, { moments: [] }, 2500);
+
+  // Start B-roll, then hooks while B-roll is still in flight.
+  await page.click('#tabBtnBroll');
+  await page.click('#findBrollBtn');
+  await page.click('#tabBtnHook');
+  await expect(page.locator('#generateHookBtn')).toBeEnabled();   // NOT locked by B-roll
+  await page.click('#generateHookBtn');
+  await expect(page.locator('#hookStatus')).toBeVisible();        // hook flow really started
+
+  // The heavy actions stay locked while either runs...
+  await expect(page.locator('#runBtn')).toBeDisabled();
+  // ...and everything unlocks once both settle.
+  await expect(page.locator('#hookOptions')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('#runBtn')).toBeEnabled({ timeout: 15_000 });
+  await expect(page.locator('#generateHookBtn')).toBeEnabled();
+  await expect(page.locator('#findBrollBtn')).toBeEnabled();
+});
+
 test('burn completion reveals schedule + success banner immediately (download is browser-native)', async ({ page }) => {
   await runFullUpload(page);
   await page.click('#runBtn');

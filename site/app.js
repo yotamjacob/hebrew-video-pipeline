@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.42.0';
+  const APP_VERSION = '1.43.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -1378,7 +1378,7 @@
   let _actionLockDepth = 0;
   const _actionLockSaved = new Map();
 
-  function lockPipelineActions({ activeBtn = null, activeCard = null } = {}) {
+  function lockPipelineActions({ activeBtn = null, activeCard = null, exempt = [] } = {}) {
     if (++_actionLockDepth > 1) return;
     // A long operation is starting (process, burn, hooks, B-roll, schedule) -
     // pause every preview video (caption player, B-roll clip previews) so
@@ -1390,6 +1390,7 @@
     if (_lt) _lt.disabled = true;
     LOCK_BTN_IDS.forEach(id => {
       if (id === activeBtn) return;               // the active flow manages its own button
+      if (exempt.includes(id)) return;            // flows that may run in parallel
       const el = document.getElementById(id);
       if (!el) return;
       _actionLockSaved.set(id, el.disabled);
@@ -4468,9 +4469,10 @@
     });
   })();
 
-  // Collapsible caption-design card. OPEN by default (the font selector is a
-  // primary control); the collapsed choice persists per device, so tidy-minded
-  // users collapse once and it stays that way.
+  // Collapsible caption-design card. ALWAYS opens by default (user directive,
+  // 2026-08-10 - the font selector is a primary control): the collapse is
+  // session-scoped only, and every fresh editor open re-expands it
+  // (showCaptionEditor calls toggleCapDesign(true)).
   function toggleCapDesign(force) {
     const head = document.getElementById('capDesignHead');
     const body = document.getElementById('capDesignBody');
@@ -4478,12 +4480,9 @@
     const open = force != null ? !!force : body.style.display === 'none';
     body.style.display = open ? 'block' : 'none';
     head.setAttribute('aria-expanded', open ? 'true' : 'false');
-    try { localStorage.setItem('capDesignOpen', open ? '1' : '0'); } catch (_) {}
   }
   window.toggleCapDesign = toggleCapDesign;
-  try {
-    if (localStorage.getItem('capDesignOpen') !== '0') toggleCapDesign(true);
-  } catch (_) { toggleCapDesign(true); }
+  toggleCapDesign(true);
 
   // ── Settings profiles (2026-08-09) ────────────────────────────────────────
   // One named snapshot of EVERYTHING configurable: options toggles, caption
@@ -5101,10 +5100,23 @@
           savedUri = uri || null;
         } catch (_) { /* save succeeded; sharing can still build a cache copy */ }
       }
-      celebrateToast(t('download.savedTo'), {
-        duration: 8000,
-        action: savedUri ? { label: safe, onClick: () => _openSavedVideo(savedUri) } : { label: safe },
+      celebrateToast(t('download.readyWatch'), {
+        duration: 15000,
+        action: savedUri
+          ? { label: t('download.openVideo'), onClick: () => _openSavedVideo(savedUri) }
+          : { label: safe },
       });
+      // System notification with a tap-to-watch intent (notifySaved ships
+      // with the next Android binary; older shells just keep the toast).
+      // The local-save path bypasses DownloadManager, so without this the
+      // shade shows nothing for a finished video.
+      try {
+        const Dl = _capPlugin('NativeDownloader');
+        if (Dl && Dl.notifySaved && savedUri) {
+          Dl.notifySaved({ uri: savedUri, filename: safe, mimeType: 'video/mp4',
+                           title: safe, text: t('download.readyWatch') }).catch(() => {});
+        }
+      } catch (_) {}
     } catch (e) {
       console.error('native download failed', e);
       _reportError('download', (e && e.message) || t('err.downloadFailed'));
@@ -7219,7 +7231,7 @@
 
     hookGenAborted        = false;
     if (!background) {
-      lockPipelineActions({ activeBtn: 'generateHookBtn', activeCard: 'captionEditorCard' });
+      lockPipelineActions({ activeBtn: 'generateHookBtn', activeCard: 'captionEditorCard', exempt: ['findBrollBtn'] });
       btn.disabled        = true;
     } else {
       _stepActivate('hook');
@@ -7414,7 +7426,7 @@
     if (!background) {
       switchEditorTab('broll');
       document.getElementById('tabBroll')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      lockPipelineActions({ activeBtn: 'findBrollBtn', activeCard: 'captionEditorCard' });
+      lockPipelineActions({ activeBtn: 'findBrollBtn', activeCard: 'captionEditorCard', exempt: ['generateHookBtn'] });
       findBrollBtn.disabled = true;
       findBrollBtn.textContent = t('stock.searching');
       document.querySelectorAll('#captionsList .caption-input, #captionsList .caption-time-input, #captionsList .cap-btn').forEach(el => { el.disabled = true; });
@@ -8012,6 +8024,7 @@
     if (captionHeader) captionHeader.classList.remove('collapsed');
     const captionBody = document.getElementById('captionBody');
     if (captionBody) captionBody.style.display = 'block';
+    toggleCapDesign(true);   // design card opens by default on every fresh editor
 
     const list = document.getElementById('captionsList');
     list.innerHTML = '';
