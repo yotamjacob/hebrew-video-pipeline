@@ -356,6 +356,19 @@ def sweep_r2_uploads():
 #   Returns: processed video bytes (video/mp4)
 # ---------------------------------------------------------------------------
 @app.function(image=light_image, timeout=900, volumes={TMP_DIR: tmp_vol},
+              # Keep a served container alive 5 min after its last request
+              # (default is 60s). The boot spinner "waking up the server" is
+              # ONE /auth/me call waiting on a cold container: measured 4.5s
+              # cold vs 0.67s warm (2026-08-10). A 5-minute window means a
+              # user session - and any second visit soon after - never pays
+              # that again, while the app still scales to zero when genuinely
+              # idle. Only the router gets this: keeping the L4 (process_video)
+              # or the 8-core burn container warm would cost dollars per hour
+              # for no user-visible gain, since both are entered from a screen
+              # that is already showing progress.
+              # A cold start is also worst right AFTER a deploy - every deploy
+              # is a new image version the first container must pull.
+              scaledown_window=300,
               secrets=[modal.Secret.from_name("hebpipe-auth"),
                        # FCM: admin error-alert pushes from /error-report and
                        # the terminal-failure poll path.

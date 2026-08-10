@@ -4,6 +4,8 @@ Deep contracts moved out of CLAUDE.md (2026-08-09) to keep the always-loaded cor
 **Read this file fully before changing** transcription, silence cutting, audio-only mode, enhance/upscale, progress stages, or push notifications. Everything here is load-bearing;
 update it in place when behavior changes.
 
+**API cold start / the "waking up the server" spinner (2026-08-10)** — `#bootLoader` is gated by exactly ONE request: the `/auth/me` call in `initAuth`. Its wait IS the `api()` container's cold start — measured **4.5s cold vs 0.67s warm**. `api()` therefore sets `scaledown_window=300` (default 60s) so a served container survives 5 minutes past its last request: a user session, and any quick second visit, never pays the cold start twice, while the app still scales to zero when genuinely idle. **Deliberately NOT applied to `process_video` (L4) or `burn_captions_fn` (8 cores)** — idling those costs dollars per hour and both are entered from a screen already showing progress. Cold starts are worst right after a deploy: every deploy is a new image version whose first container must pull it, and *any* backend `.py` edit re-versions all three images through `add_local_python_source`. If the day's FIRST visitor must also never wait, that needs `min_containers=1` on `api()` (~$7/month always-on) — a cost decision, not a default. Nothing in the boot path imports heavy modules (`modal` + project modules only); keep it that way.
+
 **ffmpeg binary selection** — prefers Homebrew `ffmpeg-full` (`/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg`) over generic `ffmpeg` because `ffmpeg-full` includes libass (needed for burning subtitles).
 
 **CUDA fallback** — `transcribe()` tries float16 on CUDA first; auto-downgrades to int8 on CPU. No manual config needed.
