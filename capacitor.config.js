@@ -44,6 +44,25 @@ const config = {
     // instead of the default black flash.
     backgroundColor: '#E8DFD3',
     contentInset: 'never',
+    // ALLOWLIST - every plugin the iOS app needs must be listed here, so adding
+    // a plugin to package.json is not enough to get it into the iOS build.
+    //
+    // The point of the list is the one that is MISSING:
+    // @capgo/capacitor-social-login. iOS offers only the email-code lane
+    // (Guideline 4.8), so nothing ever calls it - but including it links the
+    // Facebook SDK, Google Sign-In, Alamofire and several Google support SDKs
+    // into the binary. That is dead weight in the download, extra third-party
+    // SDKs to account for in the App Privacy answers, and more surface for a
+    // reviewer to ask about. Android keeps it (Google sign-in works there).
+    includePlugins: [
+      '@capacitor/filesystem',
+      '@capacitor/haptics',
+      '@capacitor/push-notifications',
+      '@capacitor/share',
+      '@capacitor/splash-screen',
+      '@capawesome/capacitor-file-picker',
+      '@capgo/capacitor-uploader',
+    ],
   },
   plugins: {
     SplashScreen: {

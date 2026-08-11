@@ -43,12 +43,17 @@ public class NativeBillingPlugin: CAPPlugin, CAPBridgedPlugin {
         // Purchases that complete outside an active purchase() call: an
         // Ask-to-Buy approval, a payment that finished while the app was
         // closed, or a purchase made on another device.
+        // The loop must not capture `self`: CAPPlugin is not Sendable, so
+        // holding it across an await is a data race the Swift 6 compiler
+        // rejects outright. Capturing only the (Sendable) payload and hopping
+        // back to the main actor to notify keeps the plugin off the concurrent
+        // side entirely.
         updatesTask = Task { [weak self] in
             for await update in Transaction.updates {
-                guard let self = self, case .verified(let transaction) = update else { continue }
+                guard case .verified(let transaction) = update else { continue }
                 let payload = Self.json(transaction)
-                DispatchQueue.main.async {
-                    self.notifyListeners("purchaseUpdated", data: payload)
+                await MainActor.run { [weak self] in
+                    self?.notifyListeners("purchaseUpdated", data: payload)
                 }
             }
         }
