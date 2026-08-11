@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.46.0';
+  const APP_VERSION = '1.47.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -766,6 +766,26 @@
 
   function _setupGoogleAuth() {
     const btn = document.getElementById('googleSignInBtn');
+    // App Store Guideline 4.8: an app that offers a third-party sign-in service
+    // must also offer an equivalent privacy-preserving option, and our email
+    // code lane cannot satisfy it (it can't hide the address the way Sign in
+    // with Apple does). Rather than take on Sign in with Apple, the iOS build
+    // offers ONLY the email code - which puts 4.8 out of scope entirely.
+    // Deliberately not applied to Safari on iOS: the website is not the app.
+    if (_isIOS()) {
+      if (btn) btn.style.display = 'none';
+      const gsi = document.getElementById('gsiButton');
+      if (gsi) gsi.style.display = 'none';
+      document.querySelectorAll('.auth-or').forEach(el => { el.style.display = 'none'; });
+      // Re-point the "continue with Google or email" hint. Swapping the
+      // data-i18n attribute too keeps it correct across language switches.
+      const hint = document.getElementById('authNewHint');
+      if (hint) {
+        hint.setAttribute('data-i18n', 'auth.newHereEmail');
+        hint.textContent = t('auth.newHereEmail');
+      }
+      return;
+    }
     if (_isNative()) {
       if (btn) btn.addEventListener('click', _googleNativeSignIn);
     } else {
@@ -781,6 +801,43 @@
     _intentionalNav = true;   // confirmed in-app; skip the browser "leave page?" prompt
     location.reload();
   }
+
+  // ── Delete this account, from inside the app ──────────────────────────────
+  // App Store Guideline 5.1.1(v) requires account deletion to be initiated in
+  // the app itself; Google Play's data-deletion policy asks for the same. The
+  // old footer link opened delete-account.html, which only offers a mailto -
+  // that page stays as the signed-out/web-facing explainer, but a signed-in
+  // user now gets the real thing. Two confirmations, because this destroys
+  // every rendered video and any credits still on the account.
+  async function deleteAccountFlow() {
+    if (!authToken) {                       // signed out: nothing to delete yet
+      openLegalModal('/delete-account.html', 'footer.deleteData');
+      return;
+    }
+    if (!await showConfirmModal(t('deleteAcct.title'), t('deleteAcct.body'),
+                                t('deleteAcct.confirm'))) return;
+    if (!await showConfirmModal(t('deleteAcct.title'), t('deleteAcct.confirmAgain'),
+                                t('deleteAcct.confirmFinal'))) return;
+    try {
+      const response = await apiFetch(`${API_BASE}/account/delete`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({confirm: true}),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      console.warn('account deletion failed', error);
+      _reportError('deleteAccount', (error && error.message) || 'failed');
+      await showConfirmModal(t('deleteAcct.title'), t('deleteAcct.failed'), t('confirm.ok'));
+      return;
+    }
+    // The session token is a stateless HMAC that outlives the record, so the
+    // local copy has to go or the app would keep presenting a dead account.
+    _clearToken();
+    _intentionalNav = true;
+    location.reload();
+  }
+  window.deleteAccountFlow = deleteAccountFlow;
 
 
   // Limits
@@ -1459,6 +1516,45 @@
   function _capPlugin(name) {
     return window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins[name];
   }
+  // 'ios' | 'android' | 'web'. Only ever 'ios' inside the App Store binary -
+  // Safari on an iPhone still reports 'web', which is correct: the App Store
+  // rules below apply to the native app, not to the website.
+  function _platform() {
+    const cap = window.Capacitor;
+    return (cap && cap.getPlatform && cap.getPlatform()) || 'web';
+  }
+  function _isIOS() {
+    return _isNative() && _platform() === 'ios';
+  }
+  // App Store Guideline 3.1.1: an iOS app may not link to, or even point at,
+  // any purchase mechanism outside Apple's IAP - and a Google Play link is the
+  // most flagrant version of that. `_billingAvailable()` is normally true in
+  // the iOS shell (the StoreKit plugin is compiled in), so these Play surfaces
+  // are already unreachable there; this is the belt-and-braces guard that keeps
+  // them unreachable even if the plugin ever fails to register.
+  function _playStoreCtaAllowed() {
+    return !_isIOS();
+  }
+  // Store-aware i18n: on iOS prefer a "<key>.ios" entry (App Store wording) and
+  // fall back to the Play wording. t() returns the key itself when missing,
+  // which is how the fallback is detected.
+  function _tStore(key, vars) {
+    if (_isIOS()) {
+      const iosKey = key + '.ios';
+      const text = t(iosKey, vars);
+      if (text !== iosKey) return text;
+    }
+    return t(key, vars);
+  }
+  // Static markup carrying a store name has to be re-pointed after every
+  // applyI18n pass (boot and language switch), since data-i18n always writes
+  // the base Play string back in.
+  function _syncStoreCopy() {
+    if (!_isIOS()) return;
+    document.querySelectorAll('[data-i18n="billing.secure"]').forEach(el => {
+      el.textContent = _tStore('billing.secure');
+    });
+  }
 
   // ── Google Play Billing (native Android only) ─────────────────────────────
   // Must match PLAY_CREDIT_PRODUCTS on the server. Retired IDs stay listed for
@@ -1484,6 +1580,9 @@
     'https://play.google.com/store/apps/details?id=com.heb.pipeline';
 
   function _playStoreQuotaCopy() {
+    // An iOS shell without a working StoreKit plugin must say something true
+    // that names no other store and offers no outside purchase route.
+    if (_isIOS()) return t('billing.iosUnavailable');
     return _isNative() ? t('billing.updateRequired') : t('billing.webOnly');
   }
 
@@ -1506,6 +1605,7 @@
     // Web (and pre-billing native shells) can only point at the Play listing.
     // Regular users see that only once they are out of credits; an admin has no
     // exhausted state, so their pill always routes there.
+    if (!_playStoreCtaAllowed()) return;
     if (!_quotaExhausted() && !_isAdminUser()) return;
     const opened = window.open(PLAY_STORE_URL, '_blank', 'noopener');
     if (!opened) window.location.href = PLAY_STORE_URL;
@@ -1523,7 +1623,7 @@
       const productId = (purchase.products || []).find(id => BILLING_CREDITS[id]);
       if (!productId) return;
       try {
-        await _verifyPlayPurchase(purchase, productId);
+        await _verifyPurchase(purchase, productId);
         await refreshQuota();
       } catch (error) {
         console.warn('delayed billing verification failed', error);
@@ -1548,7 +1648,8 @@
     if (!_billingAvailable()) return;
     const overlay = document.getElementById('billingOverlay');
     overlay.style.display = 'flex';
-    _setBillingStatus(t('billing.loading'));
+    _syncStoreCopy();
+    _setBillingStatus(_tStore('billing.loading'));
     try {
       const result = await _capPlugin('NativeBilling').getProducts();
       const products = (result && result.products || [])
@@ -1578,10 +1679,10 @@
         button.append(copy, price);
         container.appendChild(button);
       }
-      _setBillingStatus(products.length ? '' : t('billing.unavailable'), !products.length);
+      _setBillingStatus(products.length ? '' : _tStore('billing.unavailable'), !products.length);
     } catch (error) {
       console.warn('billing product load failed', error);
-      _setBillingStatus(t('billing.unavailable'), true);
+      _setBillingStatus(_tStore('billing.unavailable'), true);
     }
   }
 
@@ -1591,40 +1692,66 @@
     if (overlay) overlay.style.display = 'none';
   }
 
-  async function _verifyPlayPurchase(purchase, productId) {
-    const response = await apiFetch(`${API_BASE}/billing/play/verify`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        purchase_token: purchase.purchaseToken,
-        product_id: productId,
-      }),
-    });
+  // One verification entry point for both stores. The store-specific parts are
+  // the endpoint, the identifier the client is allowed to send (Play: the
+  // purchase token; Apple: the transaction id, which the server then looks up
+  // against Apple), and what has to happen AFTER a successful grant: Play
+  // consumes server-side, StoreKit must be finished on the device.
+  async function _verifyPurchase(purchase, productId) {
+    const apple = _isIOS();
+    const response = await apiFetch(
+      `${API_BASE}/billing/${apple ? 'apple' : 'play'}/verify`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(apple
+          ? { transaction_id: purchase.transactionId }
+          : { purchase_token: purchase.purchaseToken, product_id: productId }),
+      });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       const err = new Error(data.code || data.error || `HTTP ${response.status}`);
       err.code = data.code;
       throw err;
     }
+    if (apple) {
+      // Only now is it safe to finish: before the grant, an unfinished
+      // transaction is the user's sole proof of purchase, and StoreKit re-offers
+      // it on the next launch so the idempotent verify route can retry.
+      const billing = _capPlugin('NativeBilling');
+      if (billing && billing.finishTransaction) {
+        try {
+          await billing.finishTransaction({ transactionId: purchase.transactionId });
+        } catch (error) {
+          console.warn('finishTransaction failed', error);
+        }
+      }
+    }
     return data;
   }
 
+  // The account binding the store attaches to the purchase, so the server can
+  // prove the transaction belongs to the signed-in user. StoreKit demands a
+  // UUID, Play a free-form hash, so /auth/me returns one of each.
+  function _billingAccountId() {
+    if (!quotaInfo) return '';
+    return (_isIOS() ? quotaInfo.apple_account_token : quotaInfo.billing_account_id) || '';
+  }
+
   async function buyCredits(productId) {
-    if (_billingBusy || !_billingAvailable() ||
-        !quotaInfo || !quotaInfo.billing_account_id) return;
+    if (_billingBusy || !_billingAvailable() || !_billingAccountId()) return;
     _setBillingBusy(true);
-    _setBillingStatus(t('billing.openingPlay'));
+    _setBillingStatus(_tStore('billing.openingPlay'));
     try {
       const purchase = await _capPlugin('NativeBilling').purchase({
         productId,
-        accountId: quotaInfo.billing_account_id,
+        accountId: _billingAccountId(),
       });
       if (!purchase || purchase.state === 'pending') {
-        _setBillingStatus(t('billing.pending'));
+        _setBillingStatus(_tStore('billing.pending'));
         return;
       }
       _setBillingStatus(t('billing.verifying'));
-      const result = await _verifyPlayPurchase(purchase, productId);
+      const result = await _verifyPurchase(purchase, productId);
       await refreshQuota();
       _setBillingStatus(t('billing.success', {count: result.credits_granted}));
       setTimeout(() => {
@@ -1634,10 +1761,10 @@
       if (error && error.code === 'purchase_cancelled') {
         _setBillingStatus('');
       } else if (error && error.code === 'purchase_pending') {
-        _setBillingStatus(t('billing.pending'));
+        _setBillingStatus(_tStore('billing.pending'));
       } else {
         console.warn('billing purchase failed', error);
-        _setBillingStatus(t('billing.failed'), true);
+        _setBillingStatus(_tStore('billing.failed'), true);
       }
     } finally {
       _setBillingBusy(false);
@@ -1645,8 +1772,7 @@
   }
 
   async function _restorePlayPurchases() {
-    if (_billingRestoreStarted || !_billingAvailable() ||
-        !quotaInfo || !quotaInfo.billing_account_id) return;
+    if (_billingRestoreStarted || !_billingAvailable() || !_billingAccountId()) return;
     _billingRestoreStarted = true;
     try {
       const result = await _capPlugin('NativeBilling').restorePurchases();
@@ -1655,7 +1781,7 @@
         if (!purchase || purchase.state !== 'purchased') continue;
         const productId = (purchase.products || []).find(id => BILLING_CREDITS[id]);
         if (!productId) continue;
-        await _verifyPlayPurchase(purchase, productId);
+        await _verifyPurchase(purchase, productId);
         restored = true;
       }
       if (restored) await refreshQuota();
@@ -5569,7 +5695,7 @@
     const isQuota = /limit_reached/.test(msg);
     if (!isQuota) _reportError(flowStage, msg);   // quota-exhausted isn't a malfunction
     if (isQuota) {
-      msg = _billingAvailable() ? t('billing.exhausted') : _playStoreQuotaCopy();
+      msg = _billingAvailable() ? _tStore('billing.exhausted') : _playStoreQuotaCopy();
     }
     if (/no_audio/.test(msg)) msg = t('err.noAudio');
     // The server priced the run from its own probe and it came out higher than
@@ -5583,7 +5709,7 @@
     if (playCta) {
       _configurePlayStoreCta(playCta);
       playCta.style.display =
-        isQuota && !_billingAvailable() ? 'inline-flex' : 'none';
+        isQuota && !_billingAvailable() && _playStoreCtaAllowed() ? 'inline-flex' : 'none';
     }
     if (buyCta) buyCta.style.display =
       isQuota && _billingAvailable() ? 'inline-flex' : 'none';
@@ -5733,9 +5859,9 @@
   // Android shell; web and old shells route to Google Play to install/update.
   function showQuotaExhausted() {
     showBlockNotice(t('quota.pillZero'),
-      _billingAvailable() ? t('billing.exhausted') : _playStoreQuotaCopy());
+      _billingAvailable() ? _tStore('billing.exhausted') : _playStoreQuotaCopy());
     const play = document.getElementById('noticePlayCta');
-    if (play && !_billingAvailable()) {
+    if (play && !_billingAvailable() && _playStoreCtaAllowed()) {
       _configurePlayStoreCta(play);
       play.style.display = 'inline-flex';
     }
@@ -9311,6 +9437,7 @@
   document.addEventListener('langchange', () => {
     const a = AGGR_MAP[aggrSlider.value - 1];
     aggrDesc.textContent = t(a.label);
+    _syncStoreCopy();   // applyI18n just reset the store-named strings
     document.getElementById('enhanceVideoDesc').innerHTML = t(_EV_DESCS[_enhanceVideoMode()]);
     updateTimeEstimate();
     if (burnMode && !runBtn.disabled) updateBurnBtn();

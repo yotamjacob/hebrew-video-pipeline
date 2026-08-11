@@ -518,3 +518,113 @@ class TestProfilesRoute:
         block = self._block()
         assert 'urec["profiles"] = profs' in block
         assert "users_store[uname] = urec" in block
+
+
+class TestAppleBillingRoute:
+    """/billing/apple/verify + the App Store Server Notifications webhook.
+    Route bodies are closures inside api() - guard the source."""
+
+    def _verify_block(self):
+        i = MODAL_SRC.index('("/billing/apple/verify"')
+        return MODAL_SRC[i:i + 3500]
+
+    def _notify_block(self):
+        i = MODAL_SRC.index('("/billing/apple/notify"')
+        return MODAL_SRC[i:i + 2600]
+
+    def test_client_cannot_choose_the_product_or_the_credit_count(self):
+        """The only client input is an id; product and value come from Apple."""
+        block = self._verify_block()
+        assert 'data.get("transaction_id")' in block
+        assert 'data.get("product_id")' not in block
+        assert 'APPLE_CREDIT_PRODUCTS[verified["product_id"]]' in block
+
+    def test_transaction_is_fetched_from_apple_before_granting(self):
+        block = self._verify_block()
+        assert "_fetch_apple_transaction" in block
+        assert "_parse_apple_transaction" in block
+
+    def test_purchase_is_bound_to_the_signed_in_account(self):
+        block = self._verify_block()
+        assert "_apple_account_token(uid)" in block
+
+    def test_replay_by_another_account_is_refused(self):
+        block = self._verify_block()
+        assert 'grant.get("uid") != uid' in block
+        assert '"purchase_account_mismatch"' in block
+        assert "409" in block
+
+    def test_grant_is_idempotent_and_rate_limited(self):
+        block = self._verify_block()
+        # An existing ledger entry short-circuits the fetch, so a retry never
+        # grants twice.
+        assert "purchases_store.get(ledger_key)" in block
+        assert "if not grant:" in block
+        assert "_check_rate_limit" in block
+
+    def test_credentials_outage_is_a_503_not_a_silent_zero(self):
+        block = self._verify_block()
+        assert '"billing_unavailable"' in block
+        assert "503" in block
+
+    def test_notification_is_reverified_against_apple_before_revoking(self):
+        """The webhook body is untrusted: it only names the transaction."""
+        block = self._notify_block()
+        assert "_fetch_apple_transaction" in block
+        assert '_authoritative.get("revocationDate")' in block
+        assert "_revoke_purchase_grant" in block
+
+    def test_notification_retries_on_transient_failure_only(self):
+        block = self._notify_block()
+        # Unparseable = never retriable (200); an Apple/API failure = 500 so
+        # Apple resends.
+        assert "unparseable payload" in block
+        assert 'await send_error("Notification handling failed", 500)' in block
+
+    def test_notify_is_public_but_verify_is_authed(self):
+        """The webhook must sit ABOVE the session guard, verify below it."""
+        guard = MODAL_SRC.index("# ── Session guard")
+        assert MODAL_SRC.index('("/billing/apple/notify"') < guard
+        assert MODAL_SRC.index('("/billing/apple/verify"') > guard
+
+
+class TestAccountDeleteRoute:
+    """/account/delete - App Store Guideline 5.1.1(v) in-app deletion."""
+
+    def _block(self):
+        i = MODAL_SRC.index('("/account/delete"')
+        return MODAL_SRC[i:i + 5200]
+
+    def test_requires_an_explicit_confirmation(self):
+        block = self._block()
+        assert '_d.get("confirm") is not True' in block
+        assert '"confirm_required"' in block
+
+    def test_purges_every_store_keyed_to_the_user(self):
+        block = self._block()
+        for store in ("jobs_store", "costs_store", "progress_store",
+                      "pending_store", "quota_store", "errors_store",
+                      "calls_store", "fcm_store", "users_store"):
+            assert store in block, store
+        # Rendered media on the volume, not just the metadata.
+        assert "tmp_vol.commit()" in block
+
+    def test_purchase_grants_are_anonymized_not_left_grantable(self):
+        block = self._block()
+        assert '"uid": None' in block
+        assert '"state": "revoked"' in block
+        assert '"account_deleted"' in block
+
+    def test_account_record_and_both_indexes_go(self):
+        block = self._block()
+        assert 'f"uid:{uid}"' in block
+        assert 'f"email:' in block
+
+    def test_a_surviving_token_cannot_spawn_new_work(self):
+        """The session token is a stateless 30-day HMAC: it outlives the
+        record, so /process must refuse a uid with no account."""
+        i = MODAL_SRC.index("stateless 30-day HMAC")
+        block = MODAL_SRC[i:i + 500]
+        assert "if not urec:" in block
+        assert '"account_deleted"' in block
+        assert "401" in block

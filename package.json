@@ -5,7 +5,9 @@
     "test": "playwright test",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "sync:ios": "cap sync ios && node scripts/check_ios_config.js",
+    "sync:android": "cap sync android"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
@@ -18,6 +20,7 @@
     "@capacitor/core": "^8.4.1",
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.5.0",
     "@capacitor/push-notifications": "^8.1.1",
     "@capacitor/share": "^8.0.1",
     "@capacitor/splash-screen": "^8.0.1",

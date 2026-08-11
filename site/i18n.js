@@ -61,6 +61,9 @@
     'auth.emailTaken':   { en: 'This email already has an account.', he: 'לאימייל הזה כבר יש חשבון.' },
     'auth.emailTakenCta':{ en: 'Sign in instead', he: 'לכניסה לחשבון' },
     'auth.newHere':    { en: 'Accept the terms, then continue with Google or email.', he: 'אשרו את התנאים, ואז המשיכו עם Google או אימייל.' },
+    // iOS build: the Google lane is hidden there (App Store Guideline 4.8), so
+    // the hint must not promise it. See _setupGoogleAuth in app.js.
+    'auth.newHereEmail': { en: 'Accept the terms, then continue with your email.', he: 'אשרו את התנאים, ואז המשיכו עם האימייל שלכם.' },
     'auth.codeResent': { en: 'A new code is on its way - check your email.', he: 'קוד חדש בדרך - בדקו את האימייל.' },
     'valid.codeRequired': { en: 'Please enter the 6-digit code from your email.', he: 'יש להזין את הקוד בן 6 הספרות מהאימייל.' },
     'valid.codeInvalid':  { en: 'The code is 6 digits.', he: 'הקוד מורכב מ-6 ספרות.' },
@@ -79,6 +82,13 @@
     'logout.title':    { en: 'Log out?', he: 'להתנתק?' },
     'logout.body':     { en: 'You will need to sign in again next time.', he: 'תצטרכו להתחבר שוב בפעם הבאה.' },
     'logout.confirm':  { en: 'Log out', he: 'התנתקות' },
+    // In-app account deletion (App Store 5.1.1(v) / Play data-deletion policy).
+    'deleteAcct.title':   { en: 'Delete your account?', he: 'למחוק את החשבון?' },
+    'deleteAcct.body':    { en: 'This permanently deletes your account, every video you created here, and any credits left on it. It cannot be undone.', he: 'הפעולה מוחקת לצמיתות את החשבון, את כל הסרטונים שיצרתם כאן, וכל קרדיט שנותר בו. אי אפשר לבטל אותה.' },
+    'deleteAcct.confirm': { en: 'Continue', he: 'המשך' },
+    'deleteAcct.confirmAgain': { en: 'Last chance - deleting is immediate and permanent. Delete everything?', he: 'הזדמנות אחרונה - המחיקה מיידית וסופית. למחוק הכל?' },
+    'deleteAcct.confirmFinal': { en: 'Delete my account', he: 'מחיקת החשבון' },
+    'deleteAcct.failed':  { en: 'We could not delete the account right now. Please try again, or email us and we will do it for you.', he: 'לא הצלחנו למחוק את החשבון כרגע. נסו שוב, או שלחו לנו מייל ונמחק עבורכם.' },
     'mc.disconnectHint':  { en: 'Connected - tap to disconnect', he: 'מחובר - הקישו לניתוק' },
     'mc.disconnectTitle': { en: 'Disconnect Metricool?', he: 'לנתק את Metricool?' },
     'mc.disconnectBody':  { en: "You won't be able to schedule until you reconnect.", he: 'לא תוכלו לתזמן עד שתתחברו מחדש.' },
@@ -555,6 +565,20 @@
     'billing.unavailable': { en: 'Credit packs are not available from Google Play yet. Please try again later.', he: 'חבילות הקרדיטים עדיין אינן זמינות ב-Google Play. נסו שוב מאוחר יותר.' },
     'billing.secure':   { en: 'Payment is handled securely by Google Play.', he: 'התשלום מטופל באופן מאובטח על ידי Google Play.' },
     'billing.exhausted': { en: 'You have used all your video credits. Choose a Google Play pack to keep creating.', he: 'ניצלתם את כל הקרדיטים לסרטונים. בחרו חבילה ב-Google Play כדי להמשיך ליצור.' },
+    // iOS variants of every string that names the store. Resolved by _tStore()
+    // in app.js, which prefers a "<key>.ios" entry when the app is the App
+    // Store build and falls back to the Play wording everywhere else. An iOS
+    // app may not name another store at all (App Store Guideline 3.1.1).
+    'billing.loading.ios':  { en: 'Loading App Store prices…', he: 'טעינת מחירים מ-App Store…' },
+    'billing.openingPlay.ios': { en: 'Opening the App Store…', he: 'פותח את App Store…' },
+    'billing.pending.ios':  { en: 'Payment is pending. Credits will appear after the App Store confirms it.', he: 'התשלום בהמתנה. הקרדיטים יופיעו לאחר אישור App Store.' },
+    'billing.failed.ios':   { en: 'We could not confirm the purchase yet. If the App Store completed the payment, reopen the app and the credits will be restored.', he: 'עדיין לא הצלחנו לאמת את הרכישה. אם App Store השלים את התשלום, פתחו מחדש את האפליקציה והקרדיטים ישוחזרו.' },
+    'billing.unavailable.ios': { en: 'Credit packs are not available from the App Store yet. Please try again later.', he: 'חבילות הקרדיטים עדיין אינן זמינות ב-App Store. נסו שוב מאוחר יותר.' },
+    'billing.secure.ios':   { en: 'Payment is handled securely by the App Store.', he: 'התשלום מטופל באופן מאובטח על ידי App Store.' },
+    'billing.exhausted.ios': { en: 'You have used all your video credits. Choose a pack to keep creating.', he: 'ניצלתם את כל הקרדיטים לסרטונים. בחרו חבילה כדי להמשיך ליצור.' },
+    // Shown only if the StoreKit bridge is missing from an iOS build: true,
+    // and it names no store and offers no outside purchase route.
+    'billing.iosUnavailable': { en: 'You have used all your video credits. In-app purchases are unavailable right now - please try again later.', he: 'ניצלתם את כל הקרדיטים לסרטונים. הרכישה בתוך האפליקציה אינה זמינה כרגע - נסו שוב מאוחר יותר.' },
     'tab.admin':        { en: 'Admin', he: 'ניהול' },
 
     // ── Guide tab ──

@@ -39,6 +39,9 @@ from pipeline_core import (
     PLAY_PACKAGE_NAME, PLAY_CREDIT_PRODUCTS, _billing_account_id,
     _purchase_ledger_key, _count_purchased_credits, _parse_play_purchase,
     _apply_voided_play_purchases,
+    APPLE_BUNDLE_ID, APPLE_CREDIT_PRODUCTS, _apple_account_token,
+    _apple_ledger_key, _decode_jws_payload, _parse_apple_transaction,
+    _revoke_purchase_grant, PURCHASE_KEY_PREFIXES,
 )
 
 # Public base URLs used to build email links. SITE_URL can be overridden via
@@ -88,6 +91,72 @@ def _consume_google_play_purchase(product_id: str, purchase_token: str):
         "POST",
         f"https://androidpublisher.googleapis.com/androidpublisher/v3/"
         f"applications/{package}/purchases/products/{product}/tokens/{token}:consume")
+
+
+# ── Apple App Store Server API ────────────────────────────────────────────────
+# Apple's counterpart to the Android Publisher calls above. Same trust model:
+# the client hands over an identifier, the SERVER asks Apple what that purchase
+# actually is, and only Apple's answer can grant credits.
+APPLE_API_HOSTS = (
+    "https://api.storekit.itunes.apple.com",
+    "https://api.storekit-sandbox.itunes.apple.com",
+)
+
+
+def _appstore_jwt() -> str:
+    """ES256 bearer token for the App Store Server API.
+
+    Signed with an App Store Connect API key (Key ID + Issuer ID + .p8). The
+    `bid` claim scopes it to our bundle, so a leaked token cannot read another
+    app's transactions.
+    """
+    import os as _os
+    import time as _time
+    import jwt as _jwt
+
+    key_id = (_os.environ.get("APPLE_KEY_ID") or "").strip()
+    issuer_id = (_os.environ.get("APPLE_ISSUER_ID") or "").strip()
+    private_key = _os.environ.get("APPLE_PRIVATE_KEY") or ""
+    if not (key_id and issuer_id and private_key.strip()):
+        raise RuntimeError("apple_billing_credentials_missing")
+    # A .p8 pasted into a secret through a shell often arrives with literal
+    # backslash-n instead of real newlines; both forms must work.
+    if "\\n" in private_key and "\n" not in private_key.strip("\n"):
+        private_key = private_key.replace("\\n", "\n")
+    now = int(_time.time())
+    return _jwt.encode(
+        {"iss": issuer_id, "iat": now, "exp": now + 900,
+         "aud": "appstoreconnect-v1", "bid": APPLE_BUNDLE_ID},
+        private_key,
+        algorithm="ES256",
+        headers={"kid": key_id, "typ": "JWT"})
+
+
+def _fetch_apple_transaction(transaction_id: str) -> dict:
+    """Decoded transaction info straight from Apple, production first.
+
+    Apple documents no way to know up front whether a transaction is a
+    production or a Sandbox one (App Review and TestFlight are Sandbox), so the
+    recommended pattern is production first and sandbox on 404.
+    """
+    from urllib.parse import quote
+    import requests as _requests
+
+    token = _appstore_jwt()
+    txn = quote(str(transaction_id), safe="")
+    for host in APPLE_API_HOSTS:
+        response = _requests.get(
+            f"{host}/inApps/v1/transactions/{txn}",
+            headers={"Authorization": f"Bearer {token}"}, timeout=20)
+        if response.status_code == 404:
+            continue          # not in this environment - try the next host
+        if not response.ok:
+            raise RuntimeError(f"apple_api_{response.status_code}")
+        signed = (response.json() or {}).get("signedTransactionInfo")
+        if not signed:
+            raise RuntimeError("apple_api_empty")
+        return _decode_jws_payload(signed)
+    raise ValueError("purchase_not_found")
 
 
 @app.function(image=light_image, schedule=modal.Period(hours=6),
@@ -381,6 +450,13 @@ def sweep_r2_uploads():
                        # under 6 chars is refused) - don't delete the secret, or
                        # the deploy loses a reference it still expects.
                        modal.Secret.from_name("hebpipe-review"),
+                       # APPLE_KEY_ID + APPLE_ISSUER_ID + APPLE_PRIVATE_KEY:
+                       # the App Store Connect API key that authenticates
+                       # /billing/apple/verify against Apple. Its own secret for
+                       # the same reason as hebpipe-review. Absent/blank simply
+                       # makes the Apple billing routes answer 503, so a deploy
+                       # before the key exists stays healthy.
+                       modal.Secret.from_name("hebpipe-apple"),
                        # S3/R2 creds: presigned direct-upload URLs (/upload_r2/*)
                        # use the same bucket as the metadata backup.
                        modal.Secret.from_name("hebpipe-backup")])
@@ -830,6 +906,51 @@ def api():
             await send_error("Passwords are gone - sign in with your email code or Google.", 410)
             return
 
+        # ── Apple App Store Server Notifications V2 (public webhook) ──
+        # Apple's counterpart to the Play voided-purchases sweep, except Apple
+        # pushes instead of us polling. The POST body is NOT trusted: it is only
+        # used to learn WHICH transaction to ask Apple about, and the revocation
+        # decision comes from that authenticated App Store Server API read. A
+        # forged notification therefore achieves nothing.
+        if path in ("/billing/apple/notify", "/billing/apple/notify/") and method == "POST":
+            import time as _time
+            try:
+                _body = json.loads((await _read_body(receive)).decode("utf-8"))
+                _outer = _decode_jws_payload(str(_body.get("signedPayload") or ""))
+            except Exception:
+                # Malformed payloads are never retriable - swallow with a 200 so
+                # Apple stops resending, and log for the record.
+                print("[billing] apple notification: unparseable payload")
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": b'{"ok":true}'})
+                return
+            _kind = str(_outer.get("notificationType") or "")
+            _revoked = 0
+            if _kind in ("REFUND", "REVOKE"):
+                try:
+                    _txn_info = _decode_jws_payload(
+                        str((_outer.get("data") or {}).get("signedTransactionInfo") or ""))
+                    _txn_id = str(_txn_info.get("transactionId") or "")
+                    _authoritative = await asyncio.to_thread(
+                        _fetch_apple_transaction, _txn_id)
+                    if _authoritative.get("revocationDate"):
+                        if _revoke_purchase_grant(
+                                purchases_store, _apple_ledger_key(_txn_id), _time.time(),
+                                str(_authoritative.get("revocationReason") or "refund")):
+                            _revoked = 1
+                except Exception as exc:
+                    # A transient Apple/API failure must be retried, and Apple
+                    # retries on a non-2xx - so surface it as a 500.
+                    print(f"[billing] apple notification {_kind} failed: {exc!r}")
+                    await send_error("Notification handling failed", 500)
+                    return
+            print(f"[billing] apple notification {_kind or 'unknown'}: revoked {_revoked}")
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": b'{"ok":true}'})
+            return
+
         # ── Session guard — every route below requires a valid token. ──
         # Exceptions: the Metricool OAuth callback (called by Metricool) and
         # /media (fetched by Metricool's ingester; keys are unguessable).
@@ -933,6 +1054,10 @@ def api():
                                "base_video_limit": None if is_admin else base_limit,
                                "purchased_credits": purchased,
                                "billing_account_id": _billing_account_id(uid),
+                               # StoreKit needs a UUID, Play needs a free-form
+                               # hash, so the two bindings are different values
+                               # derived from the same uid.
+                               "apple_account_token": _apple_account_token(uid),
                                "email": (urec or {}).get("email", ""),
                                "email_verified": bool((urec or {}).get("email_verified", False)),
                                "marketing_consent": bool((urec or {}).get("marketing_consent", False))}).encode()
@@ -1019,6 +1144,199 @@ def api():
                 "video_limit": None if is_admin else limit,
                 "consume_pending": consume_pending,
             }).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── Apple in-app purchase: consumable credit packs ──
+        # Mirrors the Play route above. The client sends ONLY the StoreKit
+        # transaction id; the server asks Apple what that transaction is, so a
+        # forged or replayed id grants nothing. There is no consume step - a
+        # StoreKit consumable is finished on the device once we have granted,
+        # and an unfinished transaction is simply re-offered to the app on next
+        # launch, which restores itself through this same idempotent route.
+        if path in ("/billing/apple/verify", "/billing/apple/verify/") and method == "POST":
+            import os as _os
+            import time as _time
+            if not _check_rate_limit(_get_client_ip(scope)):
+                await send_error("Rate limit exceeded", 429, code="rate_limited")
+                return
+            try:
+                data = json.loads((await _read_body(receive)).decode("utf-8"))
+            except Exception:
+                await send_error("Invalid request body", 400, code="invalid_purchase")
+                return
+            transaction_id = str(data.get("transaction_id") or "").strip()
+            try:
+                ledger_key = _apple_ledger_key(transaction_id)
+            except ValueError:
+                await send_error("Invalid App Store purchase", 400, code="invalid_purchase")
+                return
+
+            grant = purchases_store.get(ledger_key)
+            if grant and grant.get("uid") != uid:
+                await send_error("Purchase belongs to another account", 409,
+                                 code="purchase_account_mismatch")
+                return
+            if not grant:
+                try:
+                    payload = await asyncio.to_thread(
+                        _fetch_apple_transaction, transaction_id)
+                    verified = _parse_apple_transaction(
+                        payload, APPLE_CREDIT_PRODUCTS, _apple_account_token(uid))
+                except ValueError as exc:
+                    code = str(exc)
+                    status = 409 if code == "purchase_account_mismatch" else 400
+                    await send_error("App Store purchase is not valid", status, code=code)
+                    return
+                except Exception as exc:
+                    print(f"[billing] apple verification unavailable: {exc!r}")
+                    await send_error("App Store purchase verification is temporarily unavailable",
+                                     503, code="billing_unavailable")
+                    return
+                credits = APPLE_CREDIT_PRODUCTS[verified["product_id"]] * verified["quantity"]
+                grant = {
+                    "uid": uid, "provider": "apple",
+                    "product_id": verified["product_id"], "credits": credits,
+                    "quantity": verified["quantity"],
+                    "order_id": verified["order_id"],
+                    "region": verified["region"], "test": verified["test"],
+                    "state": "granted", "ts": _time.time(),
+                }
+                purchases_store[ledger_key] = grant
+
+            uname, urec = _user_by_uid()
+            purchased = _count_purchased_credits(purchases_store, uid)
+            is_admin, used, limit = _quota_state(
+                urec, _os.environ.get("ADMIN_USERS"), uname, purchased)
+            if not is_admin:
+                used = max(used, _count_quota_used(quota_store, uid))
+            body = json.dumps({
+                "ok": True, "credits_granted": grant["credits"],
+                "purchased_credits": purchased, "videos_used": used,
+                "video_limit": None if is_admin else limit,
+                "consume_pending": False,
+            }).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── Account deletion, initiated in-app ──
+        # App Store Guideline 5.1.1(v): an app that lets you create an account
+        # must let you delete it from INSIDE the app - a "email us to delete"
+        # page (delete-account.html) is not sufficient on iOS. Google Play's
+        # data-deletion policy asks for the same thing, so this replaces the
+        # mailto flow on every platform.
+        #
+        # Everything keyed to the uid goes: rendered videos on the volume, job
+        # history, cost rows, consumed-credit keys, spawn ownership, push
+        # tokens, deferred uploads, error reports, and the account record with
+        # both of its index entries. Purchase grants are ANONYMIZED rather than
+        # dropped (uid removed, state revoked) - they are financial records tied
+        # to a store order, and once revoked they hold no personal data and can
+        # never grant credits again.
+        if path in ("/account/delete", "/account/delete/") and method == "POST":
+            from pathlib import Path as _Path
+            import time as _time
+            if not _check_rate_limit(_get_client_ip(scope)):
+                await send_error("Rate limit exceeded", 429, code="rate_limited")
+                return
+            try:
+                _d = json.loads((await _read_body(receive)).decode("utf-8"))
+            except Exception:
+                _d = {}
+            if _d.get("confirm") is not True:
+                await send_error("Confirmation required", 400, code="confirm_required")
+                return
+            uname, urec = _user_by_uid()
+
+            def _purge():
+                removed_files = 0
+                prefix = _user_prefix(uid)
+                # 1. Rendered/uploaded media on the volume + its history + costs.
+                try:
+                    root = _Path(TMP_DIR)
+                    for fp in root.glob(f"{prefix}*"):
+                        try:
+                            if fp.is_file():
+                                fp.unlink()
+                                removed_files += 1
+                        except Exception:
+                            pass
+                    if removed_files:
+                        tmp_vol.commit()
+                except Exception as exc:
+                    print(f"[delete] volume sweep failed: {exc!r}")
+                for store, matches in (
+                    (jobs_store, lambda k: k.startswith(prefix)),
+                    (costs_store, lambda k: k.startswith(prefix)),
+                    (progress_store, lambda k: k.startswith(prefix)),
+                    (pending_store, lambda k: k.startswith(prefix) or k.startswith("done:" + prefix)),
+                    (quota_store, lambda k: k.startswith(f"{uid}:")),
+                    # Error reports are keyed e:{ms}:{uid[:8]}.
+                    (errors_store, lambda k: k.startswith("e:") and k.endswith(":" + uid[:8])),
+                ):
+                    try:
+                        for key in [k for k in store.keys()
+                                    if isinstance(k, str) and matches(k)]:
+                            try:
+                                store.pop(key)
+                            except Exception:
+                                pass
+                    except Exception as exc:
+                        print(f"[delete] store sweep failed: {exc!r}")
+                # 2. Spawn ownership rows for this user.
+                try:
+                    for key in [k for k in calls_store.keys()
+                                if isinstance(calls_store.get(k), dict)
+                                and calls_store.get(k, {}).get("uid") == uid]:
+                        try:
+                            calls_store.pop(key)
+                        except Exception:
+                            pass
+                except Exception as exc:
+                    print(f"[delete] calls sweep failed: {exc!r}")
+                # 3. Push tokens.
+                try:
+                    fcm_store.pop(uid)
+                except Exception:
+                    pass
+                # 4. Purchase grants → anonymized, never resurrectable.
+                try:
+                    for key in [k for k in purchases_store.keys()
+                                if isinstance(k, str) and k.startswith(PURCHASE_KEY_PREFIXES)]:
+                        rec = purchases_store.get(key)
+                        if isinstance(rec, dict) and rec.get("uid") == uid:
+                            anon = dict(rec)
+                            anon.update({"uid": None, "state": "revoked",
+                                         "revoked_ts": _time.time(),
+                                         "voided_reason": "account_deleted"})
+                            purchases_store[key] = anon
+                except Exception as exc:
+                    print(f"[delete] purchase anonymization failed: {exc!r}")
+                # 5. The account itself, last, so a failure above still leaves a
+                #    reachable account the user can retry from.
+                for key in [f"uid:{uid}", uname,
+                            f"email:{(urec or {}).get('email', '')}".lower() if (urec or {}).get("email") else None,
+                            f"email:{uname}".lower() if uname else None]:
+                    if not key:
+                        continue
+                    try:
+                        users_store.pop(key)
+                    except Exception:
+                        pass
+                return removed_files
+
+            try:
+                removed = await asyncio.to_thread(_purge)
+            except Exception as exc:
+                print(f"[delete] account deletion failed for {uid[:8]}: {exc!r}")
+                await send_error("Account deletion failed", 500, code="delete_failed")
+                return
+            print(f"[delete] account {uid[:8]} deleted ({removed} file(s))")
+            body = json.dumps({"ok": True, "files_removed": removed}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})
@@ -1858,6 +2176,13 @@ def api():
 
             import os as _os, time as _time
             uname, urec = _user_by_uid()
+            # A session token outlives the account it was minted for (it is a
+            # stateless 30-day HMAC), so a user who deleted their account could
+            # otherwise keep spawning jobs on the free-tier fallback limit and
+            # write new data under a uid that is supposed to be gone.
+            if not urec:
+                await send_error("Authentication required", 401, code="account_deleted")
+                return
             purchased = _count_purchased_credits(purchases_store, uid)
             is_admin, used, limit = _quota_state(
                 urec, _os.environ.get("ADMIN_USERS"), uname, purchased)

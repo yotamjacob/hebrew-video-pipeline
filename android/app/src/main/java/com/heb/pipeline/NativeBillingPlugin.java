@@ -24,7 +24,15 @@ import java.util.Set;
 
 @CapacitorPlugin(name = "NativeBilling")
 public class NativeBillingPlugin extends Plugin implements PurchasesUpdatedListener {
+    // Must match PLAY_CREDIT_PRODUCTS in pipeline_core.py. The 5/20/50 ladder
+    // was retired on 2026-07-31 in favour of 10/30/100, but the old ids stay
+    // listed for as long as those products are live in Play: a restore of one
+    // still has to resolve, and dropping it would silently strip credits a user
+    // already paid for. getProducts() only ever offers what Play returns.
     private static final List<String> PRODUCT_IDS = Arrays.asList(
+        "pipeline_credits_10",
+        "pipeline_credits_30",
+        "pipeline_credits_100",
         "pipeline_credits_5",
         "pipeline_credits_20",
         "pipeline_credits_50"

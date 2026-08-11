@@ -15,7 +15,7 @@ violation has shipped real bugs before. Update them in place when behavior chang
 | `docs/processing.md` | Transcription, silence cutter, audio-only mode, enhance/upscale, progress stages, push notifications, Anthropic API usage |
 | `docs/broll-hooks.md` | Stock B-roll search/scoring/validation, hook generation, generator polling |
 | `docs/outputs.md` | Job history/retention, re-edit, downloads (web+native), SRT, preview player source, metadata backup, cost tracking, Metricool scheduling |
-| `docs/auth-billing.md` | Auth/sessions/tokens, signup, quota/credits, Play billing, throttles, rate limits, admin surfaces |
+| `docs/auth-billing.md` | Auth/sessions/tokens, signup, quota/credits, Play + Apple billing, account deletion, iOS store-compliance gating, throttles, rate limits, admin surfaces |
 | `docs/frontend.md` | Design system, footer, tab caching, celebrations, error telemetry, frontend TEST conventions (boot-call stubbing), site module details |
 
 ## Module Map
@@ -36,6 +36,10 @@ violation has shipped real bugs before. Update them in place when behavior chang
 | `site/sw.js` | Service worker — background job polling only (no asset caching) |
 | `site/legal.html` | Bilingual privacy+terms, shown in an on-page modal — see `docs/frontend.md` |
 | `site/vercel.json` | SPA rewrite rule (all routes → index.html) |
+| `capacitor.config.js` | Per-platform Capacitor config. **Android keeps `server.url` (remote frontend); iOS has NO `server.url` and bundles `webDir`** — App Store 4.2. Branches on the CLI argv, never an env var; `scripts/check_ios_config.js` re-asserts it on the copied artifact |
+| `ios/` | Capacitor iOS project (SPM, no CocoaPods). `App/App/NativeBillingPlugin.swift` = StoreKit 2 credit packs. iPhone-only. Sync with `npm run sync:ios` (runs the config guard) |
+| `android/` | Capacitor Android project. `NativeBillingPlugin.java` (Play Billing), `NativeDownloaderPlugin`, `ParallelUploader` — all Android-only; JS guards on plugin existence so iOS degrades |
+| `APPLE_RELEASE.md` / `PLAY_RELEASE.md` | Store submission checklists (credentials, products, review notes, manual steps) |
 | `test_api.py` | End-to-end API tests (upload → process → burn) — costs GPU time, run only when asked |
 | `test_stock_helpers.py` | Unit tests for stock helpers — local, no network |
 | `tests/backend/`, `tests/frontend/` | pytest (AST-extraction, no Modal import) + Playwright suites |
@@ -76,7 +80,18 @@ modal serve app_modal.py                                  # live dev
 
 # Website (Vercel) — deploy from project root, NOT from site/
 npx vercel deploy --prod
+
+# Native shells
+npm run sync:android      # Android keeps server.url → the live site
+npm run sync:ios          # iOS BUNDLES site/ + asserts no server.url leaked
+npx cap open ios          # then Product > Archive in Xcode
 ```
+
+**iOS ships differently from Android.** The Android app loads the live Vercel
+frontend, so a `vercel --prod` reaches it instantly. The iOS app bundles its
+copy of `site/` (App Store Guideline 4.2), so **any UI change reaches iOS only
+in a new build** — `npm run sync:ios`, bump the build number, archive, upload.
+Never add `server.url` to the iOS config. See `APPLE_RELEASE.md`.
 
 **Web API base** — `https://yotamjacob--hebrew-video-pipeline-api.modal.run` (hardcoded in `site/app.js`).
 

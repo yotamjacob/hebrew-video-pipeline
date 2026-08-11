@@ -47,5 +47,12 @@ android/keystore.properties
 # Firebase / FCM - NEVER commit (service account has a private key; public repo)
 google-services.json
 android/app/google-services.json
+GoogleService-Info.plist
+ios/App/App/GoogleService-Info.plist
+
+# Apple signing / App Store Connect API keys - NEVER commit (public repo)
+*.p8
+*.mobileprovision
+*.p12
 *firebase-adminsdk*.json
 *-service-account*.json

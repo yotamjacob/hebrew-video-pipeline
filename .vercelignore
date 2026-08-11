@@ -4,7 +4,8 @@ test_output_edited.mp4
 test_broll_output/
 node_modules/
 android/
-capacitor.config.json
+ios/
+capacitor.config.js
 tests/
 .venv/
 __pycache__/

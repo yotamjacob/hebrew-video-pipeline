@@ -7,6 +7,10 @@ from tests.backend.conftest import MODAL_SRC, _build_ns, _extract_fn
 
 
 _ns = _build_ns()
+# Module-level constants are not AST-extracted (only function defs are), so any
+# constant a helper closes over has to be injected here - same pattern as
+# LEGACY_VIDEO_LIMIT in test_quota.py.
+_ns["PURCHASE_KEY_PREFIXES"] = ("play:", "apple:")
 _billing = _extract_fn(
     MODAL_SRC,
     "_billing_account_id",

@@ -106,6 +106,7 @@ light_image = (
     .apt_install("ffmpeg", "fontconfig", "wget")
     .pip_install("requests", "anthropic>=0.40.0", "fastapi", "python-multipart", "boto3",
                  "google-auth",              # verify Google Sign-In ID tokens (/auth/google)
+                 "pyjwt[crypto]>=2.8.0",     # ES256 bearer for the App Store Server API
                  "opencv-python-headless")   # face-framed zoom in /preview_frame
     # Hebrew caption/hook fonts so /preview_frame renders the WYSIWYG editor
     # preview through libass with the SAME faces the burn uses (see _FONT_CMDS).
@@ -600,6 +601,127 @@ PLAY_CREDIT_PRODUCTS = {
 }
 
 
+# ── Apple In-App Purchase (StoreKit 2 consumables) ────────────────────────────
+# Apple's App Store equivalent of the Play ladder above. Same forward-only rule:
+# a grant stores its credit count at purchase time, so editing this map never
+# revalues a past purchase. Product IDs are per-app on Apple, so they can (and
+# do) reuse the Play names. There are no retired Apple IDs yet - the iOS app
+# launched straight on the 10/30/100 ladder.
+APPLE_BUNDLE_ID = "com.heb.pipeline"
+APPLE_CREDIT_PRODUCTS = {
+    "pipeline_credits_10": 10,
+    "pipeline_credits_30": 30,
+    "pipeline_credits_100": 100,
+}
+# StoreKit transaction IDs are decimal strings. Validated before they become a
+# durable Dict key so a hostile client cannot write outside the apple: namespace.
+_APPLE_TXN_RE = _auth_re.compile(r"^[0-9]{1,32}$")
+
+
+def _apple_account_token(uid: str) -> str:
+    """Opaque, stable `appAccountToken` binding for StoreKit purchases.
+
+    StoreKit requires a UUID (unlike Play's free-form obfuscated account id), so
+    the sha256 of the uid is folded into UUID shape. Deterministic: the same
+    account always produces the same token, which is what lets the server prove
+    a transaction belongs to the signed-in user.
+    """
+    import hashlib
+    digest = hashlib.sha256(f"hebpipe-apple:{uid}".encode("utf-8")).hexdigest()
+    return "-".join((digest[0:8], digest[8:12], digest[12:16],
+                     digest[16:20], digest[20:32]))
+
+
+def _apple_ledger_key(transaction_id: str) -> str:
+    """Durable ledger key for an Apple transaction.
+
+    The Play key hashes its token because a Play purchase token is a bearer
+    credential; a StoreKit transaction id is not secret, so it is stored as-is
+    (after `_APPLE_TXN_RE`) - easier to trace back to an App Store Connect
+    order when a user disputes a grant.
+    """
+    txn = str(transaction_id or "")
+    if not _APPLE_TXN_RE.match(txn):
+        raise ValueError("invalid_purchase")
+    return "apple:" + txn
+
+
+def _decode_jws_payload(jws: str) -> dict:
+    """Decode the payload of an Apple JWS WITHOUT verifying its signature.
+
+    Only ever called on bytes the App Store Server API returned to us over TLS
+    (`/billing/apple/verify`) or on a notification payload that is immediately
+    re-fetched from that same API before anything is granted or revoked
+    (`/billing/apple/notify`). Apple's response IS the authority here, exactly
+    like the Play flow trusts ProductPurchaseV2 - so no x5c chain validation is
+    needed and none is implied. Never call this on client-supplied bytes and
+    act on the result.
+    """
+    import base64
+    import json as _json
+    parts = str(jws or "").split(".")
+    if len(parts) != 3:
+        raise ValueError("invalid_purchase")
+    segment = parts[1]
+    segment += "=" * (-len(segment) % 4)
+    try:
+        payload = _json.loads(base64.urlsafe_b64decode(segment.encode("ascii")))
+    except Exception:
+        raise ValueError("invalid_purchase")
+    if not isinstance(payload, dict):
+        raise ValueError("invalid_purchase")
+    return payload
+
+
+def _parse_apple_transaction(payload: dict, expected_products,
+                             expected_account_token: str) -> dict:
+    """Validate a decoded JWSTransaction payload and return grant data.
+
+    Raises ValueError with the same vocabulary as `_parse_play_purchase` so the
+    route can map both providers onto one set of client error codes.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("invalid_purchase")
+    if payload.get("bundleId") != APPLE_BUNDLE_ID:
+        raise ValueError("purchase_bundle_mismatch")
+    product_id = payload.get("productId")
+    if product_id not in (expected_products or {}):
+        raise ValueError("purchase_product_mismatch")
+    # Credit packs are consumables. Anything else reaching this route means the
+    # client sent a transaction from a product we never sold as credits.
+    if payload.get("type") not in (None, "Consumable"):
+        raise ValueError("purchase_product_mismatch")
+    # A refunded/revoked transaction must never grant, even on a first sight of
+    # it (a slow client retry can arrive after the refund).
+    if payload.get("revocationDate"):
+        raise ValueError("purchase_refunded")
+    token = str(payload.get("appAccountToken") or "").lower()
+    if token != str(expected_account_token or "").lower():
+        raise ValueError("purchase_account_mismatch")
+    quantity = max(1, min(100, int(payload.get("quantity", 1) or 1)))
+    return {
+        "product_id": product_id,
+        "quantity": quantity,
+        "transaction_id": str(payload.get("transactionId") or "")[:64],
+        "order_id": str(payload.get("originalTransactionId") or "")[:64],
+        "region": str(payload.get("storefront") or "")[:8],
+        "test": str(payload.get("environment") or "") == "Sandbox",
+    }
+
+
+def _revoke_purchase_grant(store, ledger_key: str, now: float,
+                           reason: str = "") -> bool:
+    """Mark one grant revoked (Apple refund notification). Idempotent."""
+    rec = store.get(ledger_key)
+    if not isinstance(rec, dict) or rec.get("state") != "granted":
+        return False
+    updated = dict(rec)
+    updated.update({"state": "revoked", "revoked_ts": now,
+                    "voided_reason": str(reason or "")[:64]})
+    store[ledger_key] = updated
+    return True
+
+
 def _quota_state(rec: dict, admin_users: str = None, username: str = None,
                  purchased_credits: int = 0):
     """(is_admin, used, limit) for a user record. limit -1 = unlimited."""
@@ -645,12 +767,18 @@ def _purchase_ledger_key(purchase_token: str) -> str:
     return "play:" + hashlib.sha256(purchase_token.encode("utf-8")).hexdigest()
 
 
+# Every durable purchase grant lives under one of these ledger namespaces.
+# A uid's credits are the sum across ALL of them: a user who bought on Android
+# and then installs the iOS app keeps the credits they already paid for.
+PURCHASE_KEY_PREFIXES = ("play:", "apple:")
+
+
 def _count_purchased_credits(store, uid: str) -> int:
     """Authoritative total from unique, server-verified purchase grants."""
     total = 0
     try:
         for key in store.keys():
-            if not isinstance(key, str) or not key.startswith("play:"):
+            if not isinstance(key, str) or not key.startswith(PURCHASE_KEY_PREFIXES):
                 continue
             rec = store.get(key)
             if isinstance(rec, dict) and rec.get("uid") == uid and rec.get("state") == "granted":
