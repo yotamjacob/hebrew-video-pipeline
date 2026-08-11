@@ -178,3 +178,95 @@ test('web without Web Share files support: button stays hidden', async ({ page }
   await burnToBanner(page);
   await expect(page.locator('#burnShareBtn')).toBeHidden();
 });
+
+// Field report 2026-08-11: "downloads from History only open in the share
+// window, but are not saved to device".
+//
+// Cause: the share warm-up caches the finished file, and the URL a History row
+// builds is byte-identical to the fresh burn's (same output key, same
+// `<stem>_edited.mp4`). The newest row therefore hit a local-first shortcut
+// that saved with Filesystem.copy - the ONE Filesystem write that never runs a
+// MediaScan - so the file was never indexed and no file manager could see it,
+// and its toast action was a Share sheet.
+test('native: a warm-cached file still saves through DownloadManager, never an unindexed copy', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__nativeDownloads = [];
+    window.__copies = [];
+    window.Capacitor = {
+      isNativePlatform: () => true,
+      getPlatform: () => 'android',
+      Plugins: {
+        NativeDownloader: {
+          download: async opts => {
+            window.__nativeDownloads.push(opts);
+            return { id: 7, filename: opts.filename };
+          },
+          openDownloads: async () => {},
+        },
+        Filesystem: {
+          // Present and willing - the old code preferred it once the warm-up
+          // had cached the file.
+          copy: async opts => { window.__copies.push(opts); },
+          downloadFile: async opts => ({ path: `/docs/${opts.path}` }),
+          writeFile: async () => {},
+          getUri: async ({ path }) => ({ uri: `file:///docs/${path}` }),
+          addListener: async () => ({ remove: async () => {} }),
+        },
+        Share: { share: async () => {} },
+      },
+    };
+  });
+  await bootApp(page);
+  await burnToBanner(page);
+
+  // Let the share warm-up finish, so the cache genuinely covers this URL -
+  // that is the state that used to divert the save.
+  await expect(page.locator('#burnShareBtn')).toBeEnabled({ timeout: 10_000 });
+
+  await page.evaluate(() => { window.__nativeDownloads.length = 0; });
+  await page.click('#burnDownloadBtn');
+
+  await expect.poll(() => page.evaluate(() => window.__nativeDownloads.length)).toBe(1);
+  // The save must land in public Downloads via DownloadManager...
+  const download = await page.evaluate(() => window.__nativeDownloads[0]);
+  expect(download.filename).toBe('test_edited.mp4');
+  expect(download.mimeType).toBe('video/mp4');
+  // ...and must NOT take the unindexed copy shortcut.
+  expect(await page.evaluate(() => window.__copies.length)).toBe(0);
+});
+
+test('native legacy shell: the save toast offers Share, and does not promise to open', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__copies = [];
+    window.__shared = 0;
+    window.Capacitor = {
+      isNativePlatform: () => true,
+      getPlatform: () => 'android',
+      // No NativeDownloader at all - a shell predating the bridge.
+      Plugins: {
+        Filesystem: {
+          copy: async opts => { window.__copies.push(opts); },
+          downloadFile: async opts => ({ path: `/docs/${opts.path}` }),
+          writeFile: async () => {},
+          getUri: async ({ path }) => ({ uri: `file:///docs/${path}` }),
+          addListener: async () => ({ remove: async () => {} }),
+        },
+        Share: { share: async () => { window.__shared += 1; } },
+      },
+    };
+  });
+  await bootApp(page);
+  await burnToBanner(page);
+  await page.click('#burnDownloadBtn');
+
+  const toast = page.locator('#celebrateToast');
+  await expect(toast).toHaveClass(/show/, { timeout: 10_000 });
+  // downloadFile indexes the result; copy does not, so copy must not be used.
+  expect(await page.evaluate(() => window.__copies.length)).toBe(0);
+  // The action can only share here, so it must say share - labelling it
+  // "Open video" is what made the sharing modal feel like a bug.
+  const action = toast.locator('.celebrate-toast-action');
+  await expect(action).toContainText(/שיתוף|Share/);
+  await action.click();
+  await expect.poll(() => page.evaluate(() => window.__shared)).toBe(1);
+});

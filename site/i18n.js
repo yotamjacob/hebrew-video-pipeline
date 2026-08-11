@@ -225,6 +225,9 @@
     'fx.zoomChipTip': { en: 'Tap to skip / restore this punch-in', he: 'הקישו כדי לדלג על הזום הזה או להחזירו' },
     'gen.left':      { en: '({n} left)', he: '(נותרו {n})' },
     'download.openVideo': { en: 'Open video', he: 'פתיחת הסרטון' },
+    // The legacy Filesystem save path has no launcher bridge, so its toast
+    // action can only open the share sheet - it must not promise otherwise.
+    'download.shareVideo': { en: 'Share video', he: 'שיתוף הסרטון' },
     'tab.costs':       { en: 'Costs', he: 'עלויות' },
     'profile.title':   { en: 'My profiles', he: 'הפרופילים שלי' },
     'profile.save':    { en: 'Save current setup', he: 'שמירת ההגדרות הנוכחיות' },

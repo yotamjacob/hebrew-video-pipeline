@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.47.2';
+  const APP_VERSION = '1.47.3';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -5222,39 +5222,25 @@
     buttons.forEach(b => { b.disabled = true; b.textContent = t('download.saving'); });
     let progressHandle = null;
     try {
-      // The share warm-up already pulled (or is pulling) this exact file into
-      // the app cache the moment the video was ready - COPY those local bytes
-      // to Documents instead of a second full network download. Awaiting the
-      // in-flight warm-up shares its stream; only a missing/failed warm-up
-      // pays the network price below.
-      let copied = false;
-      if (Filesystem.copy) {
-        if (!( _sharePrep && _sharePrep.url === url && _sharePrep.cachePath) && _sharePrepPromise) {
-          try { await _sharePrepPromise; } catch (_) {}
-        }
-        if (_sharePrep && _sharePrep.url === url && _sharePrep.cachePath) {
-          try {
-            await Filesystem.copy({ from: _sharePrep.cachePath, directory: 'CACHE',
-                                    to: path, toDirectory: 'DOCUMENTS' });
-            copied = true;
-          } catch (_) { /* cache entry evicted - fall through to the download */ }
-        }
-      }
-      if (!copied) {
-        if (Filesystem.addListener) {
-          progressHandle = await Filesystem.addListener('progress', p => {
-            if (p.url && p.url !== tokenUrl) return;
-            const pct = p.contentLength > 0 ? Math.min(100, Math.round(p.bytes * 100 / p.contentLength)) : 0;
-            buttons.forEach(b => { b.textContent = pct ? t('download.savingPct', { pct }) : t('download.saving'); });
-          });
-        }
-        await Filesystem.downloadFile({
-          url: tokenUrl,
-          path,
-          directory: 'DOCUMENTS',
-          progress: true,
+      // This used to shortcut through Filesystem.copy from the share warm-up's
+      // cached bytes. It was removed on 2026-08-11: `copy` is the one
+      // Filesystem write that never runs a MediaScan, so the saved file was
+      // invisible to Files and Gallery - the user's "not saved to device".
+      // downloadFile costs a second fetch but DOES index the result, and a
+      // slower save the user can actually find beats a fast one they cannot.
+      if (Filesystem.addListener) {
+        progressHandle = await Filesystem.addListener('progress', p => {
+          if (p.url && p.url !== tokenUrl) return;
+          const pct = p.contentLength > 0 ? Math.min(100, Math.round(p.bytes * 100 / p.contentLength)) : 0;
+          buttons.forEach(b => { b.textContent = pct ? t('download.savingPct', { pct }) : t('download.saving'); });
         });
       }
+      await Filesystem.downloadFile({
+        url: tokenUrl,
+        path,
+        directory: 'DOCUMENTS',
+        progress: true,
+      });
       let savedUri = null;
       if (Filesystem.getUri) {
         try {
@@ -5262,10 +5248,15 @@
           savedUri = uri || null;
         } catch (_) { /* save succeeded; sharing can still build a cache copy */ }
       }
+      // This path has no launcher bridge (that is what makes it the legacy
+      // path), so the action can only hand the file to the share sheet. Say
+      // so: labelling it "Open video" is what produced the "it only opens the
+      // share window" report - the button did exactly what it said it would
+      // not do.
       celebrateToast(t('download.readyWatch'), {
         duration: 15000,
         action: savedUri
-          ? { label: t('download.openVideo'), onClick: () => _openSavedVideo(savedUri) }
+          ? { label: t('download.shareVideo'), onClick: () => _openSavedVideo(savedUri) }
           : { label: safe },
       });
       // System notification with a tap-to-watch intent (notifySaved ships
@@ -5306,34 +5297,30 @@
   // user dismisses the prompt). An iframe navigation never unloads the page, so
   // the file downloads with no prompt. The server sets the filename from the
   // `filename` query param, so `name` isn't needed on the client.
-  // True when the share warm-up already holds (or is currently fetching) this
-  // exact file in the app cache - saving is then a local COPY, near-instant.
-  function _warmCacheCovers(url) {
-    return (_sharePrep && _sharePrep.url === url && _sharePrep.cachePath)
-        || (_sharePrepPromise && _sharePrepUrl === url);
-  }
   function _browserDownload(url, name) {
-    // LOCAL-FIRST on native: Android's DownloadManager can only fetch a URL,
-    // so routing a freshly-burned video through it re-downloads bytes that
-    // are already sitting in the app cache (field report: "download takes
-    // 30s after the video is ready"). When the warm-up covers the file, save
-    // via the copying Filesystem path instead; DownloadManager stays the
-    // path for COLD files (History rows), where its notification-shade
-    // progress genuinely helps.
-    const FilesystemLocal = _isNative() && _capPlugin('Filesystem');
-    if (FilesystemLocal && FilesystemLocal.copy && _warmCacheCovers(url)) {
-      if (_nativeDownloadBusy) return;
-      _nativeDownloadUrl = url;
-      const task = _nativeDocumentDownload(FilesystemLocal, url, name);
-      _nativeDownloadTask = task;
-      task.finally(() => {
-        if (_nativeDownloadTask === task) {
-          _nativeDownloadTask = null;
-          _nativeDownloadUrl = null;
-        }
-      });
-      return;
-    }
+    // DownloadManager FIRST whenever the bridge exists.
+    //
+    // There used to be a local-first shortcut here: when the share warm-up had
+    // already cached the file, saving was a Filesystem.copy into public
+    // Documents instead of a second network fetch (field report: "download
+    // takes 30s after the video is ready"). It was fast and it was wrong -
+    // `copy` is the ONE Filesystem write that never runs a MediaScan, so the
+    // file landed on disk but was never indexed, and neither Files nor Gallery
+    // could see it. The copy path's toast then offered "open video", which is
+    // a Share sheet in a shell without a launcher bridge. Field report,
+    // 2026-08-11: "downloads from History only open in the share window, but
+    // are not saved to device" - both halves are that branch.
+    //
+    // The URL a History row builds is byte-identical to the one the fresh burn
+    // builds (same output key, same `<stem>_edited.mp4`), so the newest row hit
+    // the warm cache and took it too.
+    //
+    // DownloadManager writes to public Downloads, registers the file with the
+    // system so it is visible everywhere, and posts its own completion
+    // notification that opens the video on tap. A download the user cannot
+    // find is not a download, so correctness wins over the saved seconds; the
+    // fast path can come back as a native save-from-cache that registers with
+    // MediaStore (needs a new binary - see docs/outputs.md).
     const Downloader = _isNative() && _capPlugin('NativeDownloader');
     if (Downloader && Downloader.download) {
       if (_nativeDownloadBusy) return;
