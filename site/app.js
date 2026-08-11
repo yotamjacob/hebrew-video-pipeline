@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.47.4';
+  const APP_VERSION = '1.47.5';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -888,7 +888,7 @@
 
   // Which phase of the flow is running - gives errors context ("while uploading").
   let flowStage = null;
-  function _setStage(s) { flowStage = s; }
+  function _setStage(s) { flowStage = s; _crumb('stage', s); }
   // Browsers word network-layer TypeErrors differently: Chrome "Failed to fetch",
   // Safari/iOS "Load failed", Firefox "NetworkError when attempting to fetch".
   function _isNetErr(e) {
@@ -2582,12 +2582,23 @@
       // Tapping the "video ready" notification opens the app (default) and jumps
       // to History where the finished video is.
       Push.addListener('pushNotificationActionPerformed', (action) => {
-        // Every pipeline push lands on the CREATION tab: a finished video's
-        // next step is share/schedule (right there in the success banner), and
-        // processing/edit_ready taps continue the auto-resumed flow. Forcing
-        // the tab guards against restoreTab() reopening History/Guide from a
-        // previous session.
-        try { if (typeof switchTab === 'function') switchTab('pipeline'); } catch (_) {}
+        // An admin error alert is the one push whose payoff is NOT the creation
+        // flow: it exists to be investigated, and the investigation lives in the
+        // Admin tab's Errors panel. Everything else lands on the CREATION tab -
+        // a finished video's next step is share/schedule (right there in the
+        // success banner), and processing/edit_ready taps continue the
+        // auto-resumed flow. Forcing the tab guards against restoreTab()
+        // reopening History/Guide from a previous session.
+        let kind = '';
+        try {
+          const data = (action && action.notification && action.notification.data) || {};
+          kind = String(data.kind || '');
+        } catch (_) {}
+        try {
+          if (typeof switchTab === 'function') {
+            switchTab(kind === 'admin_alert' && _isAdminUser() ? 'admin' : 'pipeline');
+          }
+        } catch (_) {}
       });
       await Push.register();
     } catch (e) { console.warn('push init failed', e); }
@@ -5457,6 +5468,8 @@
   function _stepDone(name) {
     if (stepTimers[name]) { clearInterval(stepTimers[name].id); }
     const elapsed = stepTimers[name] ? Math.round((Date.now() - stepTimers[name].start) / 1000) : null;
+    // How long each step took is often the whole story in a failure report.
+    _crumb('done:' + name, elapsed === null ? '' : elapsed + 's');
     stepTimers[name] = null;
     const item = checkItems[name];
     if (!item) return;
@@ -5757,6 +5770,58 @@
   // error-card - so merely REPORTING a failure could log the user out (an
   // expired session, or an older backend without this route, both 401).
   // Telemetry must never touch session state.
+  // ── Error-report context ──────────────────────────────────────────────────
+  // A push notification can only ever be a headline, and "something failed for
+  // someone" is not debuggable. Everything below travels with the report and is
+  // readable ONLY through /admin/errors (403 for everyone else) and the
+  // admin-gated Errors panel. The user still sees the same friendly card - none
+  // of this is surfaced to them.
+  const _breadcrumbs = [];
+  function _crumb(event, detail) {
+    try {
+      _breadcrumbs.push({
+        t: Math.round(performance.now() / 100) / 10,   // seconds since load, 0.1s
+        ev: String(event || '').slice(0, 40),
+        ...(detail ? { d: String(detail).slice(0, 80) } : {}),
+      });
+      if (_breadcrumbs.length > 14) _breadcrumbs.shift();
+    } catch (_) {}
+  }
+
+  function _errorContext() {
+    const ctx = {};
+    try {
+      ctx.platform = _platform();
+      ctx.native = _isNative();
+      ctx.lang = (document.documentElement.lang || '').slice(0, 5);
+      ctx.online = navigator.onLine;
+      ctx.screen = `${window.innerWidth}x${window.innerHeight}`;
+      // Which job. This is what turns "a user hit an error" into a row in the
+      // volume and the History list that can actually be inspected.
+      if (videoKey) ctx.video_key = String(videoKey).slice(0, 140);
+      if (currentCallId) ctx.call_id = String(currentCallId).slice(0, 60);
+      if (videoDuration) ctx.duration = Math.round(videoDuration);
+      if (selectedFile) {
+        ctx.file = { name: String(selectedFile.name || '').slice(0, 80),
+                     size: selectedFile.size || 0,
+                     type: String(selectedFile.type || '').slice(0, 40) };
+      }
+      // The options actually chosen - most "it failed" reports turn out to be
+      // one specific combination.
+      const on = id => { const el = document.getElementById(id); return el ? !!el.checked : null; };
+      ctx.options = {
+        cut: on('cutSilences'), captions: on('burnCaptions'), broll: on('autoBroll'),
+        hook: on('autoHook'), enhance_audio: on('enhanceAudio'),
+        enhance_video: _enhanceVideoMode(),
+      };
+      if (typeof navigator.connection === 'object' && navigator.connection) {
+        ctx.net = String(navigator.connection.effectiveType || '').slice(0, 12);
+      }
+      if (_breadcrumbs.length) ctx.trail = _breadcrumbs.slice(-14);
+    } catch (_) { /* context is a nicety - never let it break the report */ }
+    return ctx;
+  }
+
   function _reportError(stage, msg) {
     try {
       if (!authToken) return;
@@ -5768,6 +5833,7 @@
           message: String(msg || '').slice(0, 400),
           version: 'v' + APP_VERSION,
           ua: navigator.userAgent.slice(0, 160),
+          context: _errorContext(),
         }),
       }).catch(() => {});
     } catch (_) {}
@@ -8807,6 +8873,9 @@
   let _adminSig = null;
   async function loadAdmin(opts) {
     const force = !!(opts && opts.force);
+    // The errors panel loads with the tab; it has its own signature cache, so
+    // a no-change refetch costs one request and rebuilds nothing.
+    loadAdminErrors(opts).catch(() => {});
     const list = document.getElementById('adminList');
     const loading = document.getElementById('adminLoading');
     const errBox = document.getElementById('adminError');
@@ -8833,6 +8902,139 @@
         errBox.style.display = 'block';
       }
     }
+  }
+
+  // ── Recent errors (admin-only) ────────────────────────────────────────────
+  // The push is a headline; this is the report. Same tab-cache discipline as
+  // the other admin surfaces: render only when the payload actually changed.
+  let _adminErrSig = null;
+  async function loadAdminErrors(opts) {
+    const force = !!(opts && opts.force);
+    const list = document.getElementById('adminErrList');
+    const loading = document.getElementById('adminErrLoading');
+    const empty = document.getElementById('adminErrEmpty');
+    if (!list) return;
+    if (_adminErrSig === null) { loading.style.display = ''; list.innerHTML = ''; }
+    try {
+      const resp = await apiFetch(`${API_BASE}/admin/errors`);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const { errors } = await resp.json();
+      const sig = JSON.stringify(errors);
+      if (!force && _adminErrSig !== null && sig === _adminErrSig) return;
+      _adminErrSig = sig;
+      loading.style.display = 'none';
+      list.innerHTML = '';
+      (errors || []).forEach(err => list.appendChild(_adminErrRow(err)));
+      empty.style.display = (errors || []).length ? 'none' : '';
+    } catch (_) {
+      loading.style.display = 'none';
+      if (_adminErrSig === null) {
+        empty.textContent = t('admin.loadFailed');
+        empty.style.display = '';
+      }
+    }
+  }
+
+  function _errAgo(ts) {
+    const secs = Math.max(0, Math.round(Date.now() / 1000 - (ts || 0)));
+    if (secs < 90) return t('adminErr.now');
+    if (secs < 5400) return t('adminErr.minutes', { n: Math.round(secs / 60) });
+    if (secs < 172800) return t('adminErr.hours', { n: Math.round(secs / 3600) });
+    return t('adminErr.days', { n: Math.round(secs / 86400) });
+  }
+
+  function _adminErrRow(err) {
+    const ctx = err.context || {};
+    const row = document.createElement('div');
+    row.className = 'admin-row admin-err-row';
+
+    const head = document.createElement('button');
+    head.type = 'button';
+    head.className = 'admin-err-head';
+    const who = document.createElement('span');
+    who.className = 'admin-name';
+    who.textContent = err.user || '?';
+    const stage = document.createElement('span');
+    stage.className = 'admin-src';           // reuse the existing badge chip
+    stage.textContent = err.stage || '?';
+    const when = document.createElement('span');
+    when.className = 'admin-err-when';
+    when.textContent = _errAgo(err.ts);
+    head.append(who, stage, when);
+
+    const msg = document.createElement('p');
+    msg.className = 'admin-err-msg';
+    msg.textContent = err.message || '';
+
+    // Everything else is folded away - the list has to stay scannable when
+    // twenty reports land at once.
+    const details = document.createElement('div');
+    details.className = 'admin-err-details';
+    details.style.display = 'none';
+
+    const facts = [
+      ['adminErr.version', [ctx.platform, err.version].filter(Boolean).join(' ')],
+      ['adminErr.job', ctx.video_key || ctx.call_id || ''],
+      ['adminErr.duration', ctx.duration ? formatDuration(ctx.duration) : ''],
+      ['adminErr.options', _errOptionSummary(ctx.options)],
+      ['adminErr.network', [ctx.online === false ? 'offline' : '', ctx.net || '']
+        .filter(Boolean).join(' ')],
+      ['adminErr.exception', ctx.exception || ''],
+      ['adminErr.device', err.ua || ''],
+    ];
+    facts.forEach(([key, value]) => {
+      if (!value) return;
+      const line = document.createElement('div');
+      line.className = 'admin-err-fact';
+      const label = document.createElement('span');
+      label.className = 'admin-err-key';
+      label.textContent = t(key);
+      const val = document.createElement('span');
+      val.className = 'admin-err-val';
+      val.textContent = value;
+      line.append(label, val);
+      details.appendChild(line);
+    });
+
+    // The breadcrumb trail: what the user was doing, and how long each step
+    // took, right up to the failure.
+    if (Array.isArray(ctx.trail) && ctx.trail.length) {
+      const trail = document.createElement('div');
+      trail.className = 'admin-err-trail';
+      trail.textContent = ctx.trail
+        .map(c => `${c.t}s ${c.ev}${c.d ? ' ' + c.d : ''}`).join('  →  ');
+      details.appendChild(trail);
+    }
+    if (ctx.traceback) {
+      const tb = document.createElement('pre');
+      tb.className = 'admin-err-trace';
+      tb.textContent = ctx.traceback;
+      details.appendChild(tb);
+    }
+
+    head.addEventListener('click', () => {
+      const open = details.style.display !== 'none';
+      details.style.display = open ? 'none' : '';
+      row.classList.toggle('is-open', !open);
+    });
+
+    row.append(head, msg, details);
+    return row;
+  }
+
+  // Deliberately untranslated technical tokens, identical to the ones the push
+  // body uses - this panel is read by one person, and matching the two makes a
+  // notification and its row obviously the same event.
+  function _errOptionSummary(options) {
+    if (!options || typeof options !== 'object') return '';
+    const on = [];
+    if (options.cut) on.push('cut');
+    if (options.captions) on.push('captions');
+    if (options.broll) on.push('broll');
+    if (options.hook) on.push('hook');
+    if (options.enhance_audio) on.push('audio');
+    if (options.enhance_video && options.enhance_video !== 'none') on.push(options.enhance_video);
+    return on.join(' · ');
   }
 
   function _adminRow(u) {

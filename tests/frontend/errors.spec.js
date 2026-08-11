@@ -223,3 +223,49 @@ test('quota-exhausted is NOT reported as an error', async ({ page }) => {
   await page.waitForTimeout(800);
   expect(reported).toBe(false);
 });
+
+// The admin push can only ever be a headline; the report has to travel with it.
+// Everything below is readable only through /admin/errors (403 for non-admins)
+// and the admin-gated Errors panel - the user still sees the same friendly card.
+test('an error report carries the job context that makes it debuggable', async ({ page }) => {
+  await mockAllApis(page, { processStatus: 500 });
+  let report = null;
+  await page.route(/\/error-report/, (route, request) => {
+    report = request.postDataJSON();
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+  });
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await page.waitForSelector('#errorMsg', { state: 'visible', timeout: 10_000 });
+  await expect.poll(() => report, { timeout: 5_000 }).not.toBeNull();
+
+  const ctx = report.context;
+  expect(ctx).toBeTruthy();
+  expect(ctx.platform).toBe('web');
+  expect(typeof ctx.online).toBe('boolean');
+  expect(ctx.screen).toMatch(/^\d+x\d+$/);
+  // The options actually chosen - most "it failed" reports are one combination.
+  expect(ctx.options).toBeTruthy();
+  expect(typeof ctx.options.captions).toBe('boolean');
+  expect(ctx.options.enhance_video).toBeTruthy();
+  // The file under edit, so the job can be found.
+  expect(ctx.file && ctx.file.name).toBeTruthy();
+  // A breadcrumb trail of what happened just before the failure.
+  expect(Array.isArray(ctx.trail)).toBe(true);
+  expect(ctx.trail.length).toBeGreaterThan(0);
+  expect(ctx.trail[ctx.trail.length - 1]).toHaveProperty('ev');
+});
+
+test('the error card still shows the user a friendly message, not the context', async ({ page }) => {
+  await mockAllApis(page, { processStatus: 500 });
+  await page.route(/\/error-report/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await page.waitForSelector('#errorMsg', { state: 'visible', timeout: 10_000 });
+  const shown = await page.locator('#statusError').innerText();
+  // None of the diagnostic vocabulary may leak into the user-facing card.
+  expect(shown).not.toMatch(/trail|breadcrumb|enhance_video|user[_ ]agent|traceback/i);
+});

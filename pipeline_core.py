@@ -358,6 +358,144 @@ def _send_fcm(uid, title, body, kind="video_ready", tag=None):
         print(f"[fcm] send failed: {e!r}")
 
 
+# ── Error-report enrichment ───────────────────────────────────────────────────
+# An admin push is a headline, not a report. These shape what the headline says
+# and what the admin-only Errors panel gets to show. Everything here is pure and
+# unit-tested; none of it is ever returned to a non-admin caller.
+ERROR_CONTEXT_MAX_KEYS = 24
+ERROR_CONTEXT_MAX_CHARS = 2000
+ERROR_SIMILAR_WINDOW_S = 3600      # "is this spreading?" looks back one hour
+
+
+def _sanitize_error_context(raw) -> dict:
+    """Bound a client-supplied context blob before it becomes durable state.
+
+    The client is not trusted to be small or well-behaved: cap the key count,
+    the nesting, and the total size, and keep only JSON-ish scalars plus the
+    two shapes the client actually sends (a flat dict, and the breadcrumb list
+    of small dicts).
+    """
+    import json as _json
+    if not isinstance(raw, dict):
+        return {}
+
+    def _scalar(v):
+        if isinstance(v, bool) or v is None:
+            return v
+        if isinstance(v, (int, float)):
+            return v
+        return str(v)[:160]
+
+    out = {}
+    for key, value in list(raw.items())[:ERROR_CONTEXT_MAX_KEYS]:
+        name = str(key)[:32]
+        if isinstance(value, dict):
+            out[name] = {str(k)[:32]: _scalar(v)
+                         for k, v in list(value.items())[:ERROR_CONTEXT_MAX_KEYS]}
+        elif isinstance(value, list):
+            items = []
+            for entry in value[:20]:
+                if isinstance(entry, dict):
+                    items.append({str(k)[:16]: _scalar(v)
+                                  for k, v in list(entry.items())[:6]})
+                else:
+                    items.append(_scalar(entry))
+            out[name] = items
+        else:
+            out[name] = _scalar(value)
+    # Final belt-and-braces cap: a pathological blob gets dropped rather than
+    # stored, since one report must never be able to fill the Dict.
+    try:
+        if len(_json.dumps(out, ensure_ascii=False)) > ERROR_CONTEXT_MAX_CHARS:
+            trimmed = dict(list(out.items())[:8])
+            trimmed["_truncated"] = True
+            return trimmed
+    except Exception:
+        return {}
+    return out
+
+
+def _error_signature(stage: str, message: str) -> str:
+    """What counts as "the same error" for repeat-counting.
+
+    Digits are collapsed so that ids, sizes and timestamps inside a message do
+    not make every occurrence look unique.
+    """
+    text = _re.sub(r"\d+", "#", str(message or ""))[:120]
+    return f"{str(stage or '?')[:40]}|{text}".lower()
+
+
+def _count_similar_errors(store, stage: str, message: str, now: float) -> int:
+    """How many look-alike reports landed in the last hour, this one included."""
+    target = _error_signature(stage, message)
+    total = 0
+    try:
+        for key in store.keys():
+            if not isinstance(key, str) or not key.startswith("e:"):
+                continue
+            rec = store.get(key)
+            if not isinstance(rec, dict):
+                continue
+            if float(rec.get("ts", 0) or 0) < now - ERROR_SIMILAR_WINDOW_S:
+                continue
+            if _error_signature(rec.get("stage"), rec.get("message")) == target:
+                total += 1
+    except Exception:
+        return max(1, total)
+    return max(1, total)
+
+
+def _error_alert_title(stage: str, seen: int = 1) -> str:
+    """A repeat gets a louder headline - that is the one worth waking up for."""
+    if seen >= 3:
+        return f"שגיאה חוזרת ({seen}) - {str(stage or '?')[:24]}"
+    return f"שגיאה אצל משתמש - {str(stage or '?')[:24]}"
+
+
+def _error_alert_body(user: str, stage: str, version: str, message: str,
+                      context: dict = None, seen: int = 1) -> str:
+    """Everything that fits in a notification, ordered by what is acted on first.
+
+    Line 1 identifies WHO and on WHAT (platform/version), line 2 the failing
+    job, line 3 the message itself. The full context lives in the Errors panel;
+    this only has to be enough to decide whether to get out of bed.
+    """
+    context = context or {}
+    who = str(user or "?")[:48]
+    platform = str(context.get("platform") or "").strip()
+    where = " ".join(part for part in (platform, str(version or "").strip()) if part)
+    lines = [f"{who}{(' · ' + where) if where else ''}"]
+
+    job_bits = []
+    duration = context.get("duration")
+    if isinstance(duration, (int, float)) and duration:
+        job_bits.append(f"{int(duration) // 60}:{int(duration) % 60:02d}")
+    options = context.get("options")
+    if isinstance(options, dict):
+        enabled = [name for name, flag in (("cut", options.get("cut")),
+                                           ("captions", options.get("captions")),
+                                           ("broll", options.get("broll")),
+                                           ("hook", options.get("hook")))
+                   if flag is True]
+        enhance = options.get("enhance_video")
+        if enhance and enhance != "none":
+            enabled.append(str(enhance)[:12])
+        if enabled:
+            job_bits.append("+".join(enabled))
+    if context.get("online") is False:
+        job_bits.append("offline")
+    net = context.get("net")
+    if net:
+        job_bits.append(str(net)[:8])
+    if job_bits:
+        lines.append(" · ".join(job_bits))
+
+    lines.append(str(message or "")[:160])
+    if seen >= 3:
+        lines.append(f"({seen} כאלה בשעה האחרונה)")
+    return "\n".join(lines)
+
+
 def _alert_admins(title, body):
     """Best-effort FCM push to every ADMIN's devices - the immediate "a user
     hit an error" signal on the owner's phone. Admins = records with

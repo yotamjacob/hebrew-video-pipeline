@@ -28,6 +28,8 @@ from pipeline_core import (
     _poll_fn_call,
     _hash_password, _verify_password, _sign_token, _verify_token,
     _sign_media_token, _verify_media_token, MEDIA_TOKEN_TTL_SECONDS,
+    _sanitize_error_context, _count_similar_errors,
+    _error_alert_title, _error_alert_body,
     _EMAIL_RE, _sign_scoped_token, _verify_scoped_token, _send_email, _email_html,
     EMAIL_VERIFY_TTL_SECONDS,
     _user_prefix, _owned_key, _broll_item_safe,
@@ -2044,18 +2046,28 @@ def api():
             ver   = str(data.get("version") or "?")[:20]
             _uname = users_store.get(f"uid:{uid}")
             uname  = _uname if isinstance(_uname, str) else uid[:8]
-            rec = {"ts": _time.time(), "user": uname, "stage": stage,
+            # Client-side context: which job, which options, what the user did
+            # just before it broke. Bounded so a hostile or buggy client cannot
+            # bloat the store, and readable ONLY through /admin/errors.
+            ctx = _sanitize_error_context(data.get("context"))
+            rec = {"ts": _time.time(), "user": uname, "uid": uid[:8], "stage": stage,
                    "message": msg, "version": ver,
-                   "ua": str(data.get("ua") or "")[:160]}
+                   "ua": str(data.get("ua") or "")[:160],
+                   "context": ctx}
+            # "Is this the one-off I already know about, or is it happening to
+            # everyone right now?" is the first question a 3am alert has to
+            # answer, so count recent look-alikes before pushing.
+            seen = 1
             try:
                 errors_store[f"e:{int(_time.time() * 1000)}:{uid[:8]}"] = rec
                 _keys = sorted(k for k in errors_store.keys() if k.startswith("e:"))
                 for _k in _keys[:-300]:          # bound the store
                     errors_store.pop(_k)
+                seen = _count_similar_errors(errors_store, stage, msg, _time.time())
             except Exception as _ee:
                 print(f"[errors] store failed: {_ee!r}")
-            _alert_admins("שגיאה אצל משתמש",
-                          f"{uname} | {stage} | {ver}\n{msg[:180]}")
+            _alert_admins(_error_alert_title(stage, seen),
+                          _error_alert_body(uname, stage, ver, msg, ctx, seen))
             body = json.dumps({"ok": True}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
@@ -2473,10 +2485,37 @@ def api():
                         pass
                 # Immediate owner alert: a terminal JOB failure is the worst
                 # user experience - push it even if the user never reports.
+                # This one is SERVER-side, so unlike a client report it can
+                # carry the exception type and the tail of the traceback. It is
+                # stored in the same admin-only errors feed, which is the only
+                # place any of it is ever readable.
                 try:
+                    # Imported locally on purpose: every route body shares one
+                    # function scope, so `_time` is a local bound only by the
+                    # branch that imports it. Relying on another route having
+                    # run first would make this alert vanish with an
+                    # UnboundLocalError that the except below would swallow.
+                    import time as _time
+                    import traceback as _tb
                     _an = users_store.get(f"uid:{uid}")
-                    _alert_admins("עיבוד נכשל אצל משתמש",
-                                  f"{_an if isinstance(_an, str) else uid[:8]} | process failed\n{str(e)[:180]}")
+                    _who = _an if isinstance(_an, str) else uid[:8]
+                    _ctx = {"platform": "server", "call_id": str(call_id)[:60],
+                            "exception": type(e).__name__,
+                            "traceback": "".join(
+                                _tb.format_exception(type(e), e, e.__traceback__))[-1200:]}
+                    _erec = {"ts": _time.time(), "user": _who, "uid": uid[:8],
+                             "stage": "process", "message": str(e)[:400],
+                             "version": "server", "ua": "",
+                             "context": _sanitize_error_context(_ctx)}
+                    try:
+                        errors_store[f"e:{int(_time.time() * 1000)}:{uid[:8]}"] = _erec
+                    except Exception:
+                        pass
+                    _seen = _count_similar_errors(errors_store, "process", str(e), _time.time())
+                    _alert_admins(
+                        _error_alert_title("process", _seen),
+                        _error_alert_body(_who, "process", "server", str(e),
+                                          _erec["context"], _seen))
                 except Exception:
                     pass
                 await send_error(str(e))

@@ -944,6 +944,24 @@
       <div id="adminList"></div>
     </div>
   </div>
+
+  <!-- ── Recent errors (admin-only) ──
+       /admin/errors has existed since 2026-07-27 but nothing rendered it, so
+       the push notification was the only thing the owner ever saw. This is
+       where the detail belongs: a push can only ever be a headline. The route
+       is 403 for non-admins and this whole view is admin-gated, so none of it
+       reaches a regular user. -->
+  <div class="card">
+    <div class="card-header" style="cursor:default">
+      <p class="options-title" data-i18n="adminErr.title">Recent errors</p>
+    </div>
+    <div style="padding-top:14px">
+      <p class="history-note" data-i18n="adminErr.note">Every user-facing failure, newest first. Tap one to see the job, the options and what the user did just before it broke.</p>
+      <div id="adminErrLoading" class="history-loading" style="display:none" data-i18n="admin.loading">Loading…</div>
+      <div id="adminErrEmpty" class="history-note" style="display:none" data-i18n="adminErr.empty">No errors reported.</div>
+      <div id="adminErrList"></div>
+    </div>
+  </div>
   <p class="footer"><a class="footer-contact" href="mailto:hebrewpipeline@gmail.com" onclick="openContactModal();return false;" data-i18n="footer.contact">צרו קשר / שלחו משוב</a> <a class="footer-contact" href="/legal.html" onclick="openLegalModal();return false;" data-i18n="footer.legal">פרטיות ותנאי שימוש</a> <a class="footer-contact" href="/delete-account.html" onclick="deleteAccountFlow();return false;" data-i18n="footer.deleteData">מחיקת חשבון</a></p>
 </div>
 

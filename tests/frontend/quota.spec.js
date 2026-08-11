@@ -327,3 +327,60 @@ test('a failed cost fetch surfaces an error, not a blank card', async ({ page })
   await expect(page.locator('#costError')).toBeVisible();
   await expect(page.locator('#costLoading')).toBeHidden();
 });
+
+// /admin/errors has existed since 2026-07-27 but nothing rendered it, so the
+// push notification was the only thing the owner ever saw. The panel is where
+// the detail belongs.
+test('admin Errors panel renders the report and folds the detail away', async ({ page }) => {
+  await bootApp(page, { me: { username: 'boss', role: 'admin', videos_used: 0, video_limit: null } });
+  await page.route(`${API_BASE}/admin/users`, r =>
+    r.fulfill({ status: 200, contentType: 'application/json',
+                body: JSON.stringify({ users: [
+                  { username: 'boss', role: 'admin', videos_used: 0, video_limit: null, created: 1 },
+                ] }) }));
+  await page.route(`${API_BASE}/admin/errors`, r =>
+    r.fulfill({ status: 200, contentType: 'application/json',
+                body: JSON.stringify({ errors: [{
+                  ts: Math.round(Date.now() / 1000) - 120,
+                  user: 'alina@example.com', uid: 'ab12cd34', stage: 'burn',
+                  message: 'ffmpeg exited with code 1',
+                  version: 'v1.47.5', ua: 'Mozilla/5.0 (Linux; Android 14)',
+                  context: {
+                    platform: 'android', duration: 154, online: true, net: '4g',
+                    video_key: 'u123__clip_cut.mp4',
+                    options: { cut: true, captions: true, broll: false, enhance_video: 'esrgan' },
+                    trail: [{ t: 1.2, ev: 'stage', d: 'upload' },
+                            { t: 9.4, ev: 'done:upload', d: '8s' }],
+                  },
+                }] }) }));
+
+  await page.locator('#tabAdmin').click();
+  const row = page.locator('#adminErrList .admin-err-row');
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText('alina@example.com');
+  await expect(row).toContainText('burn');
+  await expect(row).toContainText('ffmpeg exited with code 1');
+  await expect(page.locator('#adminErrEmpty')).toBeHidden();
+
+  // Detail stays folded until asked for, so a burst of reports is still a list.
+  const details = row.locator('.admin-err-details');
+  await expect(details).toBeHidden();
+  await row.locator('.admin-err-head').click();
+  await expect(details).toBeVisible();
+  await expect(details).toContainText('u123__clip_cut.mp4');
+  await expect(details).toContainText('esrgan');
+  await expect(details).toContainText('android');
+  // The breadcrumb trail: what the user did, and how long each step took.
+  await expect(row.locator('.admin-err-trail')).toContainText('done:upload');
+});
+
+test('admin Errors panel says so when there is nothing to report', async ({ page }) => {
+  await bootApp(page, { me: { username: 'boss', role: 'admin', videos_used: 0, video_limit: null } });
+  await page.route(`${API_BASE}/admin/users`, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"users":[]}' }));
+  await page.route(`${API_BASE}/admin/errors`, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"errors":[]}' }));
+  await page.locator('#tabAdmin').click();
+  await expect(page.locator('#adminErrEmpty')).toBeVisible();
+  await expect(page.locator('#adminErrList .admin-err-row')).toHaveCount(0);
+});

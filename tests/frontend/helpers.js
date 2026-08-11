@@ -46,6 +46,13 @@ async function bootApp(page, { me } = {}) {
   await page.route(/\/admin\/costs/, r =>
     r.fulfill({ status: 200, contentType: 'application/json',
                 body: '{"days":7,"videos":0,"burns":0,"usd":0,"usd_per_video":0,"by_mode":{}}' }));
+  // loadAdmin() also fires loadAdminErrors() (2026-08-11). Same doctrine as
+  // /admin/costs above: unmocked it reaches the real API with the fake token,
+  // 401s, and apiFetch's _sessionExpired() tears the app back to the login view
+  // mid-assertion - a race the suite wins locally and loses under load. Benign
+  // empty default; the Errors-panel tests re-register (last route wins).
+  await page.route(/\/admin\/errors/, r =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '{"errors":[]}' }));
   // Settings profiles load on every boot (showApp) - benign empty default;
   // profiles.spec.js re-registers its own handler (last route wins).
   await page.route(/\/profiles\/?(\?.*)?$/, r =>
