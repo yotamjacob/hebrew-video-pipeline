@@ -1,6 +1,11 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
+      /* iOS safe-area insets. Zero everywhere except the native iOS build,
+         where app.js adds .ios-native + viewport-fit=cover. Every rule that
+         uses them stays a no-op on web and Android. */
+      --sat: 0px;   /* status bar / Dynamic Island */
+      --sab: 0px;   /* home indicator */
       /* ── Modern boho — muted earth on paper. The historical --purple-* names
          are kept as the primary ramp (olive→sage→sand) so the recolor cascades
          app-wide; nothing here is actually purple. ── */
@@ -35,6 +40,11 @@
       --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
     }
 
+    html.ios-native {
+      --sat: env(safe-area-inset-top, 0px);
+      --sab: env(safe-area-inset-bottom, 0px);
+    }
+
     body {
       font-family: 'Assistant', 'Frank Ruhl Libre', 'David', system-ui, sans-serif;
       background: var(--bg);
@@ -42,6 +52,8 @@
       background-blend-mode: multiply;
       color: var(--text);
       min-height: 100svh;
+      padding-top: var(--sat);
+      padding-bottom: var(--sab);
     }
     /* Monospace accent for existing technical text (timecodes, sizes, %) */
     .mono, .check-time, .upload-bar-pct, #timeEstimateText {
@@ -255,7 +267,7 @@
     /* Refresh-for-update pill - a long-lived tab/webview runs stale JS after
        a deploy; this offers a one-tap reload when auto-reload isn't safe. */
     .update-pill {
-      position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+      position: fixed; bottom: calc(18px + var(--sab)); left: 50%; transform: translateX(-50%);
       display: flex; align-items: center; gap: 10px; z-index: 950;
       background: var(--white); border: 1.5px solid var(--purple-100);
       border-radius: 999px; padding: 8px 10px 8px 16px;
@@ -874,7 +886,7 @@
     }
     /* Reusable toast (edit-ready / schedule). */
     .celebrate-toast {
-      position: fixed; z-index: 10001; top: 74px; left: 50%;
+      position: fixed; z-index: 10001; top: calc(74px + var(--sat)); left: 50%;
       transform: translateX(-50%) translateY(-10px) scale(0.96);
       /* Wraps when the content is long (saved-file toasts carry a filename
          link) - a single nowrap pill truncated the text. Short toasts still
@@ -1633,7 +1645,7 @@
     .player-outer { margin-bottom: 12px; }
     .player-outer .player-wrap { margin: 0 auto; }
     .player-outer.is-stuck .player-wrap {
-      position: fixed; top: calc(var(--topbar-h, 52px) + 8px);
+      position: fixed; top: calc(var(--topbar-h, 52px) + 8px + var(--sat));
       inset-inline-end: 10px; width: min(150px, 40vw) !important;
       z-index: 45; border-radius: 12px;
       box-shadow: 0 10px 26px -10px rgba(62,58,52,0.6);
@@ -2247,7 +2259,7 @@
 /* ── Quota pill + admin view ── */
 .app-topbar {
   position: sticky;
-  top: 0;
+  top: var(--sat);
   z-index: 40;
   background: var(--bg);
   border-bottom: 1px solid var(--line);

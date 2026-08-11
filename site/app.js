@@ -3,11 +3,33 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.47.0';
+  const APP_VERSION = '1.47.1';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
   console.info('Pipeline frontend v' + APP_VERSION);
+
+  // ── iOS safe areas ────────────────────────────────────────────────────────
+  // The iOS WebView is full-screen, so without this the wordmark sits behind
+  // the Dynamic Island and the language toggle collides with the clock (seen
+  // on an iPhone 17 Pro Max simulator, 2026-08-11). Android never needed it:
+  // there the WebView is laid out below a coloured status bar.
+  // `env()` only reports real insets once the viewport opts into
+  // `viewport-fit=cover`, so both halves are set here, and ONLY on the native
+  // iOS build - the website keeps its current layout in mobile Safari.
+  // The CSS side reads --sat/--sab, which default to 0px in :root, so every
+  // rule using them is a no-op on web and Android.
+  (function _applyIOSSafeArea() {
+    const cap = window.Capacitor;
+    const isIOSNative = !!(cap && cap.isNativePlatform && cap.isNativePlatform()
+                           && cap.getPlatform && cap.getPlatform() === 'ios');
+    if (!isIOSNative) return;
+    const viewport = document.querySelector('meta[name="viewport"]');
+    if (viewport && !/viewport-fit/.test(viewport.content)) {
+      viewport.content += ', viewport-fit=cover';
+    }
+    document.documentElement.classList.add('ios-native');
+  })();
   document.querySelectorAll('p.footer').forEach(f => {
     const v = document.createElement('span');
     v.className = 'footer-version';
@@ -240,8 +262,13 @@
     _hideBootLoader();
     document.getElementById('authView').style.display = 'block';
     // TEMPORARY auth-migration nudge (passwords -> email codes/Google).
+    // Never on iOS: the App Store build has no legacy password users to migrate,
+    // and the copy promises a Google lane that this build deliberately hides
+    // (Guideline 4.8), which would just confuse a first-time user.
     { const mn = document.getElementById('migrationNote');
-      if (mn && localStorage.getItem('hebpipe_migration_dismissed') !== '1') mn.style.display = 'flex'; }
+      if (mn && !_isIOS() && localStorage.getItem('hebpipe_migration_dismissed') !== '1') {
+        mn.style.display = 'flex';
+      } }
     // Prefill the last-used email + password (saved on sign-in while "remember
     // me" was checked) so a returning user - e.g. right after logging out -
     // lands on a ready-to-submit form.
