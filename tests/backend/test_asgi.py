@@ -271,8 +271,10 @@ class TestAlertAdmins:
     def _run(self, users, admin_env=None, monkeypatch=None):
         import os
         sent = []
+        # _alert_admins goes through _send_push (FCM + APNs fan-out), not the
+        # FCM sender directly - admins on an iPhone must get the alert too.
         ns = {"users_store": users,
-              "_send_fcm": lambda uid, title, body, kind=None, tag=None: sent.append((uid, title, kind))}
+              "_send_push": lambda uid, title, body, kind=None, tag=None: sent.append((uid, title, kind))}
         fn = _extract_fn(MODAL_SRC, "_alert_admins", extra_ns=ns)["_alert_admins"]
         if admin_env is not None:
             monkeypatch.setenv("ADMIN_USERS", admin_env)

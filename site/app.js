@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.47.1';
+  const APP_VERSION = '1.47.2';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -2569,8 +2569,13 @@
       } catch (_) {}
       Push.addListener('registration', (tok) => {
         const value = tok && tok.value;
+        // The platform decides the TRANSPORT, not just a label: Android's
+        // token goes to FCM, iOS hands back a raw APNs device token that the
+        // backend must send straight to Apple. Sending the wrong one silently
+        // black-holes every notification for that device.
         if (value) apiFetch(`${API_BASE}/push/register/`, {
-          method: 'POST', body: JSON.stringify({ token: value, platform: 'android' }),
+          method: 'POST',
+          body: JSON.stringify({ token: value, platform: _platform() }),
         }).catch(() => {});
       });
       Push.addListener('registrationError', (e) => console.warn('push reg error', e));

@@ -75,6 +75,11 @@ image = (
         "google-genai>=1.9.0",
         "anthropic>=0.40.0",
         "google-auth",   # FCM "video ready" push (HTTP v1 send)
+        # iOS "video ready" push goes straight to APNs (no Firebase in the
+        # iOS app): ES256 JWT auth + an HTTP/2 client, since APNs refuses
+        # HTTP/1.1 and requests cannot speak HTTP/2. _record_job runs here.
+        "pyjwt[crypto]>=2.8.0",
+        "httpx[http2]>=0.27.0",
     )
     .run_commands("apt-get install -y fonts-noto-hinted", *_FONT_CMDS)
     # Local backend modules must be shipped explicitly (Modal 1.x no longer automounts imports)
@@ -90,7 +95,9 @@ burn_image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg", "fontconfig", "wget")
     # opencv-headless: YuNet face detection for the punch-in zoom framing
-    .pip_install("requests", "google-auth", "opencv-python-headless")
+    .pip_install("requests", "google-auth", "opencv-python-headless",
+                 # _record_job pushes from here too - see the note on `image`.
+                 "pyjwt[crypto]>=2.8.0", "httpx[http2]>=0.27.0")
     .run_commands(*_FONT_CMDS, *_YUNET_CMD)
     .add_local_python_source(
         "pipeline_core", "pipeline_fns", "stock_helpers",
@@ -106,7 +113,8 @@ light_image = (
     .apt_install("ffmpeg", "fontconfig", "wget")
     .pip_install("requests", "anthropic>=0.40.0", "fastapi", "python-multipart", "boto3",
                  "google-auth",              # verify Google Sign-In ID tokens (/auth/google)
-                 "pyjwt[crypto]>=2.8.0",     # ES256 bearer for the App Store Server API
+                 "pyjwt[crypto]>=2.8.0",     # ES256 bearer for the App Store Server API + APNs
+                 "httpx[http2]>=0.27.0",     # APNs is HTTP/2 only - requests cannot reach it
                  "opencv-python-headless")   # face-framed zoom in /preview_frame
     # Hebrew caption/hook fonts so /preview_frame renders the WYSIWYG editor
     # preview through libass with the SAME faces the burn uses (see _FONT_CMDS).
@@ -172,6 +180,134 @@ pending_store = modal.Dict.from_name("hebpipe-pending", create_if_missing=True)
 codes_store = modal.Dict.from_name("hebpipe-codes", create_if_missing=True)   # normalized email → {salt, hash, exp, attempts, is_new, terms_ts} for passwordless login
 
 
+# ── Push token namespacing ────────────────────────────────────────────────────
+# One `hebpipe-fcm` Dict holds every device token a user has, across platforms,
+# and the two transports are NOT interchangeable: Android registers an FCM
+# token, while @capacitor/push-notifications on iOS hands back a raw APNs
+# device token (verified in the plugin source - there is no Firebase in it).
+# Sending an APNs token to FCM just fails, so iOS tokens are stored with an
+# `apns:` prefix and each sender takes only its own.
+# Legacy entries are bare strings and are therefore FCM, which is correct.
+APNS_TOKEN_PREFIX = "apns:"
+APNS_BUNDLE_ID = "com.heb.pipeline"
+
+
+def _split_push_tokens(tokens):
+    """(fcm_tokens, apns_tokens) from one mixed token list."""
+    fcm, apns = [], []
+    for token in tokens or []:
+        if not isinstance(token, str) or not token:
+            continue
+        if token.startswith(APNS_TOKEN_PREFIX):
+            stripped = token[len(APNS_TOKEN_PREFIX):]
+            if stripped:
+                apns.append(stripped)
+        else:
+            fcm.append(token)
+    return fcm, apns
+
+
+def _apns_payload(title, body, kind="video_ready"):
+    """The APNs body for a pipeline push, mirroring the FCM notification.
+
+    `kind` rides alongside `aps` as a custom key so the tap handler routes the
+    same way it does on Android. `content-available` is deliberately absent -
+    these are user-visible alerts, not silent background pushes, and claiming
+    otherwise would require a background mode we do not declare.
+    """
+    return {
+        "aps": {
+            "alert": {"title": title, "body": body},
+            "sound": "default",
+        },
+        "kind": kind,
+    }
+
+
+def _send_apns(uid, title, body, kind="video_ready", tag=None):
+    """Best-effort push to a user's iOS devices, straight to APNs.
+
+    No Firebase on the iOS side: the app has no Firebase SDK (deliberately -
+    see the includePlugins note in capacitor.config.js), so there is no FCM
+    token to send to. Authentication is an ES256 JWT signed with the APNs auth
+    key, the same signing scheme the App Store Server API uses.
+
+    Requires APNS_KEY_ID + APNS_TEAM_ID + APNS_PRIVATE_KEY in the hebpipe-apple
+    secret; a silent no-op without them, exactly like _send_fcm without its
+    service account. Prunes tokens APNs reports as unregistered.
+    """
+    import os
+    import time as _time
+
+    key_id = (os.environ.get("APNS_KEY_ID") or "").strip()
+    team_id = (os.environ.get("APNS_TEAM_ID") or "").strip()
+    private_key = os.environ.get("APNS_PRIVATE_KEY") or ""
+    if not (key_id and team_id and private_key.strip() and uid):
+        return
+    if "\\n" in private_key and "\n" not in private_key.strip("\n"):
+        private_key = private_key.replace("\\n", "\n")
+    try:
+        all_tokens = fcm_store.get(uid) or []
+        _, tokens = _split_push_tokens(all_tokens)
+        if not tokens:
+            return
+        import jwt as _jwt
+        import httpx as _httpx
+
+        now = int(_time.time())
+        bearer = _jwt.encode({"iss": team_id, "iat": now}, private_key,
+                             algorithm="ES256", headers={"kid": key_id})
+        headers = {
+            "authorization": f"bearer {bearer}",
+            "apns-topic": APNS_BUNDLE_ID,
+            "apns-push-type": "alert",
+            "apns-priority": "10",
+        }
+        # The Android story is ONE notification slot that updates in place
+        # (upload -> processing -> ready). apns-collapse-id is the iOS
+        # equivalent, so the same `tag` gives the same behaviour.
+        if tag:
+            headers["apns-collapse-id"] = str(tag)[:64]
+        payload = _apns_payload(title, body, kind)
+        dead = []
+        # APNs is HTTP/2 only - `requests` cannot talk to it at all, which is
+        # why this uses httpx.
+        with _httpx.Client(http2=True, timeout=15) as client:
+            for token in tokens:
+                sent = False
+                # A build signed for development gets a sandbox token and a
+                # TestFlight/App Store build a production one, with no way to
+                # tell them apart from here. Production first, sandbox on the
+                # BadDeviceToken that a mismatch produces.
+                for host in ("api.push.apple.com", "api.sandbox.push.apple.com"):
+                    response = client.post(f"https://{host}/3/device/{token}",
+                                           headers=headers, json=payload)
+                    if response.status_code == 200:
+                        sent = True
+                        break
+                    reason = ""
+                    try:
+                        reason = (response.json() or {}).get("reason", "")
+                    except Exception:
+                        pass
+                    if response.status_code == 410 or reason == "Unregistered":
+                        break            # genuinely gone; try no other host
+                    if reason != "BadDeviceToken":
+                        break            # a real error, not an environment mismatch
+                if not sent:
+                    dead.append(APNS_TOKEN_PREFIX + token)
+        if dead:
+            fcm_store[uid] = [t for t in all_tokens if t not in dead]
+    except Exception as e:
+        print(f"[apns] send failed: {e!r}")
+
+
+def _send_push(uid, title, body, kind="video_ready", tag=None):
+    """Fan one pipeline notification out to every platform the user is on."""
+    _send_fcm(uid, title, body, kind=kind, tag=tag)
+    _send_apns(uid, title, body, kind=kind, tag=tag)
+
+
 def _send_fcm(uid, title, body, kind="video_ready", tag=None):
     """Best-effort push to a user's devices via FCM HTTP v1.
     `kind` rides in the data payload so the app can route the tap:
@@ -187,7 +323,8 @@ def _send_fcm(uid, title, body, kind="video_ready", tag=None):
     if not raw or not uid:
         return
     try:
-        tokens = fcm_store.get(uid) or []
+        all_tokens = fcm_store.get(uid) or []
+        tokens, _ = _split_push_tokens(all_tokens)   # iOS tokens go to APNs
         if not tokens:
             return
         info = _json.loads(raw)
@@ -214,7 +351,9 @@ def _send_fcm(uid, title, body, kind="video_ready", tag=None):
             if r.status_code in (400, 404):   # unregistered / invalid token
                 dead.append(tkn)
         if dead:
-            fcm_store[uid] = [t for t in tokens if t not in dead]
+            # Prune from the FULL list - `tokens` excludes this user's iOS
+            # tokens, and rewriting from it would silently unregister them.
+            fcm_store[uid] = [t for t in all_tokens if t not in dead]
     except Exception as e:
         print(f"[fcm] send failed: {e!r}")
 
@@ -236,7 +375,7 @@ def _alert_admins(title, body):
             if not isinstance(r, dict):
                 continue
             if r.get("role") == "admin" or k.lower() in admin_names:
-                _send_fcm(r.get("uid"), title, body, kind="admin_alert")
+                _send_push(r.get("uid"), title, body, kind="admin_alert")
     except Exception as e:
         print(f"[alert] admin push failed: {e!r}")
 

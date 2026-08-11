@@ -13,7 +13,7 @@ from pipeline_core import (
     jobs_store, JOB_RETENTION_DAYS, SCRATCH_RETENTION_HOURS, pending_store,
     progress_store, calls_store, CALL_RETENTION_SECONDS, _UID_PREFIX_RE,
     quota_store, _usage_since, _send_email, _email_html, SONNET_MODEL,
-    _send_fcm, costs_store, COST_RETENTION_DAYS, _cost_summary, _record_ai_spend,
+    _send_push, costs_store, COST_RETENTION_DAYS, _cost_summary, _record_ai_spend,
     _credit_cost, _upscale_allowed, UPSCALE_MAX_SECONDS,
 )
 
@@ -843,7 +843,7 @@ def process_video(
     try:
         _uid0 = upload_key[1:33] if upload_key and _UID_PREFIX_RE.match(upload_key) else None
         if _uid0:
-            _send_fcm(_uid0, "ההעלאה הסתיימה",
+            _send_push(_uid0, "ההעלאה הסתיימה",
                       "הסרטון בעיבוד בשרת - אפשר לסגור את האפליקציה, נעדכן כשיהיה מוכן.",
                       kind="processing", tag="hebpipe-job")
     except Exception:
@@ -1314,7 +1314,7 @@ def process_video(
             try:
                 _uid = video_key[1:33] if _UID_PREFIX_RE.match(video_key or "") else None
                 if _uid:
-                    _send_fcm(_uid, "הסרטון מוכן לעריכה",
+                    _send_push(_uid, "הסרטון מוכן לעריכה",
                               "העיבוד הסתיים - היכנסו לערוך כתוביות ולסיים את הסרטון.",
                               kind="edit_ready", tag="hebpipe-job")
             except Exception:
@@ -2165,7 +2165,7 @@ def _record_job(output_key, source_name, out_path, notify=True, edit_state=None)
     # "Your video is ready" push (best-effort; no-op unless FCM is configured).
     uid = output_key[1:33] if _UID_PREFIX_RE.match(output_key) else None
     if uid and notify:
-        _send_fcm(uid, "הסרטון שלך מוכן", "העיבוד הסתיים - הסרטון מוכן להורדה ולשיתוף.",
+        _send_push(uid, "הסרטון שלך מוכן", "העיבוד הסתיים - הסרטון מוכן להורדה ולשיתוף.",
                   kind="video_ready", tag="hebpipe-job")
 
 

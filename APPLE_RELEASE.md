@@ -4,8 +4,8 @@ Everything Claude could do in code is **done** (see "What is already built"
 below). This file is the list of things only you can do: buying accounts,
 installing Xcode, creating records in Apple's consoles, and pressing Submit.
 
-Work top to bottom. Steps 1-3 are blocking - nothing else can happen until
-Xcode exists and the bundle id is registered.
+Work top to bottom. Step 1 is blocking - nothing else can happen until the
+enrolment is confirmed. Step 2 is already done.
 
 ---
 
@@ -24,7 +24,10 @@ Xcode exists and the bundle id is registered.
 | Google sign-in | Hidden in the iOS build (Guideline 4.8 avoided) |
 | Google Play links | Impossible to reach in the iOS build (Guideline 3.1.1) |
 | Account deletion | In-app, two-step confirm, real server-side purge (Guideline 5.1.1(v)) |
-| Tests | 479 pytest + 671 Playwright green, incl. `tests/frontend/ios_store.spec.js` |
+| Push notifications | Direct to APNs, no Firebase on iOS (see step 7) |
+| Safe areas | Content clears the Dynamic Island and home indicator; verified on a simulator |
+| Toolchain | Xcode 26.6 installed; iOS + simulator platforms downloaded; app builds and runs |
+| Tests | 497 pytest + 661 Playwright green, incl. `tests/frontend/ios_store.spec.js` |
 
 ---
 
@@ -43,20 +46,19 @@ Xcode exists and the bundle id is registered.
 
 ---
 
-## 2. Install Xcode
+## 2. Install Xcode - DONE (2026-08-11)
 
-Xcode is **not** on this Mac (only Command Line Tools). CocoaPods is already
-installed via Homebrew, but this project uses Swift Package Manager, so Xcode
-is the only missing piece.
+Xcode 26.6, plus the iOS 26.5 platform and simulator runtime. The app builds
+and runs.
 
-1. Mac App Store → Xcode → Install (~10-15 GB, 30-60 min).
-2. Open it once and accept the licence, let it install extra components.
-3. Point the toolchain at it:
-   ```bash
-   sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-   xcodebuild -version          # should print Xcode 16.x
-   ```
-4. Xcode → Settings → Accounts → add your Apple ID (the developer account).
+It could **not** come from the Mac App Store: this MacBook is company-owned,
+DEP-enrolled in Apple Business Manager, and MDM blocks app installs. The route
+that works here is the `.xip` from https://developer.apple.com/download/all/
+expanded straight into `/Applications`. Remember that for any future Xcode
+upgrade on this machine.
+
+One thing still to do here when you next open Xcode: **Settings → Accounts →
+add your Apple ID**, so automatic signing can issue a certificate.
 
 ---
 
@@ -129,15 +131,22 @@ App Store Connect → **Users and Access → Integrations → In-App Purchase �
 
 1. Name it "Pipeline server", generate, **download the .p8 once**.
 2. Note the **Key ID** and, at the top of that page, the **Issuer ID**.
-3. Create the Modal secret:
+3. Fill the secret. It already exists with blank placeholders, so this is a
+   `--force` rewrite - and `--force` REPLACES every key, so all six must be
+   passed in one command. Three are the App Store Server API key from this
+   step; three are the APNs key from step 3 and its Team ID (find the Team ID
+   at the top right of developer.apple.com, e.g. `A1B2C3D4E5`):
    ```bash
-   modal secret create hebpipe-apple \
+   modal secret create hebpipe-apple --force \
      APPLE_KEY_ID=XXXXXXXXXX \
      APPLE_ISSUER_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \
-     APPLE_PRIVATE_KEY="$(cat ~/Downloads/SubscriptionKey_XXXXXXXXXX.p8)"
+     APPLE_PRIVATE_KEY="$(cat ~/Downloads/SubscriptionKey_XXXXXXXXXX.p8)" \
+     APNS_KEY_ID=YYYYYYYYYY \
+     APNS_TEAM_ID=A1B2C3D4E5 \
+     APNS_PRIVATE_KEY="$(cat ~/Downloads/AuthKey_YYYYYYYYYY.p8)"
    ```
-   Use the **In-App Purchase** key type, not a generic App Store Connect API
-   key - only the IAP key can read `/inApps/v1/transactions`.
+   Use the **In-App Purchase** key type for the first one, not a generic App
+   Store Connect API key - only the IAP key can read `/inApps/v1/transactions`.
 4. Redeploy: `modal deploy app_modal.py`.
 
 Until this secret exists, `/billing/apple/verify` answers **503** and no
@@ -153,20 +162,22 @@ Notifications**:
 
 ---
 
-## 7. Push notifications (optional for v1, but you already have the plumbing)
+## 7. Push notifications - nothing more to do
 
-The backend sends "your video is ready" through FCM, which relays to APNs.
+Already handled in step 6. Worth knowing how it works, because iOS does NOT go
+through Firebase the way Android does:
 
-1. Firebase console → the existing `pipeline---hebrew-video-editor` project →
-   Add app → **iOS** → bundle id `com.heb.pipeline`.
-2. Download `GoogleService-Info.plist` and drag it into `ios/App/App/` in Xcode
-   (tick "Copy items if needed", target App).
-   **Never commit it** - the repo is public. Add it to `.gitignore` first:
-   `echo "GoogleService-Info.plist" >> .gitignore`
-3. Firebase → Project settings → Cloud Messaging → **APNs Authentication Key**
-   → upload the .p8 from step 3, with its Key ID and your Team ID.
+`@capacitor/push-notifications` returns an **FCM** token on Android but a raw
+**APNs device token** on iOS - there is no Firebase in the iOS app, and adding
+it would drag the Google SDKs back into a binary they were deliberately removed
+from. So the backend talks to APNs directly (`_send_apns` in
+`pipeline_core.py`), authenticating with the same APNs `.p8` from step 3 over
+an ES256 JWT. `_send_push` fans each notification out to both transports, and
+tokens are namespaced `apns:` in the shared store so neither sender can pick up
+the other's.
 
-If you skip this, the app still works; it just will not push on iOS.
+No `GoogleService-Info.plist`, no Firebase iOS app, no extra secret. If
+`APNS_*` is left blank, iOS simply does not push and everything else works.
 
 ---
 

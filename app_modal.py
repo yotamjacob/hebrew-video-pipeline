@@ -39,6 +39,7 @@ from pipeline_core import (
     PLAY_PACKAGE_NAME, PLAY_CREDIT_PRODUCTS, _billing_account_id,
     _purchase_ledger_key, _count_purchased_credits, _parse_play_purchase,
     _apply_voided_play_purchases,
+    APNS_TOKEN_PREFIX,
     APPLE_BUNDLE_ID, APPLE_CREDIT_PRODUCTS, _apple_account_token,
     _apple_ledger_key, _decode_jws_payload, _parse_apple_transaction,
     _revoke_purchase_grant, PURCHASE_KEY_PREFIXES,
@@ -2000,6 +2001,16 @@ def api():
             if not token or len(token) > 4096:
                 await send_error("invalid token", 400)
                 return
+            # iOS registers a raw APNs device token, Android an FCM one, and
+            # they are not interchangeable. Namespace here rather than trusting
+            # the client to send a prefixed token, and strip any prefix the
+            # client did send so it cannot forge the other transport's
+            # namespace. Absent/unknown platform = FCM, matching every token
+            # written before iOS existed.
+            if str(data.get("platform") or "").lower() == "ios":
+                token = APNS_TOKEN_PREFIX + token.removeprefix(APNS_TOKEN_PREFIX)
+            else:
+                token = token.removeprefix(APNS_TOKEN_PREFIX)
             try:
                 toks = fcm_store.get(uid) or []
                 if token not in toks:
