@@ -188,7 +188,7 @@ test('web without Web Share files support: button stays hidden', async ({ page }
 // that saved with Filesystem.copy - the ONE Filesystem write that never runs a
 // MediaScan - so the file was never indexed and no file manager could see it,
 // and its toast action was a Share sheet.
-test('native: a warm-cached file still saves through DownloadManager, never an unindexed copy', async ({ page }) => {
+test('native shell without saveToDownloads: a warm-cached file still goes through DownloadManager, never an unindexed copy', async ({ page }) => {
   await page.addInitScript(() => {
     window.__nativeDownloads = [];
     window.__copies = [];
@@ -269,4 +269,84 @@ test('native legacy shell: the save toast offers Share, and does not promise to 
   await expect(action).toContainText(/שיתוף|Share/);
   await action.click();
   await expect.poll(() => page.evaluate(() => window.__shared)).toBe(1);
+});
+
+// The fast path, restored natively in Android 1.4.0: saveToDownloads copies the
+// warm-cached bytes straight into the MediaStore Downloads collection, so the
+// saved file is indexed by construction - the property Filesystem.copy lacked.
+test('native: a warm-cached file is saved from cache, without re-downloading', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__saves = [];
+    window.__nativeDownloads = [];
+    window.Capacitor = {
+      isNativePlatform: () => true,
+      getPlatform: () => 'android',
+      Plugins: {
+        NativeDownloader: {
+          download: async opts => { window.__nativeDownloads.push(opts); return { id: 3 }; },
+          saveToDownloads: async opts => {
+            window.__saves.push(opts);
+            return { uri: 'content://media/external/downloads/12', filename: opts.filename };
+          },
+          openDownloads: async () => {},
+        },
+        Filesystem: {
+          downloadFile: async opts => ({ path: `/docs/${opts.path}` }),
+          writeFile: async () => {},
+          getUri: async ({ path }) => ({ uri: `file:///cache/${path}` }),
+          addListener: async () => ({ remove: async () => {} }),
+        },
+        Share: { share: async () => {} },
+      },
+    };
+  });
+  await bootApp(page);
+  await burnToBanner(page);
+  await expect(page.locator('#burnShareBtn')).toBeEnabled({ timeout: 10_000 });
+
+  await page.evaluate(() => { window.__nativeDownloads.length = 0; });
+  await page.click('#burnDownloadBtn');
+
+  await expect.poll(() => page.evaluate(() => window.__saves.length)).toBe(1);
+  const save = await page.evaluate(() => window.__saves[0]);
+  expect(save.filename).toBe('test_edited.mp4');
+  expect(save.mimeType).toBe('video/mp4');
+  expect(save.path).toContain('/cache/');          // the warm copy, not the network
+  // The whole point is NOT fetching the bytes again.
+  expect(await page.evaluate(() => window.__nativeDownloads.length)).toBe(0);
+});
+
+test('native: a failing cached save falls back to DownloadManager', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__nativeDownloads = [];
+    window.Capacitor = {
+      isNativePlatform: () => true,
+      getPlatform: () => 'android',
+      Plugins: {
+        NativeDownloader: {
+          download: async opts => { window.__nativeDownloads.push(opts); return { id: 4 }; },
+          saveToDownloads: async () => { throw new Error('Could not save into Downloads'); },
+          openDownloads: async () => {},
+        },
+        Filesystem: {
+          downloadFile: async opts => ({ path: `/docs/${opts.path}` }),
+          writeFile: async () => {},
+          getUri: async ({ path }) => ({ uri: `file:///cache/${path}` }),
+          addListener: async () => ({ remove: async () => {} }),
+        },
+        Share: { share: async () => {} },
+      },
+    };
+  });
+  await bootApp(page);
+  await burnToBanner(page);
+  await expect(page.locator('#burnShareBtn')).toBeEnabled({ timeout: 10_000 });
+
+  await page.evaluate(() => { window.__nativeDownloads.length = 0; });
+  await page.click('#burnDownloadBtn');
+
+  // A slow success beats a silent loss.
+  await expect.poll(() => page.evaluate(() => window.__nativeDownloads.length)).toBe(1);
+  const download = await page.evaluate(() => window.__nativeDownloads[0]);
+  expect(download.filename).toBe('test_edited.mp4');
 });

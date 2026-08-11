@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.47.3';
+  const APP_VERSION = '1.47.4';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -5211,6 +5211,57 @@
     }
   }
 
+  // True when the share warm-up already holds (or is currently fetching) this
+  // exact file in the app cache, so it can be saved without a second fetch.
+  function _warmCacheCovers(url) {
+    return (_sharePrep && _sharePrep.url === url && _sharePrep.uri)
+        || (_sharePrepPromise && _sharePrepUrl === url);
+  }
+
+  // Save the warm-cached copy into public Downloads through the native bridge
+  // (MediaStore-registered, so it is visible and openable). Falls back to a
+  // plain DownloadManager fetch on ANY failure - a re-download is a slow
+  // success, while a swallowed error would be a missing file.
+  async function _nativeCachedSave(Downloader, url, name) {
+    if (_nativeDownloadBusy) return;
+    _nativeDownloadBusy = true;
+    const safe = _safeDownloadName(name);
+    const buttons = [downloadBtn, document.getElementById('burnDownloadBtn')].filter(Boolean);
+    const labels = buttons.map(button => button.innerHTML);
+    buttons.forEach(button => { button.disabled = true; button.textContent = t('download.saving'); });
+    let saved = null;
+    try {
+      // The warm-up may still be in flight; awaiting it shares its stream
+      // rather than starting a competing download.
+      if (!(_sharePrep && _sharePrep.url === url && _sharePrep.uri) && _sharePrepPromise) {
+        try { await _sharePrepPromise; } catch (_) {}
+      }
+      if (_sharePrep && _sharePrep.url === url && _sharePrep.uri) {
+        const res = await Downloader.saveToDownloads({
+          path: _sharePrep.uri,
+          filename: safe,
+          mimeType: 'video/mp4',
+          title: safe,
+          text: t('download.readyWatch'),
+        });
+        saved = (res && res.uri) || null;
+      }
+    } catch (error) {
+      console.warn('cached save failed, falling back to a download', error);
+    } finally {
+      buttons.forEach((button, index) => {
+        button.disabled = false;
+        button.innerHTML = labels[index];
+      });
+      _nativeDownloadBusy = false;
+    }
+    if (saved) {
+      celebrateToast(t('download.readyWatch'), { duration: 15000 });
+      return;
+    }
+    await _nativeSystemDownload(Downloader, url, name);
+  }
+
   async function _nativeDocumentDownload(Filesystem, url, name) {
     if (_nativeDownloadBusy) return;
     _nativeDownloadBusy = true;
@@ -5259,17 +5310,10 @@
           ? { label: t('download.shareVideo'), onClick: () => _openSavedVideo(savedUri) }
           : { label: safe },
       });
-      // System notification with a tap-to-watch intent (notifySaved ships
-      // with the next Android binary; older shells just keep the toast).
-      // The local-save path bypasses DownloadManager, so without this the
-      // shade shows nothing for a finished video.
-      try {
-        const Dl = _capPlugin('NativeDownloader');
-        if (Dl && Dl.notifySaved && savedUri) {
-          Dl.notifySaved({ uri: savedUri, filename: safe, mimeType: 'video/mp4',
-                           title: safe, text: t('download.readyWatch') }).catch(() => {});
-        }
-      } catch (_) {}
+      // No system notification here: this path only runs in a shell with no
+      // NativeDownloader bridge, which by definition has no way to post one
+      // either. (A `notifySaved` call used to sit here; it was unreachable,
+      // because reaching this function at all means the bridge is missing.)
     } catch (e) {
       console.error('native download failed', e);
       _reportError('download', (e && e.message) || t('err.downloadFailed'));
@@ -5317,11 +5361,30 @@
     //
     // DownloadManager writes to public Downloads, registers the file with the
     // system so it is visible everywhere, and posts its own completion
-    // notification that opens the video on tap. A download the user cannot
-    // find is not a download, so correctness wins over the saved seconds; the
-    // fast path can come back as a native save-from-cache that registers with
-    // MediaStore (needs a new binary - see docs/outputs.md).
+    // notification that opens the video on tap.
+    //
+    // The fast path is BACK, but native now: `saveToDownloads` copies the
+    // warm-cached bytes straight into the MediaStore Downloads collection, so
+    // the result is indexed by construction - the property Filesystem.copy
+    // lacked. It ships from Android 1.4.0 onward; every older shell simply
+    // does not expose the method and keeps re-downloading, and any failure
+    // falls through to DownloadManager below, so the worst case is a wasted
+    // call rather than a lost file.
     const Downloader = _isNative() && _capPlugin('NativeDownloader');
+    if (Downloader && Downloader.saveToDownloads && Downloader.download
+        && _warmCacheCovers(url)) {
+      if (_nativeDownloadBusy) return;
+      _nativeDownloadUrl = url;
+      const task = _nativeCachedSave(Downloader, url, name);
+      _nativeDownloadTask = task;
+      task.finally(() => {
+        if (_nativeDownloadTask === task) {
+          _nativeDownloadTask = null;
+          _nativeDownloadUrl = null;
+        }
+      });
+      return;
+    }
     if (Downloader && Downloader.download) {
       if (_nativeDownloadBusy) return;
       _nativeDownloadUrl = url;

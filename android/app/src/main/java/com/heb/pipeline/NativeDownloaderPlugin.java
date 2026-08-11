@@ -121,28 +121,128 @@ public class NativeDownloaderPlugin extends Plugin {
     }
 
     @PluginMethod
-    public void notifySaved(PluginCall call) {
-        // "Video ready to watch" system notification for the LOCAL-SAVE path
-        // (Filesystem copy of a warm-cached burn) - that path bypasses
-        // DownloadManager, so it gets no system notification of its own.
-        // Tapping opens the saved video (ACTION_VIEW through the Capacitor
-        // FileProvider - a raw file:// crashes with FileUriExposedException
-        // on N+). Best-effort: no POST_NOTIFICATIONS grant (the FCM flow asks
-        // for it) or any failure just resolves - the in-app toast already
-        // covers the UX.
-        String uriStr = call.getString("uri");
-        String title = call.getString("title", "Video ready");
-        String text = call.getString("text", "Tap to watch");
+    public void saveToDownloads(PluginCall call) {
+        // Save an ALREADY-DOWNLOADED file (the share warm-up's cache copy) into
+        // public Downloads, without fetching it a second time.
+        //
+        // This is the fast path that Filesystem.copy used to provide until
+        // 2026-08-11, when it turned out `copy` never registers the file with
+        // MediaStore: the video was on disk but invisible to every file manager
+        // (field report: "not saved to device"). Here the MediaStore row IS the
+        // write on API 29+, so the result is indexed by construction.
+        //
+        // A large video must not be copied on the caller's thread, so the work
+        // runs on its own thread and resolves from there.
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P
+            && getPermissionState(LEGACY_STORAGE) != PermissionState.GRANTED) {
+            requestPermissionForAlias(LEGACY_STORAGE, call, "legacySavePermission");
+            return;
+        }
+        new Thread(() -> copyIntoDownloads(call)).start();
+    }
+
+    @PermissionCallback
+    private void legacySavePermission(PluginCall call) {
+        if (getPermissionState(LEGACY_STORAGE) != PermissionState.GRANTED) {
+            call.reject("Downloads storage permission was denied");
+            return;
+        }
+        new Thread(() -> copyIntoDownloads(call)).start();
+    }
+
+    private void copyIntoDownloads(PluginCall call) {
+        String source = call.getString("path");
+        String filename = sanitizeFilename(call.getString("filename", "video.mp4"));
         String mimeType = call.getString("mimeType", "video/mp4");
+        String title = call.getString("title", filename);
+        String text = call.getString("text", "Tap to watch");
+        if (source == null || source.isEmpty()) {
+            call.reject("A source path is required");
+            return;
+        }
         try {
-            Uri uri = Uri.parse(uriStr);
-            if ("file".equals(uri.getScheme())) {
-                uri = androidx.core.content.FileProvider.getUriForFile(
+            Uri saved;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // MediaStore both writes and indexes; it also de-duplicates the
+                // display name itself, so availableFilename is not needed here.
+                android.content.ContentValues values = new android.content.ContentValues();
+                values.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, filename);
+                values.put(android.provider.MediaStore.Downloads.MIME_TYPE, mimeType);
+                values.put(android.provider.MediaStore.Downloads.IS_PENDING, 1);
+                android.content.ContentResolver resolver = getContext().getContentResolver();
+                saved = resolver.insert(
+                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                if (saved == null) {
+                    call.reject("Could not create the Downloads entry");
+                    return;
+                }
+                try (java.io.InputStream in = openSource(source);
+                     java.io.OutputStream out = resolver.openOutputStream(saved)) {
+                    pump(in, out);
+                }
+                values.clear();
+                values.put(android.provider.MediaStore.Downloads.IS_PENDING, 0);
+                resolver.update(saved, values, null, null);
+            } else {
+                // Pre-Q has no MediaStore Downloads collection: write the file
+                // and hand it to the scanner so it still shows up.
+                File target = new File(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                    availableFilename(filename));
+                try (java.io.InputStream in = openSource(source);
+                     java.io.OutputStream out = new java.io.FileOutputStream(target)) {
+                    pump(in, out);
+                }
+                android.media.MediaScannerConnection.scanFile(
+                    getContext(), new String[] { target.getAbsolutePath() },
+                    new String[] { mimeType }, null);
+                saved = Uri.fromFile(target);
+            }
+            notifySavedFile(saved, mimeType, title, text);
+            JSObject result = new JSObject();
+            result.put("uri", saved.toString());
+            result.put("filename", filename);
+            call.resolve(result);
+        } catch (Exception error) {
+            // The JS caller falls back to DownloadManager on any rejection, so
+            // a failure here costs a re-download, never the file.
+            call.reject("Could not save into Downloads", error);
+        }
+    }
+
+    private java.io.InputStream openSource(String source) throws Exception {
+        Uri uri = Uri.parse(source);
+        String scheme = uri.getScheme();
+        if ("content".equals(scheme)) {
+            return getContext().getContentResolver().openInputStream(uri);
+        }
+        return new java.io.FileInputStream(
+            "file".equals(scheme) ? new File(uri.getPath()) : new File(source));
+    }
+
+    private void pump(java.io.InputStream in, java.io.OutputStream out) throws Exception {
+        if (in == null || out == null) throw new java.io.IOException("Unreadable source file");
+        byte[] buffer = new byte[128 * 1024];
+        int read;
+        while ((read = in.read(buffer)) > 0) out.write(buffer, 0, read);
+        out.flush();
+    }
+
+    private void notifySavedFile(Uri uri, String mimeType, String title, String text) {
+        // The DownloadManager path gets Android's own completion notification;
+        // this path writes the file itself, so it has to post its own. Tapping
+        // opens the video (a raw file:// would throw FileUriExposedException on
+        // N+, hence the FileProvider). Best-effort: without a POST_NOTIFICATIONS
+        // grant, or on any failure, the in-app toast already covers the UX.
+        try {
+            Uri viewUri = uri;
+            if ("file".equals(viewUri.getScheme())) {
+                viewUri = androidx.core.content.FileProvider.getUriForFile(
                     getContext(), getContext().getPackageName() + ".fileprovider",
-                    new File(uri.getPath()));
+                    new File(viewUri.getPath()));
             }
             Intent view = new Intent(Intent.ACTION_VIEW)
-                .setDataAndType(uri, mimeType)
+                .setDataAndType(viewUri, mimeType)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             android.app.PendingIntent pending = android.app.PendingIntent.getActivity(
                 getContext(), (int) (System.currentTimeMillis() & 0x7fffffff), view,
@@ -166,7 +266,6 @@ public class NativeDownloaderPlugin extends Plugin {
         } catch (Exception ignored) {
             // Missing permission, unparseable uri, no provider path - all fine.
         }
-        call.resolve();
     }
 
     @PluginMethod
