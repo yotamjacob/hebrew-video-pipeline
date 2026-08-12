@@ -67,6 +67,56 @@ def _errors_since(store, since: float) -> int:
     return n
 
 
+_DIGEST_DIVIDER = "<div style='border-top:1px solid #EDE9FE;margin:18px 0'></div>"
+
+
+def _digest_subject(count: int, new_users: int, over: bool) -> str:
+    flag = " - OVER THRESHOLD" if over else ""
+    new_bit = f", {new_users} new user(s)" if new_users else ""
+    return f"Pipeline usage: {count} videos{new_bit} in 24h{flag}"
+
+
+def _digest_body_html(count, users, threshold, cost, accounts, errors) -> str:
+    """Sectioned digest body for the _email_html slot: a hero count, then one
+    labeled section per topic with a hairline divider between sections (same
+    #EDE9FE hairline as the card border). Inline styles only - email clients
+    ignore <style> blocks. Cost per video rides along because it is the number
+    that decides whether a credit is priced right."""
+    def section(label, lines):
+        return ("<div>"
+                "<div style='font-size:11px;font-weight:700;letter-spacing:1.5px;"
+                f"text-transform:uppercase;color:#7C3AED;margin:0 0 6px'>{label}</div>"
+                f"<div style='color:#6B7080;font-size:14px;line-height:1.6'>{'<br>'.join(lines)}</div>"
+                "</div>")
+
+    hero = ("<div style='margin:6px 0 0'>"
+            f"<div style='font-size:36px;font-weight:800;color:#1E1033;line-height:1.15'>{count}</div>"
+            "<div style='color:#6B7080;font-size:14px;line-height:1.6'>"
+            f"videos processed in the last 24 hours<br>by {users} user(s) - "
+            f"alert threshold {threshold}</div>"
+            "</div>")
+    sections = [hero]
+    if cost["videos"]:
+        sections.append(section("Compute", [
+            f"<b style='color:#1E1033'>${cost['usd']}</b> total - ${cost['usd_per_video']} per video",
+            f"{cost['gpu_secs']}s GPU, {cost['cpu_secs']}s CPU"]))
+    if accounts["new"]:
+        src_bits = ", ".join(f"{s}: {n}" for s, n in
+                             sorted(accounts["new_by_src"].items(), key=lambda kv: -kv[1]))
+        auth_bits = ", ".join(f"{a}: {n}" for a, n in
+                              sorted(accounts["new_by_auth"].items(), key=lambda kv: -kv[1]))
+        user_lines = [f"<b style='color:#1E1033'>{accounts['new']}</b> new signup(s) "
+                      f"({src_bits}; via {auth_bits})",
+                      f"{accounts['total']} accounts total"]
+    else:
+        user_lines = ["No new signups", f"{accounts['total']} accounts total"]
+    sections.append(section("Users", user_lines))
+    sections.append(section("Errors",
+                            [f"<b style='color:#B3261E'>{errors}</b> client error report(s)"
+                             if errors else "No client errors reported"]))
+    return _DIGEST_DIVIDER.join(sections)
+
+
 
 @app.function(image=light_image, schedule=modal.Period(days=1),
               secrets=[modal.Secret.from_name("hebpipe-auth"),
@@ -88,29 +138,11 @@ def daily_usage_report() -> dict:
           f"src={accounts['new_by_src']}; {errors} client error(s)")
     if admin_email:
         site = os.environ.get("SITE_URL", "https://hebrew-pipeline.app")
-        flag = " - OVER THRESHOLD" if over else ""
-        # Cost per video is the number that decides whether a credit is priced
-        # right, so it rides along with the volume digest.
-        cost_line = (f"Compute: ${cost['usd']} total, ${cost['usd_per_video']} per video "
-                     f"({cost['gpu_secs']}s GPU, {cost['cpu_secs']}s CPU)."
-                     if cost["videos"] else "")
-        src_bits = ", ".join(f"{s}: {n}" for s, n in
-                             sorted(accounts["new_by_src"].items(), key=lambda kv: -kv[1]))
-        auth_bits = ", ".join(f"{a}: {n}" for a, n in
-                              sorted(accounts["new_by_auth"].items(), key=lambda kv: -kv[1]))
-        users_line = (f"{accounts['new']} new signup(s) in the last 24 hours "
-                      f"({src_bits}; via {auth_bits}) - {accounts['total']} accounts total."
-                      if accounts["new"] else
-                      f"No new signups in the last 24 hours - {accounts['total']} accounts total.")
-        errors_line = (f"{errors} client error report(s) in the last 24 hours."
-                       if errors else "No client errors reported.")
-        new_bit = f", {accounts['new']} new user(s)" if accounts["new"] else ""
-        body = "<br>".join(line for line in (
-            f"{count} videos processed by {users} user(s) in the last 24 hours "
-            f"(alert threshold: {threshold}).",
-            cost_line, users_line, errors_line) if line)
-        _send_email(admin_email, f"Pipeline usage: {count} videos{new_bit} in 24h{flag}",
-                    _email_html("Daily usage digest", body, "Open the app", site))
+        _send_email(admin_email, _digest_subject(count, accounts["new"], over),
+                    _email_html("Daily usage digest",
+                                _digest_body_html(count, users, threshold,
+                                                  cost, accounts, errors),
+                                "Open the app", site))
     else:
         print("[usage] ADMIN_EMAIL not set — digest logged only")
     return {"count": count, "users": users, "over_threshold": over, "cost": cost,

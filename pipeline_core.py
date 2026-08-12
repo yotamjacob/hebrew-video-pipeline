@@ -757,7 +757,10 @@ def _send_email(to: str, subject: str, html: str) -> bool:
 
 
 def _email_html(title: str, body_line: str, button_label: str, url: str) -> str:
-    """Small branded HTML wrapper shared by verification + reset emails."""
+    """Small branded HTML wrapper shared by verification + reset + digest
+    emails. The body slot is a <div>, not a <p>: the digest passes block-level
+    section markup, and a <p> would auto-close in front of the first inner
+    <div> and break the layout."""
     return (
         "<div style='font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;"
         "background:#F2EEF8;padding:32px;text-align:center'>"
@@ -765,7 +768,7 @@ def _email_html(title: str, body_line: str, button_label: str, url: str) -> str:
         "border-radius:20px;padding:32px 28px'>"
         "<div style='font-weight:800;font-size:20px;color:#6D28D9;margin-bottom:14px'>פייפליין</div>"
         f"<h2 style='color:#1E1033;font-size:19px;margin:0 0 10px'>{title}</h2>"
-        f"<p style='color:#6B7080;font-size:14px;line-height:1.6;margin:0 0 22px'>{body_line}</p>"
+        f"<div style='color:#6B7080;font-size:14px;line-height:1.6;margin:0 0 22px'>{body_line}</div>"
         f"<a href='{url}' style='display:inline-block;background:#7C3AED;color:#fff;text-decoration:none;"
         f"font-weight:700;font-size:15px;padding:12px 26px;border-radius:999px'>{button_label}</a>"
         f"<p style='color:#9AA0AC;font-size:12px;margin:22px 0 0;word-break:break-all'>{url}</p>"
