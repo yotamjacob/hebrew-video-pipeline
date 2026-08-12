@@ -12,8 +12,9 @@ from pipeline_core import (
     _BROLL_KEY_RE, _is_allowed_broll_url,
     jobs_store, JOB_RETENTION_DAYS, SCRATCH_RETENTION_HOURS, pending_store,
     progress_store, calls_store, CALL_RETENTION_SECONDS, _UID_PREFIX_RE,
-    quota_store, _usage_since, _send_email, _email_html, SONNET_MODEL,
+    quota_store, users_store, errors_store, _usage_since, _send_email, _email_html, SONNET_MODEL,
     _send_push, costs_store, COST_RETENTION_DAYS, _cost_summary, _record_ai_spend,
+    _sign_media_token, _poll_fn_call, API_BASE_URL,
     _credit_cost, _upscale_allowed, UPSCALE_MAX_SECONDS,
 )
 
@@ -23,7 +24,50 @@ from pipeline_core import (
 # last 24h and emails the admin, flagging days over USAGE_ALERT_THRESHOLD.
 # Video count is a good proxy for GPU spend (each /process is the expensive
 # stage). Best-effort: no ADMIN_EMAIL/RESEND_API_KEY just logs.
+# Also carries a growth section (new signups + account total) and a client
+# error count, so one email answers "how did yesterday go" end to end.
 # ---------------------------------------------------------------------------
+def _account_digest(store, since: float) -> dict:
+    """One scan of the accounts Dict: total accounts, signups in the window,
+    and a per-source breakdown of those signups. Index entries (uid:/email:
+    → username strings) share the Dict and must be skipped. Legacy records
+    without `created` count toward the total but never as new."""
+    total = new = 0
+    by_src: dict[str, int] = {}
+    by_auth: dict[str, int] = {}
+    for k in store.keys():
+        if k.startswith("uid:") or k.startswith("email:"):
+            continue
+        rec = store.get(k)
+        if not isinstance(rec, dict):
+            continue
+        total += 1
+        if (rec.get("created") or 0) >= since:
+            new += 1
+            src = rec.get("signup_src") or "direct"
+            by_src[src] = by_src.get(src, 0) + 1
+            auth = rec.get("auth") or "code"
+            by_auth[auth] = by_auth.get(auth, 0) + 1
+    return {"total": total, "new": new, "new_by_src": by_src, "new_by_auth": by_auth}
+
+
+def _errors_since(store, since: float) -> int:
+    """Count client error reports newer than `since`. Keys are e:{ms}:{uid8},
+    so the timestamp parses straight out of the key — no value fetches."""
+    n = 0
+    for k in store.keys():
+        if not k.startswith("e:"):
+            continue
+        try:
+            ts_ms = float(k.split(":", 2)[1])
+        except (IndexError, ValueError):
+            continue
+        if ts_ms / 1000.0 >= since:
+            n += 1
+    return n
+
+
+
 @app.function(image=light_image, schedule=modal.Period(days=1),
               secrets=[modal.Secret.from_name("hebpipe-auth"),
                        modal.Secret.from_name("hebpipe-usage")])
@@ -35,25 +79,42 @@ def daily_usage_report() -> dict:
     threshold = int(os.environ.get("USAGE_ALERT_THRESHOLD", "50") or "50")
     admin_email = os.environ.get("ADMIN_EMAIL")
     over = count > threshold
+    accounts = _account_digest(users_store, since)
+    errors = _errors_since(errors_store, since)
     print(f"[usage] 24h: {count} videos, {users} users (threshold {threshold})")
     print(f"[cost] 24h: ${cost['usd']} over {cost['videos']} job(s), "
           f"${cost['usd_per_video']}/video, modes={cost['by_mode']}")
+    print(f"[users] 24h: {accounts['new']} new signup(s), {accounts['total']} total; "
+          f"src={accounts['new_by_src']}; {errors} client error(s)")
     if admin_email:
         site = os.environ.get("SITE_URL", "https://hebrew-pipeline.app")
         flag = " - OVER THRESHOLD" if over else ""
         # Cost per video is the number that decides whether a credit is priced
         # right, so it rides along with the volume digest.
-        cost_line = (f" Compute: ${cost['usd']} total, ${cost['usd_per_video']} per video "
+        cost_line = (f"Compute: ${cost['usd']} total, ${cost['usd_per_video']} per video "
                      f"({cost['gpu_secs']}s GPU, {cost['cpu_secs']}s CPU)."
                      if cost["videos"] else "")
-        _send_email(admin_email, f"Pipeline usage: {count} videos in 24h{flag}",
-                    _email_html("Daily usage digest",
-                                f"{count} videos processed by {users} user(s) in the last 24 hours "
-                                f"(alert threshold: {threshold}).{cost_line}",
-                                "Open the app", site))
+        src_bits = ", ".join(f"{s}: {n}" for s, n in
+                             sorted(accounts["new_by_src"].items(), key=lambda kv: -kv[1]))
+        auth_bits = ", ".join(f"{a}: {n}" for a, n in
+                              sorted(accounts["new_by_auth"].items(), key=lambda kv: -kv[1]))
+        users_line = (f"{accounts['new']} new signup(s) in the last 24 hours "
+                      f"({src_bits}; via {auth_bits}) - {accounts['total']} accounts total."
+                      if accounts["new"] else
+                      f"No new signups in the last 24 hours - {accounts['total']} accounts total.")
+        errors_line = (f"{errors} client error report(s) in the last 24 hours."
+                       if errors else "No client errors reported.")
+        new_bit = f", {accounts['new']} new user(s)" if accounts["new"] else ""
+        body = "<br>".join(line for line in (
+            f"{count} videos processed by {users} user(s) in the last 24 hours "
+            f"(alert threshold: {threshold}).",
+            cost_line, users_line, errors_line) if line)
+        _send_email(admin_email, f"Pipeline usage: {count} videos{new_bit} in 24h{flag}",
+                    _email_html("Daily usage digest", body, "Open the app", site))
     else:
         print("[usage] ADMIN_EMAIL not set — digest logged only")
-    return {"count": count, "users": users, "over_threshold": over, "cost": cost}
+    return {"count": count, "users": users, "over_threshold": over, "cost": cost,
+            "accounts": accounts, "errors_24h": errors}
 
 # ---------------------------------------------------------------------------
 # Off-site metadata backup — the critical Dicts (accounts, History manifest,
@@ -752,6 +813,81 @@ def render_audio(audio_in, segs, out):
 
 
 # ---------------------------------------------------------------------------
+# Readiness-gated completion push (user request, 2026-08-12). The completion
+# push used to fire from inside the GPU worker while the result was NOT yet
+# reachable: the FunctionCall hadn't returned (so /process_poll still answered
+# 202 and the client had no video_key), the api() container could be cold
+# (~4.5s), and its tmp_vol.reload() can lag the worker's commit. A user
+# tapping the push landed on a spinner. Now the worker spawns this notifier,
+# which (1) waits for the worker's own FunctionCall to finish, so the app can
+# fetch the result the moment it opens, then (2) probes the SAME route the
+# preview player uses (/download/{key}, Range: bytes=0-1, real media token)
+# until it serves bytes - which also pre-warms the api() container the tap is
+# about to hit. Only then does the push go out. Text/kind/tag are unchanged;
+# the two-message story holds (docs/processing.md). Every gate is bounded and
+# best-effort: a probe that never succeeds still pushes at the deadline - a
+# late-but-working notification beats a lost one.
+# ---------------------------------------------------------------------------
+@app.function(image=light_image, timeout=240,
+              secrets=[modal.Secret.from_name("hebpipe-auth"),
+                       modal.Secret.from_name("hebpipe-fcm")])
+def notify_when_previewable(uid: str, video_key: str, title: str, body: str,
+                            kind: str, upload_key: str = None):
+    import os, time, urllib.request
+
+    # Gate 1: the result must be collectable via /process_poll (call finished).
+    try:
+        rec = pending_store.get("done:" + upload_key) if upload_key else None
+        call_id = rec.get("call_id") if isinstance(rec, dict) else None
+        if call_id:
+            fc = modal.FunctionCall.from_id(call_id)
+            deadline = time.time() + 90
+            while time.time() < deadline:
+                _, running = _poll_fn_call(fc)
+                if not running:
+                    break
+                time.sleep(1)
+    except Exception as e:
+        print(f"[notify] call-finish gate skipped: {e!r}")
+
+    # Gate 2: the preview URL must actually serve bytes.
+    ready = False
+    try:
+        token = _sign_media_token(uid, os.environ["AUTH_SECRET"])
+        url = f"{API_BASE_URL}/download/{video_key}?token={token}"
+        deadline = time.time() + 90
+        while time.time() < deadline:
+            req = urllib.request.Request(
+                url, headers={"Range": "bytes=0-1",
+                              "User-Agent": "hebrew-video-pipeline/1.0"})
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    if resp.status in (200, 206):
+                        ready = True
+                        break
+            except Exception as e:
+                print(f"[notify] preview not servable yet: {e!r}")
+            time.sleep(2)
+    except Exception as e:
+        print(f"[notify] preview gate skipped: {e!r}")
+    if not ready:
+        print(f"[notify] preview gate timed out for {video_key} - pushing anyway")
+
+    _send_push(uid, title, body, kind=kind, tag="hebpipe-job")
+
+
+def _notify_ready(uid, video_key, title, body, kind, upload_key=None):
+    """Fire the completion push through the readiness-gated notifier. If the
+    spawn itself fails (control-plane hiccup), push directly - slightly early
+    beats lost."""
+    try:
+        notify_when_previewable.spawn(uid, video_key, title, body, kind, upload_key)
+    except Exception as e:
+        print(f"[notify] spawn failed ({e!r}) - pushing directly")
+        _send_push(uid, title, body, kind=kind, tag="hebpipe-job")
+
+
+# ---------------------------------------------------------------------------
 # Core processing — GPU worker
 # ---------------------------------------------------------------------------
 @app.function(
@@ -1300,7 +1436,7 @@ def process_video(
         # captions, so record it here too.
         if is_audio or (not captions_list and not transcribe_for_broll):
             try:
-                _record_job(video_key, filename, cut_path)
+                _record_job(video_key, filename, cut_path, upload_key=upload_key)
                 tmp_vol.commit()
                 prune_volume()
             except Exception:
@@ -1308,15 +1444,17 @@ def process_video(
         else:
             # A burn will follow (captions/B-roll flow) - the user may have
             # backgrounded the app during processing, so tell them the editor
-            # is ready NOW rather than waiting for them to check. kind
-            # "edit_ready" keeps the notification tap on the resumed editor
-            # (video_ready taps jump to History instead).
+            # is ready rather than waiting for them to check. kind "edit_ready"
+            # keeps the notification tap on the resumed editor (video_ready
+            # taps jump to History instead). Goes through the readiness-gated
+            # notifier so the push lands only once the editor's preview is
+            # actually loadable.
             try:
                 _uid = video_key[1:33] if _UID_PREFIX_RE.match(video_key or "") else None
                 if _uid:
-                    _send_push(_uid, "הסרטון מוכן לעריכה",
-                              "העיבוד הסתיים - היכנסו לערוך כתוביות ולסיים את הסרטון.",
-                              kind="edit_ready", tag="hebpipe-job")
+                    _notify_ready(_uid, video_key, "הסרטון מוכן לעריכה",
+                                  "העיבוד הסתיים - היכנסו לערוך כתוביות ולסיים את הסרטון.",
+                                  "edit_ready", upload_key=upload_key)
             except Exception:
                 pass
         _mark(done="save")
@@ -2129,7 +2267,8 @@ def burn_captions_fn(video_key: str, captions_json: str, font: str = "Heebo", ma
 # ---------------------------------------------------------------------------
 # Job history + volume retention
 # ---------------------------------------------------------------------------
-def _record_job(output_key, source_name, out_path, notify=True, edit_state=None):
+def _record_job(output_key, source_name, out_path, notify=True, edit_state=None,
+                upload_key=None):
     """Add a burned output to the History manifest.
 
     `edit_state` (burns only) is everything needed to REOPEN the editor on this
@@ -2142,7 +2281,9 @@ def _record_job(output_key, source_name, out_path, notify=True, edit_state=None)
     (upload done + processing done), and a burn is started from inside the
     editor - its completion is announced by the in-app success banner, not a
     third push. Terminal cut-only jobs keep notify=True: for them THIS is the
-    "processing done" message (no edit_ready fired)."""
+    "processing done" message (no edit_ready fired). The push routes through
+    the readiness-gated notifier (pass `upload_key` so it can wait for the
+    worker's FunctionCall) and lands only once the result is fetchable."""
     import time
     duration = 0.0
     try:
@@ -2165,8 +2306,9 @@ def _record_job(output_key, source_name, out_path, notify=True, edit_state=None)
     # "Your video is ready" push (best-effort; no-op unless FCM is configured).
     uid = output_key[1:33] if _UID_PREFIX_RE.match(output_key) else None
     if uid and notify:
-        _send_push(uid, "הסרטון שלך מוכן", "העיבוד הסתיים - הסרטון מוכן להורדה ולשיתוף.",
-                  kind="video_ready", tag="hebpipe-job")
+        _notify_ready(uid, output_key, "הסרטון שלך מוכן",
+                      "העיבוד הסתיים - הסרטון מוכן להורדה ולשיתוף.",
+                      "video_ready", upload_key=upload_key)
 
 
 def prune_volume():

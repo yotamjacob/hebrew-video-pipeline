@@ -27,7 +27,7 @@ from pipeline_core import (
     throttle_store, _throttle_allowed, _throttle_record_fail, _throttle_clear,
     _poll_fn_call,
     _hash_password, _verify_password, _sign_token, _verify_token,
-    _sign_media_token, _verify_media_token, MEDIA_TOKEN_TTL_SECONDS,
+    _sign_media_token, _verify_media_token, MEDIA_TOKEN_TTL_SECONDS, API_BASE_URL,
     _sanitize_error_context, _count_similar_errors,
     _error_alert_title, _error_alert_body,
     _EMAIL_RE, _sign_scoped_token, _verify_scoped_token, _send_email, _email_html,
@@ -47,9 +47,9 @@ from pipeline_core import (
     _revoke_purchase_grant, PURCHASE_KEY_PREFIXES,
 )
 
-# Public base URLs used to build email links. SITE_URL can be overridden via
-# env once a custom domain is set; the API base is stable.
-API_BASE_URL = "https://yotamjacob--hebrew-video-pipeline-api.modal.run"
+# Public base URLs used to build email links: API_BASE_URL (imported from
+# pipeline_core) is stable; SITE_URL can be overridden via env once a custom
+# domain is set.
 
 
 def _google_play_api(method: str, url: str):

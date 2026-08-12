@@ -191,6 +191,10 @@ codes_store = modal.Dict.from_name("hebpipe-codes", create_if_missing=True)   # 
 APNS_TOKEN_PREFIX = "apns:"
 APNS_BUNDLE_ID = "com.heb.pipeline"
 
+# Public API base (also hardcoded in site/app.js). Lives here so workers can
+# probe their own public routes (readiness-gated completion push).
+API_BASE_URL = "https://yotamjacob--hebrew-video-pipeline-api.modal.run"
+
 
 def _split_push_tokens(tokens):
     """(fcm_tokens, apns_tokens) from one mixed token list."""
