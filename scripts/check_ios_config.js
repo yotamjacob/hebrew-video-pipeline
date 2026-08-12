@@ -37,4 +37,32 @@ if (!fs.existsSync(path.join(publicDir, 'index.html'))) {
   process.exit(1);
 }
 
-console.log('[ios-config] OK - assets are bundled and no server.url is set.');
+// The bundle IS the app on iOS (no remote frontend), so a stale copy ships
+// stale UI no footer tag can reveal. Compare the version stamp, not mtimes.
+const versionOf = (p) => {
+  const m = fs.readFileSync(p, 'utf8').match(/APP_VERSION\s*=\s*['"]([^'"]+)['"]/);
+  return m && m[1];
+};
+const siteVer = versionOf(path.join(__dirname, '..', 'site', 'app.js'));
+const bundleVer = versionOf(path.join(publicDir, 'app.js'));
+if (!siteVer || siteVer !== bundleVer) {
+  console.error(
+    `[ios-config] REFUSING: bundled app.js is ${bundleVer || 'unversioned'} but site/app.js is ${siteVer}.\n` +
+    '              Re-run "npm run sync:ios" so the archive ships the current frontend.');
+  process.exit(1);
+}
+
+// NativeBillingPlugin is registered by AppViewController (capacitorDidLoad +
+// registerPluginInstance) because it is not an SPM package and therefore never
+// appears in packageClassList - the only list the stock bridge reads. If the
+// storyboard stops instantiating the subclass, IAP silently dies. Assert it.
+const storyboard = fs.readFileSync(
+  path.join(__dirname, '..', 'ios', 'App', 'App', 'Base.lproj', 'Main.storyboard'), 'utf8');
+if (!storyboard.includes('customClass="AppViewController"')) {
+  console.error(
+    '[ios-config] REFUSING: Main.storyboard no longer instantiates AppViewController -\n' +
+    '              NativeBillingPlugin would never register and in-app purchase dies.');
+  process.exit(1);
+}
+
+console.log(`[ios-config] OK - bundled ${bundleVer}, no server.url, billing bridge wired.`);

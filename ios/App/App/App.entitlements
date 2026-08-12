@@ -2,10 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- "Video is ready" pushes (@capacitor/push-notifications + FCM, the same
-	     backend _send_fcm path Android uses). Xcode's automatic signing swaps
-	     this to "production" for App Store/TestFlight builds; the value here is
-	     what a local device build uses.
+	<!-- "Video is ready" pushes. iOS goes STRAIGHT to APNs (backend _send_apns,
+	     apns:-prefixed tokens) - there is no Firebase in the iOS app; FCM is the
+	     Android path only. Xcode's automatic signing swaps this to "production"
+	     for App Store/TestFlight builds; the value here is what a local device
+	     build uses.
 	     In-app purchase deliberately has NO entitlement key - it is enabled on
 	     the App ID in the developer portal and nowhere else. -->
 	<key>aps-environment</key>
