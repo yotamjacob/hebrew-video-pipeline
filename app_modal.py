@@ -251,6 +251,7 @@ def _code_email_html(code: str) -> str:
 from pipeline_fns import process_video, burn_captions_fn, backup_dicts, restore_dicts, build_caption_ass
 from broll_fns import analyze_stock_broll, search_stock_clips
 from content_fns import generate_hook_options, generate_caption_options
+from assembler_fns import analyze_story, render_story
 from metricool_fns import (
     schedule_post_fn, oauth_store, _mc_refresh_access_token, _mcp_tool_call,
     _build_metricool_info,
@@ -3287,6 +3288,127 @@ def api():
 
         if path.startswith("/generate-hook-poll/") and method == "GET":
             call_id = path[len("/generate-hook-poll/"):].rstrip("/")
+            if not _call_owned(call_id):
+                await send_error("Forbidden", 403)
+                return
+            try:
+                import modal as _modal
+                fn_call = _modal.functions.FunctionCall.from_id(call_id)
+                result, still_running = _poll_fn_call(fn_call)
+                if still_running:
+                    body = json.dumps({"status": "running"}).encode()
+                    await send({"type": "http.response.start", "status": 202,
+                                "headers": CORS + [(b"content-type", b"application/json")]})
+                    await send({"type": "http.response.body", "body": body})
+                    return
+                body = json.dumps(result).encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": body})
+            except Exception as e:
+                await send_error(str(e))
+            return
+
+        # ── Story Assembler (standalone /assembler page, hidden beta) ────────
+        # Additive routes only - the main pipeline is untouched (user
+        # directive 2026-08-13). Uploads reuse /upload_chunk; the render
+        # output lands in History via the standard _out.mp4 + _record_job
+        # conventions inside assembler_fns. NO credits charged while the page
+        # is unlinked - price the render spawn before making it public.
+        if path in ("/assembler/analyze", "/assembler/analyze/") and method == "POST":
+            if not _check_rate_limit(_get_client_ip(scope)):
+                await send_error("Rate limit exceeded. Try again in a minute.", 429, code="rate_limited")
+                return
+            try:
+                data = json.loads((await _read_body(receive)).decode("utf-8"))
+            except Exception:
+                await send_error("Invalid request body", 400)
+                return
+            key = (data.get("upload_key") or "").strip()
+            if not key or not _SAFE_KEY_RE.match(key):
+                await send_error("Invalid or missing key", 400)
+                return
+            try:
+                call = analyze_story.spawn(f"{uprefix}{key}",
+                                           str(data.get("filename") or "video.mp4")[:120])
+                _record_call(call)
+                resp = json.dumps({"call_id": call.object_id}).encode()
+                await send({"type": "http.response.start", "status": 202,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": resp})
+            except Exception as e:
+                await send_error(str(e))
+            return
+
+        if path.startswith("/assembler/analyze-poll/") and method == "GET":
+            call_id = path[len("/assembler/analyze-poll/"):].rstrip("/")
+            if not _call_owned(call_id):
+                await send_error("Forbidden", 403)
+                return
+            try:
+                import modal as _modal
+                fn_call = _modal.functions.FunctionCall.from_id(call_id)
+                result, still_running = _poll_fn_call(fn_call)
+                if still_running:
+                    body = json.dumps({"status": "running"}).encode()
+                    await send({"type": "http.response.start", "status": 202,
+                                "headers": CORS + [(b"content-type", b"application/json")]})
+                    await send({"type": "http.response.body", "body": body})
+                    return
+                body = json.dumps(result).encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": body})
+            except Exception as e:
+                await send_error(str(e))
+            return
+
+        if path in ("/assembler/render", "/assembler/render/") and method == "POST":
+            if not _check_rate_limit(_get_client_ip(scope)):
+                await send_error("Rate limit exceeded. Try again in a minute.", 429, code="rate_limited")
+                return
+            try:
+                data = json.loads((await _read_body(receive)).decode("utf-8"))
+            except Exception:
+                await send_error("Invalid request body", 400)
+                return
+            key = (data.get("upload_key") or "").strip()
+            if not key or not _SAFE_KEY_RE.match(key):
+                await send_error("Invalid or missing key", 400)
+                return
+            segs = data.get("segments")
+            # Bounded: 1-16 windows, numeric, each ≥0.5s, total ≤ 10 minutes.
+            ok = isinstance(segs, list) and 1 <= len(segs) <= 16
+            total = 0.0
+            if ok:
+                for seg in segs:
+                    try:
+                        a, b = float(seg[0]), float(seg[1])
+                    except (TypeError, ValueError, IndexError):
+                        ok = False
+                        break
+                    if not (0 <= a < b and b - a >= 0.5):
+                        ok = False
+                        break
+                    total += b - a
+            if not ok or total > 600:
+                await send_error("Invalid segments", 400, code="bad_segments")
+                return
+            try:
+                call = render_story.spawn(f"{uprefix}{key}",
+                                          [[float(s[0]), float(s[1])] for s in segs],
+                                          str(data.get("filename") or "story.mp4")[:120])
+                _record_call(call)
+                resp = json.dumps({"call_id": call.object_id}).encode()
+                await send({"type": "http.response.start", "status": 202,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": resp})
+            except Exception as e:
+                await send_error(str(e))
+            return
+
+        if path.startswith("/assembler/render-poll/") and method == "GET":
+            call_id = path[len("/assembler/render-poll/"):].rstrip("/")
             if not _call_owned(call_id):
                 await send_error("Forbidden", 403)
                 return

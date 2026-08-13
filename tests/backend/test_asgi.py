@@ -549,6 +549,49 @@ class TestStatsRoute:
         assert b"public, max-age=60".decode() in block
 
 
+class TestAssemblerRoutes:
+    """/assembler/* - the standalone Story Assembler page (hidden beta).
+    Additive routes; the main pipeline must stay untouched."""
+
+    def _analyze(self):
+        i = MODAL_SRC.index('("/assembler/analyze"')
+        return MODAL_SRC[i:i + 1800]
+
+    def _render(self):
+        i = MODAL_SRC.index('("/assembler/render"')
+        return MODAL_SRC[i:i + 2600]
+
+    def test_keys_are_prefix_scoped_and_validated(self):
+        # Client sends its bare key; the route namespaces it with the caller's
+        # uid prefix, so one user can never analyze/render another's upload.
+        for block in (self._analyze(), self._render()):
+            assert "_SAFE_KEY_RE.match(key)" in block
+            assert 'f"{uprefix}{key}"' in block
+
+    def test_polls_enforce_spawn_ownership(self):
+        for marker in ("/assembler/analyze-poll/", "/assembler/render-poll/"):
+            i = MODAL_SRC.index(f'"{marker}"')
+            assert "_call_owned(call_id)" in MODAL_SRC[i:i + 700]
+
+    def test_render_segments_are_bounded(self):
+        block = self._render()
+        assert "1 <= len(segs) <= 16" in block
+        assert "total > 600" in block
+        assert "b - a >= 0.5" in block
+
+    def test_render_lands_in_history_via_standard_conventions(self):
+        i = MODAL_SRC.index("def render_story")
+        block = MODAL_SRC[i:i + 2600]
+        assert '_out.mp4' in block
+        assert "_record_job(out_key" in block
+
+    def test_moment_picking_snaps_to_segment_boundaries(self):
+        i = MODAL_SRC.index("def _pick_moments")
+        block = MODAL_SRC[i:i + 3000]
+        assert "from_seg" in block and "to_seg" in block
+        assert 'segs[a]["start"]' in block and 'segs[b]["end"]' in block
+
+
 class TestAppleBillingRoute:
     """/billing/apple/verify + the App Store Server Notifications webhook.
     Route bodies are closures inside api() - guard the source."""

@@ -85,7 +85,7 @@ image = (
     # Local backend modules must be shipped explicitly (Modal 1.x no longer automounts imports)
     .add_local_python_source(
         "pipeline_core", "pipeline_fns", "stock_helpers",
-        "broll_fns", "content_fns", "metricool_fns",
+        "broll_fns", "content_fns", "metricool_fns", "assembler_fns",
     )
 )
 
@@ -101,7 +101,7 @@ burn_image = (
     .run_commands(*_FONT_CMDS, *_YUNET_CMD)
     .add_local_python_source(
         "pipeline_core", "pipeline_fns", "stock_helpers",
-        "broll_fns", "content_fns", "metricool_fns",
+        "broll_fns", "content_fns", "metricool_fns", "assembler_fns",
     )
 )
 
@@ -121,7 +121,7 @@ light_image = (
     .run_commands(*_FONT_CMDS, *_YUNET_CMD)
     .add_local_python_source(
         "pipeline_core", "pipeline_fns", "stock_helpers",
-        "broll_fns", "content_fns", "metricool_fns",
+        "broll_fns", "content_fns", "metricool_fns", "assembler_fns",
     )
 )
 

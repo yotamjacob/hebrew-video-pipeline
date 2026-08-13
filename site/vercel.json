@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/welcome", "destination": "/welcome.html" },
+    { "source": "/assembler", "destination": "/assembler.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

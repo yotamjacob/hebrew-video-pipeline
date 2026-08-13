@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>פייפליין סטורי - הרכבת סיפור מסרטון גלם</title>
+  <meta name="robots" content="noindex" />
+  <link rel="icon" type="image/svg+xml" href="img/logo.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@400;500&family=Assistant:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --purple-800: #55563F; --purple-700: #6E7F5C; --purple-600: #7E8E6A;
+      --purple-100: #E6DCCB; --purple-50: #EFE8DA;
+      --bg: #E8DFD3; --white: #F4ECE0; --text: #3E3A34; --muted: #7C7568; --line: #DBCFBD;
+      --terracotta: #C4703F; --terracotta-dark: #B85C38; --sage-dark: #55604A;
+      --forest: #35633F; --red: #B0503C; --amber: #C4913F;
+      --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Assistant', system-ui, sans-serif;
+      background: var(--bg); background-image: var(--grain); background-blend-mode: multiply;
+      color: var(--text);
+      min-height: 100vh;
+      min-height: 100svh;
+      padding: 28px 16px 60px;
+    }
+    .wrap { max-width: 680px; margin: 0 auto; }
+    .head { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 4px; }
+    .head img { width: 40px; height: 40px; }
+    h1 { font-family: 'Frank Ruhl Libre', 'David', serif; font-weight: 500; font-size: 1.7rem; }
+    .beta {
+      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em;
+      background: var(--amber); color: var(--white); border-radius: 999px; padding: 2px 10px;
+      align-self: flex-start; margin-top: 4px;
+    }
+    .sub { text-align: center; color: var(--sage-dark); font-size: 0.95rem; margin-bottom: 24px; }
+    .card {
+      background: var(--white); border: 1px solid var(--purple-100); border-radius: 18px;
+      padding: 22px 20px; margin-bottom: 14px;
+      box-shadow: 0 2px 10px rgba(85, 86, 63, 0.06);
+    }
+    .card h2 { font-family: 'Frank Ruhl Libre', serif; font-weight: 500; font-size: 1.1rem; color: var(--purple-800); margin-bottom: 10px; }
+    .drop {
+      border: 2px dashed var(--purple-600); border-radius: 14px;
+      padding: 34px 16px; text-align: center; cursor: pointer; color: var(--sage-dark); font-weight: 600;
+    }
+    .drop:hover { background: var(--purple-50); }
+    .hint { font-size: 0.78rem; color: var(--muted); margin-top: 8px; text-align: center; }
+    .bar-wrap { background: var(--purple-50); border-radius: 999px; height: 12px; overflow: hidden; margin: 14px 0 6px; display: none; }
+    .bar { background: var(--terracotta); height: 100%; width: 0%; transition: width 0.25s ease; }
+    .stage { text-align: center; color: var(--sage-dark); font-size: 0.9rem; font-weight: 600; min-height: 1.4em; }
+    .spinner {
+      display: inline-block; width: 14px; height: 14px; vertical-align: -2px; margin-inline-end: 7px;
+      border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .board { display: none; }
+    .board-title { font-family: 'Frank Ruhl Libre', serif; font-size: 1.05rem; color: var(--purple-800); margin-bottom: 4px; }
+    .board-sub { font-size: 0.8rem; color: var(--muted); margin-bottom: 14px; }
+    .moment {
+      display: flex; gap: 12px; align-items: flex-start;
+      background: var(--white); border: 1.5px solid var(--purple-100); border-radius: 14px;
+      padding: 12px; margin-bottom: 10px;
+    }
+    .moment.dropped { opacity: 0.45; }
+    .moment img { width: 92px; border-radius: 8px; flex-shrink: 0; background: var(--purple-50); min-height: 52px; }
+    .m-meta { flex: 1; min-width: 0; }
+    .m-role {
+      display: inline-block; font-size: 0.68rem; font-weight: 700; border-radius: 999px;
+      padding: 2px 10px; margin-bottom: 4px; background: var(--purple-50); color: var(--sage-dark);
+      border: 1px solid var(--line);
+    }
+    .m-role.hook { background: var(--terracotta); color: var(--white); border-color: var(--terracotta); }
+    .m-role.gold { background: var(--forest); color: var(--white); border-color: var(--forest); }
+    .m-quote { font-size: 0.9rem; font-weight: 600; line-height: 1.45; }
+    .m-reason { font-size: 0.78rem; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+    .m-time { font-size: 0.72rem; color: var(--sage-dark); margin-top: 4px; font-weight: 600; }
+    .m-ctl { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+    .m-ctl button {
+      width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line);
+      background: transparent; cursor: pointer; color: var(--sage-dark); font-size: 0.9rem;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .m-ctl button:hover { background: var(--purple-50); }
+    .m-ctl .drop-btn.on { color: var(--red); border-color: var(--red); }
+    .total { text-align: center; font-weight: 700; color: var(--sage-dark); margin: 12px 0; }
+    .cta {
+      display: block; width: 100%; padding: 14px; border: none; border-radius: 999px;
+      background: var(--terracotta); color: var(--white); font-family: inherit;
+      font-size: 1rem; font-weight: 700; cursor: pointer;
+    }
+    .cta:hover { background: var(--terracotta-dark); }
+    .cta:disabled { opacity: 0.6; cursor: default; }
+    .err { display: none; background: #F7E8E4; border: 1px solid var(--red); color: var(--red);
+      border-radius: 12px; padding: 10px 14px; font-size: 0.88rem; font-weight: 600; margin-top: 10px; }
+    .result { display: none; text-align: center; }
+    .result video { width: 100%; max-height: 420px; border-radius: 14px; background: #000; margin-bottom: 12px; }
+    .result a { color: var(--purple-700); font-weight: 700; }
+    .foot { text-align: center; margin-top: 26px; font-size: 0.78rem; color: var(--muted); }
+    .foot a { color: var(--purple-700); font-weight: 600; text-decoration: none; }
+    #authGate { text-align: center; }
+    #authGate a { color: var(--terracotta); font-weight: 700; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <img src="img/logo.svg" alt="" />
+    <h1>פייפליין סטורי</h1>
+    <span class="beta">BETA</span>
+  </div>
+  <p class="sub">מעלים סרטון גלם ארוך - מקבלים סטוריבורד של הרגעים החזקים, בוחרים ומסדרים, ויוצא סרטון מסופר וקצר.</p>
+
+  <div class="card" id="authGate" style="display:none">
+    <h2>נדרשת התחברות</h2>
+    <p style="font-size:0.9rem">מתחברים פעם אחת <a href="/">באפליקציה הראשית</a>, וחוזרים לכאן - ההתחברות נשמרת.</p>
+  </div>
+
+  <div class="card" id="uploadCard" style="display:none">
+    <h2>1 · סרטון הגלם</h2>
+    <div class="drop" id="drop">בחרו או גררו סרטון גלם אחד<input type="file" id="file" accept="video/*" style="display:none" /></div>
+    <p class="hint">ראיון, סקירה או צילום רציף · עד 20 דקות · הניתוח לא מנצל קרדיטים בשלב הבטא</p>
+    <div class="bar-wrap" id="barWrap"><div class="bar" id="bar"></div></div>
+    <p class="stage" id="stage"></p>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div class="card board" id="board">
+    <h2>2 · הסטוריבורד המוצע</h2>
+    <div class="board-title" id="boardTitle"></div>
+    <div class="board-sub">אפשר להוריד רגעים, להחזיר אותם ולשנות סדר - הסרטון ירונדר לפי הסדר שכאן.</div>
+    <div id="moments"></div>
+    <div class="total" id="total"></div>
+    <button class="cta" id="renderBtn">יצירת הסרטון</button>
+    <p class="stage" id="renderStage" style="margin-top:10px"></p>
+    <div class="err" id="renderErr"></div>
+  </div>
+
+  <div class="card result" id="result">
+    <h2>3 · הסרטון שלכם</h2>
+    <video id="outVideo" controls playsinline></video>
+    <p><a id="dlLink" href="#" download>הורדת הסרטון</a> · הסרטון נשמר גם בהיסטוריה <a href="/">באפליקציה</a></p>
+  </div>
+
+  <p class="foot">Story Assembler - שלב 1 (בטא שקטה) · <a href="/">חזרה לפייפליין</a></p>
+</div>
+
+<script>
+  const API_BASE = 'https://yotamjacob--hebrew-video-pipeline-api.modal.run';
+  const CHUNK = 2 * 1024 * 1024;
+  const token = localStorage.getItem('hebpipe_token') || '';
+  const $ = (id) => document.getElementById(id);
+
+  let uploadKey = null, fileName = '', moments = [], mediaToken = '';
+
+  function uuid() {
+    const a = new Uint8Array(16);
+    (crypto.getRandomValues ? crypto.getRandomValues(a) : a.fill(0));
+    return Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  function fmt(s) {
+    const m = Math.floor(s / 60), r = Math.round(s % 60);
+    return m + ':' + String(r).padStart(2, '0');
+  }
+  function showErr(el, msg) { el.textContent = msg; el.style.display = 'block'; }
+
+  // ── Boot: token gate ──
+  if (!token) { $('authGate').style.display = ''; }
+  else { $('uploadCard').style.display = ''; }
+
+  // ── Upload (chunked, same backend endpoints as the main app) ──
+  $('drop').addEventListener('click', () => $('file').click());
+  $('drop').addEventListener('dragover', (e) => e.preventDefault());
+  $('drop').addEventListener('drop', (e) => { e.preventDefault(); if (e.dataTransfer.files[0]) start(e.dataTransfer.files[0]); });
+  $('file').addEventListener('change', () => { if ($('file').files[0]) start($('file').files[0]); });
+
+  async function start(file) {
+    $('err').style.display = 'none';
+    if (file.size > 1024 * 1024 * 1024) { showErr($('err'), 'הקובץ גדול מדי (עד 1GB)'); return; }
+    uploadKey = uuid(); fileName = file.name;
+    $('barWrap').style.display = 'block';
+    $('stage').innerHTML = '<span class="spinner"></span>מעלים את הסרטון...';
+    try {
+      const chunks = Math.ceil(file.size / CHUNK);
+      for (let i = 0; i < chunks; i++) {
+        const blob = file.slice(i * CHUNK, (i + 1) * CHUNK);
+        const r = await fetch(API_BASE + '/upload_chunk/', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + token, 'X-Upload-Key': uploadKey, 'X-Upload-Index': String(i) },
+          body: blob,
+        });
+        if (r.status === 401) throw new Error('auth');
+        if (!r.ok) throw new Error('upload ' + r.status);
+        $('bar').style.width = Math.round(((i + 1) / chunks) * 100) + '%';
+      }
+      await analyze();
+    } catch (e) {
+      if (e.message === 'auth') { $('authGate').style.display = ''; $('uploadCard').style.display = 'none'; return; }
+      showErr($('err'), 'ההעלאה נכשלה - נסו שוב. (' + e.message + ')');
+      $('stage').textContent = '';
+    }
+  }
+
+  // ── Analyze: transcribe + pick golden moments ──
+  async function analyze() {
+    $('stage').innerHTML = '<span class="spinner"></span>מתמללים ומחפשים את רגעי הזהב... (כמה דקות)';
+    const r = await fetch(API_BASE + '/assembler/analyze/', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ upload_key: uploadKey, filename: fileName }),
+    });
+    if (!r.ok) { showErr($('err'), 'הניתוח נכשל (' + r.status + ')'); $('stage').textContent = ''; return; }
+    const { call_id } = await r.json();
+    const result = await poll('/assembler/analyze-poll/' + call_id);
+    if (!result || result.error) {
+      const msgs = { too_short: 'הסרטון קצר מדי לסיפור (מתחת ל-20 שניות).',
+                     no_speech: 'לא זוהה מספיק דיבור בסרטון.',
+                     no_moments: 'לא הצלחנו לבנות סטוריבורד מהסרטון הזה.' };
+      showErr($('err'), msgs[result && result.error] || 'הניתוח נכשל - נסו שוב.');
+      $('stage').textContent = '';
+      return;
+    }
+    $('stage').textContent = '';
+    renderBoard(result);
+  }
+
+  async function poll(path) {
+    for (let i = 0; i < 200; i++) {
+      await new Promise((res) => setTimeout(res, 3000));
+      try {
+        const r = await fetch(API_BASE + path, { headers: { 'Authorization': 'Bearer ' + token } });
+        if (r.status === 202) continue;
+        if (!r.ok) return null;
+        return await r.json();
+      } catch (_) { /* transient - keep polling */ }
+    }
+    return null;
+  }
+
+  // ── Storyboard ──
+  const ROLES = { hook: 'פתיח', story: 'סיפור', gold: 'רגע זהב', closing: 'סגירה' };
+  function renderBoard(result) {
+    moments = result.moments.map((m, i) => ({ ...m, keep: true, id: i }));
+    $('boardTitle').textContent = result.title || '';
+    $('board').style.display = 'block';
+    drawMoments();
+    $('board').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function drawMoments() {
+    const box = $('moments');
+    box.innerHTML = '';
+    moments.forEach((m, idx) => {
+      const row = document.createElement('div');
+      row.className = 'moment' + (m.keep ? '' : ' dropped');
+      const img = document.createElement('img');
+      if (m.thumb) img.src = 'data:image/jpeg;base64,' + m.thumb;
+      const meta = document.createElement('div');
+      meta.className = 'm-meta';
+      const role = document.createElement('span');
+      role.className = 'm-role ' + m.role;
+      role.textContent = ROLES[m.role] || m.role;
+      const quote = document.createElement('div');
+      quote.className = 'm-quote';
+      quote.textContent = '"' + m.quote + '"';
+      const reason = document.createElement('div');
+      reason.className = 'm-reason';
+      reason.textContent = m.reason;
+      const time = document.createElement('div');
+      time.className = 'm-time';
+      time.textContent = fmt(m.start) + ' - ' + fmt(m.end) + ' (' + Math.round(m.end - m.start) + ' שנ\')';
+      meta.append(role, quote, reason, time);
+      const ctl = document.createElement('div');
+      ctl.className = 'm-ctl';
+      const up = document.createElement('button');
+      up.textContent = '↑'; up.title = 'הזזה למעלה'; up.disabled = idx === 0;
+      up.onclick = () => { [moments[idx - 1], moments[idx]] = [moments[idx], moments[idx - 1]]; drawMoments(); };
+      const down = document.createElement('button');
+      down.textContent = '↓'; down.title = 'הזזה למטה'; down.disabled = idx === moments.length - 1;
+      down.onclick = () => { [moments[idx + 1], moments[idx]] = [moments[idx], moments[idx + 1]]; drawMoments(); };
+      const dropB = document.createElement('button');
+      dropB.className = 'drop-btn' + (m.keep ? '' : ' on');
+      dropB.textContent = '×'; dropB.title = m.keep ? 'הורדת הרגע מהסרטון' : 'החזרת הרגע';
+      dropB.onclick = () => { m.keep = !m.keep; drawMoments(); };
+      ctl.append(up, down, dropB);
+      row.append(img, meta, ctl);
+      box.appendChild(row);
+    });
+    const total = moments.filter((m) => m.keep).reduce((s, m) => s + (m.end - m.start), 0);
+    $('total').textContent = 'אורך הסרטון הסופי: ' + fmt(total);
+    $('renderBtn').disabled = total < 1;
+  }
+
+  // ── Render ──
+  $('renderBtn').addEventListener('click', async () => {
+    $('renderErr').style.display = 'none';
+    const kept = moments.filter((m) => m.keep).map((m) => [m.start, m.end]);
+    if (!kept.length) return;
+    $('renderBtn').disabled = true;
+    $('renderStage').innerHTML = '<span class="spinner"></span>חותכים ומרכיבים את הסיפור...';
+    try {
+      const r = await fetch(API_BASE + '/assembler/render/', {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ upload_key: uploadKey, filename: fileName, segments: kept }),
+      });
+      if (!r.ok) throw new Error('render ' + r.status);
+      const { call_id } = await r.json();
+      const result = await poll('/assembler/render-poll/' + call_id);
+      if (!result || result.error || !result.video_key) throw new Error((result && result.error) || 'render');
+      await showResult(result.video_key);
+    } catch (e) {
+      showErr($('renderErr'), 'הרינדור נכשל - נסו שוב. (' + e.message + ')');
+    }
+    $('renderStage').textContent = '';
+    $('renderBtn').disabled = false;
+  });
+
+  async function showResult(videoKey) {
+    if (!mediaToken) {
+      try {
+        const r = await fetch(API_BASE + '/auth/media-token', { headers: { 'Authorization': 'Bearer ' + token } });
+        mediaToken = (await r.json()).token || '';
+      } catch (_) {}
+    }
+    const url = API_BASE + '/media/' + encodeURIComponent(videoKey) + '?token=' + encodeURIComponent(mediaToken);
+    $('outVideo').src = url;
+    $('dlLink').href = API_BASE + '/download/' + encodeURIComponent(videoKey) + '?token=' + encodeURIComponent(mediaToken);
+    $('result').style.display = 'block';
+    $('result').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+</script>
+</body>
+</html>
