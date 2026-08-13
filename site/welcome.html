@@ -93,6 +93,7 @@
       background-image: var(--grain);
       background-blend-mode: multiply;
       color: var(--text);
+      min-height: 100vh;    /* pre-15.4 Safari drops svh entirely - keep a floor */
       min-height: 100svh;
       display: flex;
       align-items: center;

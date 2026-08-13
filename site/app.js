@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.48.12';
+  const APP_VERSION = '1.48.13';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -75,6 +75,17 @@
     scissors: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><line x1="8.1" y1="7.6" x2="20" y2="18"/><line x1="8.1" y1="16.4" x2="20" y2="6"/></svg>',
     star:     '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3.4l2.47 5.01 5.53.8-4 3.9.94 5.5L12 16.9l-4.95 2.6.94-5.5-4-3.9 5.53-.8z"/></svg>',
   };
+
+  // crypto.randomUUID needs Safari 15.4+ - on older iOS an unguarded call
+  // threw at upload-key/preset time and killed the flow (compat audit,
+  // 2026-08-13). Same dashless-hex shape either way.
+  function _uuid() {
+    try { if (crypto.randomUUID) return crypto.randomUUID().replace(/-/g, ''); } catch (_) {}
+    const a = new Uint8Array(16);
+    if (crypto.getRandomValues) crypto.getRandomValues(a);
+    else for (let i = 0; i < 16; i++) a[i] = Math.floor(Math.random() * 256);
+    return Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
 
   // ── Refresh-for-update ──
   // The editor is a SPA: a long-lived tab (or the Android webview, which
@@ -2008,7 +2019,7 @@
   // and except after the PUT succeeded (the bytes are in R2; the server
   // sweep spawns the job even if the app dies, so re-uploading is wrong).
   async function nativeUpload(desc, onProgress, presetKey) {
-    const key = presetKey || crypto.randomUUID().replace(/-/g, '');
+    const key = presetKey || _uuid();
     // Fastest: N parallel byte-range PUTs via the custom foreground service
     // (binaries that ship ParallelUploader). Then: single presigned PUT via
     // the stock uploader. Last: the classic /upload_stream to Modal.
@@ -3074,7 +3085,7 @@
           resolve((ok === STREAMS && secs > 0) ? (STREAMS * SIZE * 8 / 1e6) / secs : null);
         };
         for (let s = 0; s < STREAMS; s++) {
-          const key = ('probe' + crypto.randomUUID().replace(/-/g, '')).slice(0, 60);
+          const key = ('probe' + _uuid()).slice(0, 60);
           const xhr = new XMLHttpRequest();
           xhr.open('POST', `${API_BASE}/upload_chunk/`);
           xhr.setRequestHeader('Content-Type', 'application/octet-stream');
@@ -3214,7 +3225,7 @@
       let _upMode = 'chunked', _upMeta = selectedFile, _upBlob = stableBlob;
       if (nativeUploadDesc) _upMode = 'stream';
       const uploadKey = _upMode === 'stream'
-        ? crypto.randomUUID().replace(/-/g, '')
+        ? _uuid()
         : _resumeUploadKey(_upMeta);
       params.set('key', uploadKey);
 
@@ -3640,7 +3651,7 @@
     }
     // Too big to hold in RAM: stash on disk via IndexedDB, read back a stable,
     // disk-backed copy. The put reads every byte, so it also detects a bad file.
-    const id = 'up_' + ((crypto.randomUUID && crypto.randomUUID()) || String(file.size) + '_' + file.lastModified);
+    const id = 'up_' + _uuid();
     await _idbPut(id, file);                                 // throws if unreadable
     const stable = await _idbGet(id);
     if (!stable) throw new Error('snapshot readback empty');
@@ -3657,7 +3668,7 @@
   // deferred processing job can be registered against it.
   function _resumeUploadKey(file) {
     const saved = _loadResume(file);
-    return (saved && saved.key) || crypto.randomUUID().replace(/-/g, '');
+    return (saved && saved.key) || _uuid();
   }
 
   async function chunkedUpload(file, source, onProgress, presetKey) {
@@ -3668,7 +3679,7 @@
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     // Reuse a prior in-progress upload for this exact file if one exists.
     const saved = _loadResume(file);
-    const key = presetKey || (saved && saved.key) || crypto.randomUUID().replace(/-/g, '');
+    const key = presetKey || (saved && saved.key) || _uuid();
     // Saved chunk indices only apply when they belong to THIS key.
     const completed = new Set((saved && saved.key === key && saved.completed || []).filter(i => i < totalChunks));
     if (completed.size) console.info(`Upload resume: ${completed.size}/${totalChunks} chunks already sent`);
