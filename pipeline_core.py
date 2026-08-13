@@ -178,6 +178,7 @@ costs_store = modal.Dict.from_name("hebpipe-costs", create_if_missing=True)   # 
 # spawn the entry moves to "done:<key>" → {call_id, uid, ts} for the client.
 pending_store = modal.Dict.from_name("hebpipe-pending", create_if_missing=True)
 codes_store = modal.Dict.from_name("hebpipe-codes", create_if_missing=True)   # normalized email → {salt, hash, exp, attempts, is_new, terms_ts} for passwordless login
+stats_store = modal.Dict.from_name("hebpipe-stats", create_if_missing=True)   # public counters: "total_videos" high-water mark served by GET /stats (landing page)
 
 
 # ── Push token namespacing ────────────────────────────────────────────────────

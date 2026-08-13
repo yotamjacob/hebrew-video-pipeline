@@ -18,7 +18,7 @@ import modal
 from pipeline_core import (
     light_image,
     jobs_store, progress_store, users_store, calls_store, quota_store, purchases_store, fcm_store,
-    pending_store, errors_store, _alert_admins, costs_store, _cost_summary,
+    pending_store, errors_store, _alert_admins, costs_store, _cost_summary, stats_store,
     _record_ai_spend, _face_center_from_image,
     codes_store, _normalize_email, _gen_login_code,
     _verify_google_id_token, GOOGLE_WEB_CLIENT_ID,
@@ -487,6 +487,10 @@ def api():
             if not msg.get("more_body", False):
                 return body
 
+    # /stats result, cached per container (the landing page polls anonymously;
+    # a full quota_store scan per hit would be silly).
+    _stats_cache = {"ts": 0.0, "videos": 0}
+
     async def app(scope, receive, send):
         if scope["type"] != "http":
             return
@@ -544,6 +548,33 @@ def api():
             body = json.dumps({"status": "ok"}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── Public lifetime video counter for the /welcome landing page ──
+        # One quota entry is written per credit-charged processing run; multi-
+        # credit runs add "#n"-suffixed extras, so counting only unsuffixed keys
+        # counts VIDEOS, not credits. Admin/load-test runs never consume and
+        # failed runs are refunded, so neither inflates the number. A monotonic
+        # high-water mark in stats_store keeps the public count from shrinking
+        # when an account deletion removes its quota entries.
+        if path in ("/stats", "/stats/") and method == "GET":
+            import time as _time
+            _now = _time.time()
+            if _now - _stats_cache["ts"] > 60:
+                try:
+                    count = sum(1 for k in quota_store.keys() if "#" not in k)
+                    hwm = int(stats_store.get("total_videos") or 0)
+                    if count > hwm:
+                        stats_store["total_videos"] = count
+                    _stats_cache["videos"] = max(count, hwm)
+                except Exception:
+                    pass   # keep serving the last good value on a store hiccup
+                _stats_cache["ts"] = _now
+            body = json.dumps({"videos": _stats_cache["videos"]}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json"),
+                                           (b"cache-control", b"public, max-age=60")]})
             await send({"type": "http.response.body", "body": body})
             return
 

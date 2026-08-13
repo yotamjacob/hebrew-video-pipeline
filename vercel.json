@@ -2,7 +2,10 @@
   "framework": null,
   "buildCommand": "",
   "outputDirectory": "site",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "rewrites": [
+    { "source": "/welcome", "destination": "/welcome.html" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/(.*)",

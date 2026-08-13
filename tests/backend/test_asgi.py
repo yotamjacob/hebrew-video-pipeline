@@ -522,6 +522,33 @@ class TestProfilesRoute:
         assert "users_store[uname] = urec" in block
 
 
+class TestStatsRoute:
+    """GET /stats: the public lifetime video counter behind /welcome.
+    Route bodies are closures - guard the source."""
+
+    def _block(self):
+        i = MODAL_SRC.index('("/stats"')
+        return MODAL_SRC[i:i + 1600]
+
+    def test_counts_videos_not_credits(self):
+        # Multi-credit runs write "#n"-suffixed extras; only unsuffixed base
+        # keys may be counted, or the public number becomes credits-consumed.
+        assert '"#" not in k' in self._block()
+
+    def test_high_water_mark_is_monotonic(self):
+        # Account deletion removes that user's quota entries - the published
+        # count must never shrink, so serve max(count, hwm) and only raise.
+        block = self._block()
+        assert 'stats_store.get("total_videos")' in block
+        assert "max(count, hwm)" in block
+
+    def test_cached_and_cacheable(self):
+        # Anonymous landing-page polls must not trigger a Dict scan per hit.
+        block = self._block()
+        assert '_stats_cache["ts"] > 60' in block
+        assert b"public, max-age=60".decode() in block
+
+
 class TestAppleBillingRoute:
     """/billing/apple/verify + the App Store Server Notifications webhook.
     Route bodies are closures inside api() - guard the source."""

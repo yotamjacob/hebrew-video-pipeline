@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>פייפליין - עריכת וידאו בעברית בלחיצת כפתור</title>
+  <meta name="description" content="פייפליין הופך צילום מדבר בעברית לסרטון ערוך: כתוביות מסונכרנות, חיתוך שקטים, הוק ו-B-roll. חוסך ליוצרי תוכן שעות של עריכה ותסכול." />
+  <link rel="icon" type="image/svg+xml" href="img/logo.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@400;500&family=Assistant:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --purple-800: #55563F; --purple-700: #6E7F5C; --purple-600: #7E8E6A;
+      --purple-100: #E6DCCB; --purple-50: #EFE8DA;
+      --bg: #E8DFD3; --white: #F4ECE0; --text: #3E3A34; --muted: #7C7568; --line: #DBCFBD;
+      --terracotta: #C4703F; --terracotta-dark: #B85C38; --sage-dark: #55604A;
+      --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Assistant', system-ui, sans-serif;
+      background: var(--bg);
+      background-image: var(--grain);
+      background-blend-mode: multiply;
+      color: var(--text);
+      min-height: 100svh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 20px;
+    }
+    .wrap { width: 100%; max-width: 620px; text-align: center; }
+
+    .logo { width: 84px; height: 84px; display: block; margin: 0 auto 14px; }
+    h1 {
+      font-family: 'Frank Ruhl Libre', 'David', serif;
+      font-weight: 500;
+      font-size: 2.4rem;
+      color: var(--text);
+      letter-spacing: 0.01em;
+    }
+    .tagline {
+      margin-top: 10px;
+      font-size: 1.12rem;
+      font-weight: 500;
+      color: var(--sage-dark);
+      line-height: 1.6;
+    }
+    .tagline-en {
+      direction: ltr;
+      margin-top: 6px;
+      font-size: 0.9rem;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .platforms {
+      margin-top: 30px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .platform {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 18px 12px 16px;
+      background: var(--white);
+      border: 1px solid var(--purple-100);
+      border-radius: 18px;
+      text-decoration: none;
+      color: var(--text);
+      box-shadow: 0 2px 10px rgba(85, 86, 63, 0.06);
+      transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+    }
+    a.platform:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(85, 86, 63, 0.10);
+      border-color: var(--purple-600);
+    }
+    .platform svg { width: 26px; height: 26px; stroke: var(--purple-700); }
+    .platform .name {
+      font-family: 'Frank Ruhl Libre', 'David', serif;
+      font-weight: 500;
+      font-size: 1.05rem;
+    }
+    .platform .status {
+      font-size: 0.78rem;
+      font-weight: 600;
+      border-radius: 999px;
+      padding: 3px 12px;
+      line-height: 1.4;
+    }
+    /* Web — the live product, the one terracotta accent on the page */
+    .platform.web { border-color: var(--terracotta); }
+    .platform.web .status { background: var(--terracotta); color: var(--white); }
+    a.platform.web:hover { border-color: var(--terracotta-dark); }
+    .platform.web svg { stroke: var(--terracotta); }
+    /* Android — open beta */
+    .platform.android .status { background: var(--purple-50); color: var(--sage-dark); border: 1px solid var(--line); }
+    /* iPhone — coming soon, deliberately not a link */
+    .platform.ios { opacity: 0.62; cursor: default; }
+    .platform.ios .status { background: var(--purple-50); color: var(--muted); border: 1px solid var(--line); }
+
+    .counter {
+      margin: 34px auto 0;
+      display: none;             /* revealed only after /stats answers with a number */
+      flex-direction: column;
+      gap: 2px;
+    }
+    .counter.show { display: flex; }
+    .counter-num {
+      font-family: 'Frank Ruhl Libre', 'David', serif;
+      font-weight: 500;
+      font-size: 2.6rem;
+      color: var(--terracotta);
+      line-height: 1.1;
+      font-variant-numeric: tabular-nums;
+    }
+    .counter-label { font-size: 0.95rem; color: var(--sage-dark); font-weight: 500; }
+    .counter-label-en { direction: ltr; font-size: 0.8rem; color: var(--muted); }
+
+    .foot {
+      margin-top: 38px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+    }
+    .foot a { color: var(--purple-700); text-decoration: none; font-weight: 600; }
+    .foot a:hover { text-decoration: underline; }
+
+    @media (max-width: 520px) {
+      .platforms { grid-template-columns: 1fr; }
+      .platform { flex-direction: row; justify-content: space-between; padding: 14px 18px; }
+      .platform .name { display: flex; align-items: center; gap: 10px; }
+      h1 { font-size: 2.1rem; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .platform, a.platform:hover { transition: none; transform: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <img class="logo" src="img/logo.svg" alt="פייפליין" />
+  <h1>פייפליין</h1>
+  <p class="tagline">פייפליין ליצירת תוכן בעברית שחוסך ליוצרים שעות של עריכה ותסכול</p>
+  <p class="tagline-en">The Hebrew content pipeline: polished, captioned videos in minutes instead of hours.</p>
+
+  <div class="platforms">
+    <a class="platform web" href="/?src=welcome">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"/>
+        <path d="M3.6 9h16.8M3.6 15h16.8M12 3a13.8 13.8 0 0 1 0 18M12 3a13.8 13.8 0 0 0 0 18"/>
+      </svg>
+      <span class="name">Web</span>
+      <span class="status">זמין עכשיו</span>
+    </a>
+    <a class="platform android" href="https://play.google.com/apps/testing/com.heb.pipeline">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="7" y="2.5" width="10" height="19" rx="2.5"/>
+        <path d="M11 18.5h2"/>
+      </svg>
+      <span class="name">Android</span>
+      <span class="status">בטא - הצטרפו לניסוי</span>
+    </a>
+    <div class="platform ios" aria-disabled="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="7" y="2.5" width="10" height="19" rx="2.5"/>
+        <path d="M10.5 5h3"/>
+      </svg>
+      <span class="name">iPhone</span>
+      <span class="status">בקרוב</span>
+    </div>
+  </div>
+
+  <div class="counter" id="counter">
+    <span class="counter-num" id="counterNum">0</span>
+    <span class="counter-label">סרטונים כבר נערכו בפייפליין</span>
+    <span class="counter-label-en">videos edited with Pipeline so far</span>
+  </div>
+
+  <div class="foot">
+    <a href="/legal.html">פרטיות ותנאים</a>
+    <span>·</span>
+    <a href="mailto:hebrewpipeline@gmail.com">צרו קשר</a>
+  </div>
+</div>
+
+<script>
+  const API_BASE = 'https://yotamjacob--hebrew-video-pipeline-api.modal.run';
+  const numEl = document.getElementById('counterNum');
+  const box = document.getElementById('counter');
+  let shown = 0;
+
+  function render(n) { numEl.textContent = n.toLocaleString('he-IL'); }
+
+  function animateTo(target) {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      shown = target; render(target); return;
+    }
+    const from = shown, delta = target - from, t0 = performance.now();
+    const dur = 1200;
+    (function tick(t) {
+      const p = Math.min(1, (t - t0) / dur);
+      const ease = 1 - Math.pow(1 - p, 3);
+      render(Math.round(from + delta * ease));
+      if (p < 1) requestAnimationFrame(tick); else shown = target;
+    })(t0);
+  }
+
+  async function refresh() {
+    try {
+      const r = await fetch(API_BASE + '/stats');
+      if (!r.ok) return;
+      const d = await r.json();
+      if (typeof d.videos === 'number' && d.videos > 0) {
+        box.classList.add('show');
+        if (d.videos !== shown) animateTo(d.videos);
+      }
+    } catch (e) { /* counter simply stays hidden */ }
+  }
+  refresh();
+  setInterval(refresh, 60000);   // "live": pick up new videos while the page is open
+</script>
+</body>
+</html>

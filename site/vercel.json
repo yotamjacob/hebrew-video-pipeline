@@ -1,3 +1,6 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/welcome", "destination": "/welcome.html" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }
