@@ -125,10 +125,17 @@ def _pick_moments(clips, total_duration):
 
     client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     resp = client.messages.create(
-        model=SONNET_MODEL, max_tokens=2000,
+        # Sonnet 5 may spend a chunk of the budget on a thinking block before
+        # the JSON - 2000 truncated the answer mid-object (field 500 #3,
+        # 2026-08-13). Leave generous room for thinking + full JSON.
+        model=SONNET_MODEL, max_tokens=6000,
         messages=[{"role": "user", "content": prompt}])
     _record_ai_spend(costs_store, "assembler_moments", SONNET_MODEL, resp.usage)
-    text = resp.content[0].text
+    # Sonnet 5 may emit a ThinkingBlock BEFORE the text block (observed on
+    # this prompt 2026-08-13 - the intermittent analyze 500). Join the text
+    # blocks; never index content[0].
+    text = "".join(getattr(b, "text", "") for b in resp.content
+                   if getattr(b, "type", "") == "text")
     start, end = text.find("{"), text.rfind("}")
     data = json.loads(text[start:end + 1])
 
@@ -263,9 +270,20 @@ def analyze_story(upload_keys, filenames=None) -> dict:
 
         clips = []
         for key, src, dur, name in zip(upload_keys, sources, durations, names):
+            # Silent clips (b-roll walkarounds shot without sound, muted
+            # phone footage) have NO audio stream - the extract hard-fails.
+            # They are legitimate story material: keep them as speechless
+            # clips instead of 500ing the whole analysis (field bug,
+            # 2026-08-13 - the second assembler 500).
             wav = tmp / f"audio_{len(clips)}.wav"
-            _run(["ffmpeg", "-y", "-i", str(src), "-vn", "-ac", "1", "-ar", "16000", str(wav)])
-            raw, _info = m.transcribe(str(wav), **common)
+            try:
+                _run(["ffmpeg", "-y", "-i", str(src), "-vn", "-ac", "1", "-ar", "16000", str(wav)])
+                raw, _info = m.transcribe(str(wav), **common)
+            except Exception as exc:
+                print(f"[assembler] no transcribable audio in {name!r}: {exc!r}")
+                clips.append({"name": str(name)[:80], "duration": dur, "segs": []})
+                _asm_words_path(key).write_text('{"segments": []}', encoding="utf-8")
+                continue
             segs = []
             for s in raw:
                 nsp = float(getattr(s, "no_speech_prob", 0.0) or 0.0)
@@ -355,15 +373,32 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
         norm = (f"scale={cw}:{ch}:force_original_aspect_ratio=decrease,"
                 f"pad={cw}:{ch}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30")
 
+        # A part from a silent clip must still carry an audio STREAM (silence),
+        # or the concat mixes audio-ful and audio-less parts and breaks - and
+        # the VO ducking has no [0:a] to key on.
+        def _has_audio(path):
+            r = _run(["ffprobe", "-v", "error", "-select_streams", "a",
+                      "-show_entries", "stream=codec_type", "-of", "csv=p=0",
+                      str(path)], text=True)
+            return bool(r.stdout.strip())
+
+        clip_has_audio = {}
         parts = []
         for i, (ci, a, b) in enumerate(windows):
+            if ci not in clip_has_audio:
+                clip_has_audio[ci] = _has_audio(sources[ci])
             part = tmp / f"part_{i:02d}.mp4"
-            _run(["ffmpeg", "-y", "-ss", f"{a:.2f}", "-to", f"{b:.2f}", "-i", str(sources[ci]),
-                  "-vf", norm,
-                  "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-                  "-pix_fmt", "yuv420p",
-                  "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
-                  "-movflags", "+faststart", str(part)])
+            cmd = ["ffmpeg", "-y", "-ss", f"{a:.2f}", "-to", f"{b:.2f}", "-i", str(sources[ci])]
+            if not clip_has_audio[ci]:
+                cmd += ["-f", "lavfi", "-t", f"{b - a:.2f}",
+                        "-i", "anullsrc=r=48000:cl=stereo",
+                        "-map", "0:v", "-map", "1:a", "-shortest"]
+            cmd += ["-vf", norm,
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                    "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+                    "-movflags", "+faststart", str(part)]
+            _run(cmd)
             parts.append(part)
 
         concat_list = tmp / "list.txt"

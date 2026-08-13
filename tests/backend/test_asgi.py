@@ -600,8 +600,10 @@ class TestAssemblerRoutes:
             assert "tmp_vol.commit" in block
 
     def test_render_lands_in_history_via_standard_conventions(self):
+        # The whole function body: render_story is the file's last def, so
+        # slice generously instead of chasing its growing size.
         i = MODAL_SRC.index("def render_story")
-        block = MODAL_SRC[i:i + 7000]
+        block = MODAL_SRC[i:i + 12000]
         assert '_out.mp4' in block
         assert "_record_job(out_key" in block
 
@@ -618,6 +620,26 @@ class TestAssemblerRoutes:
         assert "shipping clean cut" in block
         # The route forwards the toggle (default on).
         assert 'bool(data.get("captions", True))' in self._render()
+
+    def test_moment_picking_survives_thinking_blocks(self):
+        # Sonnet 5 can emit a ThinkingBlock before the text answer -
+        # content[0].text crashed the analysis intermittently (field 500,
+        # 2026-08-13). Only text blocks may be read, never by index.
+        i = MODAL_SRC.index("def _pick_moments")
+        block = MODAL_SRC[i:i + 5000]
+        assert 'if getattr(b, "type", "") == "text"' in block
+        assert "resp.content[0].text" not in block
+
+    def test_silent_clips_survive_analyze_and_render(self):
+        # B-roll shot without sound has NO audio stream: analyze keeps it as
+        # a speechless clip (never 500s), and render gives its parts a silent
+        # audio track so concat + VO ducking stay stream-consistent.
+        i = MODAL_SRC.index("def analyze_story")
+        assert "no transcribable audio" in MODAL_SRC[i:i + 6000]
+        j = MODAL_SRC.index("def render_story")
+        rblock = MODAL_SRC[j:j + 9000]
+        assert "anullsrc=r=48000:cl=stereo" in rblock
+        assert "_has_audio" in rblock
 
     def test_voiceover_ducks_and_degrades(self):
         # Phase 3: optional narration mixed with the original ducked under it
@@ -651,7 +673,7 @@ class TestAssemblerRoutes:
 
     def test_moment_picking_snaps_to_segment_boundaries(self):
         i = MODAL_SRC.index("def _pick_moments")
-        block = MODAL_SRC[i:i + 3000]
+        block = MODAL_SRC[i:i + 6000]
         assert "from_seg" in block and "to_seg" in block
         assert 'segs[a]["start"]' in block and 'segs[b]["end"]' in block
 

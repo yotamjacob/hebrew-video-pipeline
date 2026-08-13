@@ -314,9 +314,12 @@
     const result = await poll('/assembler/analyze-poll/' + call_id);
     if (!result || result.error) {
       const msgs = { too_short: 'הסרטון קצר מדי לסיפור (מתחת ל-20 שניות).',
-                     no_speech: 'לא זוהה מספיק דיבור בסרטון.',
+                     too_long: 'יותר מדי חומר גלם (עד 40 דקות בסך הכל).',
+                     no_speech: 'לא זוהה מספיק דיבור בסרטונים.',
                      no_moments: 'לא הצלחנו לבנות סטוריבורד מהסרטון הזה.' };
-      showErr($('err'), msgs[result && result.error] || 'הניתוח נכשל - נסו שוב.');
+      let msg = msgs[result && result.error] || 'הניתוח נכשל - נסו שוב.';
+      if (result && result.detail) msg += ' [' + result.detail + ']';
+      showErr($('err'), msg);
       $('stage').textContent = '';
       return;
     }
@@ -330,11 +333,15 @@
       try {
         const r = await fetch(API_BASE + path, { headers: { 'Authorization': 'Bearer ' + token } });
         if (r.status === 202) continue;
-        if (!r.ok) return null;
+        if (!r.ok) {
+          // Keep the server's reason - a bare 500 taught us nothing twice.
+          const d = await r.json().catch(() => ({}));
+          return { error: 'http', detail: (d.error || '') + ' (' + r.status + ')' };
+        }
         return await r.json();
       } catch (_) { /* transient - keep polling */ }
     }
-    return null;
+    return { error: 'timeout' };
   }
 
   // ── Storyboard ──
@@ -491,7 +498,9 @@
       if (!r.ok) throw new Error('render ' + r.status);
       const { call_id } = await r.json();
       const result = await poll('/assembler/render-poll/' + call_id);
-      if (!result || result.error || !result.video_key) throw new Error((result && result.error) || 'render');
+      if (!result || result.error || !result.video_key) {
+        throw new Error((result && (result.detail || result.error)) || 'render');
+      }
       await showResult(result.video_key);
     } catch (e) {
       showErr($('renderErr'), 'הרינדור נכשל - נסו שוב. (' + e.message + ')');
