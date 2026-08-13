@@ -14,6 +14,7 @@ _ns["_record_ai_spend"] = lambda *a, **k: None
 _ns["costs_store"] = {}
 proofread_words = _extract_fn(
     MODAL_SRC, "proofread_words", "_consonant_key", "_phonetically_plausible",
+    "_msg_text",   # thinking-block-safe response reader (2026-08-13)
     extra_ns=_ns)["proofread_words"]
 
 
@@ -33,6 +34,9 @@ class _FakeClient:
                     raise raw
 
                 class _Block:
+                    # Real SDK text blocks carry type="text"; _msg_text
+                    # filters on it (thinking blocks must be skipped).
+                    type = "text"
                     text = raw
 
                 class _Resp:
