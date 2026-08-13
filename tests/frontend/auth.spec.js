@@ -515,6 +515,13 @@ test('web Google sign-in shows a connecting spinner while the token exchange run
                           body: '{"error":"bad token","code":"google_failed"}' });
   });
   await page.goto('/');
+  // Enter the sign-in lane first: the whole Google area lives inside
+  // #authStepEmail (display:none on the choice landing), and the pill is
+  // inserted next to #gsiButton - asserting visibility from the landing
+  // fails on a hidden ancestor. (That was the REAL cause of the 2026-08-13
+  // red CI runs; the timing gate above is belt-and-braces.)
+  await page.click('#authChoiceExisting');
+  await expect(page.locator('#authStepEmail')).toBeVisible();
   await page.evaluate(() => {
     document.getElementById('gsiButton').style.display = 'flex';   // GIS CDN is stubbed out
     _gsiExchange('fake-google-credential');

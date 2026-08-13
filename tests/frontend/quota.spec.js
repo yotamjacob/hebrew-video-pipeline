@@ -387,21 +387,27 @@ test('admin Errors panel says so when there is nothing to report', async ({ page
 
 test('admin can delete a user: confirm modal, purge POST, row removed; admin rows have no delete', async ({ page }) => {
   await bootApp(page, { me: { username: 'boss', role: 'admin', videos_used: 0, video_limit: null } });
+  // The users stub is MUTABLE and the delete stub removes the target from it:
+  // after a delete the row handler fires loadAdmin({force:true}), and a stub
+  // that still returned both users resurrected the deleted row in the rebuilt
+  // list - the actual cause of the 2026-08-13 red CI runs (locally the count
+  // assertion won the race against the background refresh).
+  const users = [
+    { username: 'boss',   role: 'admin', videos_used: 0, video_limit: null, created: 1 },
+    { username: 'tester', role: 'user',  videos_used: 2, video_limit: 5,    created: 2 },
+  ];
   await page.route(`${API_BASE}/admin/users`, r =>
     r.fulfill({ status: 200, contentType: 'application/json',
-                body: JSON.stringify({ users: [
-                  { username: 'boss',   role: 'admin', videos_used: 0, video_limit: null, created: 1 },
-                  { username: 'tester', role: 'user',  videos_used: 2, video_limit: 5,    created: 2 },
-                ] }) }));
+                body: JSON.stringify({ users }) }));
   const delPosts = [];
-  // Real purges sweep several stores + the volume - the button must show a
-  // spinner for the duration. The stub is GATED, not delayed: a fixed delay
-  // lost the race on slow CI runners (the 2026-08-13 red runs).
+  // Gated, not delayed - the spinner must be assertable at any machine speed.
   let releaseDelete;
   const deleteGate = new Promise((res) => { releaseDelete = res; });
   await page.route(`${API_BASE}/admin/delete-user`, async (route, request) => {
-    delPosts.push(request.postDataJSON());
+    const body = request.postDataJSON();
+    delPosts.push(body);
     await deleteGate;
+    users.splice(users.findIndex((u) => u.username === body.username), 1);
     return route.fulfill({ status: 200, contentType: 'application/json',
                            body: '{"ok":true,"username":"tester","files_removed":3}' });
   });
