@@ -97,6 +97,7 @@ test('multi-clip flow: two uploads -> cross-clip storyboard -> curate -> render'
   await expect(page.locator('#outVideo')).toHaveAttribute('src', /\/media\/u1234__abc_out\.mp4\?token=m\.test/);
   expect(renderPosts[0].upload_keys).toEqual(analyzePosts[0].upload_keys);
   expect(renderPosts[0].segments).toEqual([[1, 60, 75], [0, 5, 15], [0, 180, 192]]);
+  expect(renderPosts[0].captions).toBe(true);   // synced-captions toggle defaults ON
 });
 
 test('single clip: no clip badges, bare flow still works', async ({ page }) => {
@@ -110,4 +111,15 @@ test('single clip: no clip badges, bare flow still works', async ({ page }) => {
   expect(analyzePosts[0].upload_keys).toHaveLength(1);
   await expect(page.locator('#board')).toBeVisible();
   await expect(page.locator('.m-clip')).toHaveCount(0);   // badge is multi-clip only
+
+  // Captions off is honored in the render payload.
+  const renderPosts = [];
+  await page.route(/\/assembler\/render\/$/, async (route, request) => {
+    renderPosts.push(request.postDataJSON());
+    await route.fulfill({ status: 202, contentType: 'application/json', body: '{"call_id":"fc-render"}' });
+  });
+  await page.locator('#capToggle').uncheck();
+  await page.locator('#renderBtn').click();
+  await expect.poll(() => renderPosts.length).toBe(1);
+  expect(renderPosts[0].captions).toBe(false);
 });

@@ -156,6 +156,39 @@ def _pick_moments(clips, total_duration):
     return str(data.get("title") or "")[:80], story, moments
 
 
+def _asm_words_path(upload_key: str) -> Path:
+    return Path(TMP_DIR) / f"{upload_key}_asm_words.json"
+
+
+def _captions_for_windows(windows, clip_segments):
+    """Remap the per-clip word-level transcript onto the OUTPUT timeline of
+    the kept windows (in storyboard order). One caption event per source
+    segment slice inside a window; word timings shift with it, so the shared
+    ASS builder can render classic/word/karaoke modes unchanged.
+    windows: [(clip_idx, start, end)] - clip_segments: per clip, a list of
+    {"start","end","text","words":[[s,e,w],...]}."""
+    events = []
+    cum = 0.0
+    for ci, a, b in windows:
+        win_len = b - a
+        for seg in clip_segments[ci]:
+            words = [w for w in (seg.get("words") or [])
+                     if a - 0.05 <= float(w[0]) < b]
+            if not words:
+                continue
+            shifted = [[round(max(0.0, float(w[0]) - a) + cum, 3),
+                        round(min(float(w[1]), b) - a + cum, 3),
+                        str(w[2])] for w in words]
+            events.append({
+                "start": shifted[0][0],
+                "end": round(min(shifted[-1][1] + 0.2, cum + win_len), 3),
+                "text": " ".join(w[2] for w in shifted),
+                "words": shifted,
+            })
+        cum += win_len
+    return events
+
+
 def _thumb_b64(src: Path, at: float, workdir: Path, idx: int) -> str:
     """Small storyboard thumbnail as a data-URI-ready base64 jpeg."""
     import base64
@@ -208,7 +241,10 @@ def analyze_story(upload_keys, filenames=None) -> dict:
         os.environ["HF_HOME"] = MODEL_DIR
         from faster_whisper import WhisperModel
         common = dict(
-            language="he", word_timestamps=False,
+            # Word timestamps feed the caption burn at render time (words are
+            # persisted server-side per clip - see _asm_words_path); moments
+            # still snap to SEGMENT boundaries.
+            language="he", word_timestamps=True,
             vad_filter=True,
             vad_parameters={"threshold": 0.5, "min_silence_duration_ms": 500,
                             "speech_pad_ms": 400},
@@ -226,7 +262,7 @@ def analyze_story(upload_keys, filenames=None) -> dict:
                              download_root=MODEL_DIR)
 
         clips = []
-        for src, dur, name in zip(sources, durations, names):
+        for key, src, dur, name in zip(upload_keys, sources, durations, names):
             wav = tmp / f"audio_{len(clips)}.wav"
             _run(["ffmpeg", "-y", "-i", str(src), "-vn", "-ac", "1", "-ar", "16000", str(wav)])
             raw, _info = m.transcribe(str(wav), **common)
@@ -238,8 +274,17 @@ def analyze_story(upload_keys, filenames=None) -> dict:
                     continue
                 text = (s.text or "").strip()
                 if text:
-                    segs.append({"start": float(s.start), "end": float(s.end), "text": text})
+                    words = [[float(w.start), float(w.end), w.word.strip()]
+                             for w in (s.words or []) if w.word.strip()]
+                    segs.append({"start": float(s.start), "end": float(s.end),
+                                 "text": text, "words": words})
             clips.append({"name": str(name)[:80], "duration": dur, "segs": segs})
+            # Persist the word-level transcript next to the source so the
+            # render can burn captions without a second transcription. Swept
+            # with the other scratch files after 48h.
+            _asm_words_path(key).write_text(
+                json.dumps({"segments": segs}, ensure_ascii=False), encoding="utf-8")
+        tmp_vol.commit()
         model_volume.commit()
 
         if sum(len(c["segs"]) for c in clips) < MIN_MOMENTS:
@@ -268,7 +313,8 @@ def analyze_story(upload_keys, filenames=None) -> dict:
     volumes={TMP_DIR: tmp_vol},
     memory=4096,
 )
-def render_story(upload_keys, segments: list, filename: str = "story.mp4") -> dict:
+def render_story(upload_keys, segments: list, filename: str = "story.mp4",
+                 captions: bool = True) -> dict:
     """Cut the kept moments (in the user's storyboard ORDER) from their
     respective clips, normalize every part onto a common canvas (mixed
     resolutions/orientations scale+pad; uniform fps + audio), and concat.
@@ -324,8 +370,45 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4") -> di
         concat_list.write_text("".join(f"file '{p}'\n" for p in parts))
         out_key = f"{upload_keys[0]}_out.mp4"
         out_path = Path(TMP_DIR) / out_key
+        joined = tmp / "joined.mp4"
         _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list),
-              "-c", "copy", "-movflags", "+faststart", str(out_path)])
+              "-c", "copy", "-movflags", "+faststart", str(joined)])
+
+        # ── Captions: remap the analyze-time word transcript onto the output
+        # timeline and burn through the SHARED build_caption_ass (same
+        # builder, margins and defaults as the main pipeline's burn). Missing
+        # transcript files (expired scratch, >48h) degrade to no captions
+        # rather than failing the render.
+        burned = False
+        if captions:
+            try:
+                clip_segments = []
+                for k in upload_keys:
+                    wp = _asm_words_path(k)
+                    clip_segments.append(
+                        json.loads(wp.read_text(encoding="utf-8")).get("segments", [])
+                        if wp.exists() else [])
+                events = _captions_for_windows(windows, clip_segments)
+                if events:
+                    from pipeline_fns import build_caption_ass
+                    ass_str = build_caption_ass(
+                        cw, ch, "Heebo", 48,
+                        max(25, cw // 14), int(0.08 * ch),
+                        events, None)
+                    ass_path = tmp / "captions.ass"
+                    ass_path.write_text(ass_str, encoding="utf-8")
+                    esc = str(ass_path).replace(":", r"\:")
+                    _run(["ffmpeg", "-y", "-i", str(joined),
+                          "-vf", f"subtitles='{esc}'",
+                          "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                          "-pix_fmt", "yuv420p", "-c:a", "copy",
+                          "-movflags", "+faststart", str(out_path)])
+                    burned = True
+            except Exception as exc:
+                print(f"[assembler] caption burn failed - shipping clean cut: {exc!r}")
+        if not burned:
+            import shutil
+            shutil.copy(joined, out_path)
         tmp_vol.commit()
 
         # Standard History record: download / share / thumbnail / retention all

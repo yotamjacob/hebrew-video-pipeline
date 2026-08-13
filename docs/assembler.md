@@ -30,6 +30,17 @@ every shared surface is reused by CALLING it, never by modifying it.
   analyze→render must happen within that window.
 - analyze errors are soft: `{"error": "too_short"|"no_speech"|"no_moments"}`
   with Hebrew messages mapped client-side.
+- **Captions (2026-08-13, solo-app - no pipeline handoff by user directive):**
+  analyze runs whisper WITH word timestamps and persists the per-clip word
+  transcript at `{key}_asm_words.json` (scratch, 48h sweep). Render (toggle
+  `captions`, default on, `#capToggle` on the page) remaps kept windows onto
+  the output timeline via the pure `_captions_for_windows` (unit-tested in
+  `test_assembler_captions.py` - storyboard-order offsets, window clamping)
+  and burns via the SHARED `build_caption_ass` (Heebo 48 reference px, same
+  margins as burn_captions_fn) in a final subtitles pass. Missing transcript
+  (expired scratch) degrades to a clean cut, never a failed render. Style
+  controls / word-karaoke modes are a later knob - the words are already in
+  the events.
 - The analysis also returns `story` (≤2000 chars): the model's detailed
   narrative reading of the footage (who, what, arc, emotion, message),
   written to seed a voice-over script. Shown as card "2 · הסיפור" with a

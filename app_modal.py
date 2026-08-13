@@ -3420,7 +3420,8 @@ def api():
                 await asyncio.to_thread(tmp_vol.commit)   # flush before the worker reads
                 call = render_story.spawn([f"{uprefix}{k}" for k in keys],
                                           norm_segs,
-                                          str(data.get("filename") or "story.mp4")[:120])
+                                          str(data.get("filename") or "story.mp4")[:120],
+                                          bool(data.get("captions", True)))
                 _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,

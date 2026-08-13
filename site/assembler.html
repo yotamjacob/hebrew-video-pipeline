@@ -112,6 +112,12 @@
     .m-ctl button:hover { background: var(--purple-50); }
     .m-ctl .drop-btn.on { color: var(--red); border-color: var(--red); }
     .total { text-align: center; font-weight: 700; color: var(--sage-dark); margin: 12px 0; }
+    .cap-row {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      font-size: 0.88rem; font-weight: 600; color: var(--sage-dark);
+      margin-bottom: 12px; cursor: pointer;
+    }
+    .cap-row input { accent-color: var(--terracotta); width: 16px; height: 16px; }
     .cta {
       display: block; width: 100%; padding: 14px; border: none; border-radius: 999px;
       background: var(--terracotta); color: var(--white); font-family: inherit;
@@ -169,6 +175,7 @@
     <div class="board-sub">אפשר להוריד רגעים, להחזיר אותם ולשנות סדר - הסרטון ירונדר לפי הסדר שכאן.</div>
     <div id="moments"></div>
     <div class="total" id="total"></div>
+    <label class="cap-row"><input type="checkbox" id="capToggle" checked />כתוביות מסונכרנות על הסרטון</label>
     <button class="cta" id="renderBtn">יצירת הסרטון</button>
     <p class="stage" id="renderStage" style="margin-top:10px"></p>
     <div class="err" id="renderErr"></div>
@@ -380,7 +387,7 @@
     try {
       const r = await fetch(API_BASE + '/assembler/render/', {
         method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ upload_keys: clips.map((c) => c.key), filename: (clips[0] && clips[0].name) || 'story.mp4', segments: kept }),
+        body: JSON.stringify({ upload_keys: clips.map((c) => c.key), filename: (clips[0] && clips[0].name) || 'story.mp4', segments: kept, captions: $('capToggle').checked }),
       });
       if (!r.ok) throw new Error('render ' + r.status);
       const { call_id } = await r.json();

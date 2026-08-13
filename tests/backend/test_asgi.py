@@ -601,9 +601,29 @@ class TestAssemblerRoutes:
 
     def test_render_lands_in_history_via_standard_conventions(self):
         i = MODAL_SRC.index("def render_story")
-        block = MODAL_SRC[i:i + 4200]
+        block = MODAL_SRC[i:i + 7000]
         assert '_out.mp4' in block
         assert "_record_job(out_key" in block
+
+    def test_captions_burn_through_the_shared_builder(self):
+        # Solo-app captions (2026-08-13): word transcript persisted at analyze
+        # (_asm_words.json), remapped to the output timeline at render, burned
+        # via the SAME build_caption_ass as the main pipeline. A missing
+        # transcript degrades to a clean cut, never a failed render.
+        i = MODAL_SRC.index("def render_story")
+        block = MODAL_SRC[i:i + 7000]
+        assert "build_caption_ass" in block
+        assert "subtitles='" in block
+        assert "_captions_for_windows" in block
+        assert "shipping clean cut" in block
+        # The route forwards the toggle (default on).
+        assert 'bool(data.get("captions", True))' in self._render()
+
+    def test_analyze_persists_the_word_transcript(self):
+        i = MODAL_SRC.index("def analyze_story")
+        block = MODAL_SRC[i:i + 5000]
+        assert "_asm_words_path(key).write_text" in block
+        assert "word_timestamps=True" in block
 
     def test_analysis_returns_the_narrative_story(self):
         # The story card feeds the Phase-3 voice-over script - the prompt must
