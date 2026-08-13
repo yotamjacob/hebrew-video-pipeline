@@ -10,6 +10,7 @@ const THUMB = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSE
 const MOMENTS = {
   duration: 420.0,
   title: 'ביקור ביקב משפחתי',
+  story: 'רחל, בעלת יקב משפחתי בגליל, פותחת את הדלת לסיפור של שלושה דורות: מהחביות הראשונות במרתף של סבה ועד מדליית זהב עולמית. הסרטון נע מהתשוקה האישית שלה אל הנוף והעבודה בכרם, ונסגר בהזמנה חמה לבוא לטעום.',
   moments: [
     { clip: 0, start: 5.0, end: 15.0, role: 'hook', quote: 'זה היקב שסבא שלי חלם עליו', reason: 'פתיח רגשי שתופס', thumb: THUMB },
     { clip: 1, start: 60.0, end: 75.0, role: 'story', quote: 'התחלנו משלוש חביות במרתף', reason: 'הסיפור המרכזי', thumb: THUMB },
@@ -69,6 +70,11 @@ test('multi-clip flow: two uploads -> cross-clip storyboard -> curate -> render'
   expect(analyzePosts[0].filenames).toEqual(['interview.mp4', 'tour.mp4']);
 
   await expect(page.locator('#board')).toBeVisible();
+  // The AI's narrative reading shows BEFORE the storyboard + is copyable
+  // (the seed for the Phase-3 voice-over script).
+  await expect(page.locator('#storyCard')).toBeVisible();
+  await expect(page.locator('#storyText')).toContainText('שלושה דורות');
+  await expect(page.locator('#copyStory')).toBeVisible();
   const rows = page.locator('.moment');
   await expect(rows).toHaveCount(3);
   // Clip badges show which clip each moment comes from (only with 2+ clips).

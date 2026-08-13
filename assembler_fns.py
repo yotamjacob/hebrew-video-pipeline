@@ -113,10 +113,12 @@ def _pick_moments(clips, total_duration):
 
 בחר {MIN_MOMENTS}-{MAX_MOMENTS} רגעים, בסך הכל {TARGET_TOTAL_SECONDS} שניות. כל רגע הוא טווח מקטעים רצוף בתוך קליפ אחד (from_seg עד to_seg, כולל). {"שלב רגעים מקליפים שונים לסיפור אחד קוהרנטי - " if multi else ""}סדר אותם כסיפור: פתיח שתופס (hook), גוף שמספר את הסיפור (story), רגע רגשי או ציטוט חזק (gold), וסגירה (closing).
 
-החזר JSON בלבד:
-{{"title": "כותרת קצרה לסרטון", "moments": [{{"clip": 0, "from_seg": 0, "to_seg": 2, "role": "hook", "quote": "הציטוט המרכזי מהרגע", "reason": "למה הרגע הזה חזק לסיפור"}}]}}
+בנוסף, כתוב "story": הסיפור המלא כפי שאתה מבין אותו מהחומר - פסקה מפורטת (4-8 משפטים): מי מופיע, מה קורה, מה הקשת הסיפורית (מאיפה לאן), מה הרגש המרכזי ומה המסר. כתוב אותה כך שתוכל לשמש בסיס לתסריט קריינות.
 
-חוקים: role אחד מ-hook/story/gold/closing. הציטוט חייב להופיע בתמלול. אל תמציא טקסט. from_seg ו-to_seg חייבים להיות מאותו קליפ שצוין ב-clip.
+החזר JSON בלבד:
+{{"title": "כותרת קצרה לסרטון", "story": "הסיפור המפורט...", "moments": [{{"clip": 0, "from_seg": 0, "to_seg": 2, "role": "hook", "quote": "הציטוט המרכזי מהרגע", "reason": "למה הרגע הזה חזק לסיפור"}}]}}
+
+חוקים: role אחד מ-hook/story/gold/closing. הציטוט חייב להופיע בתמלול. אל תמציא עובדות שלא נאמרו. from_seg ו-to_seg חייבים להיות מאותו קליפ שצוין ב-clip.
 
 התמלול:
 {chr(10).join(blocks)}"""
@@ -150,7 +152,8 @@ def _pick_moments(clips, total_duration):
             "quote": str(m.get("quote") or segs[a]["text"])[:300],
             "reason": str(m.get("reason") or "")[:300],
         })
-    return str(data.get("title") or "")[:80], moments
+    story = str(data.get("story") or "")[:2000]
+    return str(data.get("title") or "")[:80], story, moments
 
 
 def _thumb_b64(src: Path, at: float, workdir: Path, idx: int) -> str:
@@ -242,13 +245,14 @@ def analyze_story(upload_keys, filenames=None) -> dict:
         if sum(len(c["segs"]) for c in clips) < MIN_MOMENTS:
             return {"error": "no_speech", "duration": total}
 
-        title, moments = _pick_moments(clips, total)
+        title, story, moments = _pick_moments(clips, total)
         if not moments:
             return {"error": "no_moments", "duration": total}
         for i, mo in enumerate(moments):
             mo["thumb"] = _thumb_b64(sources[mo["clip"]], mo["start"] + 0.5, tmp, i)
 
-        return {"duration": round(total, 1), "title": title, "moments": moments,
+        return {"duration": round(total, 1), "title": title, "story": story,
+                "moments": moments,
                 "clips": [{"name": c["name"], "duration": round(c["duration"], 1),
                            "segments": [{"start": round(s["start"], 2),
                                          "end": round(s["end"], 2), "text": s["text"]}

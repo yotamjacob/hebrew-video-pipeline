@@ -605,6 +605,15 @@ class TestAssemblerRoutes:
         assert '_out.mp4' in block
         assert "_record_job(out_key" in block
 
+    def test_analysis_returns_the_narrative_story(self):
+        # The story card feeds the Phase-3 voice-over script - the prompt must
+        # request it and the result must carry it (bounded).
+        i = MODAL_SRC.index("def _pick_moments")
+        block = MODAL_SRC[i:i + 4200]
+        assert '"story"' in block
+        assert 'data.get("story")' in block
+        assert "[:2000]" in block
+
     def test_moment_picking_snaps_to_segment_boundaries(self):
         i = MODAL_SRC.index("def _pick_moments")
         block = MODAL_SRC[i:i + 3000]

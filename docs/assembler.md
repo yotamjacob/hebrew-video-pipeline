@@ -30,6 +30,10 @@ every shared surface is reused by CALLING it, never by modifying it.
   analyze→render must happen within that window.
 - analyze errors are soft: `{"error": "too_short"|"no_speech"|"no_moments"}`
   with Hebrew messages mapped client-side.
+- The analysis also returns `story` (≤2000 chars): the model's detailed
+  narrative reading of the footage (who, what, arc, emotion, message),
+  written to seed a voice-over script. Shown as card "2 · הסיפור" with a
+  copy button before the storyboard; it is the input contract for Phase 3.
 
 ## Roadmap (agreed 2026-08-13)
 

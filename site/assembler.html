@@ -59,6 +59,18 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    .story-text {
+      font-size: 0.92rem; line-height: 1.75; color: var(--text);
+      background: var(--purple-50); border: 1px solid var(--purple-100);
+      border-radius: 12px; padding: 14px 16px; white-space: pre-wrap;
+    }
+    .copy-btn {
+      display: inline-flex; align-items: center; gap: 7px; margin-top: 10px;
+      padding: 7px 16px; border-radius: 999px; border: 1px solid var(--line);
+      background: transparent; color: var(--purple-700); font-family: inherit;
+      font-size: 0.82rem; font-weight: 700; cursor: pointer;
+    }
+    .copy-btn:hover { background: var(--purple-50); }
     .board { display: none; }
     .board-title { font-family: 'Frank Ruhl Libre', serif; font-size: 1.05rem; color: var(--purple-800); margin-bottom: 4px; }
     .board-sub { font-size: 0.8rem; color: var(--muted); margin-bottom: 14px; }
@@ -142,8 +154,17 @@
     <div class="err" id="err"></div>
   </div>
 
+  <div class="card story-card" id="storyCard" style="display:none">
+    <h2>2 · הסיפור, כפי שה-AI הבין אותו</h2>
+    <p class="story-text" id="storyText"></p>
+    <button class="copy-btn" id="copyStory" type="button">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+      העתקת הסיפור (בסיס לקריינות)
+    </button>
+  </div>
+
   <div class="card board" id="board">
-    <h2>2 · הסטוריבורד המוצע</h2>
+    <h2>3 · הסטוריבורד המוצע</h2>
     <div class="board-title" id="boardTitle"></div>
     <div class="board-sub">אפשר להוריד רגעים, להחזיר אותם ולשנות סדר - הסרטון ירונדר לפי הסדר שכאן.</div>
     <div id="moments"></div>
@@ -154,7 +175,7 @@
   </div>
 
   <div class="card result" id="result">
-    <h2>3 · הסרטון שלכם</h2>
+    <h2>4 · הסרטון שלכם</h2>
     <video id="outVideo" controls playsinline></video>
     <p><a id="dlLink" href="#" download>הורדת הסרטון</a> · הסרטון נשמר גם בהיסטוריה <a href="/">באפליקציה</a></p>
   </div>
@@ -278,10 +299,25 @@
   function renderBoard(result) {
     moments = result.moments.map((m, i) => ({ ...m, keep: true, id: i }));
     $('boardTitle').textContent = result.title || '';
+    // The AI's narrative reading of the footage - context for curating the
+    // storyboard, and the seed for a voice-over script (Phase 3).
+    if (result.story) {
+      $('storyText').textContent = result.story;
+      $('storyCard').style.display = 'block';
+    }
     $('board').style.display = 'block';
     drawMoments();
-    $('board').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    (result.story ? $('storyCard') : $('board')).scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+  $('copyStory').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText($('storyText').textContent);
+      const btn = $('copyStory');
+      const prev = btn.innerHTML;
+      btn.textContent = 'הועתק';
+      setTimeout(() => { btn.innerHTML = prev; }, 1500);
+    } catch (_) { /* clipboard blocked - text is selectable anyway */ }
+  });
   function drawMoments() {
     const box = $('moments');
     box.innerHTML = '';
