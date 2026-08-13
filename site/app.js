@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.48.7';
+  const APP_VERSION = '1.48.8';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -763,6 +763,43 @@
     }
   }
 
+  // Web: the token exchange after Google's popup closes takes seconds on a
+  // cold backend, and GIS's iframe button gives no feedback - swap it for a
+  // spinner pill while connecting so the wait reads as progress, not a hang.
+  function _gsiConnecting(on) {
+    const cont = document.getElementById('gsiButton');
+    let el = document.getElementById('googleConnecting');
+    if (on) {
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'googleConnecting';
+        el.className = 'google-connecting';
+        el.setAttribute('role', 'status');
+        el.innerHTML = '<span class="spinner" aria-hidden="true"></span><span>' +
+          _escapeHtml(t('auth.connecting')) + '</span>';
+        (cont && cont.parentElement ? cont.parentElement : document.body)
+          .insertBefore(el, cont || null);
+      }
+      el.style.display = 'flex';
+      if (cont) cont.style.display = 'none';
+    } else {
+      if (el) el.style.display = 'none';
+      if (cont) cont.style.display = 'flex';
+    }
+  }
+  async function _gsiExchange(credential) {
+    _gsiConnecting(true);
+    try {
+      await _exchangeGoogleToken(credential);
+    } catch (e) {
+      _googleAuthError(e);
+    } finally {
+      // Also runs on the non-throwing "failure" branches (lane switch, terms
+      // nudge) - the button must come back in every path that stays on auth.
+      _gsiConnecting(false);
+    }
+  }
+
   // Web: Google Identity Services renders its own compliant button into
   // #gsiButton and hands back a credential (ID token) via the callback.
   function _initWebGoogle() {
@@ -774,7 +811,7 @@
       window.google.accounts.id.initialize({
         client_id: GOOGLE_WEB_CLIENT_ID,
         callback: (resp) => {
-          if (resp && resp.credential) _exchangeGoogleToken(resp.credential).catch(_googleAuthError);
+          if (resp && resp.credential) _gsiExchange(resp.credential);
         },
       });
       const cont = document.getElementById('gsiButton');

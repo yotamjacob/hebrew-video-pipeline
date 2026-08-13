@@ -432,6 +432,7 @@
     'err.aiBusy':        { en: 'The AI service is momentarily overloaded - try again in a minute.', he: 'שירות ה-AI עמוס כרגע - נסו שוב בעוד דקה.' },
     'update.available':  { en: 'A new version is ready', he: 'גרסה חדשה זמינה' },
     'toast.dismiss':     { en: 'Dismiss', he: 'סגירה' },
+    'auth.connecting':   { en: 'Connecting...', he: 'מתחברים...' },
     'update.refresh':    { en: 'Refresh', he: 'רענון' },
     'err.downloadFailed': { en: 'Download failed', he: 'ההורדה נכשלה' },
     'err.chunk':         { en: 'Upload failed at chunk {i} ({status})', he: 'ההעלאה נכשלה במקטע {i} ({status})' },

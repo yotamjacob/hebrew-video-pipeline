@@ -500,3 +500,26 @@ test('migration note shows on login view; dismiss persists across reloads', asyn
   await expect(page.locator('#authView')).toBeVisible();
   await expect(page.locator('#migrationNote')).toBeHidden();
 });
+
+test('web Google sign-in shows a connecting spinner while the token exchange runs', async ({ page }) => {
+  // Slow /auth/google: the spinner pill must show DURING the exchange and the
+  // GIS button must come back when it resolves on a stay-on-auth branch.
+  await page.route(/\/auth\/google/, async (route) => {
+    await new Promise((res) => setTimeout(res, 700));
+    await route.fulfill({ status: 401, contentType: 'application/json',
+                          body: '{"error":"bad token","code":"google_failed"}' });
+  });
+  await page.goto('/');
+  await page.evaluate(() => {
+    document.getElementById('gsiButton').style.display = 'flex';   // GIS CDN is stubbed out
+    _gsiExchange('fake-google-credential');
+  });
+  const pill = page.locator('#googleConnecting');
+  await expect(pill).toBeVisible();
+  await expect(pill.locator('.spinner')).toBeVisible();
+  await expect(page.locator('#gsiButton')).toBeHidden();     // swapped, not stacked
+  // Exchange resolves (error branch): pill gone, button restored, error shown.
+  await expect(pill).toBeHidden({ timeout: 3000 });
+  await expect(page.locator('#gsiButton')).toBeVisible();
+  await expect(page.locator('#authError')).toBeVisible();
+});
