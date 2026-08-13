@@ -3324,18 +3324,26 @@ def api():
             except Exception:
                 await send_error("Invalid request body", 400)
                 return
-            key = (data.get("upload_key") or "").strip()
-            if not key or not _SAFE_KEY_RE.match(key):
+            # Multi-clip (Phase 2): `upload_keys` list, capped at 5; the old
+            # single `upload_key` shape is still accepted.
+            keys = data.get("upload_keys")
+            if not isinstance(keys, list):
+                keys = [data.get("upload_key") or ""]
+            keys = [str(k or "").strip() for k in keys][:5]
+            if not keys or not all(k and _SAFE_KEY_RE.match(k) for k in keys):
                 await send_error("Invalid or missing key", 400)
                 return
+            names = data.get("filenames")
+            if not isinstance(names, list):
+                names = [data.get("filename") or "video.mp4"]
+            names = [str(n or "clip")[:120] for n in names][:len(keys)]
             try:
                 # Chunks are written WITHOUT a commit (upload_chunk defers it
                 # to spawn time) - flush before the worker reads, exactly like
                 # the /process spawn does. Missing this = worker sees no
                 # chunks = instant "No upload found" 500 (field bug, 2026-08-13).
                 await asyncio.to_thread(tmp_vol.commit)
-                call = analyze_story.spawn(f"{uprefix}{key}",
-                                           str(data.get("filename") or "video.mp4")[:120])
+                call = analyze_story.spawn([f"{uprefix}{k}" for k in keys], names)
                 _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
@@ -3377,32 +3385,41 @@ def api():
             except Exception:
                 await send_error("Invalid request body", 400)
                 return
-            key = (data.get("upload_key") or "").strip()
-            if not key or not _SAFE_KEY_RE.match(key):
+            keys = data.get("upload_keys")
+            if not isinstance(keys, list):
+                keys = [data.get("upload_key") or ""]
+            keys = [str(k or "").strip() for k in keys][:5]
+            if not keys or not all(k and _SAFE_KEY_RE.match(k) for k in keys):
                 await send_error("Invalid or missing key", 400)
                 return
             segs = data.get("segments")
-            # Bounded: 1-16 windows, numeric, each ≥0.5s, total ≤ 10 minutes.
+            # Bounded: 1-16 windows of [clip, start, end] (bare [start, end] =
+            # clip 0), numeric, each ≥0.5s, clip in range, total ≤ 10 minutes.
             ok = isinstance(segs, list) and 1 <= len(segs) <= 16
             total = 0.0
+            norm_segs = []
             if ok:
                 for seg in segs:
                     try:
-                        a, b = float(seg[0]), float(seg[1])
+                        if len(seg) >= 3:
+                            ci, a, b = int(seg[0]), float(seg[1]), float(seg[2])
+                        else:
+                            ci, a, b = 0, float(seg[0]), float(seg[1])
                     except (TypeError, ValueError, IndexError):
                         ok = False
                         break
-                    if not (0 <= a < b and b - a >= 0.5):
+                    if not (0 <= ci < len(keys)) or not (0 <= a < b and b - a >= 0.5):
                         ok = False
                         break
                     total += b - a
+                    norm_segs.append([ci, a, b])
             if not ok or total > 600:
                 await send_error("Invalid segments", 400, code="bad_segments")
                 return
             try:
                 await asyncio.to_thread(tmp_vol.commit)   # flush before the worker reads
-                call = render_story.spawn(f"{uprefix}{key}",
-                                          [[float(s[0]), float(s[1])] for s in segs],
+                call = render_story.spawn([f"{uprefix}{k}" for k in keys],
+                                          norm_segs,
                                           str(data.get("filename") or "story.mp4")[:120])
                 _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()

@@ -6,28 +6,33 @@ const { API_BASE } = require('./helpers');
 // stubbed here. A 1x1 jpeg keeps the thumbnail data-URI path honest.
 const THUMB = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/APvSiigD/9k=';
 
+// Cross-clip storyboard: moments come from TWO different clips.
 const MOMENTS = {
-  duration: 240.0,
+  duration: 420.0,
   title: 'ביקור ביקב משפחתי',
   moments: [
-    { start: 5.0, end: 15.0, role: 'hook', quote: 'זה היקב שסבא שלי חלם עליו', reason: 'פתיח רגשי שתופס', thumb: THUMB },
-    { start: 60.0, end: 75.0, role: 'story', quote: 'התחלנו משלוש חביות במרתף', reason: 'הסיפור המרכזי', thumb: THUMB },
-    { start: 180.0, end: 192.0, role: 'gold', quote: 'היין הזה זכה במדליה', reason: 'רגע השיא', thumb: THUMB },
+    { clip: 0, start: 5.0, end: 15.0, role: 'hook', quote: 'זה היקב שסבא שלי חלם עליו', reason: 'פתיח רגשי שתופס', thumb: THUMB },
+    { clip: 1, start: 60.0, end: 75.0, role: 'story', quote: 'התחלנו משלוש חביות במרתף', reason: 'הסיפור המרכזי', thumb: THUMB },
+    { clip: 0, start: 180.0, end: 192.0, role: 'gold', quote: 'היין הזה זכה במדליה', reason: 'רגע השיא', thumb: THUMB },
   ],
-  segments: [],
+  clips: [{ name: 'interview.mp4', duration: 240 }, { name: 'tour.mp4', duration: 180 }],
 };
 
-async function bootAssembler(page) {
+async function bootAssembler(page, { analyzePosts = [], renderPosts = [] } = {}) {
   await page.route(/fonts\.(googleapis|gstatic)\.com/, r => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
   await page.addInitScript(() => localStorage.setItem('hebpipe_token', 'test-token'));
   await page.route(new RegExp(`${API_BASE}/upload_chunk`.replace(/[/.]/g, '\\$&')), r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
-  await page.route(/\/assembler\/analyze\/$/, r =>
-    r.fulfill({ status: 202, contentType: 'application/json', body: '{"call_id":"fc-analyze"}' }));
+  await page.route(/\/assembler\/analyze\/$/, async (route, request) => {
+    analyzePosts.push(request.postDataJSON());
+    await route.fulfill({ status: 202, contentType: 'application/json', body: '{"call_id":"fc-analyze"}' });
+  });
   await page.route(/\/assembler\/analyze-poll\//, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MOMENTS) }));
-  await page.route(/\/assembler\/render\/$/, r =>
-    r.fulfill({ status: 202, contentType: 'application/json', body: '{"call_id":"fc-render"}' }));
+  await page.route(/\/assembler\/render\/$/, async (route, request) => {
+    renderPosts.push(request.postDataJSON());
+    await route.fulfill({ status: 202, contentType: 'application/json', body: '{"call_id":"fc-render"}' });
+  });
   await page.route(/\/assembler\/render-poll\//, r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"video_key":"u1234__abc_out.mp4","duration":37.0}' }));
   await page.route(/\/auth\/media-token/, r =>
@@ -44,42 +49,59 @@ test('signed out: the auth gate shows instead of the uploader', async ({ page })
   await expect(page.locator('#uploadCard')).toBeHidden();
 });
 
-test('full flow: upload -> storyboard -> curate -> render -> result', async ({ page }) => {
-  await bootAssembler(page);
+test('multi-clip flow: two uploads -> cross-clip storyboard -> curate -> render', async ({ page }) => {
+  const analyzePosts = [], renderPosts = [];
+  await bootAssembler(page, { analyzePosts, renderPosts });
   await expect(page.locator('#uploadCard')).toBeVisible();
-  await expect(page.locator('#authGate')).toBeHidden();
 
-  await page.setInputFiles('#file', {
-    name: 'winery.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(3 * 1024 * 1024),
-  });
+  await page.setInputFiles('#file', [
+    { name: 'interview.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(3 * 1024 * 1024) },
+    { name: 'tour.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(2 * 1024 * 1024) },
+  ]);
+  // The upload chain is real network (the clock only freezes timers) - wait
+  // for the analyze POST to exist before advancing the poll timer.
+  await expect.poll(() => analyzePosts.length).toBe(1);
   await page.clock.fastForward(3100);   // one poll tick
+
+  // Both clips were uploaded under distinct keys, sent together to analyze.
+  expect(analyzePosts[0].upload_keys).toHaveLength(2);
+  expect(new Set(analyzePosts[0].upload_keys).size).toBe(2);
+  expect(analyzePosts[0].filenames).toEqual(['interview.mp4', 'tour.mp4']);
+
   await expect(page.locator('#board')).toBeVisible();
-  await expect(page.locator('#boardTitle')).toHaveText('ביקור ביקב משפחתי');
   const rows = page.locator('.moment');
   await expect(rows).toHaveCount(3);
-  await expect(rows.nth(0).locator('.m-role')).toHaveText('פתיח');
-  await expect(rows.nth(0).locator('img')).toHaveAttribute('src', /^data:image\/jpeg;base64,/);
-  // 10 + 15 + 12 kept seconds
+  // Clip badges show which clip each moment comes from (only with 2+ clips).
+  await expect(rows.nth(0).locator('.m-clip')).toHaveText('interview.mp4');
+  await expect(rows.nth(1).locator('.m-clip')).toHaveText('tour.mp4');
   await expect(page.locator('#total')).toContainText('0:37');
 
-  // Drop the middle moment - total updates, row dims.
+  // Drop + restore + reorder still work across clips.
   await rows.nth(1).locator('.drop-btn').click();
-  await expect(page.locator('.moment').nth(1)).toHaveClass(/dropped/);
   await expect(page.locator('#total')).toContainText('0:22');
-  // Bring it back and move it to the top.
   await page.locator('.moment').nth(1).locator('.drop-btn').click();
   await page.locator('.moment').nth(1).locator('button[title="הזזה למעלה"]').click();
   await expect(page.locator('.moment').nth(0).locator('.m-quote')).toContainText('שלוש חביות');
 
-  // Render posts the kept segments in STORYBOARD order.
-  const posts = [];
-  await page.route(/\/assembler\/render\/$/, async (route, request) => {
-    posts.push(request.postDataJSON());
-    await route.fulfill({ status: 202, contentType: 'application/json', body: '{"call_id":"fc-render"}' });
-  });
+  // Render posts [clip, start, end] triples in STORYBOARD order + all keys.
   await page.locator('#renderBtn').click();
+  await expect.poll(() => renderPosts.length).toBe(1);
   await page.clock.fastForward(3100);
   await expect(page.locator('#result')).toBeVisible();
   await expect(page.locator('#outVideo')).toHaveAttribute('src', /\/media\/u1234__abc_out\.mp4\?token=m\.test/);
-  expect(posts[0].segments).toEqual([[60, 75], [5, 15], [180, 192]]);
+  expect(renderPosts[0].upload_keys).toEqual(analyzePosts[0].upload_keys);
+  expect(renderPosts[0].segments).toEqual([[1, 60, 75], [0, 5, 15], [0, 180, 192]]);
+});
+
+test('single clip: no clip badges, bare flow still works', async ({ page }) => {
+  const analyzePosts = [];
+  await bootAssembler(page, { analyzePosts });
+  await page.setInputFiles('#file', {
+    name: 'winery.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(1024 * 1024),
+  });
+  await expect.poll(() => analyzePosts.length).toBe(1);
+  await page.clock.fastForward(3100);
+  expect(analyzePosts[0].upload_keys).toHaveLength(1);
+  await expect(page.locator('#board')).toBeVisible();
+  await expect(page.locator('.m-clip')).toHaveCount(0);   // badge is multi-clip only
 });

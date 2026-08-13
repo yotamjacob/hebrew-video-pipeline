@@ -555,18 +555,20 @@ class TestAssemblerRoutes:
 
     def _analyze(self):
         i = MODAL_SRC.index('("/assembler/analyze"')
-        return MODAL_SRC[i:i + 1800]
+        return MODAL_SRC[i:i + 2600]
 
     def _render(self):
         i = MODAL_SRC.index('("/assembler/render"')
-        return MODAL_SRC[i:i + 2600]
+        return MODAL_SRC[i:i + 3200]
 
     def test_keys_are_prefix_scoped_and_validated(self):
-        # Client sends its bare key; the route namespaces it with the caller's
-        # uid prefix, so one user can never analyze/render another's upload.
+        # Client sends bare keys (up to 5 clips); the route validates EVERY
+        # one and namespaces them with the caller's uid prefix, so one user
+        # can never analyze/render another's upload.
         for block in (self._analyze(), self._render()):
-            assert "_SAFE_KEY_RE.match(key)" in block
-            assert 'f"{uprefix}{key}"' in block
+            assert "all(k and _SAFE_KEY_RE.match(k) for k in keys)" in block
+            assert 'f"{uprefix}{k}"' in block
+            assert "[:5]" in block
 
     def test_polls_enforce_spawn_ownership(self):
         for marker in ("/assembler/analyze-poll/", "/assembler/render-poll/"):
@@ -578,6 +580,18 @@ class TestAssemblerRoutes:
         assert "1 <= len(segs) <= 16" in block
         assert "total > 600" in block
         assert "b - a >= 0.5" in block
+        # Clip-indexed windows must reference an uploaded clip.
+        assert "0 <= ci < len(keys)" in block
+
+    def test_multi_clip_render_normalizes_onto_one_canvas(self):
+        # Mixed resolutions/orientations across clips would break concat -
+        # every part is scaled+padded to the first kept clip's frame at
+        # uniform fps/audio before the copy-concat.
+        i = MODAL_SRC.index("def render_story")
+        block = MODAL_SRC[i:i + 3600]
+        assert "force_original_aspect_ratio=decrease" in block
+        assert "pad=" in block and "fps=30" in block
+        assert '"-ar", "48000", "-ac", "2"' in block
 
     def test_spawns_flush_the_volume_before_the_worker_reads(self):
         # upload_chunk defers volume commits to spawn time; a spawn without
@@ -587,7 +601,7 @@ class TestAssemblerRoutes:
 
     def test_render_lands_in_history_via_standard_conventions(self):
         i = MODAL_SRC.index("def render_story")
-        block = MODAL_SRC[i:i + 2600]
+        block = MODAL_SRC[i:i + 4200]
         assert '_out.mp4' in block
         assert "_record_job(out_key" in block
 

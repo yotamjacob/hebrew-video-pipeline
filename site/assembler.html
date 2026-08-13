@@ -77,6 +77,17 @@
     }
     .m-role.hook { background: var(--terracotta); color: var(--white); border-color: var(--terracotta); }
     .m-role.gold { background: var(--forest); color: var(--white); border-color: var(--forest); }
+    .m-clip {
+      display: inline-block; font-size: 0.68rem; font-weight: 700; border-radius: 999px;
+      padding: 2px 10px; margin-inline-start: 6px; margin-bottom: 4px;
+      background: transparent; color: var(--muted); border: 1px dashed var(--line);
+      max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+    }
+    .clip-row {
+      display: flex; align-items: center; gap: 8px; font-size: 0.82rem; font-weight: 600;
+      color: var(--sage-dark); padding: 4px 2px;
+    }
+    .clip-row .ok { color: var(--forest); }
     .m-quote { font-size: 0.9rem; font-weight: 600; line-height: 1.45; }
     .m-reason { font-size: 0.78rem; color: var(--muted); margin-top: 3px; line-height: 1.4; }
     .m-time { font-size: 0.72rem; color: var(--sage-dark); margin-top: 4px; font-weight: 600; }
@@ -114,7 +125,7 @@
     <h1>פייפליין סטורי</h1>
     <span class="beta">BETA</span>
   </div>
-  <p class="sub">מעלים סרטון גלם ארוך - מקבלים סטוריבורד של הרגעים החזקים, בוחרים ומסדרים, ויוצא סרטון מסופר וקצר.</p>
+  <p class="sub">מעלים סרטון גלם ארוך או כמה קליפים - מקבלים סטוריבורד אחד של הרגעים החזקים מכולם, בוחרים ומסדרים, ויוצא סרטון מסופר וקצר.</p>
 
   <div class="card" id="authGate" style="display:none">
     <h2>נדרשת התחברות</h2>
@@ -123,8 +134,9 @@
 
   <div class="card" id="uploadCard" style="display:none">
     <h2>1 · סרטון הגלם</h2>
-    <div class="drop" id="drop">בחרו או גררו סרטון גלם אחד<input type="file" id="file" accept="video/*" style="display:none" /></div>
-    <p class="hint">ראיון, סקירה או צילום רציף · עד 20 דקות · הניתוח לא מנצל קרדיטים בשלב הבטא</p>
+    <div class="drop" id="drop">בחרו או גררו עד 5 סרטוני גלם<input type="file" id="file" accept="video/*" multiple style="display:none" /></div>
+    <p class="hint">ראיון, סיורים, אינטראקציות · עד 40 דקות גלם בסך הכל · הניתוח לא מנצל קרדיטים בשלב הבטא</p>
+    <div id="clipList" style="margin-top:10px"></div>
     <div class="bar-wrap" id="barWrap"><div class="bar" id="bar"></div></div>
     <p class="stage" id="stage"></p>
     <div class="err" id="err"></div>
@@ -147,7 +159,7 @@
     <p><a id="dlLink" href="#" download>הורדת הסרטון</a> · הסרטון נשמר גם בהיסטוריה <a href="/">באפליקציה</a></p>
   </div>
 
-  <p class="foot">Story Assembler - שלב 1 (בטא שקטה) · <a href="/">חזרה לפייפליין</a></p>
+  <p class="foot">Story Assembler - שלבים 1-2 (בטא שקטה) · <a href="/">חזרה לפייפליין</a></p>
 </div>
 
 <script>
@@ -156,7 +168,7 @@
   const token = localStorage.getItem('hebpipe_token') || '';
   const $ = (id) => document.getElementById(id);
 
-  let uploadKey = null, fileName = '', moments = [], mediaToken = '';
+  let clips = [], moments = [], mediaToken = '';   // clips: [{key, name}]
 
   function uuid() {
     const a = new Uint8Array(16);
@@ -176,27 +188,47 @@
   // ── Upload (chunked, same backend endpoints as the main app) ──
   $('drop').addEventListener('click', () => $('file').click());
   $('drop').addEventListener('dragover', (e) => e.preventDefault());
-  $('drop').addEventListener('drop', (e) => { e.preventDefault(); if (e.dataTransfer.files[0]) start(e.dataTransfer.files[0]); });
-  $('file').addEventListener('change', () => { if ($('file').files[0]) start($('file').files[0]); });
+  $('drop').addEventListener('drop', (e) => { e.preventDefault(); if (e.dataTransfer.files.length) start([...e.dataTransfer.files]); });
+  $('file').addEventListener('change', () => { if ($('file').files.length) start([...$('file').files]); });
 
-  async function start(file) {
+  async function start(files) {
     $('err').style.display = 'none';
-    if (file.size > 1024 * 1024 * 1024) { showErr($('err'), 'הקובץ גדול מדי (עד 1GB)'); return; }
-    uploadKey = uuid(); fileName = file.name;
+    files = files.slice(0, 5);
+    if (files.some((f) => f.size > 1024 * 1024 * 1024)) { showErr($('err'), 'קובץ גדול מדי (עד 1GB לקליפ)'); return; }
+    clips = files.map((f) => ({ key: uuid(), name: f.name }));
+    $('clipList').innerHTML = '';
+    clips.forEach((c) => {
+      const row = document.createElement('div');
+      row.className = 'clip-row';
+      row.id = 'clip_' + c.key;
+      row.textContent = c.name;
+      $('clipList').appendChild(row);
+    });
     $('barWrap').style.display = 'block';
-    $('stage').innerHTML = '<span class="spinner"></span>מעלים את הסרטון...';
+    $('stage').innerHTML = '<span class="spinner"></span>מעלים את הסרטונים...';
     try {
-      const chunks = Math.ceil(file.size / CHUNK);
-      for (let i = 0; i < chunks; i++) {
-        const blob = file.slice(i * CHUNK, (i + 1) * CHUNK);
-        const r = await fetch(API_BASE + '/upload_chunk/', {
-          method: 'POST',
-          headers: { 'Authorization': 'Bearer ' + token, 'X-Upload-Key': uploadKey, 'X-Upload-Index': String(i) },
-          body: blob,
-        });
-        if (r.status === 401) throw new Error('auth');
-        if (!r.ok) throw new Error('upload ' + r.status);
-        $('bar').style.width = Math.round(((i + 1) / chunks) * 100) + '%';
+      const totalBytes = files.reduce((s, f) => s + f.size, 0);
+      let sent = 0;
+      for (let fi = 0; fi < files.length; fi++) {
+        const file = files[fi], key = clips[fi].key;
+        const chunks = Math.ceil(file.size / CHUNK);
+        for (let i = 0; i < chunks; i++) {
+          const blob = file.slice(i * CHUNK, (i + 1) * CHUNK);
+          const r = await fetch(API_BASE + '/upload_chunk/', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token, 'X-Upload-Key': key, 'X-Upload-Index': String(i) },
+            body: blob,
+          });
+          if (r.status === 401) throw new Error('auth');
+          if (!r.ok) throw new Error('upload ' + r.status);
+          sent += blob.size;
+          $('bar').style.width = Math.round((sent / totalBytes) * 100) + '%';
+        }
+        const row = document.getElementById('clip_' + key);
+        if (row) {
+          row.innerHTML = '<svg class="ok" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
+          row.appendChild(document.createTextNode(' ' + file.name));
+        }
       }
       await analyze();
     } catch (e) {
@@ -211,7 +243,7 @@
     $('stage').innerHTML = '<span class="spinner"></span>מתמללים ומחפשים את רגעי הזהב... (כמה דקות)';
     const r = await fetch(API_BASE + '/assembler/analyze/', {
       method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ upload_key: uploadKey, filename: fileName }),
+      body: JSON.stringify({ upload_keys: clips.map((c) => c.key), filenames: clips.map((c) => c.name) }),
     });
     if (!r.ok) { showErr($('err'), 'הניתוח נכשל (' + r.status + ')'); $('stage').textContent = ''; return; }
     const { call_id } = await r.json();
@@ -272,7 +304,15 @@
       const time = document.createElement('div');
       time.className = 'm-time';
       time.textContent = fmt(m.start) + ' - ' + fmt(m.end) + ' (' + Math.round(m.end - m.start) + ' שנ\')';
-      meta.append(role, quote, reason, time);
+      meta.append(role);
+      // Which clip this moment comes from - only meaningful with 2+ clips.
+      if (clips.length > 1) {
+        const clipTag = document.createElement('span');
+        clipTag.className = 'm-clip';
+        clipTag.textContent = (clips[m.clip] && clips[m.clip].name) || ('קליפ ' + ((m.clip || 0) + 1));
+        meta.append(clipTag);
+      }
+      meta.append(quote, reason, time);
       const ctl = document.createElement('div');
       ctl.className = 'm-ctl';
       const up = document.createElement('button');
@@ -297,14 +337,14 @@
   // ── Render ──
   $('renderBtn').addEventListener('click', async () => {
     $('renderErr').style.display = 'none';
-    const kept = moments.filter((m) => m.keep).map((m) => [m.start, m.end]);
+    const kept = moments.filter((m) => m.keep).map((m) => [m.clip || 0, m.start, m.end]);
     if (!kept.length) return;
     $('renderBtn').disabled = true;
     $('renderStage').innerHTML = '<span class="spinner"></span>חותכים ומרכיבים את הסיפור...';
     try {
       const r = await fetch(API_BASE + '/assembler/render/', {
         method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ upload_key: uploadKey, filename: fileName, segments: kept }),
+        body: JSON.stringify({ upload_keys: clips.map((c) => c.key), filename: (clips[0] && clips[0].name) || 'story.mp4', segments: kept }),
       });
       if (!r.ok) throw new Error('render ' + r.status);
       const { call_id } = await r.json();
