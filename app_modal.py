@@ -521,6 +521,95 @@ def api():
                     return idx
             return None
 
+        def _purge_user_data(t_uid, t_uname, t_urec):
+            """Blocking full-account purge, shared by self-service
+            /account/delete and admin /admin/delete-user. Everything keyed to
+            the uid goes: rendered videos on the volume, job history, cost
+            rows, consumed-credit keys, spawn ownership, push tokens, deferred
+            uploads, error reports, and the account record with both of its
+            index entries. Purchase grants are ANONYMIZED rather than dropped
+            (uid removed, state revoked) - they are financial records tied to a
+            store order, and once revoked they hold no personal data and can
+            never grant credits again. The email itself stays free, so the
+            person can sign up again fresh. Run via asyncio.to_thread."""
+            from pathlib import Path as _Path
+            import time as _time
+            removed_files = 0
+            prefix = _user_prefix(t_uid)
+            # 1. Rendered/uploaded media on the volume + its history + costs.
+            try:
+                root = _Path(TMP_DIR)
+                for fp in root.glob(f"{prefix}*"):
+                    try:
+                        if fp.is_file():
+                            fp.unlink()
+                            removed_files += 1
+                    except Exception:
+                        pass
+                if removed_files:
+                    tmp_vol.commit()
+            except Exception as exc:
+                print(f"[delete] volume sweep failed: {exc!r}")
+            for store, matches in (
+                (jobs_store, lambda k: k.startswith(prefix)),
+                (costs_store, lambda k: k.startswith(prefix)),
+                (progress_store, lambda k: k.startswith(prefix)),
+                (pending_store, lambda k: k.startswith(prefix) or k.startswith("done:" + prefix)),
+                (quota_store, lambda k: k.startswith(f"{t_uid}:")),
+                # Error reports are keyed e:{ms}:{uid[:8]}.
+                (errors_store, lambda k: k.startswith("e:") and k.endswith(":" + t_uid[:8])),
+            ):
+                try:
+                    for key in [k for k in store.keys()
+                                if isinstance(k, str) and matches(k)]:
+                        try:
+                            store.pop(key)
+                        except Exception:
+                            pass
+                except Exception as exc:
+                    print(f"[delete] store sweep failed: {exc!r}")
+            # 2. Spawn ownership rows for this user.
+            try:
+                for key in [k for k in calls_store.keys()
+                            if isinstance(calls_store.get(k), dict)
+                            and calls_store.get(k, {}).get("uid") == t_uid]:
+                    try:
+                        calls_store.pop(key)
+                    except Exception:
+                        pass
+            except Exception as exc:
+                print(f"[delete] calls sweep failed: {exc!r}")
+            # 3. Push tokens.
+            try:
+                fcm_store.pop(t_uid)
+            except Exception:
+                pass
+            # 4. Purchase grants → anonymized, never resurrectable.
+            try:
+                for key in [k for k in purchases_store.keys()
+                            if isinstance(k, str) and k.startswith(PURCHASE_KEY_PREFIXES)]:
+                    rec = purchases_store.get(key)
+                    if isinstance(rec, dict) and rec.get("uid") == t_uid:
+                        anon = dict(rec)
+                        anon.update({"uid": None, "state": "revoked",
+                                     "revoked_ts": _time.time(),
+                                     "voided_reason": "account_deleted"})
+                        purchases_store[key] = anon
+            except Exception as exc:
+                print(f"[delete] purchase anonymization failed: {exc!r}")
+            # 5. The account itself, last, so a failure above still leaves a
+            #    reachable account to retry from.
+            for key in [f"uid:{t_uid}", t_uname,
+                        f"email:{(t_urec or {}).get('email', '')}".lower() if (t_urec or {}).get("email") else None,
+                        f"email:{t_uname}".lower() if t_uname else None]:
+                if not key:
+                    continue
+                try:
+                    users_store.pop(key)
+                except Exception:
+                    pass
+            return removed_files
+
         def _signup_src(data):
             """Sanitized campaign source. The site captures ?src=/?utm_source=
             from a shared link (e.g. /?src=linkedin) and sends it with account
@@ -1272,8 +1361,6 @@ def api():
         # to a store order, and once revoked they hold no personal data and can
         # never grant credits again.
         if path in ("/account/delete", "/account/delete/") and method == "POST":
-            from pathlib import Path as _Path
-            import time as _time
             if not _check_rate_limit(_get_client_ip(scope)):
                 await send_error("Rate limit exceeded", 429, code="rate_limited")
                 return
@@ -1286,91 +1373,63 @@ def api():
                 return
             uname, urec = _user_by_uid()
 
-            def _purge():
-                removed_files = 0
-                prefix = _user_prefix(uid)
-                # 1. Rendered/uploaded media on the volume + its history + costs.
-                try:
-                    root = _Path(TMP_DIR)
-                    for fp in root.glob(f"{prefix}*"):
-                        try:
-                            if fp.is_file():
-                                fp.unlink()
-                                removed_files += 1
-                        except Exception:
-                            pass
-                    if removed_files:
-                        tmp_vol.commit()
-                except Exception as exc:
-                    print(f"[delete] volume sweep failed: {exc!r}")
-                for store, matches in (
-                    (jobs_store, lambda k: k.startswith(prefix)),
-                    (costs_store, lambda k: k.startswith(prefix)),
-                    (progress_store, lambda k: k.startswith(prefix)),
-                    (pending_store, lambda k: k.startswith(prefix) or k.startswith("done:" + prefix)),
-                    (quota_store, lambda k: k.startswith(f"{uid}:")),
-                    # Error reports are keyed e:{ms}:{uid[:8]}.
-                    (errors_store, lambda k: k.startswith("e:") and k.endswith(":" + uid[:8])),
-                ):
-                    try:
-                        for key in [k for k in store.keys()
-                                    if isinstance(k, str) and matches(k)]:
-                            try:
-                                store.pop(key)
-                            except Exception:
-                                pass
-                    except Exception as exc:
-                        print(f"[delete] store sweep failed: {exc!r}")
-                # 2. Spawn ownership rows for this user.
-                try:
-                    for key in [k for k in calls_store.keys()
-                                if isinstance(calls_store.get(k), dict)
-                                and calls_store.get(k, {}).get("uid") == uid]:
-                        try:
-                            calls_store.pop(key)
-                        except Exception:
-                            pass
-                except Exception as exc:
-                    print(f"[delete] calls sweep failed: {exc!r}")
-                # 3. Push tokens.
-                try:
-                    fcm_store.pop(uid)
-                except Exception:
-                    pass
-                # 4. Purchase grants → anonymized, never resurrectable.
-                try:
-                    for key in [k for k in purchases_store.keys()
-                                if isinstance(k, str) and k.startswith(PURCHASE_KEY_PREFIXES)]:
-                        rec = purchases_store.get(key)
-                        if isinstance(rec, dict) and rec.get("uid") == uid:
-                            anon = dict(rec)
-                            anon.update({"uid": None, "state": "revoked",
-                                         "revoked_ts": _time.time(),
-                                         "voided_reason": "account_deleted"})
-                            purchases_store[key] = anon
-                except Exception as exc:
-                    print(f"[delete] purchase anonymization failed: {exc!r}")
-                # 5. The account itself, last, so a failure above still leaves a
-                #    reachable account the user can retry from.
-                for key in [f"uid:{uid}", uname,
-                            f"email:{(urec or {}).get('email', '')}".lower() if (urec or {}).get("email") else None,
-                            f"email:{uname}".lower() if uname else None]:
-                    if not key:
-                        continue
-                    try:
-                        users_store.pop(key)
-                    except Exception:
-                        pass
-                return removed_files
-
             try:
-                removed = await asyncio.to_thread(_purge)
+                removed = await asyncio.to_thread(_purge_user_data, uid, uname, urec)
             except Exception as exc:
                 print(f"[delete] account deletion failed for {uid[:8]}: {exc!r}")
                 await send_error("Account deletion failed", 500, code="delete_failed")
                 return
             print(f"[delete] account {uid[:8]} deleted ({removed} file(s))")
             body = json.dumps({"ok": True, "files_removed": removed}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── Admin: delete a user account entirely ──
+        # Same purge as self-service /account/delete (shared _purge_user_data):
+        # videos, history, costs, quota keys, spawn ownership, push tokens,
+        # pending uploads, error reports, the account record + index entries;
+        # purchase grants anonymized. The email stays free to sign up again
+        # fresh. Guards: never yourself (use account deletion), never another
+        # admin (demote first) - both protect against a mis-tap wiping the
+        # owner's own account from a list UI.
+        if path in ("/admin/delete-user", "/admin/delete-user/") and method == "POST":
+            import os as _os
+            uname, urec = _user_by_uid()
+            caller_admin, _, _ = _quota_state(urec, _os.environ.get("ADMIN_USERS"), uname)
+            if not caller_admin:
+                await send_error("Forbidden", 403)
+                return
+            try:
+                data = json.loads((await _read_body(receive)).decode("utf-8"))
+                target = (data.get("username") or "").strip().lower()
+            except Exception:
+                await send_error("Invalid request body", 400)
+                return
+            if data.get("confirm") is not True:
+                await send_error("Confirmation required", 400, code="confirm_required")
+                return
+            trec = users_store.get(target)
+            if not isinstance(trec, dict):
+                await send_error("Unknown user", 404)
+                return
+            t_uid = trec.get("uid")
+            if target == uname or t_uid == uid:
+                await send_error("Use account deletion for your own account", 400, code="self_delete")
+                return
+            target_admin, _, _ = _quota_state(trec, _os.environ.get("ADMIN_USERS"), target)
+            if target_admin:
+                await send_error("Cannot delete an admin account", 400, code="admin_target")
+                return
+            try:
+                removed = await asyncio.to_thread(_purge_user_data, t_uid, target, trec)
+            except Exception as exc:
+                print(f"[admin-delete] failed for {target}: {exc!r}")
+                await send_error("Deletion failed", 500, code="delete_failed")
+                return
+            print(f"[admin-delete] {uname} deleted account {target} ({removed} file(s))")
+            body = json.dumps({"ok": True, "username": target, "files_removed": removed}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})

@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.48.8';
+  const APP_VERSION = '1.48.9';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -9157,6 +9157,36 @@
     pwBtn.textContent = t('admin.resetPw');
     pwBtn.onclick = () => _startPwReset(row, u, pwBtn);
     controls.append(pwBtn);
+    // Delete account - full purge, same as self-service deletion. The backend
+    // refuses self/admin targets, so the button only renders where it can
+    // work (never on admin rows, which includes the caller's own row).
+    if (u.role !== 'admin') {
+      const delBtn = document.createElement('button');
+      delBtn.className = 'admin-del-btn';
+      delBtn.textContent = t('admin.deleteUser');
+      delBtn.onclick = async () => {
+        const ok = await showConfirmModal(
+          t('admin.deleteTitle'),
+          t('admin.deleteBody', { name: u.username }),
+          t('admin.deleteUser'));
+        if (!ok) return;
+        delBtn.disabled = true;
+        try {
+          const resp = await apiFetch(`${API_BASE}/admin/delete-user`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: u.username, confirm: true }),
+          });
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          row.remove();
+          loadAdmin({ force: true });   // background refresh keeps the sig honest
+        } catch {
+          delBtn.disabled = false;
+          delBtn.textContent = t('admin.deleteFailed');
+          setTimeout(() => { delBtn.textContent = t('admin.deleteUser'); }, 2000);
+        }
+      };
+      controls.append(delBtn);
+    }
     return row;
   }
 

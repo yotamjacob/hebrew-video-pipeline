@@ -384,3 +384,40 @@ test('admin Errors panel says so when there is nothing to report', async ({ page
   await expect(page.locator('#adminErrEmpty')).toBeVisible();
   await expect(page.locator('#adminErrList .admin-err-row')).toHaveCount(0);
 });
+
+test('admin can delete a user: confirm modal, purge POST, row removed; admin rows have no delete', async ({ page }) => {
+  await bootApp(page, { me: { username: 'boss', role: 'admin', videos_used: 0, video_limit: null } });
+  await page.route(`${API_BASE}/admin/users`, r =>
+    r.fulfill({ status: 200, contentType: 'application/json',
+                body: JSON.stringify({ users: [
+                  { username: 'boss',   role: 'admin', videos_used: 0, video_limit: null, created: 1 },
+                  { username: 'tester', role: 'user',  videos_used: 2, video_limit: 5,    created: 2 },
+                ] }) }));
+  const delPosts = [];
+  await page.route(`${API_BASE}/admin/delete-user`, async (route, request) => {
+    delPosts.push(request.postDataJSON());
+    return route.fulfill({ status: 200, contentType: 'application/json',
+                           body: '{"ok":true,"username":"tester","files_removed":3}' });
+  });
+  await page.locator('#tabAdmin').click();
+  const rows = page.locator('.admin-row');
+  await expect(rows).toHaveCount(2);
+
+  // The caller's own admin row must NOT offer delete (backend refuses it too).
+  await expect(rows.nth(0).locator('.admin-del-btn')).toHaveCount(0);
+
+  // Cancel path: nothing posted, row stays.
+  await rows.nth(1).locator('.admin-del-btn').click();
+  await expect(page.locator('#confirmOverlay')).toBeVisible();
+  await expect(page.locator('#confirmBody')).toContainText('tester');
+  await expect(page.locator('#confirmBody')).toContainText(/לצמיתות/);
+  await page.locator('#confirmCancel').click();
+  expect(delPosts).toEqual([]);
+  await expect(rows).toHaveCount(2);
+
+  // Confirm path: purge POSTed with explicit confirm, row removed.
+  await rows.nth(1).locator('.admin-del-btn').click();
+  await page.locator('#confirmOk').click();
+  expect(await page.locator('.admin-row').count()).toBe(1);
+  expect(delPosts).toEqual([{ username: 'tester', confirm: true }]);
+});

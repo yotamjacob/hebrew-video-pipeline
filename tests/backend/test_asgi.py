@@ -618,19 +618,28 @@ class TestAppleBillingRoute:
 
 
 class TestAccountDeleteRoute:
-    """/account/delete - App Store Guideline 5.1.1(v) in-app deletion."""
+    """/account/delete - App Store Guideline 5.1.1(v) in-app deletion.
+    The purge body lives in the shared _purge_user_data helper (2026-08-13,
+    also used by /admin/delete-user) - store assertions target the helper."""
 
     def _block(self):
         i = MODAL_SRC.index('("/account/delete"')
-        return MODAL_SRC[i:i + 5200]
+        return MODAL_SRC[i:i + 1600]
+
+    def _purge_block(self):
+        i = MODAL_SRC.index("def _purge_user_data")
+        return MODAL_SRC[i:i + 4800]
 
     def test_requires_an_explicit_confirmation(self):
         block = self._block()
         assert '_d.get("confirm") is not True' in block
         assert '"confirm_required"' in block
 
+    def test_route_uses_the_shared_purge(self):
+        assert "asyncio.to_thread(_purge_user_data, uid, uname, urec)" in self._block()
+
     def test_purges_every_store_keyed_to_the_user(self):
-        block = self._block()
+        block = self._purge_block()
         for store in ("jobs_store", "costs_store", "progress_store",
                       "pending_store", "quota_store", "errors_store",
                       "calls_store", "fcm_store", "users_store"):
@@ -639,15 +648,45 @@ class TestAccountDeleteRoute:
         assert "tmp_vol.commit()" in block
 
     def test_purchase_grants_are_anonymized_not_left_grantable(self):
-        block = self._block()
+        block = self._purge_block()
         assert '"uid": None' in block
         assert '"state": "revoked"' in block
         assert '"account_deleted"' in block
 
     def test_account_record_and_both_indexes_go(self):
-        block = self._block()
-        assert 'f"uid:{uid}"' in block
+        block = self._purge_block()
+        assert 'f"uid:{t_uid}"' in block
         assert 'f"email:' in block
+
+
+class TestAdminDeleteUserRoute:
+    """/admin/delete-user - full purge of another account, admin-only."""
+
+    def _block(self):
+        i = MODAL_SRC.index('("/admin/delete-user"')
+        return MODAL_SRC[i:i + 2600]
+
+    def test_admin_gated(self):
+        block = self._block()
+        assert "if not caller_admin:" in block
+        assert '"Forbidden", 403' in block
+
+    def test_requires_confirmation_and_existing_target(self):
+        block = self._block()
+        assert 'data.get("confirm") is not True' in block
+        assert '"Unknown user", 404' in block
+
+    def test_refuses_self_and_admin_targets(self):
+        # Both guards protect the owner's own account from a mis-tap in a
+        # list UI: self-delete goes through /account/delete, and an admin
+        # account must be demoted before it can be deleted.
+        block = self._block()
+        assert '"self_delete"' in block
+        assert "target == uname or t_uid == uid" in block
+        assert '"admin_target"' in block
+
+    def test_uses_the_same_purge_as_self_delete(self):
+        assert "asyncio.to_thread(_purge_user_data, t_uid, target, trec)" in self._block()
 
     def test_a_surviving_token_cannot_spawn_new_work(self):
         """The session token is a stateless 30-day HMAC: it outlives the

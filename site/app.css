@@ -2481,6 +2481,13 @@
   font-size: 0.82rem; font-weight: 600; font-family: inherit; white-space: nowrap;
   display: inline-flex; align-items: center; justify-content: center;
 }
+.admin-del-btn {
+  padding: 0 14px; border-radius: 9px; cursor: pointer;
+  border: 1.5px solid var(--purple-100); background: transparent; color: var(--red);
+  font-size: 0.82rem; font-weight: 600; font-family: inherit; white-space: nowrap;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.admin-del-btn:disabled { opacity: 0.6; }
 .admin-pw-input {
   flex: 1 1 140px; min-width: 120px; padding: 0 10px; border: 1.5px solid var(--purple-100); border-radius: 9px;
   font-family: inherit; font-size: 0.85rem; outline: none; direction: ltr;
