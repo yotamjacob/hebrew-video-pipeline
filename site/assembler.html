@@ -448,6 +448,14 @@
       time.className = 'm-time';
       time.textContent = fmt(m.start) + ' - ' + fmt(m.end) + ' (' + Math.round(m.end - m.start) + ' שנ\')';
       meta.append(role);
+      // A visual moment: scene description, not a spoken quote.
+      if (m.visual) {
+        const visTag = document.createElement('span');
+        visTag.className = 'm-clip';
+        visTag.textContent = 'ויזואלי';
+        meta.append(visTag);
+        quote.textContent = m.quote;   // description - no quotation marks
+      }
       // Which clip this moment comes from - only meaningful with 2+ clips.
       if (clips.length > 1) {
         const clipTag = document.createElement('span');

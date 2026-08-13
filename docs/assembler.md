@@ -30,6 +30,16 @@ every shared surface is reused by CALLING it, never by modifying it.
   analyze→render must happen within that window.
 - analyze errors are soft: `{"error": "too_short"|"no_speech"|"no_moments"}`
   with Hebrew messages mapped client-side.
+- **Visual moments (2026-08-13):** (near-)speechless clips (<2 speech
+  segments) get `_visual_segments` - ≤8 frames sampled, ONE Haiku vision call
+  returns scene ranges + Hebrew descriptions (`assembler_vision` in cost
+  tracking; division of labor is deliberate - Haiku DESCRIBES, the Sonnet
+  story pass JUDGES; swap the describer via HAIKU_MODEL if descriptions feel
+  flat). They enter the story prompt marked `[ויזואלי]`, may be woven as
+  atmosphere/hook/transition moments (`visual: true` on the moment → the page
+  tags it and drops the quote marks), are wordless by construction (never
+  captioned), and make ALL-SILENT inputs analyzable (verified by production
+  E2E on audio-less clips). Vision failure degrades to a speechless clip.
 - **Captions (2026-08-13, solo-app - no pipeline handoff by user directive):**
   analyze runs whisper WITH word timestamps and persists the per-clip word
   transcript at `{key}_asm_words.json` (scratch, 48h sweep). Render (toggle

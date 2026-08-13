@@ -630,6 +630,26 @@ class TestAssemblerRoutes:
             "`resp.content[0].text`", "")   # the helper's docstring mention
         assert "def _msg_text" in MODAL_SRC
 
+    def test_speechless_footage_gets_visual_segments(self):
+        # Haiku describes scenes for (near-)speechless clips; the Sonnet pass
+        # weaves them as [ויזואלי] segments. Wordless by construction, so the
+        # caption remap can never caption them. Vision failures degrade to a
+        # speechless clip, never a failed analysis.
+        i = MODAL_SRC.index("def _visual_segments")
+        block = MODAL_SRC[i:i + 5200]
+        assert "HAIKU_MODEL" in block
+        assert '"visual": True, "words": []' in block
+        assert "visual analysis failed" in block
+        j = MODAL_SRC.index("def analyze_story")
+        ablock = MODAL_SRC[j:j + 7000]
+        assert "if len(segs) < 2:" in ablock
+        assert "_visual_segments(src, dur, tmp" in ablock
+        # The story prompt marks and permits visual segments.
+        k = MODAL_SRC.index("def _pick_moments")
+        pblock = MODAL_SRC[k:k + 7000]
+        assert "[ויזואלי]" in pblock
+        assert '"visual": bool(segs[a].get("visual"))' in pblock
+
     def test_silent_clips_survive_analyze_and_render(self):
         # B-roll shot without sound has NO audio stream: analyze keeps it as
         # a speechless clip (never 500s), and render gives its parts a silent

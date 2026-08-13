@@ -15,6 +15,7 @@ const MOMENTS = {
     { clip: 0, start: 5.0, end: 15.0, role: 'hook', quote: 'זה היקב שסבא שלי חלם עליו', reason: 'פתיח רגשי שתופס', thumb: THUMB },
     { clip: 1, start: 60.0, end: 75.0, role: 'story', quote: 'התחלנו משלוש חביות במרתף', reason: 'הסיפור המרכזי', thumb: THUMB },
     { clip: 0, start: 180.0, end: 192.0, role: 'gold', quote: 'היין הזה זכה במדליה', reason: 'רגע השיא', thumb: THUMB },
+    { clip: 1, start: 10.0, end: 16.0, role: 'story', quote: 'שורות גפנים בשעת זריחה', reason: 'אווירה', thumb: THUMB, visual: true },
   ],
   clips: [{ name: 'interview.mp4', duration: 240 }, { name: 'tour.mp4', duration: 180 }],
 };
@@ -76,15 +77,18 @@ test('multi-clip flow: two uploads -> cross-clip storyboard -> curate -> render'
   await expect(page.locator('#storyText')).toContainText('שלושה דורות');
   await expect(page.locator('#copyStory')).toBeVisible();
   const rows = page.locator('.moment');
-  await expect(rows).toHaveCount(3);
+  await expect(rows).toHaveCount(4);
   // Clip badges show which clip each moment comes from (only with 2+ clips).
   await expect(rows.nth(0).locator('.m-clip')).toHaveText('interview.mp4');
-  await expect(rows.nth(1).locator('.m-clip')).toHaveText('tour.mp4');
-  await expect(page.locator('#total')).toContainText('0:37');
+  await expect(rows.nth(1).locator('.m-clip').first()).toHaveText('tour.mp4');
+  // Visual moment: tagged, description without quotation marks.
+  await expect(rows.nth(3).locator('.m-clip').first()).toHaveText('ויזואלי');
+  await expect(rows.nth(3).locator('.m-quote')).toHaveText('שורות גפנים בשעת זריחה');
+  await expect(page.locator('#total')).toContainText('0:43');
 
   // Drop + restore + reorder still work across clips.
   await rows.nth(1).locator('.drop-btn').click();
-  await expect(page.locator('#total')).toContainText('0:22');
+  await expect(page.locator('#total')).toContainText('0:28');   // 43 - the dropped 15
   await page.locator('.moment').nth(1).locator('.drop-btn').click();
   await page.locator('.moment').nth(1).locator('button[title="הזזה למעלה"]').click();
   await expect(page.locator('.moment').nth(0).locator('.m-quote')).toContainText('שלוש חביות');
@@ -96,7 +100,7 @@ test('multi-clip flow: two uploads -> cross-clip storyboard -> curate -> render'
   await expect(page.locator('#result')).toBeVisible();
   await expect(page.locator('#outVideo')).toHaveAttribute('src', /\/media\/u1234__abc_out\.mp4\?token=m\.test/);
   expect(renderPosts[0].upload_keys).toEqual(analyzePosts[0].upload_keys);
-  expect(renderPosts[0].segments).toEqual([[1, 60, 75], [0, 5, 15], [0, 180, 192]]);
+  expect(renderPosts[0].segments).toEqual([[1, 60, 75], [0, 5, 15], [0, 180, 192], [1, 10, 16]]);
   expect(renderPosts[0].captions).toBe(true);   // synced-captions toggle defaults ON
 });
 
@@ -110,7 +114,9 @@ test('single clip: no clip badges, bare flow still works', async ({ page }) => {
   await page.clock.fastForward(3100);
   expect(analyzePosts[0].upload_keys).toHaveLength(1);
   await expect(page.locator('#board')).toBeVisible();
-  await expect(page.locator('.m-clip')).toHaveCount(0);   // badge is multi-clip only
+  // Single clip: no clip-name badges - only the visual-moment tag remains.
+  await expect(page.locator('.m-clip')).toHaveCount(1);
+  await expect(page.locator('.m-clip')).toHaveText('ויזואלי');
 
   // Captions off is honored in the render payload.
   const renderPosts = [];

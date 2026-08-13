@@ -29,7 +29,7 @@ import modal
 from pipeline_core import (
     app, image, burn_image, model_volume, MODEL_DIR,
     WHISPER_MODEL, WHISPER_INITIAL_PROMPT, tmp_vol, TMP_DIR,
-    SONNET_MODEL, costs_store, _record_ai_spend, _msg_text,
+    SONNET_MODEL, HAIKU_MODEL, costs_store, _record_ai_spend, _msg_text,
 )
 
 # Mirrors process_video's noise gates (kept local - importing them would mean
@@ -102,7 +102,8 @@ def _pick_moments(clips, total_duration):
     blocks = []
     for ci, clip in enumerate(clips):
         lines = "\n".join(
-            f"[{ci}:{i}] {s['start']:.1f}-{s['end']:.1f}: {s['text']}"
+            f"[{ci}:{i}] {s['start']:.1f}-{s['end']:.1f}: "
+            f"{'[ויזואלי] ' if s.get('visual') else ''}{s['text']}"
             for i, s in enumerate(clip["segs"]))
         blocks.append(f'### קליפ {ci} - "{clip["name"]}" ({clip["duration"]:.0f} שניות)\n'
                       + (lines or "(אין דיבור בקליפ הזה)"))
@@ -118,7 +119,7 @@ def _pick_moments(clips, total_duration):
 החזר JSON בלבד:
 {{"title": "כותרת קצרה לסרטון", "story": "הסיפור המפורט...", "moments": [{{"clip": 0, "from_seg": 0, "to_seg": 2, "role": "hook", "quote": "הציטוט המרכזי מהרגע", "reason": "למה הרגע הזה חזק לסיפור"}}]}}
 
-חוקים: role אחד מ-hook/story/gold/closing. הציטוט חייב להופיע בתמלול. אל תמציא עובדות שלא נאמרו. from_seg ו-to_seg חייבים להיות מאותו קליפ שצוין ב-clip.
+חוקים: role אחד מ-hook/story/gold/closing. הציטוט חייב להופיע בתמלול. אל תמציא עובדות שלא נאמרו. from_seg ו-to_seg חייבים להיות מאותו קליפ שצוין ב-clip. מקטעים המסומנים [ויזואלי] מתארים מה שרואים בקטע ללא דיבור - שלב אותם כרגעי אווירה, פתיח או מעבר כשהם מחזקים את הסיפור, ובשדה quote של רגע כזה כתוב את תיאור הסצנה.
 
 התמלול:
 {chr(10).join(blocks)}"""
@@ -156,9 +157,68 @@ def _pick_moments(clips, total_duration):
             "role": m.get("role") if m.get("role") in ("hook", "story", "gold", "closing") else "story",
             "quote": str(m.get("quote") or segs[a]["text"])[:300],
             "reason": str(m.get("reason") or "")[:300],
+            # A moment built from scene descriptions, not speech - the UI
+            # drops the quote marks and tags it.
+            "visual": bool(segs[a].get("visual")),
         })
     story = str(data.get("story") or "")[:2000]
     return str(data.get("title") or "")[:80], story, moments
+
+
+def _visual_segments(src: Path, duration: float, workdir: Path, clip_name: str):
+    """Speechless footage still tells a story - sample frames and have Haiku
+    describe the distinct scenes as time-ranged segments. Haiku (not Sonnet)
+    is deliberate: this is plain scene DESCRIPTION - the narrative judgment
+    of which visuals earn a storyboard slot stays with the Sonnet story pass.
+    Same division of labor as the stock-B-roll frame scoring. Returns
+    [{"start","end","text","visual":True,"words":[]}] - wordless, so the
+    caption remap can never produce captions from them. Best-effort: any
+    failure returns [] and the clip simply stays speechless."""
+    import base64
+    import os
+    try:
+        from anthropic import Anthropic
+        step = max(3.0, duration / 8)          # ≤8 frames per clip
+        times, content = [], []
+        t = step / 2
+        while t < duration and len(times) < 8:
+            fp = workdir / f"vis_{clip_name[:8]}_{len(times)}.jpg"
+            _run(["ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", str(src),
+                  "-frames:v", "1", "-vf", "scale=320:-2", "-q:v", "6", str(fp)])
+            content.append({"type": "text", "text": f"פריים בשנייה {t:.0f}:"})
+            content.append({"type": "image", "source": {
+                "type": "base64", "media_type": "image/jpeg",
+                "data": base64.b64encode(fp.read_bytes()).decode()}})
+            times.append(t)
+            t += step
+        if not times:
+            return []
+        content.append({"type": "text", "text":
+            f'אלה פריימים מסרטון ללא דיבור באורך {duration:.0f} שניות ("{clip_name}"). '
+            'קבץ אותם לסצנות נפרדות ותאר כל סצנה בעברית במשפט קצר וקונקרטי (מה רואים, לא פרשנות). '
+            'החזר JSON בלבד: [{"start": 0, "end": 10, "desc": "תיאור הסצנה"}] '
+            'כשהטווחים מכסים את הסרטון בסדר כרונולוגי.'})
+        client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        resp = client.messages.create(model=HAIKU_MODEL, max_tokens=1500,
+                                      messages=[{"role": "user", "content": content}])
+        _record_ai_spend(costs_store, "assembler_vision", HAIKU_MODEL, resp.usage)
+        text = _msg_text(resp)
+        arr = json.loads(text[text.find("["):text.rfind("]") + 1])
+        segs = []
+        for s in arr[:10]:
+            try:
+                a, b = float(s["start"]), float(s["end"])
+                desc = str(s["desc"]).strip()
+            except (KeyError, TypeError, ValueError):
+                continue
+            a, b = max(0.0, a), min(b, duration)
+            if b - a >= 1.0 and desc:
+                segs.append({"start": round(a, 2), "end": round(b, 2),
+                             "text": desc[:200], "visual": True, "words": []})
+        return segs
+    except Exception as exc:
+        print(f"[assembler] visual analysis failed for {clip_name!r}: {exc!r}")
+        return []
 
 
 def _asm_words_path(upload_key: str) -> Path:
@@ -274,26 +334,29 @@ def analyze_story(upload_keys, filenames=None) -> dict:
             # clips instead of 500ing the whole analysis (field bug,
             # 2026-08-13 - the second assembler 500).
             wav = tmp / f"audio_{len(clips)}.wav"
+            segs = []
             try:
                 _run(["ffmpeg", "-y", "-i", str(src), "-vn", "-ac", "1", "-ar", "16000", str(wav)])
                 raw, _info = m.transcribe(str(wav), **common)
+                for s in raw:
+                    nsp = float(getattr(s, "no_speech_prob", 0.0) or 0.0)
+                    alp = float(getattr(s, "avg_logprob", 0.0) or 0.0)
+                    if nsp >= _NO_SPEECH_MAX and alp <= _AVG_LOGPROB_MIN:
+                        continue
+                    text = (s.text or "").strip()
+                    if text:
+                        words = [[float(w.start), float(w.end), w.word.strip()]
+                                 for w in (s.words or []) if w.word.strip()]
+                        segs.append({"start": float(s.start), "end": float(s.end),
+                                     "text": text, "words": words})
             except Exception as exc:
                 print(f"[assembler] no transcribable audio in {name!r}: {exc!r}")
-                clips.append({"name": str(name)[:80], "duration": dur, "segs": []})
-                _asm_words_path(key).write_text('{"segments": []}', encoding="utf-8")
-                continue
-            segs = []
-            for s in raw:
-                nsp = float(getattr(s, "no_speech_prob", 0.0) or 0.0)
-                alp = float(getattr(s, "avg_logprob", 0.0) or 0.0)
-                if nsp >= _NO_SPEECH_MAX and alp <= _AVG_LOGPROB_MIN:
-                    continue
-                text = (s.text or "").strip()
-                if text:
-                    words = [[float(w.start), float(w.end), w.word.strip()]
-                             for w in (s.words or []) if w.word.strip()]
-                    segs.append({"start": float(s.start), "end": float(s.end),
-                                 "text": text, "words": words})
+            # (Near-)speechless clip: the footage itself is the story material.
+            # Haiku describes the scenes; the Sonnet pass below decides which
+            # earn a storyboard slot. Wordless, so they never emit captions.
+            if len(segs) < 2:
+                segs += _visual_segments(src, dur, tmp, str(name))
+                segs.sort(key=lambda s: s["start"])
             clips.append({"name": str(name)[:80], "duration": dur, "segs": segs})
             # Persist the word-level transcript next to the source so the
             # render can burn captions without a second transcription. Swept
