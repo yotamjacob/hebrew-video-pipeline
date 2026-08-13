@@ -172,3 +172,16 @@ test('every enabled tool is listed as pending from the moment the run starts, in
   // Burn belongs to the export step - never pre-listed during processing.
   await expect(page.locator('#checkBurn')).toBeHidden();
 });
+
+test('attaching a file reveals a loud card and scrolls it into view', async ({ page }) => {
+  await bootApp(page);
+  await selectFile(page);
+  const card = page.locator('#fileInfo');
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('test.mp4');
+  // The attach must be self-evident: the card scrolls into the viewport
+  // (born-below-the-fold attaches used to read as a no-op on phones).
+  await expect(card).toBeInViewport();
+  // Bold treatment: the strongest border weight on the page (2px olive).
+  expect(await card.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('2px');
+});

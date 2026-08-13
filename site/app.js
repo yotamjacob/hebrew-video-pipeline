@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.48.10';
+  const APP_VERSION = '1.48.11';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -1884,7 +1884,7 @@
     isAudioInput = _isAudio && !_isVideo;
     applyAudioMode(isAudioInput);
     fileName.textContent = desc.name;
-    fileInfo.classList.add('visible');
+    _revealFileInfo();
     document.getElementById('startOverBtn').style.display = '';
     clearNotices();
     resetStatus();
@@ -2720,6 +2720,22 @@
     }, 2000);   // dwell so the badge + spinner register, then fade
   }
 
+  // Attaching a file has to LOOK like something happened: the card sits below
+  // the upload zone, so on phones (and short desktop windows) it was born
+  // below the fold and an attach read as a no-op. Reveal + scroll it into
+  // view + one glow pulse (shared celebrate keyframe; reduced-motion CSS
+  // already makes it instant, and scrolling falls back to an instant jump).
+  function _revealFileInfo() {
+    fileInfo.classList.add('visible');
+    setTimeout(() => {
+      try {
+        fileInfo.scrollIntoView({
+          behavior: _prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+      } catch (_) {}
+    }, 60);   // after the reveal has laid out, so the scroll target is real
+    _pulse(fileInfo, 'celebrate-glow');
+  }
+
   async function handleFile(file) {
     if (!file) return;
     const _isVideo = file.type.startsWith('video/') || /\.(mp4|mov|mkv|avi|webm)$/i.test(file.name);
@@ -2733,7 +2749,7 @@
     isAudioInput = _isAudio && !_isVideo;
     applyAudioMode(isAudioInput);
     fileName.textContent = file.name;
-    fileInfo.classList.add('visible');
+    _revealFileInfo();
     document.getElementById('startOverBtn').style.display = '';
     clearNotices();
     resetStatus();

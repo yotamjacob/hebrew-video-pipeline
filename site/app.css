@@ -194,24 +194,29 @@
     }
 
     /* ── File info strip ── */
+    /* Attached-file card. Deliberately LOUD (2026-08-13, user request): an
+       attach has to be unmistakable, so it gets the strongest border weight
+       on the page + the cream surface. (The old 1.5px #DDD6FE border was a
+       pre-boho lavender leftover.) */
     .file-info {
       display: none;
       align-items: center;
       gap: 12px;
-      background: var(--purple-50);
-      border: 1.5px solid #DDD6FE;
+      background: var(--white);
+      border: 2px solid var(--olive);
       border-radius: 12px;
-      padding: 12px 16px;
+      padding: 13px 16px;
       margin-top: 12px;
+      box-shadow: 0 3px 12px rgba(85, 86, 63, 0.10);
     }
     .file-info.visible { display: flex; }
-    .file-info-icon { flex-shrink: 0; color: var(--purple-600); display: flex; }
-    .file-info-icon svg { width: 26px; height: 26px; }
+    .file-info-icon { flex-shrink: 0; color: var(--olive); display: flex; }
+    .file-info-icon svg { width: 28px; height: 28px; }
     .file-info-meta { flex: 1; min-width: 0; }
     .file-info-name {
-      font-size: 0.88rem;
-      font-weight: 600;
-      color: var(--purple-800);
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--text);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
