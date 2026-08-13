@@ -40,6 +40,39 @@
     "creator": { "@type": "Organization", "name": "Pipeline", "email": "hebrewpipeline@gmail.com" }
   }
   </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "איך מוסיפים כתוביות בעברית לסרטון?",
+        "acceptedAnswer": { "@type": "Answer", "text": "מעלים את הסרטון לפייפליין. תוך דקות מקבלים תמלול מלא, כתוביות מעוצבות ומסונכרנות מילה במילה, וסרטון מוכן לפרסום." }
+      },
+      {
+        "@type": "Question",
+        "name": "האם התמלול האוטומטי בעברית מדויק?",
+        "acceptedAnswer": { "@type": "Answer", "text": "כן. המנוע כוונן במיוחד לעברית, ומעליו מעבר הגהה חכם שמתקן שגיאות שמיעה. אפשר גם לערוך כל מילה ידנית לפני הצריבה." }
+      },
+      {
+        "@type": "Question",
+        "name": "לאילו רשתות זה מתאים?",
+        "acceptedAnswer": { "@type": "Answer", "text": "אינסטגרם רילס, טיקטוק, יוטיוב שורטס, פייסבוק ולינקדאין - כל פורמט, אנכי או אופקי." }
+      },
+      {
+        "@type": "Question",
+        "name": "כמה עולה להוסיף כתוביות בעברית?",
+        "acceptedAnswer": { "@type": "Answer", "text": "שלושת הסרטונים הראשונים חינם, בלי כרטיס אשראי. אחר כך חבילות קרדיטים לפי שימוש." }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I add Hebrew subtitles automatically?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Yes. Pipeline is built for Hebrew: accurate RTL captions synced word by word, automatic Hebrew transcription, and social-ready output in minutes." }
+      }
+    ]
+  }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@400;500&family=Assistant:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -248,6 +281,47 @@
     .counter-label { font-size: 0.95rem; color: var(--sage-dark); font-weight: 500; }
     .counter-label-en { direction: ltr; font-size: 0.8rem; color: var(--muted); }
 
+    /* ── SEO FAQ ── */
+    .faq { margin-top: 40px; text-align: right; }
+    .faq h2 {
+      font-family: 'Frank Ruhl Libre', 'David', serif;
+      font-weight: 500;
+      font-size: 1.15rem;
+      color: var(--purple-800);
+      text-align: center;
+      margin-bottom: 14px;
+    }
+    .faq details {
+      background: var(--white);
+      border: 1px solid var(--purple-100);
+      border-radius: 14px;
+      margin-bottom: 8px;
+      overflow: hidden;
+    }
+    .faq summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      list-style: none;
+      cursor: pointer;
+      padding: 12px 16px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      color: var(--sage-dark);
+    }
+    .faq summary::-webkit-details-marker { display: none; }
+    .faq summary:hover { background: var(--purple-50); }
+    .faq .chev { width: 15px; height: 15px; flex: 0 0 15px; stroke: var(--purple-700); transition: transform 0.15s ease; }
+    .faq details[open] .chev { transform: rotate(180deg); }
+    .faq p {
+      padding: 0 16px 13px;
+      font-size: 0.88rem;
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .faq-en { text-align: left; }
+
     .foot {
       margin-top: 38px;
       font-size: 0.8rem;
@@ -396,6 +470,33 @@
     <span class="counter-label">סרטונים כבר נערכו בפייפליין</span>
     <span class="counter-label-en">videos edited with Pipeline so far</span>
   </div>
+
+  <!-- SEO content (approved 2026-08-13): compact FAQ targeting Hebrew-
+       subtitles / Hebrew-video-editing queries. Below the conversion flow
+       on purpose. Mirrored in the FAQPage JSON-LD in <head>. -->
+  <section class="faq">
+    <h2>כתוביות אוטומטיות בעברית ועריכת וידאו חכמה</h2>
+    <details>
+      <summary>איך מוסיפים כתוביות בעברית לסרטון?<svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+      <p>מעלים את הסרטון לפייפליין. תוך דקות מקבלים תמלול מלא, כתוביות מעוצבות ומסונכרנות מילה במילה, וסרטון מוכן לפרסום.</p>
+    </details>
+    <details>
+      <summary>האם התמלול האוטומטי בעברית מדויק?<svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+      <p>כן. המנוע כוונן במיוחד לעברית, ומעליו מעבר הגהה חכם שמתקן שגיאות שמיעה. אפשר גם לערוך כל מילה ידנית לפני הצריבה.</p>
+    </details>
+    <details>
+      <summary>לאילו רשתות זה מתאים?<svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+      <p>אינסטגרם רילס, טיקטוק, יוטיוב שורטס, פייסבוק ולינקדאין - כל פורמט, אנכי או אופקי.</p>
+    </details>
+    <details>
+      <summary>כמה עולה להוסיף כתוביות בעברית?<svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+      <p>שלושת הסרטונים הראשונים חינם, בלי כרטיס אשראי. אחר כך חבילות קרדיטים לפי שימוש.</p>
+    </details>
+    <details dir="ltr" class="faq-en">
+      <summary>Can I add Hebrew subtitles automatically?<svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+      <p>Yes. Pipeline is built for Hebrew: accurate RTL captions synced word by word, automatic Hebrew transcription, and social-ready output in minutes.</p>
+    </details>
+  </section>
 
   <div class="foot">
     <a href="/legal.html">פרטיות ותנאים</a>

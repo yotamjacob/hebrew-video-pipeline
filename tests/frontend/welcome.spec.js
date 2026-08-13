@@ -76,6 +76,32 @@ test('pitch flow loops (rewinds) while gains stay put', async ({ page }) => {
   expect(gainOpacity).toBe('1');
 });
 
+test('SEO FAQ: 5 collapsed questions that expand, mirrored in FAQPage JSON-LD', async ({ page }) => {
+  await page.route(STATS_RE, (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ videos: 5 }),
+  }));
+  await page.goto('/welcome.html');
+
+  await expect(page.locator('.faq details')).toHaveCount(5);
+  const first = page.locator('.faq details').first();
+  await expect(first.locator('p')).toBeHidden();     // collapsed by default
+  await first.locator('summary').click();
+  await expect(first.locator('p')).toBeVisible();
+  // The EN item is LTR inside the RTL page.
+  await expect(page.locator('.faq-en')).toHaveAttribute('dir', 'ltr');
+  // Structured data stays in sync with the visible questions.
+  const ld = await page.evaluate(() => {
+    const blocks = [...document.querySelectorAll('script[type="application/ld+json"]')]
+      .map((s) => JSON.parse(s.textContent));
+    return blocks.find((b) => b['@type'] === 'FAQPage');
+  });
+  expect(ld.mainEntity).toHaveLength(5);
+  const visible = await page.locator('.faq summary').allInnerTexts();
+  for (const [i, q] of ld.mainEntity.entries()) {
+    expect(visible[i].trim()).toBe(q.name);
+  }
+});
+
 test('counter stays hidden when /stats fails', async ({ page }) => {
   await page.route(STATS_RE, (route) => route.fulfill({ status: 500, body: '' }));
   await page.goto('/welcome.html');
