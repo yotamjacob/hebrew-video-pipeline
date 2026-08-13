@@ -621,14 +621,14 @@ class TestAssemblerRoutes:
         # The route forwards the toggle (default on).
         assert 'bool(data.get("captions", True))' in self._render()
 
-    def test_moment_picking_survives_thinking_blocks(self):
+    def test_no_backend_module_indexes_content_0_text(self):
         # Sonnet 5 can emit a ThinkingBlock before the text answer -
-        # content[0].text crashed the analysis intermittently (field 500,
-        # 2026-08-13). Only text blocks may be read, never by index.
-        i = MODAL_SRC.index("def _pick_moments")
-        block = MODAL_SRC[i:i + 5000]
-        assert 'if getattr(b, "type", "") == "text"' in block
-        assert "resp.content[0].text" not in block
+        # content[0].text crashes intermittently (field 500, 2026-08-13).
+        # EVERY Anthropic response read goes through pipeline_core._msg_text
+        # (or stock_helpers' inline pure copy) - never positional indexing.
+        assert "content[0].text" not in MODAL_SRC.replace(
+            "`resp.content[0].text`", "")   # the helper's docstring mention
+        assert "def _msg_text" in MODAL_SRC
 
     def test_silent_clips_survive_analyze_and_render(self):
         # B-roll shot without sound has NO audio stream: analyze keeps it as

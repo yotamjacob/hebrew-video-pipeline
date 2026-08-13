@@ -70,7 +70,7 @@ def generate_hook_options(captions_json: str, video_key: str = "") -> dict:
         messages=[{"role": "user", "content": content}],
     )
     _record_ai_spend(costs_store, "hook", SONNET_MODEL, resp.usage)
-    raw = resp.content[0].text.strip()
+    raw = _msg_text(resp).strip()
     if "```" in raw:
         for part in raw.split("```"):
             part = part.strip().lstrip("json").strip()
@@ -149,7 +149,7 @@ def generate_caption_options(captions_json: str, video_key: str = "", platforms:
         messages=[{"role": "user", "content": content}],
     )
     _record_ai_spend(costs_store, "post_caption", SONNET_MODEL, resp.usage)
-    raw = resp.content[0].text.strip()
+    raw = _msg_text(resp).strip()
     if "```" in raw:
         for part in raw.split("```"):
             part = part.strip().lstrip("json").strip()

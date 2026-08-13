@@ -1216,6 +1216,15 @@ def _ai_usd(model, tin, tout, cache_read=0, cache_write=0):
             + tout * rout) / 1_000_000.0
 
 
+def _msg_text(resp) -> str:
+    """An Anthropic message response → its answer text. Sonnet 5 may emit a
+    ThinkingBlock BEFORE the text block, so `resp.content[0].text` crashes
+    intermittently (field bug in the assembler, 2026-08-13); join text-type
+    blocks only, never index by position."""
+    return "".join(getattr(b, "text", "") for b in (getattr(resp, "content", None) or [])
+                   if getattr(b, "type", "") == "text")
+
+
 def _record_ai_spend(costs_store, kind, model, usage):
     """Ledger entry for ONE Anthropic API call (feeds the admin Costs tab -
     per-video compute alone understated the true cost since AI spend is not

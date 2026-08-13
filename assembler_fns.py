@@ -29,7 +29,7 @@ import modal
 from pipeline_core import (
     app, image, burn_image, model_volume, MODEL_DIR,
     WHISPER_MODEL, WHISPER_INITIAL_PROMPT, tmp_vol, TMP_DIR,
-    SONNET_MODEL, costs_store, _record_ai_spend,
+    SONNET_MODEL, costs_store, _record_ai_spend, _msg_text,
 )
 
 # Mirrors process_video's noise gates (kept local - importing them would mean
@@ -132,10 +132,8 @@ def _pick_moments(clips, total_duration):
         messages=[{"role": "user", "content": prompt}])
     _record_ai_spend(costs_store, "assembler_moments", SONNET_MODEL, resp.usage)
     # Sonnet 5 may emit a ThinkingBlock BEFORE the text block (observed on
-    # this prompt 2026-08-13 - the intermittent analyze 500). Join the text
-    # blocks; never index content[0].
-    text = "".join(getattr(b, "text", "") for b in resp.content
-                   if getattr(b, "type", "") == "text")
+    # this prompt 2026-08-13 - the intermittent analyze 500).
+    text = _msg_text(resp)
     start, end = text.find("{"), text.rfind("}")
     data = json.loads(text[start:end + 1])
 

@@ -79,7 +79,7 @@ def _get_video_context(video_path: str, transcript: str, client) -> dict:
             messages=[{"role": "user", "content": content}],
         )
         _record_ai_spend(costs_store, "broll_context", SONNET_MODEL, resp.usage)
-        raw = resp.content[0].text.strip()
+        raw = _msg_text(resp).strip()
         if "```" in raw:
             for part in raw.split("```"):
                 part = part.strip().lstrip("json").strip()
@@ -491,7 +491,7 @@ def analyze_stock_broll(captions_json: str, video_key: str = "",
             }]
         )
         _record_ai_spend(costs_store, "broll_moments", SONNET_MODEL, r.usage)
-        raw = r.content[0].text.strip()
+        raw = _msg_text(r).strip()
         truncated = getattr(r, "stop_reason", None) == "max_tokens"
         if "```" in raw:
             for part in raw.split("```"):

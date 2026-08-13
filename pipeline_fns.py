@@ -501,7 +501,7 @@ def proofread_words(texts, client, model, chunk_size=400, max_tokens=8000):
                 messages=[{"role": "user", "content": prompt}],
             )
             _record_ai_spend(costs_store, "proofread", model, _pr.usage)
-            raw = _pr.content[0].text.strip()
+            raw = _msg_text(_pr).strip()
             if "```" in raw:
                 for part in raw.split("```"):
                     part = part.strip().lstrip("json").strip()

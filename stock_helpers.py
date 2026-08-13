@@ -319,7 +319,11 @@ def score_clips(clips: list, strict_eval: str, anthropic_client,
                 on_usage(r.usage)
             except Exception:
                 pass
-        return r.content[0].text.strip()
+        # Inline (not pipeline_core._msg_text - this module stays import-pure):
+        # Sonnet 5 may emit a ThinkingBlock before the text block; join
+        # text-type blocks, never index content[0] (field bug 2026-08-13).
+        return "".join(getattr(b, "text", "") for b in (r.content or [])
+                       if getattr(b, "type", "") == "text").strip()
 
     def _parse_json_array(raw):
         if "```" in raw:
