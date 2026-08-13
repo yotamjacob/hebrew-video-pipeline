@@ -396,6 +396,9 @@ test('admin can delete a user: confirm modal, purge POST, row removed; admin row
   const delPosts = [];
   await page.route(`${API_BASE}/admin/delete-user`, async (route, request) => {
     delPosts.push(request.postDataJSON());
+    // Real purges sweep several stores + the volume - the button must show a
+    // spinner for the duration, so hold the response long enough to assert it.
+    await new Promise((res) => setTimeout(res, 500));
     return route.fulfill({ status: 200, contentType: 'application/json',
                            body: '{"ok":true,"username":"tester","files_removed":3}' });
   });
@@ -415,9 +418,10 @@ test('admin can delete a user: confirm modal, purge POST, row removed; admin row
   expect(delPosts).toEqual([]);
   await expect(rows).toHaveCount(2);
 
-  // Confirm path: purge POSTed with explicit confirm, row removed.
+  // Confirm path: spinner while the purge runs, then row removed.
   await rows.nth(1).locator('.admin-del-btn').click();
   await page.locator('#confirmOk').click();
-  expect(await page.locator('.admin-row').count()).toBe(1);
+  await expect(rows.nth(1).locator('.admin-del-btn .spinner')).toBeVisible();
+  await expect(page.locator('.admin-row')).toHaveCount(1);
   expect(delPosts).toEqual([{ username: 'tester', confirm: true }]);
 });
