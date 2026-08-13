@@ -3329,6 +3329,11 @@ def api():
                 await send_error("Invalid or missing key", 400)
                 return
             try:
+                # Chunks are written WITHOUT a commit (upload_chunk defers it
+                # to spawn time) - flush before the worker reads, exactly like
+                # the /process spawn does. Missing this = worker sees no
+                # chunks = instant "No upload found" 500 (field bug, 2026-08-13).
+                await asyncio.to_thread(tmp_vol.commit)
                 call = analyze_story.spawn(f"{uprefix}{key}",
                                            str(data.get("filename") or "video.mp4")[:120])
                 _record_call(call)
@@ -3395,6 +3400,7 @@ def api():
                 await send_error("Invalid segments", 400, code="bad_segments")
                 return
             try:
+                await asyncio.to_thread(tmp_vol.commit)   # flush before the worker reads
                 call = render_story.spawn(f"{uprefix}{key}",
                                           [[float(s[0]), float(s[1])] for s in segs],
                                           str(data.get("filename") or "story.mp4")[:120])

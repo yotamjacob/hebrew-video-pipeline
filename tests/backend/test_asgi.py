@@ -579,6 +579,12 @@ class TestAssemblerRoutes:
         assert "total > 600" in block
         assert "b - a >= 0.5" in block
 
+    def test_spawns_flush_the_volume_before_the_worker_reads(self):
+        # upload_chunk defers volume commits to spawn time; a spawn without
+        # tmp_vol.commit() hands the worker an empty view of the chunks.
+        for block in (self._analyze(), self._render()):
+            assert "tmp_vol.commit" in block
+
     def test_render_lands_in_history_via_standard_conventions(self):
         i = MODAL_SRC.index("def render_story")
         block = MODAL_SRC[i:i + 2600]
