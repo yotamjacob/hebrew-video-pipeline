@@ -314,7 +314,7 @@ def analyze_story(upload_keys, filenames=None) -> dict:
     memory=4096,
 )
 def render_story(upload_keys, segments: list, filename: str = "story.mp4",
-                 captions: bool = True) -> dict:
+                 captions: bool = True, vo_key: str = None) -> dict:
     """Cut the kept moments (in the user's storyboard ORDER) from their
     respective clips, normalize every part onto a common canvas (mixed
     resolutions/orientations scale+pad; uniform fps + audio), and concat.
@@ -398,17 +398,40 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
                     ass_path = tmp / "captions.ass"
                     ass_path.write_text(ass_str, encoding="utf-8")
                     esc = str(ass_path).replace(":", r"\:")
+                    captioned = tmp / "captioned.mp4"
                     _run(["ffmpeg", "-y", "-i", str(joined),
                           "-vf", f"subtitles='{esc}'",
                           "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
                           "-pix_fmt", "yuv420p", "-c:a", "copy",
-                          "-movflags", "+faststart", str(out_path)])
+                          "-movflags", "+faststart", str(captioned)])
                     burned = True
             except Exception as exc:
                 print(f"[assembler] caption burn failed - shipping clean cut: {exc!r}")
-        if not burned:
+        visual = captioned if burned else joined
+
+        # ── Voice-over (Phase 3): duck the original audio under the narration
+        # and mix. Video stream is COPIED - this pass costs audio-encode only.
+        # Filtergraph validated on synthetic media 2026-08-13: apad keeps a
+        # shorter VO from truncating the cut (duration=first). A missing/
+        # broken VO degrades to the un-narrated cut, never a failed render.
+        mixed = False
+        if vo_key:
+            try:
+                vo_src = _resolve_source(vo_key, tmp)
+                _run(["ffmpeg", "-y", "-i", str(visual), "-i", str(vo_src),
+                      "-filter_complex",
+                      "[1:a]aformat=sample_rates=48000:channel_layouts=stereo,apad[vo];"
+                      "[0:a][vo]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=400[bg];"
+                      "[bg][vo]amix=inputs=2:duration=first:normalize=0[aout]",
+                      "-map", "0:v", "-map", "[aout]",
+                      "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                      "-movflags", "+faststart", str(out_path)])
+                mixed = True
+            except Exception as exc:
+                print(f"[assembler] VO mix failed - shipping without narration: {exc!r}")
+        if not mixed:
             import shutil
-            shutil.copy(joined, out_path)
+            shutil.copy(visual, out_path)
         tmp_vol.commit()
 
         # Standard History record: download / share / thumbnail / retention all

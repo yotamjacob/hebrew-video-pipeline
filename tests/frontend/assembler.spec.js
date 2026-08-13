@@ -122,4 +122,35 @@ test('single clip: no clip badges, bare flow still works', async ({ page }) => {
   await page.locator('#renderBtn').click();
   await expect.poll(() => renderPosts.length).toBe(1);
   expect(renderPosts[0].captions).toBe(false);
+  expect(renderPosts[0].vo_key).toBe(null);   // no narration attached
+});
+
+test('voice-over via audio-file upload rides the render payload', async ({ page }) => {
+  const renderPosts = [];
+  await bootAssembler(page, { renderPosts });
+  await page.setInputFiles('#file', {
+    name: 'winery.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(1024 * 1024),
+  });
+  await expect(page.locator('#board')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('#voCard')).toBeVisible();
+
+  // Upload-audio path (the record path needs a mic - covered manually).
+  await page.setInputFiles('#voFile', {
+    name: 'narration.m4a', mimeType: 'audio/mp4', buffer: Buffer.alloc(256 * 1024),
+  });
+  await expect(page.locator('#voReady')).toBeVisible();
+  await expect(page.locator('#voPreview')).toHaveAttribute('src', /^blob:/);
+
+  await page.locator('#renderBtn').click();
+  await expect.poll(() => renderPosts.length).toBe(1);
+  // The VO was chunk-uploaded under its own key, distinct from the clips.
+  expect(typeof renderPosts[0].vo_key).toBe('string');
+  expect(renderPosts[0].vo_key).toHaveLength(32);
+  expect(renderPosts[0].upload_keys).not.toContain(renderPosts[0].vo_key);
+
+  // Removing the narration clears it from the next render.
+  await page.clock.fastForward(3100);
+  await expect(page.locator('#result')).toBeVisible();
+  await page.locator('#voRemove').click();
+  await expect(page.locator('#voReady')).toBeHidden();
 });

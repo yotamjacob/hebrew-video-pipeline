@@ -49,8 +49,17 @@ every shared surface is reused by CALLING it, never by modifying it.
 ## Roadmap (agreed 2026-08-13)
 
 Phase 2 (multi-clip) SHIPPED same day - up to 5 clips, cross-clip storyboard
-with clip badges, canvas-normalized render. Phase 3: voice-over (in-page
-recording, ffmpeg sidechaincompress ducking, VO-first assembly).
+with clip badges, canvas-normalized render. Phase 3 record-and-duck SHIPPED
+same day: VO card (`#voCard`, card 4) records via MediaRecorder (audio/mp4 on
+Safari, webm elsewhere) or accepts an audio-file upload (≤100MB); the blob is
+chunk-uploaded under its own key at render time and rides the render as
+`vo_key` (validated + uid-prefixed like every key). `render_story` mixes it as
+a VIDEO-COPY pass: `[1:a]aformat,apad[vo]; [0:a][vo]sidechaincompress
+threshold=0.05 ratio=8 attack=20 release=400[bg]; [bg][vo]amix duration=first
+normalize=0` (filtergraph validated on synthetic media 2026-08-13) - the
+original audio ducks under the narration; a broken/missing VO ships the
+un-narrated cut. Remaining Phase-3 ambition: VO-FIRST assembly (cut footage
+to match narration beats) - not started.
 
 Tests: `TestAssemblerRoutes` in `tests/backend/test_asgi.py` (conftest's
 `_MODAL_FILES` includes `assembler_fns.py`), `tests/frontend/assembler.spec.js`

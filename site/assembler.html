@@ -118,6 +118,21 @@
       margin-bottom: 12px; cursor: pointer;
     }
     .cap-row input { accent-color: var(--terracotta); width: 16px; height: 16px; }
+    .vo-hint { font-size: 0.85rem; color: var(--muted); line-height: 1.6; margin-bottom: 12px; }
+    .vo-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    .vo-btn {
+      display: inline-flex; align-items: center; gap: 8px; padding: 9px 18px;
+      border-radius: 999px; border: 1.5px solid var(--purple-100); background: transparent;
+      color: var(--purple-700); font-family: inherit; font-size: 0.88rem; font-weight: 700; cursor: pointer;
+    }
+    .vo-btn:hover { background: var(--purple-50); }
+    .vo-btn.recording { border-color: var(--red); color: var(--red); }
+    .vo-ready { margin-top: 12px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .vo-ready audio { width: 100%; }
+    .vo-remove {
+      background: none; border: none; color: var(--red); font-family: inherit;
+      font-size: 0.8rem; font-weight: 700; cursor: pointer; text-decoration: underline;
+    }
     .cta {
       display: block; width: 100%; padding: 14px; border: none; border-radius: 999px;
       background: var(--terracotta); color: var(--white); font-family: inherit;
@@ -181,8 +196,29 @@
     <div class="err" id="renderErr"></div>
   </div>
 
+  <div class="card" id="voCard" style="display:none">
+    <h2>4 · קריינות (רשות)</h2>
+    <p class="vo-hint">מקליטים קריינות על בסיס הסיפור מכרטיס 2, או מעלים קובץ שמע. הקול המקורי בסרטון יונמך אוטומטית מתחת לקריינות.</p>
+    <div class="vo-actions">
+      <button class="vo-btn" id="voRecordBtn" type="button">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        <span id="voRecordLabel">הקלטת קריינות</span>
+      </button>
+      <button class="vo-btn" id="voFileBtn" type="button">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0-12 4 4m-4-4-4 4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        העלאת קובץ שמע
+        <input type="file" id="voFile" accept="audio/*" style="display:none" />
+      </button>
+    </div>
+    <div class="vo-ready" id="voReady" style="display:none">
+      <audio id="voPreview" controls></audio>
+      <button class="vo-remove" id="voRemove" type="button">הסרת הקריינות</button>
+    </div>
+    <div class="err" id="voErr"></div>
+  </div>
+
   <div class="card result" id="result">
-    <h2>4 · הסרטון שלכם</h2>
+    <h2>5 · הסרטון שלכם</h2>
     <video id="outVideo" controls playsinline></video>
     <p><a id="dlLink" href="#" download>הורדת הסרטון</a> · הסרטון נשמר גם בהיסטוריה <a href="/">באפליקציה</a></p>
   </div>
@@ -313,8 +349,65 @@
       $('storyCard').style.display = 'block';
     }
     $('board').style.display = 'block';
+    $('voCard').style.display = 'block';
     drawMoments();
     (result.story ? $('storyCard') : $('board')).scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // ── Voice-over: record via MediaRecorder or upload an audio file ──
+  let voBlob = null, _voRec = null, _voStream = null;
+  function _setVoReady() {
+    $('voReady').style.display = voBlob ? 'flex' : 'none';
+    if (voBlob) $('voPreview').src = URL.createObjectURL(voBlob);
+  }
+  $('voRecordBtn').addEventListener('click', async () => {
+    $('voErr').style.display = 'none';
+    if (_voRec) { _voRec.stop(); return; }   // second tap = stop
+    try {
+      _voStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (_) {
+      showErr($('voErr'), 'אין גישה למיקרופון - אפשר להעלות קובץ שמע במקום.');
+      return;
+    }
+    const mime = window.MediaRecorder && MediaRecorder.isTypeSupported('audio/mp4')
+      ? 'audio/mp4' : 'audio/webm';
+    const chunks = [];
+    _voRec = new MediaRecorder(_voStream, { mimeType: mime });
+    _voRec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    _voRec.onstop = () => {
+      voBlob = new Blob(chunks, { type: mime });
+      _voStream.getTracks().forEach((t) => t.stop());
+      _voRec = null; _voStream = null;
+      $('voRecordBtn').classList.remove('recording');
+      $('voRecordLabel').textContent = 'הקלטה מחדש';
+      _setVoReady();
+    };
+    _voRec.start();
+    $('voRecordBtn').classList.add('recording');
+    $('voRecordLabel').textContent = 'מקליטים... הקישו לעצירה';
+  });
+  $('voFileBtn').addEventListener('click', () => $('voFile').click());
+  $('voFile').addEventListener('change', () => {
+    const f = $('voFile').files[0];
+    if (!f) return;
+    if (f.size > 100 * 1024 * 1024) { showErr($('voErr'), 'קובץ השמע גדול מדי (עד 100MB)'); return; }
+    voBlob = f;
+    _setVoReady();
+  });
+  $('voRemove').addEventListener('click', () => { voBlob = null; _setVoReady(); });
+
+  async function _uploadVo() {
+    const key = uuid();
+    const chunks = Math.ceil(voBlob.size / CHUNK);
+    for (let i = 0; i < chunks; i++) {
+      const r = await fetch(API_BASE + '/upload_chunk/', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token, 'X-Upload-Key': key, 'X-Upload-Index': String(i) },
+        body: voBlob.slice(i * CHUNK, (i + 1) * CHUNK),
+      });
+      if (!r.ok) throw new Error('vo upload ' + r.status);
+    }
+    return key;
   }
   $('copyStory').addEventListener('click', async () => {
     try {
@@ -385,9 +478,15 @@
     $('renderBtn').disabled = true;
     $('renderStage').innerHTML = '<span class="spinner"></span>חותכים ומרכיבים את הסיפור...';
     try {
+      let voKey = null;
+      if (voBlob) {
+        $('renderStage').innerHTML = '<span class="spinner"></span>מעלים את הקריינות...';
+        voKey = await _uploadVo();
+        $('renderStage').innerHTML = '<span class="spinner"></span>חותכים, מרכיבים ומדביקים קריינות...';
+      }
       const r = await fetch(API_BASE + '/assembler/render/', {
         method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ upload_keys: clips.map((c) => c.key), filename: (clips[0] && clips[0].name) || 'story.mp4', segments: kept, captions: $('capToggle').checked }),
+        body: JSON.stringify({ upload_keys: clips.map((c) => c.key), filename: (clips[0] && clips[0].name) || 'story.mp4', segments: kept, captions: $('capToggle').checked, vo_key: voKey }),
       });
       if (!r.ok) throw new Error('render ' + r.status);
       const { call_id } = await r.json();

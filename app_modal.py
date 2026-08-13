@@ -3416,12 +3416,19 @@ def api():
             if not ok or total > 600:
                 await send_error("Invalid segments", 400, code="bad_segments")
                 return
+            # Optional narration audio, uploaded through /upload_chunk like the
+            # clips - validated and uid-prefixed the same way.
+            vo_key = (data.get("vo_key") or "").strip() or None
+            if vo_key and not _SAFE_KEY_RE.match(vo_key):
+                await send_error("Invalid vo_key", 400)
+                return
             try:
                 await asyncio.to_thread(tmp_vol.commit)   # flush before the worker reads
                 call = render_story.spawn([f"{uprefix}{k}" for k in keys],
                                           norm_segs,
                                           str(data.get("filename") or "story.mp4")[:120],
-                                          bool(data.get("captions", True)))
+                                          bool(data.get("captions", True)),
+                                          f"{uprefix}{vo_key}" if vo_key else None)
                 _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,

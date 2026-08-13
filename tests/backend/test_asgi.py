@@ -619,6 +619,21 @@ class TestAssemblerRoutes:
         # The route forwards the toggle (default on).
         assert 'bool(data.get("captions", True))' in self._render()
 
+    def test_voiceover_ducks_and_degrades(self):
+        # Phase 3: optional narration mixed with the original ducked under it
+        # (validated filtergraph); video stream copied; a broken VO ships the
+        # un-narrated cut, never a failed render. vo_key is validated and
+        # uid-prefixed like every other key.
+        i = MODAL_SRC.index("def render_story")
+        block = MODAL_SRC[i:i + 9000]
+        assert "sidechaincompress" in block
+        assert "amix=inputs=2:duration=first" in block
+        assert '"-c:v", "copy"' in block
+        assert "shipping without narration" in block
+        rblock = self._render()
+        assert "_SAFE_KEY_RE.match(vo_key)" in rblock
+        assert 'f"{uprefix}{vo_key}" if vo_key else None' in rblock
+
     def test_analyze_persists_the_word_transcript(self):
         i = MODAL_SRC.index("def analyze_story")
         block = MODAL_SRC[i:i + 5000]
