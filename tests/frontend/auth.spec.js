@@ -502,10 +502,15 @@ test('migration note shows on login view; dismiss persists across reloads', asyn
 });
 
 test('web Google sign-in shows a connecting spinner while the token exchange runs', async ({ page }) => {
-  // Slow /auth/google: the spinner pill must show DURING the exchange and the
-  // GIS button must come back when it resolves on a stay-on-auth branch.
+  // The spinner pill must show DURING the exchange and the GIS button must
+  // come back when it resolves on a stay-on-auth branch. The stub response is
+  // GATED, not delayed - a fixed delay lost the race on slow CI runners (the
+  // 2026-08-13 red runs): the reply landed before the first assertion polled,
+  // and the pill was already gone.
+  let releaseExchange;
+  const exchangeGate = new Promise((res) => { releaseExchange = res; });
   await page.route(/\/auth\/google/, async (route) => {
-    await new Promise((res) => setTimeout(res, 700));
+    await exchangeGate;   // held until the test has seen the connecting state
     await route.fulfill({ status: 401, contentType: 'application/json',
                           body: '{"error":"bad token","code":"google_failed"}' });
   });
@@ -518,8 +523,10 @@ test('web Google sign-in shows a connecting spinner while the token exchange run
   await expect(pill).toBeVisible();
   await expect(pill.locator('.spinner')).toBeVisible();
   await expect(page.locator('#gsiButton')).toBeHidden();     // swapped, not stacked
-  // Exchange resolves (error branch): pill gone, button restored, error shown.
-  await expect(pill).toBeHidden({ timeout: 3000 });
+  // Let the exchange resolve (error branch): pill gone, button restored,
+  // error shown.
+  releaseExchange();
+  await expect(pill).toBeHidden();
   await expect(page.locator('#gsiButton')).toBeVisible();
   await expect(page.locator('#authError')).toBeVisible();
 });
