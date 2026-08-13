@@ -38,3 +38,21 @@ test('a toast action link is actually clickable (pointer-events restored with .s
   // The action click also dismisses the toast.
   await expect(page.locator('#celebrateToast')).not.toHaveClass(/show/);
 });
+
+test('a sticky toast (duration: 0) has no timer and dismisses via the small X', async ({ page }) => {
+  await bootApp(page);
+  await page.evaluate(() => celebrateToast('הסרטון ירד ומוכן לצפייה', { duration: 0 }));
+  const toast = page.locator('#celebrateToast');
+  await expect(toast).toHaveClass(/show/);
+  // Outlives any normal auto-hide window (default is 2.6s).
+  await page.waitForTimeout(3200);
+  await expect(toast).toHaveClass(/show/);
+  const close = page.locator('#celebrateToastClose');
+  await expect(close).toBeVisible();
+  await close.click();
+  await expect(toast).not.toHaveClass(/show/);
+  // A later timed toast hides the X again and auto-hides as before.
+  await page.evaluate(() => celebrateToast('quick', { duration: 500 }));
+  await expect(page.locator('#celebrateToastClose')).toBeHidden();
+  await expect(toast).not.toHaveClass(/show/, { timeout: 3000 });
+});

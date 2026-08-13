@@ -916,6 +916,15 @@
       direction: ltr;   /* filenames are latin - keep the ellipsis at the end */
     }
     .celebrate-toast-check svg { width: 1.3rem; height: 1.3rem; }
+    /* Small explicit dismiss for sticky (duration:0) toasts - the "video
+       ready" toast waits for the user instead of racing a timer. */
+    .celebrate-toast-close {
+      background: none; border: none; padding: 3px; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center;
+      color: var(--muted); font-size: 0.8rem; line-height: 1;
+      border-radius: 50%;
+    }
+    .celebrate-toast-close:hover { color: var(--text); background: var(--purple-50); }
     .celebrate-toast-error-icon { display: none; }
     .celebrate-toast.error {
       background: #FEF2F2;

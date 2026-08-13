@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.48.5';
+  const APP_VERSION = '1.48.6';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -5267,7 +5267,7 @@
       _nativeDownloadBusy = false;
     }
     if (saved) {
-      celebrateToast(t('download.readyWatch'), { duration: 15000 });
+      celebrateToast(t('download.readyWatch'), { duration: 0 });
       return;
     }
     await _nativeSystemDownload(Downloader, url, name);
@@ -5316,7 +5316,7 @@
       // share window" report - the button did exactly what it said it would
       // not do.
       celebrateToast(t('download.readyWatch'), {
-        duration: 15000,
+        duration: 0,
         action: savedUri
           ? { label: t('download.shareVideo'), onClick: () => _openSavedVideo(savedUri) }
           : { label: safe },
@@ -5695,12 +5695,31 @@
       act.style.display = 'none';
       act.onclick = null;
     }
+    // duration: 0 = sticky - no auto-hide, an explicit small X dismisses it
+    // (user request 2026-08-13 for the "video ready" toast: it carries the
+    // follow-up action, so it should wait for the user, not race a timer).
+    let close = document.getElementById('celebrateToastClose');
+    if (!duration) {
+      if (!close) {
+        close = document.createElement('button');
+        close.id = 'celebrateToastClose';
+        close.className = 'celebrate-toast-close';
+        close.setAttribute('aria-label', t('toast.dismiss'));
+        close.innerHTML = ICON.x;
+        el.appendChild(close);
+      }
+      close.onclick = (e) => { e.stopPropagation(); el.classList.remove('show'); };
+      close.style.display = '';
+    } else if (close) {
+      close.style.display = 'none';
+      close.onclick = null;
+    }
     el.onclick = () => el.classList.remove('show');
     _pulse(el.querySelector('.celebrate-toast-check'), 'celebrate-check');
     // Restart the entrance transition even if another toast was just visible.
     void el.offsetWidth;
     el.classList.add('show');
-    _toastTimer = setTimeout(() => el.classList.remove('show'), duration);
+    if (duration) _toastTimer = setTimeout(() => el.classList.remove('show'), duration);
   }
 
   // Legacy shells have no ACTION_VIEW bridge - the Share sheet is the
