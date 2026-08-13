@@ -531,9 +531,12 @@ test('web Google sign-in shows a connecting spinner while the token exchange run
   await expect(pill.locator('.spinner')).toBeVisible();
   await expect(page.locator('#gsiButton')).toBeHidden();     // swapped, not stacked
   // Let the exchange resolve (error branch): pill gone, button restored,
-  // error shown.
+  // error shown. The restore is asserted via the inline display style, not
+  // Playwright visibility: with the GIS CDN stubbed, #gsiButton is an EMPTY
+  // div (zero-height = "hidden" to Playwright) - in production Google's
+  // iframe button gives it size. This exact gap was the last CI-only red.
   releaseExchange();
   await expect(pill).toBeHidden();
-  await expect(page.locator('#gsiButton')).toBeVisible();
+  expect(await page.locator('#gsiButton').evaluate((el) => el.style.display)).toBe('flex');
   await expect(page.locator('#authError')).toBeVisible();
 });
