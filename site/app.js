@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.48.11';
+  const APP_VERSION = '1.48.12';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -2848,19 +2848,36 @@
   clearFile.addEventListener('click', () => { startOverFlow(); });
 
   // ── Metadata helper (duration + resolution in one pass) ──
+  // META_PROBE_DEADLINE_MS: iOS Safari (notably in Low Power Mode) can defer
+  // blob-video loading and fire NEITHER loadedmetadata NOR error - without a
+  // deadline the `await getVideoMeta(...)` in handleFile hung forever and the
+  // attach flow died silently after file selection: card shown, no Run button,
+  // no error, no telemetry (iPhone field reports, 2026-08-13). Null meta is a
+  // fully-handled path downstream (size-only detail line, checks skipped, Run
+  // enabled) and the server re-probes duration authoritatively at spawn.
+  const META_PROBE_DEADLINE_MS = 7000;
+
   function getVideoMeta(file) {
     return new Promise(resolve => {
       const video = document.createElement('video');
       const url   = URL.createObjectURL(file);
+      let settled = false;
       // Detach src before revoking - Chrome keeps fetching the blob after
       // loadedmetadata and logs ERR_FILE_NOT_FOUND if it's already revoked.
       const done = meta => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(deadline);
         video.removeAttribute('src');
         video.load();
         URL.revokeObjectURL(url);
         resolve(meta);
       };
+      const deadline = setTimeout(() => done({ duration: null, width: 0, height: 0 }),
+                                  META_PROBE_DEADLINE_MS);
       video.preload = 'metadata';
+      video.muted = true;          // preload hints Safari is more willing to honor
+      video.playsInline = true;
       video.onloadedmetadata = () => done({ duration: video.duration, width: video.videoWidth, height: video.videoHeight });
       video.onerror = () => done({ duration: null, width: 0, height: 0 });
       video.src = url;
@@ -2872,11 +2889,17 @@
     return new Promise(resolve => {
       const audio = document.createElement('audio');
       const url   = URL.createObjectURL(file);
+      let settled = false;
       const done = meta => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(deadline);
         audio.removeAttribute('src'); audio.load();
         URL.revokeObjectURL(url);
         resolve(meta);
       };
+      const deadline = setTimeout(() => done({ duration: null, width: 0, height: 0 }),
+                                  META_PROBE_DEADLINE_MS);
       audio.preload = 'metadata';
       audio.onloadedmetadata = () => done({ duration: audio.duration, width: 0, height: 0 });
       audio.onerror = () => done({ duration: null, width: 0, height: 0 });

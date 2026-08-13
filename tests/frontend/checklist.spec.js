@@ -185,3 +185,24 @@ test('attaching a file reveals a loud card and scrolls it into view', async ({ p
   // Bold treatment: the strongest border weight on the page (2px olive).
   expect(await card.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('2px');
 });
+
+test('attach completes even when video metadata never loads (iOS silent-hang guard)', async ({ page }) => {
+  // Simulate iOS Safari's Low-Power-Mode behavior: the media element accepts
+  // a src but never fires loadedmetadata OR error. Without the probe deadline
+  // the attach flow awaited forever - card visible, Run never enabled, no
+  // error, no telemetry (iPhone field reports, 2026-08-13).
+  await page.addInitScript(() => {
+    Object.defineProperty(window.HTMLMediaElement.prototype, 'src', {
+      set() { /* swallow - no events, like deferred loading */ },
+      get() { return ''; },
+    });
+  });
+  await bootApp(page);
+  await page.clock.install();
+  await selectFile(page);
+  await expect(page.locator('#fileInfo')).toBeVisible();
+  await page.clock.fastForward(8000);   // past META_PROBE_DEADLINE_MS
+  await expect(page.locator('#runBtn')).toBeEnabled();
+  // Size-only detail line (no duration) - the null-meta presentation.
+  await expect(page.locator('#fileDetail')).toContainText('MB');
+});
