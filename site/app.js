@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.49.7';
+  const APP_VERSION = '1.49.8';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -3202,12 +3202,19 @@
       _setStage('upload');
       const _upT0 = performance.now();
       const _onUpProgress = (pct) => {
-        document.getElementById('uploadBarFill').style.width = (pct * 100).toFixed(0) + '%';
-        document.getElementById('uploadBarPct').textContent  = (pct * 100).toFixed(0) + '%';
+        // The bar tops out at 99%: after the last byte is sent the server
+        // still finalizes the upload (R2 multipart assemble + copy onto the
+        // volume can take ~10 s), and a bar frozen at 100% reads as a hang.
+        // The row is hidden only when that finalize step actually returns.
+        const shown = Math.min(pct, 0.99);
+        document.getElementById('uploadBarFill').style.width = (shown * 100).toFixed(0) + '%';
+        document.getElementById('uploadBarPct').textContent  = (shown * 100).toFixed(0) + '%';
         // Live ETA from measured throughput so the wait isn't a black box.
         const etaEl = document.getElementById('uploadEta');
         const etaMinMs = (window.__UPLOAD_ETA_MIN_MS != null) ? window.__UPLOAD_ETA_MIN_MS : 1500; // test seam
-        if (etaEl && pct > 0.02 && pct < 0.999) {
+        if (etaEl && pct >= 0.999) {
+          etaEl.textContent = t('upload.finalizing');
+        } else if (etaEl && pct > 0.02) {
           const elapsedMs = performance.now() - _upT0;
           if (elapsedMs > etaMinMs) {
             const remaining = (elapsedMs / 1000) * (1 - pct) / pct;

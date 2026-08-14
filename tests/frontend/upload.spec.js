@@ -152,12 +152,29 @@ test('live upload ETA is shown during the upload', async ({ page }) => {
   await selectFile(page, { sizeMB: 12 });   // 12 chunks @ 1 MB
   await page.evaluate(() => { window.__UPLOAD_ETA_MIN_MS = 0; });
   await page.waitForSelector('#runBtn:not([disabled])');
+  // Record every value the % label takes: the bar must top out at 99% - the
+  // server-side finalize after the last byte can take seconds, and a bar
+  // frozen at 100% reads as a hang.
+  await page.evaluate(() => {
+    window.__pctSeen = [];
+    const el = document.getElementById('uploadBarPct');
+    new MutationObserver(() => window.__pctSeen.push(el.textContent))
+      .observe(el, { childList: true, characterData: true, subtree: true });
+  });
   await page.click('#runBtn');
+
+  // The ETA appears DURING the upload (chunks are throttled above)...
+  await page.waitForFunction(
+    () => /left|נותרו/.test(document.getElementById('uploadEta').textContent),
+    null, { timeout: 15_000 });
   await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
 
-  // The ETA element was populated during the upload (text persists after).
+  // ...and once all bytes are sent it flips to the finalizing label.
   const eta = await page.evaluate(() => document.getElementById('uploadEta').textContent);
-  expect(eta).toMatch(/left|נותרו/);
+  expect(eta).toMatch(/Finishing|מסיימים/);
+  const pcts = await page.evaluate(() => window.__pctSeen);
+  expect(pcts.length).toBeGreaterThan(0);
+  expect(pcts).not.toContain('100%');
 });
 
 test('upload telemetry is recorded for diagnostics (not shown in the UI)', async ({ page }) => {

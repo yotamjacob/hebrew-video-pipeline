@@ -484,6 +484,7 @@
     'est.upload':        { en: 'Upload: ~{lo}-{hi} min on this connection', he: 'העלאה: ~{lo}-{hi} דקות בחיבור הנוכחי' },
     'est.uploadSlow':    { en: 'Slow connection - upload ~{lo}-{hi} min. A faster network helps a lot.', he: 'חיבור איטי - ההעלאה ~{lo}-{hi} דקות. רשת מהירה יותר תעזור מאוד.' },
     'upload.remaining':  { en: '~{t} left', he: 'נותרו ~{t}' },
+    'upload.finalizing': { en: 'Finishing up...', he: 'עוד רגע מסיימים...' },
 
     // ── Confirm modals (dynamic) ──
     'confirm.ok':          { en: 'Confirm', he: 'אישור' },
