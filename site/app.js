@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.49.6';
+  const APP_VERSION = '1.49.7';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -1884,7 +1884,7 @@
     if (!desc.path) { showBlockNotice(t('file.badTypeTitle'), 'No file path from picker'); return; }
 
     const _isAudio = _isAudioFile(desc);
-    const _isVideo = (desc.mimeType || '').startsWith('video/') || /\.(mp4|mov|mkv|avi|webm)$/i.test(desc.name);
+    const _isVideo = (desc.mimeType || '').startsWith('video/') || /\.(mp4|mov|m4v|mkv|avi|webm)$/i.test(desc.name);
     if (!_isVideo && !_isAudio) { showBlockNotice(t('file.badTypeTitle'), t('file.badType')); return; }
 
     // Populate the same selection UI the web path uses (a synthetic file object
@@ -2749,7 +2749,7 @@
 
   async function handleFile(file) {
     if (!file) return;
-    const _isVideo = file.type.startsWith('video/') || /\.(mp4|mov|mkv|avi|webm)$/i.test(file.name);
+    const _isVideo = file.type.startsWith('video/') || /\.(mp4|mov|m4v|mkv|avi|webm)$/i.test(file.name);
     const _isAudio = _isAudioFile(file);
     if (!_isVideo && !_isAudio) {
       showBlockNotice(t('file.badTypeTitle'), t('file.badType'));
