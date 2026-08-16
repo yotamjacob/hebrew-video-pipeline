@@ -172,6 +172,54 @@ Tests: `tests/backend/test_assembler_branding.py`, `tests/frontend/assembler_bra
   a specific message when the upload finished but the analyze never
   started.
 
+## Auto-reframe 16:9 -> 9:16 with speaker tracking (2026-08-16)
+
+`render_story(..., reframe="9:16")` (route: only the literal "9:16" is
+accepted; page: the "פורמט" segmented control at the top of the branding
+card, persisted with the other brand choices, payload `reframe`). Portrait
+sources are untouched (`_crop_dims` returns None unless the source is
+wider than 9:16 by > 8 px).
+
+Pipeline per BODY window (intro/outro are never cropped - they are
+normalized/letterboxed onto the new canvas like before):
+1. `_reframe_samples`: ffmpeg extracts frames at `REFRAME_SAMPLE_FPS=3`,
+   960 px wide (NOT 480: a podcast face ~15% of frame height is ~40 px at
+   480 and is missed when it turns; ~80 px detects reliably), YuNet
+   (`_faces_in_image`, the same ONNX detector the punch-in zoom uses,
+   score threshold 0.45 for recall - the planner absorbs false positives)
+   -> `[(t_rel, [(cx, cy, w, h) fractions])]`.
+2. `_reframe_plan` (pure, `test_assembler_reframe.py`): target per sample =
+   group center when every face fits inside 90% of the crop (a two-shot
+   stays a two-shot) else the LARGEST face, clamped so the crop stays
+   inside the frame; detection GAPS bridged by linear interpolation
+   between the last and next known positions (<= 20 s - between two known
+   positions the straight line beats holding); 3-sample median; dead zone
+   0.05 on the TARGET (nodding never starts a pan); then continuous
+   exponential easing toward the target (tau 0.8 s, speed cap 0.30 W/s) -
+   NO stepped moves (the first version dead-zoned the motion itself and
+   produced "move 6% in 0.3 s, hold 1 s" stair-steps); no face for > 6 s
+   -> ease back to the middle. Simplified to <= `REFRAME_MAX_KEYFRAMES=30`
+   points (greedy: keep a point only if the straight line misses it by
+   > 0.4% of width).
+3. `_crop_x_expr` (pure): nested `if(lt(t,..),..)` piecewise-linear crop-x
+   in pixels (part-relative `t`), applied as `crop=W:H:x='..':y=0` BEFORE
+   the canvas normalize inside `_encode_part` (`pre=`); the canvas
+   `(cw, ch)` becomes the first kept clip's crop dims, so watermark,
+   captions margins, hook box and intro/outro follow automatically.
+   Sampling failure -> centered static crop, never a failed render.
+`_probe_dims` is now rotation-aware (rotate tag / display matrix), so a
+phone portrait stored as landscape+90deg is not "reframed".
+
+Verified on production with a synthetic drifting-subject landscape clip
+(4K yoga source with a slow sinusoidal pan): 608x1080 output, the crop
+follows her continuously (peak pan ~10% W/s), a bowed-face gap is bridged,
+hook + fade + watermark ride the vertical canvas. Cost: ~3 samples/s of
+YuNet (~40 ms each) + the same encodes as before.
+
+Not done: audio-based active-speaker switching (needs diarization), split-
+screen two-shots when the speakers are far apart (we follow the larger
+face), a preview of the crop on the page.
+
 ## Roadmap (agreed 2026-08-13)
 
 Phase 2 (multi-clip) SHIPPED same day - up to 5 clips, cross-clip storyboard

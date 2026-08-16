@@ -50,7 +50,7 @@ class TestWatermarkFilter:
 class TestBrandingContracts:
     def _render(self):
         i = MODAL_SRC.index("def render_story")
-        return MODAL_SRC[i:i + 16000]
+        return MODAL_SRC[i:i + 24000]
 
     def test_body_parts_fade_only_at_the_edges(self):
         block = self._render()
@@ -88,7 +88,7 @@ class TestBrandingContracts:
         assert 'cut_key = f"{upload_keys[0]}{suffix}_cut.mp4"' in block
         assert "_shutil.copy(composed, cut_path)" in block
         i = block.index("_record_job(out_key")
-        rec = block[i:i + 600]
+        rec = block[i:i + 900]
         for k in ('"src_key":       cut_key', '"captions":      events', '"hook":          hook or {}',
                   '"font":          "Heebo"', '"margin_v_pct":  0.08', '"caption_style": {}'):
             assert k in rec, k
@@ -99,4 +99,4 @@ class TestBrandingContracts:
         assert 'for fld in ("intro_key", "outro_key", "wm_key"):' in block
         assert "_SAFE_KEY_RE.match(v)" in block
         assert 'max(0.0, min(3.0, float(data.get("fade") or 0)))' in block
-        assert 'brand_keys["wm_key"] if wm else None, wm)' in block
+        assert 'brand_keys["wm_key"] if wm else None, wm,' in block

@@ -302,7 +302,12 @@
   </div>
 
   <div class="card" id="brandCard" style="display:none">
-    <h2>2 · מיתוג - פתיח, סיום ולוגו (רשות)</h2>
+    <h2>2 · פורמט ומיתוג (רשות)</h2>
+    <div class="mode-row" role="tablist" id="frameRow" style="margin-bottom:6px">
+      <button type="button" class="mode-btn on" id="frameOrig" role="tab" aria-selected="true">כמו המקור<small>ללא חיתוך</small></button>
+      <button type="button" class="mode-btn" id="frameVert" role="tab" aria-selected="false">אנכי 9:16 עם מעקב אחרי הדובר<small>לסרטונים רוחביים - חיתוך אוטומטי שעוקב אחרי הפנים</small></button>
+    </div>
+    <p class="brand-hint" id="frameHint" style="margin:0 0 14px">מקורות שכבר אנכיים לא משתנים.</p>
     <div class="brand-grid">
       <div class="brand-slot" id="introSlot">
         <span class="slot-title">פתיח (אינטרו)</span>
@@ -690,7 +695,7 @@
   // width as fractions of the frame) - the stage below is just a scaled
   // preview of the output canvas, so drag positions survive any resolution.
   const BRAND_LS = 'hebpipe_asm_brand';
-  const brand = { intro: null, outro: null, wmFile: null, wmDataUrl: '', wm: { x: 0.03, y: 0.03, w: 0.18, opacity: 0.85 }, keys: new Map() };
+  const brand = { intro: null, outro: null, wmFile: null, wmDataUrl: '', wm: { x: 0.03, y: 0.03, w: 0.18, opacity: 0.85 }, keys: new Map(), reframe: '' };
   let srcDims = null;   // {w, h} of the first uploaded source
   function _probeDims(file) {
     srcDims = null;
@@ -705,11 +710,30 @@
       v.src = url;
     } catch (_) {}
   }
+  // Output format: as-is, or a speaker-tracked 9:16 crop of landscape
+  // sources (server-side, see docs/assembler.md). The watermark preview
+  // stage follows the OUTPUT aspect so the logo lands where it shows.
+  function setFrame(v) {
+    brand.reframe = v === '9:16' ? '9:16' : '';
+    $('frameOrig').classList.toggle('on', !brand.reframe);
+    $('frameVert').classList.toggle('on', !!brand.reframe);
+    $('frameOrig').setAttribute('aria-selected', String(!brand.reframe));
+    $('frameVert').setAttribute('aria-selected', String(!!brand.reframe));
+    _applyStageAspect();
+  }
+  $('frameOrig').addEventListener('click', () => { setFrame(''); _saveBrand(); });
+  $('frameVert').addEventListener('click', () => { setFrame('9:16'); _saveBrand(); });
   function _applyStageAspect() {
     const st = $('wmStage');
-    const landscape = srcDims && srcDims.w > srcDims.h;
-    st.classList.toggle('landscape', !!landscape);
-    if (srcDims) st.style.aspectRatio = srcDims.w + ' / ' + srcDims.h;
+    const srcLandscape = srcDims && srcDims.w > srcDims.h;
+    const vertical = brand.reframe === '9:16' && srcLandscape;
+    st.classList.toggle('landscape', !!srcLandscape && !vertical);
+    if (vertical) st.style.aspectRatio = '9 / 16';
+    else if (srcDims) st.style.aspectRatio = srcDims.w + ' / ' + srcDims.h;
+    else st.style.aspectRatio = '';
+    if (srcDims) $('frameHint').textContent = srcLandscape
+      ? 'המקור רוחבי - החיתוך האנכי יעקוב אחרי הדובר (או ימרכז שני דוברים כשהם קרובים).'
+      : 'המקור כבר אנכי - הבחירה לא משנה אותו.';
     _layoutWm();
   }
   function _loadBrand() {
@@ -720,6 +744,7 @@
       if (saved.wmDataUrl) { brand.wmDataUrl = saved.wmDataUrl; brand.wmName = saved.wmName || 'logo'; }
       if (saved.fadeOn) $('fadeToggle').checked = true;
       if (saved.fadeDur) $('fadeDur').value = String(saved.fadeDur);
+      if (saved.reframe === '9:16') setFrame('9:16');
     } catch (_) {}
   }
   function _saveBrand() {
@@ -727,6 +752,7 @@
       localStorage.setItem(BRAND_LS, JSON.stringify({
         wm: brand.wm, wmDataUrl: brand.wmDataUrl.length < 400000 ? brand.wmDataUrl : '', wmName: brand.wmName || '',
         fadeOn: $('fadeToggle').checked, fadeDur: parseFloat($('fadeDur').value),
+        reframe: brand.reframe || '',
       }));
     } catch (_) {}
   }
@@ -842,6 +868,7 @@
     if (brand.intro) out.intro_key = await up('intro', brand.intro);
     if (brand.outro) out.outro_key = await up('outro', brand.outro);
     if ($('fadeToggle').checked) out.fade = parseFloat($('fadeDur').value) || 0.5;
+    if (brand.reframe === '9:16') out.reframe = '9:16';
     if (brand.wmDataUrl) {
       const blob = brand.wmFile || (brand._wmBlob || (brand._wmBlob = _dataUrlToBlob(brand.wmDataUrl)));
       out.wm_key = await up('wm', blob);

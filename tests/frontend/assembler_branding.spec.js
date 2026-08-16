@@ -145,3 +145,33 @@ test('removing the watermark drops it from the payload; fade alone still rides',
   expect(renderPosts[0].wm_key).toBeUndefined();
   expect(renderPosts[0].fade).toBe(0.5);
 });
+
+test('output format 9:16 rides the payload, is remembered, and the watermark stage goes vertical', async ({ page }) => {
+  const renderPosts = [];
+  await boot(page, { renderPosts });
+  await expect(page.locator('#frameOrig')).toHaveClass(/on/);
+  await page.locator('#frameVert').click();
+  await expect(page.locator('#frameVert')).toHaveClass(/on/);
+  await page.setInputFiles('#wmFile', { name: 'logo.png', mimeType: 'image/png', buffer: PNG });
+  await expect(page.locator('#wmStage')).toBeVisible();
+  // No source dims are known in the stubbed flow (1MB zero buffer): the
+  // stage keeps its default portrait aspect either way; the payload is the contract.
+  await page.locator('#renderClipsBtn').click();
+  await expect.poll(() => renderPosts.length).toBe(2);
+  expect(renderPosts.every(p => p.reframe === '9:16')).toBe(true);
+  await page.reload();
+  await page.locator('#modeClips').click();
+  await page.setInputFiles('#file', { name: 'p.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(1024 * 1024) });
+  await page.clock.fastForward(3100);
+  await expect(page.locator('#brandCard')).toBeVisible();
+  await expect(page.locator('#frameVert')).toHaveClass(/on/);
+  await page.locator('#frameOrig').click();
+  const posts2 = [];
+  await page.route(/\/assembler\/render\/$/, async (route, request) => {
+    posts2.push(request.postDataJSON());
+    await route.fulfill({ status: 202, contentType: 'application/json', body: '{"call_id":"fc-x"}' });
+  });
+  await page.locator('#renderClipsBtn').click();
+  await expect.poll(() => posts2.length).toBe(2);
+  expect(posts2.every(p => p.reframe === undefined)).toBe(true);
+});

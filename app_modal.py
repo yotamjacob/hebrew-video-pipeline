@@ -3469,6 +3469,9 @@ def api():
                           "opacity": max(0.1, min(1.0, float(wm_raw.get("opacity", 0.85))))}
                 except (TypeError, ValueError):
                     wm = None
+            # Auto-reframe (2026-08-16): only "9:16" is a valid value; the
+            # worker ignores it for sources that are already vertical.
+            reframe = "9:16" if data.get("reframe") == "9:16" else None
             try:
                 await asyncio.to_thread(tmp_vol.commit)   # flush before the worker reads
                 call = render_story.spawn([f"{uprefix}{k}" for k in keys],
@@ -3478,7 +3481,8 @@ def api():
                                           f"{uprefix}{vo_key}" if vo_key else None,
                                           tighten, hook_text, variant,
                                           brand_keys["intro_key"], brand_keys["outro_key"],
-                                          fade, brand_keys["wm_key"] if wm else None, wm)
+                                          fade, brand_keys["wm_key"] if wm else None, wm,
+                                          reframe)
                 _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,

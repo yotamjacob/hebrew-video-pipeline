@@ -116,11 +116,30 @@ def _probe_duration(path: Path) -> float:
 
 
 def _probe_dims(path: Path):
+    """(w, h) of the FIRST video stream as ffmpeg will decode it - i.e. with a
+    90/270 rotation tag or display matrix already applied (phone footage
+    stores portrait as landscape + rotate=90; every ffmpeg pass autorotates,
+    so the canvas and the reframe decision must see the rotated size)."""
     r = _run(["ffprobe", "-v", "error", "-select_streams", "v:0",
-              "-show_entries", "stream=width,height", "-of", "csv=p=0", str(path)],
-             text=True)
-    w, h = (r.stdout.strip().split(",") + ["0", "0"])[:2]
-    w, h = int(w or 0), int(h or 0)
+              "-show_entries", "stream=width,height,side_data_list:stream_tags=rotate",
+              "-of", "json", str(path)], text=True)
+    w = h = 0
+    rot = 0
+    try:
+        st = json.loads(r.stdout)["streams"][0]
+        w, h = int(st.get("width") or 0), int(st.get("height") or 0)
+        tag = (st.get("tags") or {}).get("rotate")
+        if tag not in (None, ""):
+            rot = int(float(tag))
+        else:
+            for sd in st.get("side_data_list") or []:
+                if "rotation" in sd:
+                    rot = int(float(sd["rotation"]))
+                    break
+    except Exception:
+        pass
+    if abs(rot) % 180 == 90:
+        w, h = h, w
     # Even dimensions for yuv420p.
     return max(2, w - w % 2), max(2, h - h % 2)
 
@@ -753,6 +772,185 @@ def analyze_story(upload_keys, filenames=None, mode: str = "story") -> dict:
 
 INTRO_OUTRO_MAX_SECONDS = 20.0
 
+# ── Auto-reframe 16:9 -> 9:16 (2026-08-16) ───────────────────────────────────
+REFRAME_SAMPLE_FPS = 3
+REFRAME_MAX_KEYFRAMES = 30
+
+
+def _reframe_plan(samples, crop_frac, dead=0.05, max_speed=0.30, hold=6.0, tau=0.8):
+    """Turn per-sample face detections into a smooth pan of a full-height
+    vertical crop. samples: [(t, faces)] with faces = [(cx, cy, w, h)] as
+    FRACTIONS of the frame; crop_frac = crop width / frame width. Returns
+    keyframes [(t, cx)] of the crop CENTER (fraction of frame width),
+    piecewise-linear, simplified to <= REFRAME_MAX_KEYFRAMES.
+    Rules (all in width-fractions): if every face fits inside 90% of the
+    crop -> center the group (a two-shot stays a two-shot); else follow the
+    LARGEST face; no face -> HOLD the last position (a talking head that
+    turns away or a missed detection must not yank the frame), drifting
+    back to the middle only after `hold` seconds; a 3-sample median kills one-frame
+    detector glitches; a dead zone of `dead` stops micro-pans; motion is
+    rate-limited to `max_speed` (fraction of width per second). Pure."""
+    half = crop_frac / 2.0
+    lo, hi = half, 1.0 - half
+
+    def _target(faces):
+        if not faces:
+            return None
+        left = min(f[0] - f[2] / 2.0 for f in faces)
+        right = max(f[0] + f[2] / 2.0 for f in faces)
+        if right - left <= crop_frac * 0.9:
+            c = (left + right) / 2.0
+        else:
+            c = max(faces, key=lambda f: f[2] * f[3])[0]
+        return min(hi, max(lo, c))
+
+    raw = [(float(t), _target(faces)) for t, faces in samples]
+    if not raw:
+        return [(0.0, 0.5)]
+    # Offline advantage: a detection GAP (face bowed / turned / occluded)
+    # that ends with the face found again is bridged by interpolating
+    # between the last and next known positions (gap <= `bridge` s) - a
+    # human editor's pan, not a freeze-then-jump.
+    bridge = 20.0
+    known = [i for i, (_t, v) in enumerate(raw) if v is not None]
+    for a_i, b_i in zip(known, known[1:]):
+        if b_i - a_i > 1 and raw[b_i][0] - raw[a_i][0] <= bridge:
+            ta, va = raw[a_i]
+            tb, vb = raw[b_i]
+            for j in range(a_i + 1, b_i):
+                tj = raw[j][0]
+                raw[j] = (tj, va + (vb - va) * (tj - ta) / max(1e-6, tb - ta))
+    # Median-of-3 on the detected targets (None stays None unless neighbours agree).
+    med = []
+    for i, (t, v) in enumerate(raw):
+        win = [x[1] for x in raw[max(0, i - 1):i + 2] if x[1] is not None]
+        med.append((t, sorted(win)[len(win) // 2] if len(win) >= 2 else v))
+    import math
+    first = next((v for _t, v in med if v is not None), 0.5)
+    cur = min(hi, max(lo, first))
+    held = cur                      # the target we are easing toward
+    out = [(med[0][0], cur)]
+    last_seen = med[0][0]
+    prev_t = med[0][0]
+    for t, v in med[1:]:
+        dt = max(1e-3, t - prev_t)
+        if v is not None:
+            last_seen = t
+            # Dead zone on the TARGET: re-aim only when the face has really
+            # moved, so breathing/nodding never starts a pan...
+            if abs(v - held) > dead:
+                held = v
+        elif t - last_seen > hold:
+            held = min(hi, max(lo, 0.5))
+        # ...then ease toward it continuously (exponential, time constant
+        # `tau`) with a speed cap - no bursts, no stair-steps.
+        alpha = 1.0 - math.exp(-dt / tau)
+        step = (held - cur) * alpha
+        step = max(-max_speed * dt, min(max_speed * dt, step))
+        cur = cur + step
+        out.append((t, cur))
+        prev_t = t
+    # Simplify: drop points on straight runs (constant or same slope), then
+    # cap by keeping the largest-error points (RDP-lite).
+    # Simplify: greedy - keep a point only when the straight line from the
+    # last kept point to the NEXT sample would miss it by > 0.4% of width.
+    simp = [out[0]]
+    for i in range(1, len(out) - 1):
+        a, b, c = simp[-1], out[i], out[i + 1]
+        interp = a[1] + (c[1] - a[1]) * ((b[0] - a[0]) / max(1e-6, c[0] - a[0]))
+        if abs(interp - b[1]) > 0.004:
+            simp.append(b)
+    if len(out) > 1:
+        simp.append(out[-1])
+    while len(simp) > REFRAME_MAX_KEYFRAMES:
+        # remove the interior point whose removal changes the path least
+        best_i, best_err = 1, None
+        for i in range(1, len(simp) - 1):
+            a, b, c = simp[i - 1], simp[i], simp[i + 1]
+            interp = a[1] + (c[1] - a[1]) * ((b[0] - a[0]) / max(1e-6, c[0] - a[0]))
+            err = abs(interp - b[1])
+            if best_err is None or err < best_err:
+                best_i, best_err = i, err
+        simp.pop(best_i)
+    return [(round(t, 3), round(c, 4)) for t, c in simp]
+
+
+def _crop_x_expr(keyframes, src_w, crop_w):
+    """ffmpeg `crop` x-expression (pixels, part-relative `t`) for piecewise-
+    linear keyframes of the crop CENTER fraction. Constant when there is a
+    single keyframe. Always inside [0, src_w - crop_w]. Pure."""
+    max_x = max(0, src_w - crop_w)
+
+    def px(c):
+        return int(round(min(max_x, max(0, c * src_w - crop_w / 2.0))))
+    if not keyframes:
+        return str(max_x // 2)
+    if len(keyframes) == 1:
+        return str(px(keyframes[0][1]))
+    expr = str(px(keyframes[-1][1]))
+    for i in range(len(keyframes) - 2, -1, -1):
+        t0, c0 = keyframes[i]
+        t1, c1 = keyframes[i + 1]
+        x0, x1 = px(c0), px(c1)
+        seg = f"{x0}+({x1}-{x0})*(t-{t0:.3f})/{max(1e-3, t1 - t0):.3f}"
+        expr = f"if(lt(t\,{t1:.3f})\,{seg}\,{expr})"
+    return expr
+
+
+def _faces_in_image(img_path, det_cache):
+    """All faces in a frame as (cx, cy, w, h) fractions via YuNet (the same
+    detector the punch-in zoom uses); [] on any failure. det_cache reuses
+    one detector per frame size."""
+    try:
+        import os
+        import cv2
+        model = os.environ.get("YUNET_MODEL", "/usr/local/share/models/yunet.onnx")
+        if not os.path.exists(model):
+            return []
+        img = cv2.imread(str(img_path))
+        if img is None:
+            return []
+        h, w = img.shape[:2]
+        det = det_cache.get((w, h))
+        if det is None:
+            # 0.5 (the zoom's helper uses 0.6): a tracker wants recall - a
+            # small or three-quarter face still anchors the crop; the
+            # median + dead zone absorb the occasional false positive.
+            det = cv2.FaceDetectorYN.create(model, "", (w, h), score_threshold=0.45)
+            det_cache[(w, h)] = det
+        _, faces = det.detect(img)
+        if faces is None:
+            return []
+        return [((float(f[0]) + float(f[2]) / 2) / w, (float(f[1]) + float(f[3]) / 2) / h,
+                 float(f[2]) / w, float(f[3]) / h) for f in faces]
+    except Exception:
+        return []
+
+
+def _reframe_samples(src, a, b, workdir, tag):
+    """Sample [a, b] of src at REFRAME_SAMPLE_FPS (downscaled) and detect
+    faces per frame -> [(t_rel, faces)]. Best-effort: [] on failure."""
+    try:
+        pat = workdir / f"rf_{tag}_%04d.jpg"
+        _run(["ffmpeg", "-y", "-ss", f"{a:.2f}", "-to", f"{b:.2f}", "-i", str(src),
+              # 960 wide (not 480): a podcast face 15% of the frame tall is
+              # ~40px at 480 and gets missed when it turns; ~80px detects
+              # reliably. YuNet at 960x540 is still ~40ms/frame.
+              "-vf", f"fps={REFRAME_SAMPLE_FPS},scale=960:-2", "-q:v", "5", str(pat)])
+        frames = sorted(workdir.glob(f"rf_{tag}_*.jpg"))
+        cache = {}
+        out = []
+        for i, fp in enumerate(frames):
+            out.append((i / float(REFRAME_SAMPLE_FPS), _faces_in_image(fp, cache)))
+            try:
+                fp.unlink()
+            except Exception:
+                pass
+        return out
+    except Exception as exc:
+        print(f"[assembler] reframe sampling failed for {tag}: {exc!r}")
+        return []
+
 
 def _fade_filters(length, fade_in=0.0, fade_out=0.0):
     """Video + audio fade filter fragments for one encoded part of `length`
@@ -814,7 +1012,8 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
                  captions: bool = True, vo_key: str = None,
                  tighten: bool = False, hook_text: str = "",
                  variant: str = "", intro_key: str = None, outro_key: str = None,
-                 fade: float = 0.0, wm_key: str = None, wm: dict = None) -> dict:
+                 fade: float = 0.0, wm_key: str = None, wm: dict = None,
+                 reframe: str = None) -> dict:
     """Cut the kept moments (in the user's storyboard ORDER) from their
     respective clips, normalize every part onto a common canvas (mixed
     resolutions/orientations scale+pad; uniform fps + audio), and concat.
@@ -833,8 +1032,16 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
     {x, y, w, opacity} overlay a logo on the BODY (intro/outro clips are the
     user's own branding and stay untouched), in the same encode pass as
     the captions. Every branding input degrades to "skipped" on failure -
-    the cut always ships."""
+    the cut always ships.
+    `reframe="9:16"` (2026-08-16): landscape sources are cropped to a
+    full-height vertical window that FOLLOWS THE SPEAKER - faces sampled at
+    3 fps (YuNet), planned by _reframe_plan (group-center / largest face /
+    hold / dead zone / rate limit), applied as a piecewise-linear `crop` x
+    expression inside each body-part encode; the canvas becomes 9:16 so
+    intro/outro/watermark/captions follow. Portrait sources are untouched.
+    Sampling failure -> a centered static crop, never a failed render."""
     from pipeline_fns import _record_job
+    reframe = "9:16" if reframe == "9:16" else None
     fade = max(0.0, min(3.0, float(fade or 0)))
     wm = wm if isinstance(wm, dict) else None
 
@@ -884,7 +1091,18 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
         # Canvas = the first KEPT window's clip dimensions; every part is
         # scaled to fit and padded to exactly that frame, at uniform fps and
         # audio params, so the concat-demuxer copy is always safe.
-        cw, ch = _probe_dims(sources[windows[0][0]])
+        src_dims = {ci: _probe_dims(sources[ci]) for ci in {w[0] for w in windows}}
+
+        def _crop_dims(ci):
+            """(crop_w, crop_h) of a full-height 9:16 window for source ci,
+            or None when it is not wider than 9:16 (nothing to reframe)."""
+            sw, sh = src_dims[ci]
+            want = int(round(sh * 9 / 16.0))
+            want -= want % 2
+            return (want, sh) if reframe and sw > want + 8 else None
+
+        first_ci = windows[0][0]
+        cw, ch = _crop_dims(first_ci) or src_dims[first_ci]
         norm = (f"scale={cw}:{ch}:force_original_aspect_ratio=decrease,"
                 f"pad={cw}:{ch}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30")
 
@@ -916,11 +1134,14 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
             except Exception as exc:
                 print(f"[assembler] watermark unavailable - skipped: {exc!r}")
 
-        def _encode_part(src, out, a, b, has_audio, fade_in=0.0, fade_out=0.0, logo=None):
+        def _encode_part(src, out, a, b, has_audio, fade_in=0.0, fade_out=0.0, logo=None, pre=""):
             """One normalized, uniformly-encoded part of [a, b] from src.
-            Inputs: 0 = src, 1 = logo (if any), last = anullsrc (if silent)."""
+            Inputs: 0 = src, 1 = logo (if any), last = anullsrc (if silent).
+            `pre` = filter(s) applied BEFORE the canvas normalize (the
+            reframe crop)."""
             length = b - a
             vf_fade, af = _fade_filters(length, fade_in, fade_out)
+            norm_here = (pre + "," if pre else "") + norm
             cmd = ["ffmpeg", "-y", "-ss", f"{a:.2f}", "-to", f"{b:.2f}", "-i", str(src)]
             n_in = 1
             if logo:
@@ -933,10 +1154,10 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
             else:
                 a_map = "0:a"
             if logo:
-                graph = f"[0:v]{norm}{vf_fade}[v];" + _watermark_filter(wm, cw, "[v]", "[vout]")
+                graph = f"[0:v]{norm_here}{vf_fade}[v];" + _watermark_filter(wm, cw, "[v]", "[vout]")
                 cmd += ["-filter_complex", graph, "-map", "[vout]", "-map", a_map]
             else:
-                cmd += ["-vf", norm + vf_fade, "-map", "0:v", "-map", a_map]
+                cmd += ["-vf", norm_here + vf_fade, "-map", "0:v", "-map", a_map]
             if not has_audio:
                 cmd += ["-shortest"]
             if af:
@@ -954,11 +1175,19 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
         for i, (ci, a, b) in enumerate(windows):
             if ci not in clip_has_audio:
                 clip_has_audio[ci] = _has_audio(sources[ci])
+            pre = ""
+            cd = _crop_dims(ci)
+            if cd:
+                crop_w, crop_h = cd
+                sw, sh = src_dims[ci]
+                samples = _reframe_samples(sources[ci], a, b, tmp, f"{i:02d}")
+                plan = _reframe_plan(samples, crop_w / float(sw)) if samples else [(0.0, 0.5)]
+                pre = f"crop={crop_w}:{crop_h}:x='{_crop_x_expr(plan, sw, crop_w)}':y=0"
             parts.append(_encode_part(sources[ci], tmp / f"part_{i:02d}.mp4", a, b,
                                       clip_has_audio[ci],
                                       fade if i == 0 else 0.0,
                                       fade if i == last else 0.0,
-                                      logo=wm_path))
+                                      logo=wm_path, pre=pre))
 
         concat_list = tmp / "list.txt"
         concat_list.write_text("".join(f"file '{p}'\n" for p in parts))
