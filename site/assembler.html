@@ -147,6 +147,74 @@
     .result a { color: var(--purple-700); font-weight: 700; }
     .foot { text-align: center; margin-top: 26px; font-size: 0.78rem; color: var(--muted); }
     .foot a { color: var(--purple-700); font-weight: 600; text-decoration: none; }
+    /* ── Mode switch (story cut / long -> shorts) ── */
+    .mode-row { display: flex; gap: 8px; margin-bottom: 14px; }
+    .mode-btn {
+      flex: 1; padding: 10px 12px; border-radius: 12px; border: 1.5px solid var(--purple-100);
+      background: transparent; color: var(--sage-dark); font-family: inherit;
+      font-size: 0.88rem; font-weight: 700; cursor: pointer; line-height: 1.3;
+    }
+    .mode-btn small { display: block; font-weight: 500; font-size: 0.74rem; color: var(--muted); margin-top: 2px; }
+    .mode-btn.on { border-color: var(--terracotta); color: var(--terracotta-dark); background: var(--purple-50); }
+    /* ── Clip candidates ── */
+    .summary { font-size: 0.88rem; color: var(--sage-dark); line-height: 1.6; margin-bottom: 12px; }
+    /* Grid: row 1 = score | thumb | title+time; the body (hook, quote, rubric,
+       reasoning) sits under the title on wide screens and spans the full
+       card width on phones, so the text never gets squeezed into a sliver. */
+    .cand {
+      display: grid; grid-template-columns: auto auto 1fr; gap: 10px 12px; align-items: start;
+      background: var(--white); border: 1.5px solid var(--purple-100); border-radius: 14px;
+      padding: 12px; margin-bottom: 10px;
+    }
+    .cand.off { opacity: 0.45; }
+    .cand img { width: 92px; border-radius: 8px; background: var(--purple-50); min-height: 52px; grid-row: 1 / span 2; }
+    .c-side { grid-row: 1 / span 2; }
+    .c-head { grid-row: 1; min-width: 0; }
+    .c-body { grid-column: 3; grid-row: 2; min-width: 0; }
+    @media (max-width: 520px) {
+      .cand img { width: 76px; grid-row: 1; }
+      .c-side { grid-row: 1; }
+      .c-body { grid-column: 1 / -1; }
+    }
+    .c-side { display: flex; flex-direction: column; align-items: center; gap: 8px; flex-shrink: 0; }
+    .score {
+      width: 52px; height: 52px; border-radius: 50%; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; color: var(--white); font-weight: 700;
+      font-size: 1.15rem; line-height: 1; background: var(--muted);
+    }
+    .score small { font-size: 0.5rem; font-weight: 700; letter-spacing: 0.04em; opacity: 0.9; margin-top: 2px; }
+    .score.t3 { background: var(--forest); }
+    .score.t2 { background: var(--purple-700); }
+    .score.t1 { background: var(--amber); }
+    .c-pick { display: flex; align-items: center; gap: 5px; font-size: 0.74rem; font-weight: 700; color: var(--sage-dark); cursor: pointer; }
+    .c-pick input { accent-color: var(--terracotta); width: 15px; height: 15px; }
+    .c-title { font-size: 0.95rem; font-weight: 700; line-height: 1.35; }
+    .c-time { font-size: 0.72rem; color: var(--sage-dark); margin-top: 2px; font-weight: 600; }
+    .c-hook { display: flex; align-items: center; gap: 6px; }
+    .c-hook label { font-size: 0.72rem; font-weight: 700; color: var(--muted); white-space: nowrap; }
+    .c-hook input {
+      flex: 1; min-width: 0; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--purple-50); font-family: inherit; font-size: 0.85rem; color: var(--text);
+    }
+    .c-quote { font-size: 0.85rem; color: var(--text); margin-top: 6px; line-height: 1.45; }
+    .bars { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 8px; }
+    .bar-item { font-size: 0.64rem; color: var(--muted); font-weight: 700; text-align: center; }
+    .bar-track { height: 5px; border-radius: 999px; background: var(--purple-100); overflow: hidden; margin-bottom: 3px; }
+    .bar-fill { height: 100%; background: var(--purple-700); border-radius: 999px; }
+    .c-why { margin-top: 8px; font-size: 0.8rem; color: var(--muted); line-height: 1.5; }
+    .c-why summary { cursor: pointer; font-weight: 700; color: var(--purple-700); list-style: none; }
+    .c-why summary::-webkit-details-marker { display: none; }
+    .c-why p { margin-top: 4px; }
+    .c-why .tip { color: var(--sage-dark); font-weight: 600; }
+    .opts { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; margin: 12px 0; }
+    .opts .cap-row { margin-bottom: 0; }
+    .outs { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+    .out { background: var(--purple-50); border: 1px solid var(--purple-100); border-radius: 12px; padding: 10px; text-align: center; }
+    .out video { width: 100%; max-height: 300px; border-radius: 8px; background: #000; margin-bottom: 6px; }
+    .out .o-title { font-size: 0.82rem; font-weight: 700; margin-bottom: 4px; }
+    .out .o-state { font-size: 0.76rem; color: var(--sage-dark); font-weight: 600; min-height: 1.3em; }
+    .out .o-state.fail { color: var(--red); }
+    .out a { color: var(--purple-700); font-weight: 700; font-size: 0.82rem; }
     #authGate { text-align: center; }
     #authGate a { color: var(--terracotta); font-weight: 700; }
   </style>
@@ -167,12 +235,37 @@
 
   <div class="card" id="uploadCard" style="display:none">
     <h2>1 · סרטון הגלם</h2>
-    <div class="drop" id="drop">בחרו או גררו עד 5 סרטוני גלם<input type="file" id="file" accept="video/*" multiple style="display:none" /></div>
-    <p class="hint">ראיון, סיורים, אינטראקציות · עד 40 דקות גלם בסך הכל · הניתוח לא מנצל קרדיטים בשלב הבטא</p>
+    <div class="mode-row" role="tablist">
+      <button type="button" class="mode-btn on" id="modeStory" role="tab" aria-selected="true">סרטון סיפור אחד<small>מכמה קליפי גלם - סטוריבורד ורינדור</small></button>
+      <button type="button" class="mode-btn" id="modeClips" role="tab" aria-selected="false">קליפים קצרים מהקלטה ארוכה<small>פודקאסט, הרצאה, ראיון - עם ציון ויראליות</small></button>
+    </div>
+    <div class="drop" id="drop"><span id="dropText">בחרו או גררו עד 5 סרטוני גלם</span><input type="file" id="file" accept="video/*" multiple style="display:none" /></div>
+    <p class="hint" id="hintText">ראיון, סיורים, אינטראקציות · עד 40 דקות גלם בסך הכל · הניתוח לא מנצל קרדיטים בשלב הבטא</p>
     <div id="clipList" style="margin-top:10px"></div>
     <div class="bar-wrap" id="barWrap"><div class="bar" id="bar"></div></div>
     <p class="stage" id="stage"></p>
     <div class="err" id="err"></div>
+  </div>
+
+  <div class="card" id="clipsCard" style="display:none">
+    <h2>2 · הקליפים המוצעים</h2>
+    <p class="summary" id="clipsSummary"></p>
+    <div class="board-sub">כל קליפ מגיע עם הערכת ויראליות מנומקת (הערכה עריכתית, לא נבואה). מסמנים אילו קליפים ליצור, מתקנים את שורת ההוק אם רוצים, ויוצרים את כולם בבת אחת.</div>
+    <div id="cands"></div>
+    <div class="opts">
+      <label class="cap-row"><input type="checkbox" id="clipCapToggle" checked />כתוביות מסונכרנות</label>
+      <label class="cap-row"><input type="checkbox" id="clipTightenToggle" checked />חיתוך שתיקות בתוך הקליפ</label>
+      <label class="cap-row"><input type="checkbox" id="clipHookToggle" checked />שורת הוק על המסך</label>
+    </div>
+    <button class="cta" id="renderClipsBtn">יצירת הקליפים</button>
+    <p class="stage" id="clipsStage" style="margin-top:10px"></p>
+    <div class="err" id="clipsErr"></div>
+  </div>
+
+  <div class="card" id="clipsOut" style="display:none">
+    <h2>3 · הקליפים שלכם</h2>
+    <div class="outs" id="outs"></div>
+    <p class="hint">כל קליפ נשמר גם בהיסטוריה <a href="/">באפליקציה</a> - משם אפשר לתזמן פרסום.</p>
   </div>
 
   <div class="card story-card" id="storyCard" style="display:none">
@@ -223,7 +316,7 @@
     <p><a id="dlLink" href="#" download>הורדת הסרטון</a> · הסרטון נשמר גם בהיסטוריה <a href="/">באפליקציה</a></p>
   </div>
 
-  <p class="foot">Story Assembler - שלבים 1-2 (בטא שקטה) · <a href="/">חזרה לפייפליין</a></p>
+  <p class="foot">Story Assembler - סיפור + קליפים (בטא שקטה) · <a href="/">חזרה לפייפליין</a></p>
 </div>
 
 <script>
@@ -233,6 +326,25 @@
   const $ = (id) => document.getElementById(id);
 
   let clips = [], moments = [], mediaToken = '';   // clips: [{key, name}]
+  let mode = 'story', cands = [];                  // clips mode: candidate shorts
+
+  // ── Mode switch: one story cut vs. many shorts from a long recording ──
+  const MODE_COPY = {
+    story: { drop: 'בחרו או גררו עד 5 סרטוני גלם', hint: 'ראיון, סיורים, אינטראקציות · עד 40 דקות גלם בסך הכל · הניתוח לא מנצל קרדיטים בשלב הבטא', maxFiles: 5, maxBytes: 1024 * 1024 * 1024 },
+    clips: { drop: 'בחרו או גררו הקלטה ארוכה אחת', hint: 'פודקאסט, הרצאה, ראיון ארוך · עד 90 דקות, עד 2GB · מוצעים 6-12 קליפים עם ציון ויראליות · ללא קרדיטים בשלב הבטא', maxFiles: 1, maxBytes: 2 * 1024 * 1024 * 1024 },
+  };
+  function setMode(m) {
+    mode = m;
+    $('modeStory').classList.toggle('on', m === 'story');
+    $('modeClips').classList.toggle('on', m === 'clips');
+    $('modeStory').setAttribute('aria-selected', String(m === 'story'));
+    $('modeClips').setAttribute('aria-selected', String(m === 'clips'));
+    $('dropText').textContent = MODE_COPY[m].drop;
+    $('hintText').textContent = MODE_COPY[m].hint;
+    $('file').multiple = MODE_COPY[m].maxFiles > 1;
+  }
+  $('modeStory').addEventListener('click', () => setMode('story'));
+  $('modeClips').addEventListener('click', () => setMode('clips'));
 
   function uuid() {
     const a = new Uint8Array(16);
@@ -257,8 +369,10 @@
 
   async function start(files) {
     $('err').style.display = 'none';
-    files = files.slice(0, 5);
-    if (files.some((f) => f.size > 1024 * 1024 * 1024)) { showErr($('err'), 'קובץ גדול מדי (עד 1GB לקליפ)'); return; }
+    const lim = MODE_COPY[mode];
+    files = files.slice(0, lim.maxFiles);
+    if (files.some((f) => f.size > lim.maxBytes)) { showErr($('err'), 'קובץ גדול מדי (עד ' + (lim.maxBytes / (1024 * 1024 * 1024)) + 'GB לקליפ)'); return; }
+    ['clipsCard', 'clipsOut', 'storyCard', 'board', 'voCard', 'result'].forEach((id) => { $(id).style.display = 'none'; });
     clips = files.map((f) => ({ key: uuid(), name: f.name }));
     $('clipList').innerHTML = '';
     clips.forEach((c) => {
@@ -304,19 +418,21 @@
 
   // ── Analyze: transcribe + pick golden moments ──
   async function analyze() {
-    $('stage').innerHTML = '<span class="spinner"></span>מתמללים ומחפשים את רגעי הזהב... (כמה דקות)';
+    $('stage').innerHTML = '<span class="spinner"></span>' + (mode === 'clips'
+      ? 'מתמללים את כל ההקלטה, מאתרים קליפים ומדרגים אותם... (הקלטה ארוכה = כמה דקות טובות)'
+      : 'מתמללים ומחפשים את רגעי הזהב... (כמה דקות)');
     const r = await fetch(API_BASE + '/assembler/analyze/', {
       method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ upload_keys: clips.map((c) => c.key), filenames: clips.map((c) => c.name) }),
+      body: JSON.stringify({ upload_keys: clips.map((c) => c.key), filenames: clips.map((c) => c.name), mode }),
     });
     if (!r.ok) { showErr($('err'), 'הניתוח נכשל (' + r.status + ')'); $('stage').textContent = ''; return; }
     const { call_id } = await r.json();
     const result = await poll('/assembler/analyze-poll/' + call_id);
     if (!result || result.error) {
       const msgs = { too_short: 'הסרטון קצר מדי לסיפור (מתחת ל-20 שניות).',
-                     too_long: 'יותר מדי חומר גלם (עד 40 דקות בסך הכל).',
+                     too_long: mode === 'clips' ? 'ההקלטה ארוכה מדי (עד 90 דקות).' : 'יותר מדי חומר גלם (עד 40 דקות בסך הכל).',
                      no_speech: 'לא זוהה מספיק דיבור בסרטונים.',
-                     no_moments: 'לא הצלחנו לבנות סטוריבורד מהסרטון הזה.' };
+                     no_moments: mode === 'clips' ? 'לא מצאנו קטעים שעומדים בפני עצמם בהקלטה הזאת.' : 'לא הצלחנו לבנות סטוריבורד מהסרטון הזה.' };
       let msg = msgs[result && result.error] || 'הניתוח נכשל - נסו שוב.';
       if (result && result.detail) msg += ' [' + result.detail + ']';
       showErr($('err'), msg);
@@ -324,8 +440,172 @@
       return;
     }
     $('stage').textContent = '';
-    renderBoard(result);
+    if (result.mode === 'clips' || mode === 'clips') renderCands(result); else renderBoard(result);
   }
+
+  // ── Clips mode: candidate shorts with virality estimates ──
+  const RUBRIC = [['hook', 'הוק'], ['retention', 'החזקה'], ['emotion', 'רגש'], ['clarity', 'בהירות'], ['shareability', 'שיתוף']];
+  function scoreTier(n) { return n >= 70 ? 't3' : n >= 50 ? 't2' : n >= 30 ? 't1' : ''; }
+  function renderCands(result) {
+    cands = (result.candidates || []).map((c, i) => ({ ...c, id: i, pick: true, hookText: c.hook || '' }));
+    $('clipsSummary').textContent = result.summary || '';
+    $('clipsCard').style.display = 'block';
+    drawCands();
+    $('clipsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function drawCands() {
+    const box = $('cands');
+    box.innerHTML = '';
+    cands.forEach((c) => {
+      const row = document.createElement('div');
+      row.className = 'cand' + (c.pick ? '' : ' off');
+      const side = document.createElement('div');
+      side.className = 'c-side';
+      const sc = document.createElement('div');
+      sc.className = 'score ' + scoreTier(c.score);
+      sc.title = 'הערכת ויראליות (1-99)';
+      sc.innerHTML = String(c.score) + '<small>ויראליות</small>';
+      const pick = document.createElement('label');
+      pick.className = 'c-pick';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.checked = c.pick; cb.className = 'pick-box';
+      cb.onchange = () => { c.pick = cb.checked; row.classList.toggle('off', !c.pick); updateCta(); };
+      pick.append(cb, document.createTextNode('ליצור'));
+      side.append(sc, pick);
+      const img = document.createElement('img');
+      if (c.thumb) img.src = 'data:image/jpeg;base64,' + c.thumb;
+      const head = document.createElement('div');
+      head.className = 'c-head';
+      const meta = document.createElement('div');
+      meta.className = 'c-body';
+      const title = document.createElement('div');
+      title.className = 'c-title';
+      title.textContent = c.title || ('קליפ ' + (c.id + 1));
+      const time = document.createElement('div');
+      time.className = 'c-time';
+      time.textContent = fmt(c.start) + ' - ' + fmt(c.end) + ' (' + Math.round(c.end - c.start) + ' שנ\')';
+      const hookRow = document.createElement('div');
+      hookRow.className = 'c-hook';
+      const hl = document.createElement('label');
+      hl.textContent = 'הוק:';
+      const hi = document.createElement('input');
+      hi.type = 'text'; hi.value = c.hookText; hi.maxLength = 120; hi.className = 'hook-input';
+      hi.placeholder = 'שורה שתופיע על המסך ב-4 השניות הראשונות';
+      hi.oninput = () => { c.hookText = hi.value; };
+      hookRow.append(hl, hi);
+      const quote = document.createElement('div');
+      quote.className = 'c-quote';
+      quote.textContent = c.visual ? (c.quote || '') : ('"' + (c.quote || '') + '"');
+      const bars = document.createElement('div');
+      bars.className = 'bars';
+      const v = c.virality || {};
+      RUBRIC.forEach(([k, label]) => {
+        const item = document.createElement('div');
+        item.className = 'bar-item';
+        const n = Math.max(0, Math.min(10, Number(v[k]) || 0));
+        item.innerHTML = '<div class="bar-track"><div class="bar-fill" style="width:' + (n * 10) + '%"></div></div>';
+        item.append(document.createTextNode(label + ' ' + n));
+        bars.appendChild(item);
+      });
+      const why = document.createElement('details');
+      why.className = 'c-why';
+      const sum = document.createElement('summary');
+      sum.textContent = 'למה הציון הזה';
+      const reason = document.createElement('p');
+      reason.textContent = v.reasoning || '';
+      why.append(sum, reason);
+      if (v.tip) {
+        const tip = document.createElement('p');
+        tip.className = 'tip';
+        tip.textContent = 'טיפ: ' + v.tip;
+        why.append(tip);
+      }
+      head.append(title, time);
+      meta.append(hookRow, quote, bars, why);
+      row.append(side, img, head, meta);
+      box.appendChild(row);
+    });
+    updateCta();
+  }
+  function updateCta() {
+    const n = cands.filter((c) => c.pick).length;
+    $('renderClipsBtn').textContent = n ? ('יצירת ' + n + ' קליפים') : 'בחרו לפחות קליפ אחד';
+    $('renderClipsBtn').disabled = n === 0;
+  }
+
+  // Batch render: every picked candidate is its own render_story call (one
+  // window, tighten + captions + hook), 2 in flight, each landing in
+  // History under its own `_{variant}_out.mp4` key.
+  $('renderClipsBtn').addEventListener('click', async () => {
+    $('clipsErr').style.display = 'none';
+    const picked = cands.filter((c) => c.pick);
+    if (!picked.length) return;
+    $('renderClipsBtn').disabled = true;
+    $('clipsOut').style.display = 'block';
+    $('outs').innerHTML = '';
+    const tiles = new Map();
+    picked.forEach((c) => {
+      const t = document.createElement('div');
+      t.className = 'out';
+      t.innerHTML = '<div class="o-title"></div><div class="o-state"><span class="spinner"></span>בתור...</div>';
+      t.querySelector('.o-title').textContent = c.title || ('קליפ ' + (c.id + 1));
+      $('outs').appendChild(t);
+      tiles.set(c.id, t);
+    });
+    $('clipsOut').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    let done = 0, failed = 0;
+    const batch = uuid().slice(0, 6);
+    const stage = () => { $('clipsStage').innerHTML = '<span class="spinner"></span>יוצרים קליפים... ' + done + '/' + picked.length + (failed ? ' (' + failed + ' נכשלו)' : ''); };
+    stage();
+    const queue = picked.slice();
+    async function worker() {
+      while (queue.length) {
+        const c = queue.shift();
+        const tile = tiles.get(c.id);
+        const st = tile.querySelector('.o-state');
+        st.innerHTML = '<span class="spinner"></span>חותכים...';
+        try {
+          const useHook = $('clipHookToggle').checked && c.hookText.trim();
+          const r = await fetch(API_BASE + '/assembler/render/', {
+            method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              upload_keys: clips.map((k) => k.key),
+              filename: ((c.title || 'clip ' + (c.id + 1)).replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'clip') + '.mp4',
+              segments: [[c.clip || 0, c.start, c.end]],
+              captions: $('clipCapToggle').checked,
+              tighten: $('clipTightenToggle').checked,
+              hook_text: useHook ? c.hookText.trim() : '',
+              variant: 'c' + (c.id + 1) + '_' + batch,
+            }),
+          });
+          if (!r.ok) throw new Error('render ' + r.status);
+          const { call_id } = await r.json();
+          const result = await poll('/assembler/render-poll/' + call_id);
+          if (!result || result.error || !result.video_key) throw new Error((result && (result.detail || result.error)) || 'render');
+          await ensureMediaToken();
+          const url = API_BASE + '/media/' + encodeURIComponent(result.video_key) + '?token=' + encodeURIComponent(mediaToken);
+          const vid = document.createElement('video');
+          vid.controls = true; vid.playsInline = true; vid.src = url;
+          tile.insertBefore(vid, st);
+          st.innerHTML = '';
+          const a = document.createElement('a');
+          a.href = API_BASE + '/download/' + encodeURIComponent(result.video_key) + '?token=' + encodeURIComponent(mediaToken);
+          a.download = ''; a.textContent = 'הורדה';
+          st.appendChild(a);
+          st.classList.add('ok');
+        } catch (e) {
+          failed++;
+          st.textContent = 'נכשל (' + e.message + ')';
+          st.classList.add('fail');
+        }
+        done++;
+        stage();
+      }
+    }
+    await Promise.all([worker(), worker()]);
+    $('clipsStage').textContent = failed ? (done - failed) + ' קליפים מוכנים, ' + failed + ' נכשלו - אפשר לנסות שוב.' : 'כל ' + done + ' הקליפים מוכנים.';
+    $('renderClipsBtn').disabled = false;
+  });
 
   async function poll(path) {
     for (let i = 0; i < 200; i++) {
@@ -517,13 +797,15 @@
     $('renderBtn').disabled = false;
   });
 
+  async function ensureMediaToken() {
+    if (mediaToken) return;
+    try {
+      const r = await fetch(API_BASE + '/auth/media-token', { headers: { 'Authorization': 'Bearer ' + token } });
+      mediaToken = (await r.json()).token || '';
+    } catch (_) {}
+  }
   async function showResult(videoKey) {
-    if (!mediaToken) {
-      try {
-        const r = await fetch(API_BASE + '/auth/media-token', { headers: { 'Authorization': 'Bearer ' + token } });
-        mediaToken = (await r.json()).token || '';
-      } catch (_) {}
-    }
+    await ensureMediaToken();
     const url = API_BASE + '/media/' + encodeURIComponent(videoKey) + '?token=' + encodeURIComponent(mediaToken);
     $('outVideo').src = url;
     $('dlLink').href = API_BASE + '/download/' + encodeURIComponent(videoKey) + '?token=' + encodeURIComponent(mediaToken);

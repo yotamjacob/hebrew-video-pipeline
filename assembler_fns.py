@@ -17,6 +17,14 @@ touch the main pipeline). It shares infrastructure by IMPORT ONLY:
 
 Hidden beta: no credits are charged (the page is unlinked). Before making the
 page public, add pricing at the /assembler/render spawn like /process does.
+
+CLIPS MODE (long -> shorts, 2026-08-16): the same analyze function with
+`mode="clips"` turns ONE long recording (podcast, lecture, long interview -
+up to 90 min) into 6-12 self-contained short-clip candidates, each with a
+precise word-snapped trim, an on-screen hook line, and an honest virality
+estimate (sub-scores + reasoning). Render is per clip through render_story
+with `tighten` (silence-gap excision inside the clip) + `hook_text` (burned
+via the shared ASS builder's hook box). See docs/assembler.md.
 """
 
 import json
@@ -43,6 +51,13 @@ MIN_MOMENTS = 3
 TARGET_TOTAL_SECONDS = "45-90"
 MAX_CLIPS = 5
 TOTAL_INPUT_MAX_SECONDS = 2400   # 40 min of raw footage across all clips
+
+# Clips mode (long -> shorts) guardrails.
+CLIPS_INPUT_MAX_SECONDS = 5400   # 90 min of source (podcast / lecture)
+MAX_CANDIDATES = 12
+MIN_CANDIDATES = 3
+CLIP_MIN_SECONDS = 8
+CLIP_MAX_SECONDS = 90
 
 
 def _run(cmd, **kw):
@@ -165,6 +180,234 @@ def _pick_moments(clips, total_duration):
     return str(data.get("title") or "")[:80], story, moments
 
 
+# ── Clips mode (long -> shorts) ──────────────────────────────────────────────
+
+def _virality_score(v, duration):
+    """Composite 1-99 virality ESTIMATE from the model's holistic score + its
+    five sub-scores, with a duration prior (short-form sweet spot 15-60s).
+    Deterministic and pure - the model reasons, this blends. Half the weight
+    is the model's own holistic call, half the weighted rubric, so a great
+    hook can't carry a clip nobody will finish and vice versa."""
+    def _n(k, hi):
+        try:
+            return max(0.0, min(float(hi), float((v or {}).get(k, 0) or 0)))
+        except (TypeError, ValueError):
+            return 0.0
+    rubric = (_n("hook", 10) * 0.30 + _n("retention", 10) * 0.25
+              + _n("emotion", 10) * 0.15 + _n("clarity", 10) * 0.15
+              + _n("shareability", 10) * 0.15) * 10.0
+    score = 0.5 * _n("score", 99) + 0.5 * rubric
+    if duration > 75:
+        score -= 8
+    elif duration > 60:
+        score -= 4
+    elif duration < 12:
+        score -= 6
+    return int(max(1, min(99, round(score))))
+
+
+def _snap_to_words(start, end, words, lo, hi):
+    """Snap a model-proposed [start, end] onto the nearest word start / word
+    end (within 0.6s) inside the allowed context range [lo, hi], then add a
+    small breathing pad. words: [[s, e, text], ...] sorted. Returns (a, b)."""
+    start = max(lo, min(hi, float(start)))
+    end = max(lo, min(hi, float(end)))
+    if words:
+        ws = min((float(w[0]) for w in words), key=lambda t: abs(t - start))
+        we = min((float(w[1]) for w in words), key=lambda t: abs(t - end))
+        if abs(ws - start) <= 0.6:
+            start = ws
+        if abs(we - end) <= 0.6:
+            end = we
+    a = max(lo, start - 0.12)
+    b = min(hi, end + 0.25)
+    return round(a, 2), round(b, 2)
+
+
+def _tighten_windows(windows, clip_segments, min_gap=0.6, pad=0.18):
+    """Excise silence gaps INSIDE each window: consecutive words closer than
+    `min_gap` merge into one run; every run keeps `pad` breathing room and is
+    clamped to its window. Windows with no words (visual footage) pass
+    through untouched. Pure - the assembler's lightweight stand-in for the
+    main pipeline's cutter, so a rendered clip is already tight."""
+    out = []
+    for ci, a, b in windows:
+        a, b = float(a), float(b)
+        words = []
+        for seg in (clip_segments[ci] if ci < len(clip_segments) else []):
+            for w in (seg.get("words") or []):
+                s, e = float(w[0]), float(w[1])
+                if e > a and s < b:
+                    words.append((max(a, s), min(b, e)))
+        words.sort()
+        if not words:
+            out.append((ci, a, b))
+            continue
+        runs, cur = [], [words[0][0], words[0][1]]
+        for s, e in words[1:]:
+            if s - cur[1] >= min_gap:
+                runs.append(cur)
+                cur = [s, e]
+            else:
+                cur[1] = max(cur[1], e)
+        runs.append(cur)
+        for s, e in runs:
+            s2, e2 = max(a, s - pad), min(b, e + pad)
+            if e2 - s2 >= 0.3:
+                out.append((ci, round(s2, 3), round(e2, 3)))
+    return out
+
+
+def _pick_clips(clips, total_duration):
+    """Long -> shorts. Two Sonnet passes:
+      1. the FULL segment-level transcript -> 6-12 self-contained candidate
+         ranges (segment ids, never free timestamps) + a one-line summary;
+      2. every candidate's WORD-level transcript (with one segment of context
+         on each side) -> precise word-snapped trim (open on the hook word,
+         close on the payoff), title, on-screen hook line, quote, and an
+         honest virality rubric (5 sub-scores + holistic + reasoning + tip).
+    Returns (summary, candidates) sorted by composite score desc."""
+    import os
+    from anthropic import Anthropic
+    client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+
+    # ── Pass 1: candidates from the whole transcript ──
+    blocks = []
+    for ci, clip in enumerate(clips):
+        lines = "\n".join(
+            f"[{ci}:{i}] {s['start']:.1f}-{s['end']:.1f}: "
+            f"{'[ויזואלי] ' if s.get('visual') else ''}{s['text']}"
+            for i, s in enumerate(clip["segs"]))
+        blocks.append(f'### קליפ {ci} - "{clip["name"]}" ({clip["duration"]:.0f} שניות)\n'
+                      + (lines or "(אין דיבור בקליפ הזה)"))
+    prompt1 = f"""לפניך תמלול מתוזמן של הקלטה ארוכה ({total_duration:.0f} שניות): פודקאסט, הרצאה, ראיון או שיחה. המטרה: לאתר {MIN_CANDIDATES}-{MAX_CANDIDATES} קטעים שכל אחד מהם יכול לעמוד בפני עצמו כסרטון קצר (Reels / TikTok / Shorts), באורך {CLIP_MIN_SECONDS + 7}-{CLIP_MAX_SECONDS} שניות כל אחד.
+
+מה הופך קטע לחזק: הוא נפתח בשורה שעוצרת גלילה תוך 3 שניות (טענה חדה, שאלה, סיפור, מספר מפתיע, "הטעות ש..."), הוא מובן לגמרי גם למי שלא צפה בשאר, יש בו מתח ותשלום (payoff) - תובנה, פאנץ', רגע רגשי, טיפ ישים - והוא נגמר במשפט חזק, לא באמצע מחשבה. חפש גיוון: לא שמונה גרסאות של אותו רעיון. אל תבחר קטעי מעבר, פרסומות, הצגות עצמיות ארוכות, דיבור טכני/מנהלי או "אז על מה נדבר היום".
+
+כל שורה היא מקטע: [קליפ:מספר] התחלה-סוף: טקסט. קטע = טווח מקטעים רצוף בתוך קליפ אחד (from_seg עד to_seg, כולל). עדיף שהקטעים לא יחפפו זה את זה.
+
+החזר JSON בלבד:
+{{"summary": "משפט-שניים: על מה ההקלטה ומי מדבר", "candidates": [{{"clip": 0, "from_seg": 12, "to_seg": 19, "title": "כותרת קצרה", "angle": "למה הקטע הזה עומד בפני עצמו ומה התשלום שלו"}}]}}
+
+התמלול:
+{chr(10).join(blocks)}"""
+    resp = client.messages.create(model=SONNET_MODEL, max_tokens=8000,
+                                  messages=[{"role": "user", "content": prompt1}])
+    _record_ai_spend(costs_store, "assembler_clips_pick", SONNET_MODEL, resp.usage)
+    text = _msg_text(resp)
+    data = json.loads(text[text.find("{"):text.rfind("}") + 1])
+    summary = str(data.get("summary") or "")[:400]
+
+    cands = []
+    for c in (data.get("candidates") or [])[:MAX_CANDIDATES]:
+        try:
+            ci = int(c.get("clip", 0))
+            a, b = int(c["from_seg"]), int(c["to_seg"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (0 <= ci < len(clips)):
+            continue
+        segs = clips[ci]["segs"]
+        if not (0 <= a <= b < len(segs)):
+            continue
+        # Context: one segment on each side, so pass 2 can move the cut
+        # onto the real hook word / payoff word without leaving the range.
+        lo_i, hi_i = max(0, a - 1), min(len(segs) - 1, b + 1)
+        lo, hi = float(segs[lo_i]["start"]), float(segs[hi_i]["end"])
+        words = [w for s in segs[lo_i:hi_i + 1] for w in (s.get("words") or [])]
+        cands.append({
+            "clip": ci, "from_seg": a, "to_seg": b,
+            "start": float(segs[a]["start"]), "end": float(segs[b]["end"]),
+            "lo": lo, "hi": hi, "words": words,
+            "title": str(c.get("title") or "")[:80],
+            "angle": str(c.get("angle") or "")[:300],
+            "visual": bool(segs[a].get("visual")),
+        })
+    if not cands:
+        return summary, []
+
+    # ── Pass 2: precise trims + hook + virality rubric, one call for all ──
+    parts = []
+    for i, c in enumerate(cands):
+        toks = []
+        for w in c["words"]:
+            s = float(w[0])
+            mark = ""
+            if abs(s - c["start"]) < 0.01:
+                mark = "<<< "
+            toks.append(f"{mark}[{s:.2f}]{w[2]}")
+        body = " ".join(toks) if toks else "(קטע ויזואלי ללא דיבור)"
+        parts.append(
+            f'### קטע {i} · "{c["title"]}" · טווח מותר {c["lo"]:.2f}-{c["hi"]:.2f} · '
+            f'הצעה ראשונית {c["start"]:.2f}-{c["end"]:.2f}\n{c["angle"]}\n{body} >>>')
+    prompt2 = f"""לפניך {len(cands)} קטעים מועמדים מתוך הקלטה ארוכה, כל אחד עם התמלול שלו ברמת מילה בפורמט [שנייה]מילה. כל קטע מגיע עם מעט הקשר לפני ואחרי ההצעה הראשונית (ההצעה מתחילה ב-<<< ונגמרת ב->>>). מותר להזיז את גבולות החיתוך רק בתוך "הטווח המותר".
+
+לכל קטע החזר:
+- start / end: זמני חיתוך מדויקים בשניות. start = תחילת המילה הראשונה שכדאי לפתוח בה (דלג על "אז", "אה", "אוקיי", "כן", חצאי משפטים ותשובות ל"מה?"), end = סוף המילה האחרונה של המשפט שסוגר חזק. אורך יעד {CLIP_MIN_SECONDS + 7}-{CLIP_MAX_SECONDS} שניות (מותר {CLIP_MIN_SECONDS}+ אם הפאנץ' קצר ומושלם).
+- title: כותרת קצרה (עד 8 מילים).
+- hook: שורת הוק שתוצג על המסך ב-4 השניות הראשונות (עד 8 מילים, בלי סימני קריאה מיותרים) - הבטחה, שאלה או טענה שגורמת להישאר. לא ציטוט מילולי בהכרח.
+- quote: הציטוט המרכזי כפי שנאמר בפועל.
+- virality: הערכה כנה ומנומקת של הפוטנציאל לפלטפורמות קצרות בעברית, לקהל ישראלי. אל תחמיא: 40 זה קליפ סביר, 60 טוב, 80+ נדיר. תתי-ציונים 0-10:
+  - hook: כמה 3 השניות הראשונות עוצרות גלילה
+  - retention: קצב, מתח, האם יש סיבה להישאר עד הסוף
+  - emotion: עוצמת רגש, הפתעה, הזדהות
+  - clarity: מובן בלי הקשר, רעיון אחד ברור
+  - shareability: ירצו לשלוח, לשמור, להתווכח בתגובות (דעה חדה, טיפ ישים, ויכוח)
+  - score (0-99): ההערכה הכוללת שלך
+  - reasoning: 2-3 משפטים - למה הציון הזה, מה החוזקה ומה החולשה
+  - tip: המלצה אחת קונקרטית שתעלה את הסיכוי (מה לחתוך, איזה כיתוב להוסיף, מה לחדד)
+
+החזר JSON בלבד:
+{{"clips": [{{"id": 0, "start": 12.34, "end": 45.67, "title": "...", "hook": "...", "quote": "...", "virality": {{"hook": 7, "retention": 6, "emotion": 5, "clarity": 8, "shareability": 6, "score": 58, "reasoning": "...", "tip": "..."}}}}]}}
+
+הקטעים:
+{chr(10).join(parts)}"""
+    resp2 = client.messages.create(model=SONNET_MODEL, max_tokens=12000,
+                                   messages=[{"role": "user", "content": prompt2}])
+    _record_ai_spend(costs_store, "assembler_clips_score", SONNET_MODEL, resp2.usage)
+    text2 = _msg_text(resp2)
+    refined = {}
+    try:
+        d2 = json.loads(text2[text2.find("{"):text2.rfind("}") + 1])
+        for r in (d2.get("clips") or []):
+            try:
+                refined[int(r.get("id"))] = r
+            except (TypeError, ValueError):
+                continue
+    except Exception as exc:
+        print(f"[assembler] clips pass-2 parse failed - shipping pass-1 trims: {exc!r}")
+
+    out = []
+    for i, c in enumerate(cands):
+        r = refined.get(i) or {}
+        try:
+            st, en = float(r.get("start", c["start"])), float(r.get("end", c["end"]))
+        except (TypeError, ValueError):
+            st, en = c["start"], c["end"]
+        a, b = _snap_to_words(st, en, c["words"], c["lo"], c["hi"])
+        if b - a < CLIP_MIN_SECONDS or b - a > CLIP_MAX_SECONDS + 15:
+            a, b = round(c["start"], 2), round(c["end"], 2)   # fall back to pass-1 range
+        v = r.get("virality") if isinstance(r.get("virality"), dict) else {}
+        dur = b - a
+        out.append({
+            "clip": c["clip"], "start": a, "end": b, "duration": round(dur, 1),
+            "title": str(r.get("title") or c["title"] or "")[:80],
+            "hook": str(r.get("hook") or "")[:120],
+            "quote": str(r.get("quote") or c["angle"] or "")[:300],
+            "visual": c["visual"],
+            "score": _virality_score(v, dur),
+            "virality": {
+                "hook": v.get("hook"), "retention": v.get("retention"),
+                "emotion": v.get("emotion"), "clarity": v.get("clarity"),
+                "shareability": v.get("shareability"),
+                "reasoning": str(v.get("reasoning") or "")[:600],
+                "tip": str(v.get("tip") or "")[:300],
+            },
+        })
+    out.sort(key=lambda c: -c["score"])
+    return summary, out
+
+
 def _visual_segments(src: Path, duration: float, workdir: Path, clip_name: str):
     """Speechless footage still tells a story - sample frames and have Haiku
     describe the distinct scenes as time-ranged segments. Haiku (not Sonnet)
@@ -269,7 +512,8 @@ def _thumb_b64(src: Path, at: float, workdir: Path, idx: int) -> str:
 @app.function(
     gpu="L4",
     cpu=4,
-    timeout=900,
+    # 1800 (was 900): clips mode transcribes up to 90 min of source.
+    timeout=1800,
     # Hidden beta: keep the assembler's GPU ceiling tiny and independent of
     # the main pipeline's cap so it can never crowd out paying /process jobs.
     max_containers=2,
@@ -277,11 +521,15 @@ def _thumb_b64(src: Path, at: float, workdir: Path, idx: int) -> str:
     memory=4096,
     secrets=[modal.Secret.from_name("anthropic-secret")],
 )
-def analyze_story(upload_keys, filenames=None) -> dict:
+def analyze_story(upload_keys, filenames=None, mode: str = "story") -> dict:
     """Transcribe every clip (model loaded once) + cross-clip golden-moment
     selection + per-moment thumbnails. `upload_keys` may be a single string
-    (Phase-1 clients) or a list of up to MAX_CLIPS keys."""
+    (Phase-1 clients) or a list of up to MAX_CLIPS keys.
+    `mode="clips"` (long -> shorts): same transcription, then _pick_clips
+    instead of _pick_moments - returns `candidates` (see docstring)."""
     import os
+    clips_mode = (mode == "clips")
+    max_total = CLIPS_INPUT_MAX_SECONDS if clips_mode else TOTAL_INPUT_MAX_SECONDS
 
     if isinstance(upload_keys, str):
         upload_keys = [upload_keys]
@@ -300,7 +548,7 @@ def analyze_story(upload_keys, filenames=None) -> dict:
         total = sum(durations)
         if total < 20:
             return {"error": "too_short", "duration": total}
-        if total > TOTAL_INPUT_MAX_SECONDS:
+        if total > max_total:
             return {"error": "too_long", "duration": total}
 
         os.environ["HF_HOME"] = MODEL_DIR
@@ -369,6 +617,21 @@ def analyze_story(upload_keys, filenames=None) -> dict:
         if sum(len(c["segs"]) for c in clips) < MIN_MOMENTS:
             return {"error": "no_speech", "duration": total}
 
+        clips_meta = [{"name": c["name"], "duration": round(c["duration"], 1),
+                       "segments": [{"start": round(s["start"], 2),
+                                     "end": round(s["end"], 2), "text": s["text"]}
+                                    for s in c["segs"]]}
+                      for c in clips]
+
+        if clips_mode:
+            summary, candidates = _pick_clips(clips, total)
+            if not candidates:
+                return {"error": "no_moments", "duration": total}
+            for i, c in enumerate(candidates):
+                c["thumb"] = _thumb_b64(sources[c["clip"]], c["start"] + 0.5, tmp, i)
+            return {"mode": "clips", "duration": round(total, 1), "summary": summary,
+                    "candidates": candidates, "clips": clips_meta}
+
         title, story, moments = _pick_moments(clips, total)
         if not moments:
             return {"error": "no_moments", "duration": total}
@@ -376,12 +639,7 @@ def analyze_story(upload_keys, filenames=None) -> dict:
             mo["thumb"] = _thumb_b64(sources[mo["clip"]], mo["start"] + 0.5, tmp, i)
 
         return {"duration": round(total, 1), "title": title, "story": story,
-                "moments": moments,
-                "clips": [{"name": c["name"], "duration": round(c["duration"], 1),
-                           "segments": [{"start": round(s["start"], 2),
-                                         "end": round(s["end"], 2), "text": s["text"]}
-                                        for s in c["segs"]]}
-                          for c in clips]}
+                "moments": moments, "clips": clips_meta}
 
 
 @app.function(
@@ -393,12 +651,20 @@ def analyze_story(upload_keys, filenames=None) -> dict:
     memory=4096,
 )
 def render_story(upload_keys, segments: list, filename: str = "story.mp4",
-                 captions: bool = True, vo_key: str = None) -> dict:
+                 captions: bool = True, vo_key: str = None,
+                 tighten: bool = False, hook_text: str = "",
+                 variant: str = "") -> dict:
     """Cut the kept moments (in the user's storyboard ORDER) from their
     respective clips, normalize every part onto a common canvas (mixed
     resolutions/orientations scale+pad; uniform fps + audio), and concat.
     `segments` items are [clip_index, start, end]; Phase-1 [start, end] pairs
-    are accepted as clip 0."""
+    are accepted as clip 0.
+    Clips mode extras: `tighten` excises silence gaps inside every window
+    (word-transcript driven, see _tighten_windows); `hook_text` burns an
+    on-screen hook line for the first seconds through the shared ASS
+    builder's hook box; `variant` (validated by the route) makes the output
+    key `{key}_{variant}_out.mp4` so N clips from ONE source never overwrite
+    each other in History."""
     from pipeline_fns import _record_job
 
     if isinstance(upload_keys, str):
@@ -426,6 +692,23 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
                 windows.append((ci, a, b))
         if not windows:
             return {"error": "no_segments"}
+
+        # Word transcript persisted at analyze time - drives both the
+        # in-clip silence tightening and the caption remap. Missing files
+        # (expired scratch, >48h) degrade both to "no-op", never a failure.
+        clip_segments = []
+        for k in upload_keys:
+            try:
+                wp = _asm_words_path(k)
+                clip_segments.append(
+                    json.loads(wp.read_text(encoding="utf-8")).get("segments", [])
+                    if wp.exists() else [])
+            except Exception:
+                clip_segments.append([])
+        if tighten:
+            tightened = _tighten_windows(windows, clip_segments)
+            if tightened:
+                windows = tightened
 
         # Canvas = the first KEPT window's clip dimensions; every part is
         # scaled to fit and padded to exactly that frame, at uniform fps and
@@ -464,7 +747,8 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
 
         concat_list = tmp / "list.txt"
         concat_list.write_text("".join(f"file '{p}'\n" for p in parts))
-        out_key = f"{upload_keys[0]}_out.mp4"
+        out_key = (f"{upload_keys[0]}_{variant}_out.mp4" if variant
+                   else f"{upload_keys[0]}_out.mp4")
         out_path = Path(TMP_DIR) / out_key
         joined = tmp / "joined.mp4"
         _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list),
@@ -476,21 +760,23 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
         # transcript files (expired scratch, >48h) degrade to no captions
         # rather than failing the render.
         burned = False
-        if captions:
+        hook_text = str(hook_text or "").strip()[:120]
+        total_len = sum(b - a for _ci, a, b in windows)
+        if captions or hook_text:
             try:
-                clip_segments = []
-                for k in upload_keys:
-                    wp = _asm_words_path(k)
-                    clip_segments.append(
-                        json.loads(wp.read_text(encoding="utf-8")).get("segments", [])
-                        if wp.exists() else [])
-                events = _captions_for_windows(windows, clip_segments)
-                if events:
+                events = _captions_for_windows(windows, clip_segments) if captions else []
+                # Clips mode: the hook line rides the SAME ASS pass as the
+                # captions (the builder's hook box - identical look to the
+                # main pipeline's hook, defaults: top 10%, 60% dark box).
+                hook = ({"text": hook_text, "start_seconds": 0.2,
+                         "duration_seconds": max(1.5, min(4.5, total_len - 0.5))}
+                        if hook_text else None)
+                if events or hook:
                     from pipeline_fns import build_caption_ass
                     ass_str = build_caption_ass(
                         cw, ch, "Heebo", 48,
                         max(25, cw // 14), int(0.08 * ch),
-                        events, None)
+                        events, hook)
                     ass_path = tmp / "captions.ass"
                     ass_path.write_text(ass_str, encoding="utf-8")
                     esc = str(ass_path).replace(":", r"\:")

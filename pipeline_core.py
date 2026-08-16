@@ -1348,6 +1348,8 @@ import threading as _threading
 
 _SAFE_KEY_RE = _re.compile(r'^[a-zA-Z0-9_\-]{1,128}$')
 _SAFE_DOWNLOAD_KEY_RE = _re.compile(r'^[a-zA-Z0-9_\-\.]{1,128}$')
+# Short output-key suffix (assembler clips mode: `{key}_{variant}_out.mp4`).
+_SAFE_VARIANT_RE = _re.compile(r'^[a-zA-Z0-9_\-]{1,24}$')
 
 # ── B-roll item validation (SSRF / IDOR / path-traversal guard) ──
 # Generated & stock B-roll clips are stored on the shared volume as

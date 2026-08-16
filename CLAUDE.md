@@ -30,7 +30,7 @@ violation has shipped real bugs before. Update them in place when behavior chang
 | `broll_fns.py` | Stock B-roll: `analyze_stock_broll`, `search_stock_clips`, `_get_video_context`, `_process_moment` |
 | `content_fns.py` | `generate_hook_options`, `generate_caption_options` |
 | `metricool_fns.py` | Metricool OAuth store, MCP client, `schedule_post_fn` |
-| `assembler_fns.py` | Story Assembler (hidden beta, standalone `/assembler` page): `analyze_story` + `render_story` — see `docs/assembler.md` |
+| `assembler_fns.py` | Story Assembler (hidden beta, standalone `/assembler` page): `analyze_story` (story + `mode="clips"` long→shorts with virality estimates) + `render_story` — see `docs/assembler.md` |
 | `site/index.html` | Frontend markup — "פייפליין" branding; tabs: Create, History, Guide, Admin. No framework, no build step |
 | `site/app.js` | ALL frontend logic (~9k lines). `APP_VERSION` at top. Details: `docs/frontend.md` |
 | `site/i18n.js` | EN/HE dictionary + engine: `t(key, vars)`, `data-i18n` attrs, `setLang`; toggle `#langToggle` |

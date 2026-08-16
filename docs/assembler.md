@@ -56,6 +56,39 @@ every shared surface is reused by CALLING it, never by modifying it.
   written to seed a voice-over script. Shown as card "2 · הסיפור" with a
   copy button before the storyboard; it is the input contract for Phase 3.
 
+## Clips mode - long -> shorts (2026-08-16)
+
+Same page, second mode (`#modeClips` in the upload card, single file, up to
+90 min / 2GB): one long recording (podcast, lecture, long interview) ->
+6-12 self-contained short-clip candidates, each with an honest virality
+estimate. Built to beat OpusClip on CLIP QUALITY for Hebrew, deliberately
+NOT on their moat items (reframe/tracking, diarization, teams/API, 25
+languages - user directive 2026-08-16: don't build those).
+
+| Piece | Where | Contract |
+|---|---|---|
+| Analyze | `analyze_story(keys, names, mode="clips")` - same GPU function, `timeout=1800`, input cap `CLIPS_INPUT_MAX_SECONDS=5400` | Transcription identical to story mode (words persisted at `_asm_words.json`), then `_pick_clips` instead of `_pick_moments`. Returns `{"mode":"clips","summary","candidates":[...],"clips"}`. |
+| `_pick_clips` | two Sonnet passes | **Pass 1** (`assembler_clips_pick`): FULL segment transcript -> `MIN_CANDIDATES..MAX_CANDIDATES` (3..12) candidate segment ranges + a summary; the prompt encodes the rubric (hook in 3s, self-contained, payoff, ends on a strong line, diverse, no intros/ads/admin). **Pass 2** (`assembler_clips_score`, ONE call for all): each candidate's WORD-level transcript with one segment of context each side (`lo..hi`, initial proposal marked `<<< >>>`) -> precise `start/end`, `title`, on-screen `hook` (<=8 words), `quote`, and `virality` {hook, retention, emotion, clarity, shareability (0-10), score (0-99), reasoning, tip}. Pass-2 parse failure ships pass-1 trims (never a failed analysis). |
+| `_snap_to_words` | pure, tested | Model trims snap to the nearest word start / word end within 0.6s inside `[lo, hi]`, then pad 0.12s before / 0.25s after. Out-of-bounds durations (<`CLIP_MIN_SECONDS`=8 or >`CLIP_MAX_SECONDS`+15) fall back to the pass-1 segment range. |
+| `_virality_score` | pure, tested | Composite 1-99 = 0.5 x model holistic + 0.5 x weighted rubric (hook .30, retention .25, emotion/clarity/shareability .15 each) with a duration prior (-4 >60s, -8 >75s, -6 <12s). Candidates are sorted by it. It is an EDITORIAL estimate and the UI says so ("הערכה עריכתית, לא נבואה") - never market it as prediction. Tiers in the UI: >=70 forest, >=50 olive, >=30 amber. |
+| Render | `render_story(..., tighten, hook_text, variant)` via `/assembler/render` | One render per picked clip (the page runs 2 in flight): `segments=[[clip,start,end]]`, `tighten` -> `_tighten_windows` (pure, tested: words closer than 0.6s merge into runs, 0.18s pad, clamped to the window; wordless windows pass through) splits the window on silence gaps BEFORE the canvas/concat step; `hook_text` (<=120) rides the SAME ASS pass as captions via `build_caption_ass`'s hook box (`start_seconds 0.2`, `duration min(4.5, len-0.5)`) - the burn happens if there are caption events OR a hook; `variant` (`_SAFE_VARIANT_RE`, <=24 chars, page sends `c{n}_{batch6}`) suffixes the output key `{key}_{variant}_out.mp4` so N clips from ONE source each get their own History row. Defaults (`False`, `""`, `""`) keep the story render byte-identical. |
+| Page | `site/assembler.html` | `MODE_COPY` drives drop/hint copy + file limits per mode; `renderCands` draws `.cand` cards (CSS grid: score+thumb+title on row 1, `.c-body` under the title on wide screens and full-width on <=520px - screenshot-verified both); per-card `.hook-input` (editable, prefilled from the model), `.pick-box`, rubric `.bars`, `<details class="c-why">` reasoning + tip. Options: `#clipCapToggle`, `#clipTightenToggle`, `#clipHookToggle` (all default on). `#renderClipsBtn` batch-renders picked clips into `#outs` tiles (video + download link per clip). Story-mode cards are hidden in clips mode and vice versa. |
+
+Verified E2E on production 2026-08-16 with a synthetic 2-min Hebrew TTS
+"podcast": 6 candidates in 160s, trims skipped the intro/outro exactly,
+Hebrew hooks/reasoning/tips sensible; a rendered clip showed the hook box
+for the first ~4.5s + synced captions and landed in History under
+`_c1_..._out.mp4`. Analyze cost = 2 Sonnet calls (~30-40k input tokens for
+a 60-min transcript) - price it before linking the page.
+
+Tests: `tests/backend/test_assembler_clips.py` (pure helpers executed +
+contracts), `tests/frontend/assembler_clips.spec.js`.
+
+Not built (by decision): reframe 16:9->9:16, speaker diarization, URL
+import, brand kit, teams/API. Natural next steps: keyword highlight in the
+clip captions, per-clip Metricool scheduling from the results tiles,
+pricing + linking the page.
+
 ## Roadmap (agreed 2026-08-13)
 
 Phase 2 (multi-clip) SHIPPED same day - up to 5 clips, cross-clip storyboard

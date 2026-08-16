@@ -559,7 +559,7 @@ class TestAssemblerRoutes:
 
     def _render(self):
         i = MODAL_SRC.index('("/assembler/render"')
-        return MODAL_SRC[i:i + 3200]
+        return MODAL_SRC[i:i + 4400]
 
     def test_keys_are_prefix_scoped_and_validated(self):
         # Client sends bare keys (up to 5 clips); the route validates EVERY
@@ -588,7 +588,7 @@ class TestAssemblerRoutes:
         # every part is scaled+padded to the first kept clip's frame at
         # uniform fps/audio before the copy-concat.
         i = MODAL_SRC.index("def render_story")
-        block = MODAL_SRC[i:i + 3600]
+        block = MODAL_SRC[i:i + 5200]
         assert "force_original_aspect_ratio=decrease" in block
         assert "pad=" in block and "fps=30" in block
         assert '"-ar", "48000", "-ac", "2"' in block
@@ -613,7 +613,7 @@ class TestAssemblerRoutes:
         # via the SAME build_caption_ass as the main pipeline. A missing
         # transcript degrades to a clean cut, never a failed render.
         i = MODAL_SRC.index("def render_story")
-        block = MODAL_SRC[i:i + 7000]
+        block = MODAL_SRC[i:i + 9000]
         assert "build_caption_ass" in block
         assert "subtitles='" in block
         assert "_captions_for_windows" in block
@@ -667,7 +667,7 @@ class TestAssemblerRoutes:
         # un-narrated cut, never a failed render. vo_key is validated and
         # uid-prefixed like every other key.
         i = MODAL_SRC.index("def render_story")
-        block = MODAL_SRC[i:i + 9000]
+        block = MODAL_SRC[i:i + 11000]
         assert "sidechaincompress" in block
         assert "amix=inputs=2:duration=first" in block
         assert '"-c:v", "copy"' in block

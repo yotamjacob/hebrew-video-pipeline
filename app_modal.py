@@ -23,7 +23,7 @@ from pipeline_core import (
     codes_store, _normalize_email, _gen_login_code,
     _verify_google_id_token, GOOGLE_WEB_CLIENT_ID,
     app, image, tmp_vol, TMP_DIR,
-    _SAFE_KEY_RE, _SAFE_DOWNLOAD_KEY_RE, _check_rate_limit, _get_client_ip,
+    _SAFE_KEY_RE, _SAFE_DOWNLOAD_KEY_RE, _SAFE_VARIANT_RE, _check_rate_limit, _get_client_ip,
     throttle_store, _throttle_allowed, _throttle_record_fail, _throttle_clear,
     _poll_fn_call,
     _hash_password, _verify_password, _sign_token, _verify_token,
@@ -3337,13 +3337,16 @@ def api():
             if not isinstance(names, list):
                 names = [data.get("filename") or "video.mp4"]
             names = [str(n or "clip")[:120] for n in names][:len(keys)]
+            # "clips" = long -> shorts candidates (2026-08-16); anything else
+            # is the original story storyboard.
+            mode = "clips" if data.get("mode") == "clips" else "story"
             try:
                 # Chunks are written WITHOUT a commit (upload_chunk defers it
                 # to spawn time) - flush before the worker reads, exactly like
                 # the /process spawn does. Missing this = worker sees no
                 # chunks = instant "No upload found" 500 (field bug, 2026-08-13).
                 await asyncio.to_thread(tmp_vol.commit)
-                call = analyze_story.spawn([f"{uprefix}{k}" for k in keys], names)
+                call = analyze_story.spawn([f"{uprefix}{k}" for k in keys], names, mode)
                 _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
@@ -3422,13 +3425,25 @@ def api():
             if vo_key and not _SAFE_KEY_RE.match(vo_key):
                 await send_error("Invalid vo_key", 400)
                 return
+            # Clips mode (2026-08-16): `variant` suffixes the output key so N
+            # clips rendered from ONE source each get their own History row;
+            # `hook_text` is burned as the on-screen hook; `tighten` excises
+            # in-clip silence gaps. All bounded here, defaults keep the story
+            # render byte-identical.
+            variant = str(data.get("variant") or "").strip()
+            if variant and not _SAFE_VARIANT_RE.match(variant):
+                await send_error("Invalid variant", 400)
+                return
+            hook_text = str(data.get("hook_text") or "").strip()[:120]
+            tighten = bool(data.get("tighten", False))
             try:
                 await asyncio.to_thread(tmp_vol.commit)   # flush before the worker reads
                 call = render_story.spawn([f"{uprefix}{k}" for k in keys],
                                           norm_segs,
                                           str(data.get("filename") or "story.mp4")[:120],
                                           bool(data.get("captions", True)),
-                                          f"{uprefix}{vo_key}" if vo_key else None)
+                                          f"{uprefix}{vo_key}" if vo_key else None,
+                                          tighten, hook_text, variant)
                 _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,
