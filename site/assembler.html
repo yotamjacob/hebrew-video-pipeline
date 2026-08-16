@@ -215,6 +215,38 @@
     .out .o-state { font-size: 0.76rem; color: var(--sage-dark); font-weight: 600; min-height: 1.3em; }
     .out .o-state.fail { color: var(--red); }
     .out a { color: var(--purple-700); font-weight: 700; font-size: 0.82rem; }
+    /* ── Branding card: intro / outro / fade / watermark ── */
+    .brand-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 520px) { .brand-grid { grid-template-columns: 1fr; } }
+    .brand-slot {
+      border: 1.5px dashed var(--purple-100); border-radius: 12px; padding: 12px;
+      display: flex; flex-direction: column; gap: 8px; align-items: center; text-align: center;
+    }
+    .brand-slot .slot-title { font-size: 0.82rem; font-weight: 700; color: var(--purple-800); }
+    .brand-slot .slot-file { font-size: 0.78rem; color: var(--sage-dark); font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: ltr; }
+    .brand-slot .slot-file:empty { display: none; }
+    .brand-slot .slot-remove { display: none; }
+    .brand-slot.has .slot-remove { display: inline; }
+    .brand-slot.has .vo-btn { display: none; }
+    .brand-hint { font-size: 0.76rem; color: var(--muted); margin-top: 6px; text-align: center; }
+    .fade-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 14px 0 6px; font-size: 0.88rem; font-weight: 600; color: var(--sage-dark); }
+    .fade-row select { font-family: inherit; font-size: 0.85rem; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--white); color: var(--text); }
+    .wm-wrap { margin-top: 16px; }
+    .wm-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+    .wm-head .slot-title { font-size: 0.82rem; font-weight: 700; color: var(--purple-800); }
+    .wm-stage {
+      position: relative; margin: 0 auto; max-width: 260px; aspect-ratio: 9 / 16;
+      background: #2A2A26 center / cover no-repeat; border-radius: 10px; overflow: hidden;
+      touch-action: none; user-select: none; display: none;
+    }
+    .wm-stage.landscape { max-width: 100%; aspect-ratio: 16 / 9; }
+    .wm-stage.on { display: block; }
+    .wm-img { position: absolute; left: 0; top: 0; cursor: grab; touch-action: none; user-select: none; -webkit-user-drag: none; }
+    .wm-img:active { cursor: grabbing; }
+    .wm-ctl { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-top: 10px; max-width: 420px; margin-inline: auto; }
+    .wm-ctl label { display: flex; flex-direction: column; gap: 4px; font-size: 0.74rem; font-weight: 700; color: var(--muted); }
+    .wm-ctl input[type=range] { accent-color: var(--terracotta); width: 100%; }
+    .wm-note { font-size: 0.74rem; color: var(--muted); text-align: center; margin-top: 8px; }
     #authGate { text-align: center; }
     #authGate a { color: var(--terracotta); font-weight: 700; }
   </style>
@@ -247,8 +279,44 @@
     <div class="err" id="err"></div>
   </div>
 
+  <div class="card" id="brandCard" style="display:none">
+    <h2>2 · מיתוג - פתיח, סיום ולוגו (רשות)</h2>
+    <div class="brand-grid">
+      <div class="brand-slot" id="introSlot">
+        <span class="slot-title">פתיח (אינטרו)</span>
+        <button class="vo-btn" id="introBtn" type="button">בחירת קליפ פתיח<input type="file" id="introFile" accept="video/*" style="display:none" /></button>
+        <span class="slot-file" id="introName"></span>
+        <button class="vo-remove slot-remove" id="introRemove" type="button">הסרה</button>
+      </div>
+      <div class="brand-slot" id="outroSlot">
+        <span class="slot-title">סיום (אאוטרו)</span>
+        <button class="vo-btn" id="outroBtn" type="button">בחירת קליפ סיום<input type="file" id="outroFile" accept="video/*" style="display:none" /></button>
+        <span class="slot-file" id="outroName"></span>
+        <button class="vo-remove slot-remove" id="outroRemove" type="button">הסרה</button>
+      </div>
+    </div>
+    <p class="brand-hint">עד 20 שניות לכל קליפ · מותאמים אוטומטית לגודל הסרטון</p>
+    <label class="fade-row"><input type="checkbox" id="fadeToggle" />מעברי Fade בפתיחה, בסיום ובין הקטעים
+      <select id="fadeDur"><option value="0.3">0.3 שנ'</option><option value="0.5" selected>0.5 שנ'</option><option value="1">1 שנ'</option></select>
+    </label>
+    <div class="wm-wrap">
+      <div class="wm-head">
+        <span class="slot-title">לוגו / סימן מים</span>
+        <button class="vo-btn" id="wmBtn" type="button"><span id="wmBtnLabel">בחירת לוגו (PNG שקוף מומלץ)</span><input type="file" id="wmFile" accept="image/png,image/jpeg,image/webp" style="display:none" /></button>
+        <button class="vo-remove" id="wmRemove" type="button" style="display:none">הסרת הלוגו</button>
+      </div>
+      <div class="wm-stage" id="wmStage"><img class="wm-img" id="wmImg" alt="" draggable="false" /></div>
+      <div class="wm-ctl" id="wmCtl" style="display:none">
+        <label>גודל <input type="range" id="wmSize" min="5" max="60" value="18" /></label>
+        <label>שקיפות <input type="range" id="wmOpacity" min="10" max="100" value="85" /></label>
+      </div>
+      <p class="wm-note" id="wmNote" style="display:none">גוררים את הלוגו למקום הרצוי (עכבר או אצבע). המיקום נשמר לפעם הבאה.</p>
+    </div>
+    <div class="err" id="brandErr"></div>
+  </div>
+
   <div class="card" id="clipsCard" style="display:none">
-    <h2>2 · הקליפים המוצעים</h2>
+    <h2>3 · הקליפים המוצעים</h2>
     <p class="summary" id="clipsSummary"></p>
     <p class="hint" id="clipsIssues" style="display:none;text-align:start;margin:0 0 10px"></p>
     <div class="board-sub">כל קליפ מגיע עם הערכת ויראליות מנומקת (הערכה עריכתית, לא נבואה). מסמנים אילו קליפים ליצור, מתקנים את שורת ההוק אם רוצים, ויוצרים את כולם בבת אחת.</div>
@@ -264,13 +332,13 @@
   </div>
 
   <div class="card" id="clipsOut" style="display:none">
-    <h2>3 · הקליפים שלכם</h2>
+    <h2>4 · הקליפים שלכם</h2>
     <div class="outs" id="outs"></div>
     <p class="hint">כל קליפ נשמר גם בהיסטוריה <a href="/">באפליקציה</a> - משם אפשר לתזמן פרסום.</p>
   </div>
 
   <div class="card story-card" id="storyCard" style="display:none">
-    <h2>2 · הסיפור, כפי שה-AI הבין אותו</h2>
+    <h2>3 · הסיפור, כפי שה-AI הבין אותו</h2>
     <p class="story-text" id="storyText"></p>
     <button class="copy-btn" id="copyStory" type="button">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
@@ -279,7 +347,7 @@
   </div>
 
   <div class="card board" id="board">
-    <h2>3 · הסטוריבורד המוצע</h2>
+    <h2>4 · הסטוריבורד המוצע</h2>
     <div class="board-title" id="boardTitle"></div>
     <div class="board-sub">אפשר להוריד רגעים, להחזיר אותם ולשנות סדר - הסרטון ירונדר לפי הסדר שכאן.</div>
     <div id="moments"></div>
@@ -291,8 +359,8 @@
   </div>
 
   <div class="card" id="voCard" style="display:none">
-    <h2>4 · קריינות (רשות)</h2>
-    <p class="vo-hint">מקליטים קריינות על בסיס הסיפור מכרטיס 2, או מעלים קובץ שמע. הקול המקורי בסרטון יונמך אוטומטית מתחת לקריינות.</p>
+    <h2>5 · קריינות (רשות)</h2>
+    <p class="vo-hint">מקליטים קריינות על בסיס הסיפור מכרטיס 3, או מעלים קובץ שמע. הקול המקורי בסרטון יונמך אוטומטית מתחת לקריינות.</p>
     <div class="vo-actions">
       <button class="vo-btn" id="voRecordBtn" type="button">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
@@ -312,7 +380,7 @@
   </div>
 
   <div class="card result" id="result">
-    <h2>5 · הסרטון שלכם</h2>
+    <h2>6 · הסרטון שלכם</h2>
     <video id="outVideo" controls playsinline></video>
     <p><a id="dlLink" href="#" download>הורדת הסרטון</a> · הסרטון נשמר גם בהיסטוריה <a href="/">באפליקציה</a></p>
   </div>
@@ -373,7 +441,8 @@
     const lim = MODE_COPY[mode];
     files = files.slice(0, lim.maxFiles);
     if (files.some((f) => f.size > lim.maxBytes)) { showErr($('err'), 'קובץ גדול מדי (עד ' + (lim.maxBytes / (1024 * 1024 * 1024)) + 'GB לקליפ)'); return; }
-    ['clipsCard', 'clipsOut', 'storyCard', 'board', 'voCard', 'result'].forEach((id) => { $(id).style.display = 'none'; });
+    ['brandCard', 'clipsCard', 'clipsOut', 'storyCard', 'board', 'voCard', 'result'].forEach((id) => { $(id).style.display = 'none'; });
+    _probeDims(files[0]);   // aspect for the watermark stage (best effort)
     clips = files.map((f) => ({ key: uuid(), name: f.name }));
     $('clipList').innerHTML = '';
     clips.forEach((c) => {
@@ -563,6 +632,174 @@
     if (result.mode === 'clips' || mode === 'clips') renderCands(result); else renderBoard(result);
   }
 
+  // ── Branding: intro / outro clips, fades, draggable watermark ──
+  // Assets are uploaded lazily at render time through uploadFile (R2 first)
+  // and cached per file, so a batch of N clips uploads the intro once.
+  // The watermark geometry is NORMALIZED (x, y of the top-left corner and
+  // width as fractions of the frame) - the stage below is just a scaled
+  // preview of the output canvas, so drag positions survive any resolution.
+  const BRAND_LS = 'hebpipe_asm_brand';
+  const brand = { intro: null, outro: null, wmFile: null, wmDataUrl: '', wm: { x: 0.03, y: 0.03, w: 0.18, opacity: 0.85 }, keys: new Map() };
+  let srcDims = null;   // {w, h} of the first uploaded source
+  function _probeDims(file) {
+    srcDims = null;
+    if (!file || !/^video\//.test(file.type || '')) return;
+    try {
+      const v = document.createElement('video');
+      const url = URL.createObjectURL(file);
+      const done = () => { URL.revokeObjectURL(url); };
+      v.preload = 'metadata';
+      v.onloadedmetadata = () => { if (v.videoWidth && v.videoHeight) { srcDims = { w: v.videoWidth, h: v.videoHeight }; _applyStageAspect(); } done(); };
+      v.onerror = done;
+      v.src = url;
+    } catch (_) {}
+  }
+  function _applyStageAspect() {
+    const st = $('wmStage');
+    const landscape = srcDims && srcDims.w > srcDims.h;
+    st.classList.toggle('landscape', !!landscape);
+    if (srcDims) st.style.aspectRatio = srcDims.w + ' / ' + srcDims.h;
+    _layoutWm();
+  }
+  function _loadBrand() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(BRAND_LS) || 'null');
+      if (!saved) return;
+      if (saved.wm) brand.wm = { ...brand.wm, ...saved.wm };
+      if (saved.wmDataUrl) { brand.wmDataUrl = saved.wmDataUrl; brand.wmName = saved.wmName || 'logo'; }
+      if (saved.fadeOn) $('fadeToggle').checked = true;
+      if (saved.fadeDur) $('fadeDur').value = String(saved.fadeDur);
+    } catch (_) {}
+  }
+  function _saveBrand() {
+    try {
+      localStorage.setItem(BRAND_LS, JSON.stringify({
+        wm: brand.wm, wmDataUrl: brand.wmDataUrl.length < 400000 ? brand.wmDataUrl : '', wmName: brand.wmName || '',
+        fadeOn: $('fadeToggle').checked, fadeDur: parseFloat($('fadeDur').value),
+      }));
+    } catch (_) {}
+  }
+  function showBrand(thumbB64) {
+    $('brandCard').style.display = 'block';
+    if (thumbB64) $('wmStage').style.backgroundImage = 'url(data:image/jpeg;base64,' + thumbB64 + ')';
+    _applyStageAspect();
+    _renderWm();
+  }
+  // Intro / outro pickers.
+  function _slot(kind) {
+    const file = $(kind + 'File'), btn = $(kind + 'Btn'), name = $(kind + 'Name'), rm = $(kind + 'Remove'), slot = $(kind + 'Slot');
+    btn.addEventListener('click', () => file.click());
+    file.addEventListener('change', () => {
+      const f = file.files[0];
+      if (!f) return;
+      $('brandErr').style.display = 'none';
+      if (f.size > 300 * 1024 * 1024) { showErr($('brandErr'), 'הקליפ גדול מדי (עד 300MB)'); file.value = ''; return; }
+      brand[kind] = f; name.textContent = f.name; slot.classList.add('has');
+      if (!$('fadeToggle').checked && !brand._fadeTouched) $('fadeToggle').checked = true;   // fades make sense once there is a boundary
+    });
+    rm.addEventListener('click', () => { brand[kind] = null; name.textContent = ''; slot.classList.remove('has'); file.value = ''; });
+  }
+  _slot('intro'); _slot('outro');
+  $('fadeToggle').addEventListener('change', () => { brand._fadeTouched = true; _saveBrand(); });
+  $('fadeDur').addEventListener('change', _saveBrand);
+  // Watermark: pick, preview, drag, size, opacity.
+  $('wmBtn').addEventListener('click', () => $('wmFile').click());
+  $('wmFile').addEventListener('change', () => {
+    const f = $('wmFile').files[0];
+    if (!f) return;
+    $('brandErr').style.display = 'none';
+    if (f.size > 5 * 1024 * 1024) { showErr($('brandErr'), 'הלוגו גדול מדי (עד 5MB)'); $('wmFile').value = ''; return; }
+    brand.wmFile = f; brand.wmName = f.name; brand.keys.delete('wm');
+    const rd = new FileReader();
+    rd.onload = () => { brand.wmDataUrl = String(rd.result || ''); _renderWm(); _saveBrand(); };
+    rd.readAsDataURL(f);
+  });
+  $('wmRemove').addEventListener('click', () => { brand.wmFile = null; brand.wmDataUrl = ''; brand.keys.delete('wm'); $('wmFile').value = ''; _renderWm(); _saveBrand(); });
+  function _renderWm() {
+    const on = !!brand.wmDataUrl;
+    $('wmStage').classList.toggle('on', on);
+    $('wmCtl').style.display = on ? 'grid' : 'none';
+    $('wmNote').style.display = on ? 'block' : 'none';
+    $('wmRemove').style.display = on ? 'inline' : 'none';
+    $('wmBtnLabel').textContent = on ? 'החלפת הלוגו' : 'בחירת לוגו (PNG שקוף מומלץ)';   // never textContent on the button - the file input lives inside it
+    if (!on) return;
+    const img = $('wmImg');
+    if (img.getAttribute('src') !== brand.wmDataUrl) img.src = brand.wmDataUrl;
+    $('wmSize').value = Math.round(brand.wm.w * 100);
+    $('wmOpacity').value = Math.round(brand.wm.opacity * 100);
+    img.style.opacity = brand.wm.opacity;
+    img.onload = _layoutWm;
+    _layoutWm();
+  }
+  function _layoutWm() {
+    const st = $('wmStage'), img = $('wmImg');
+    if (!brand.wmDataUrl || !st.classList.contains('on')) return;
+    const W = st.clientWidth, H = st.clientHeight;
+    if (!W || !H) return;
+    img.style.width = Math.round(brand.wm.w * W) + 'px';
+    const iw = img.offsetWidth || Math.round(brand.wm.w * W), ih = img.offsetHeight || iw;
+    // Keep the logo inside the frame (mirrors the overlay clamp server-side).
+    brand.wm.x = Math.max(0, Math.min(1, brand.wm.x)); brand.wm.y = Math.max(0, Math.min(1, brand.wm.y));
+    const left = Math.min(Math.max(0, brand.wm.x * W), Math.max(0, W - iw));
+    const top = Math.min(Math.max(0, brand.wm.y * H), Math.max(0, H - ih));
+    img.style.left = left + 'px'; img.style.top = top + 'px';
+  }
+  (function dragWm() {
+    const st = $('wmStage'), img = $('wmImg');
+    let drag = null;
+    img.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const r = st.getBoundingClientRect();
+      drag = { dx: e.clientX - r.left - img.offsetLeft, dy: e.clientY - r.top - img.offsetTop, r };
+      try { img.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    img.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const W = drag.r.width, H = drag.r.height;
+      const left = Math.min(Math.max(0, e.clientX - drag.r.left - drag.dx), Math.max(0, W - img.offsetWidth));
+      const top = Math.min(Math.max(0, e.clientY - drag.r.top - drag.dy), Math.max(0, H - img.offsetHeight));
+      brand.wm.x = left / W; brand.wm.y = top / H;
+      img.style.left = left + 'px'; img.style.top = top + 'px';
+    });
+    const end = () => { if (drag) { drag = null; _saveBrand(); } };
+    img.addEventListener('pointerup', end); img.addEventListener('pointercancel', end);
+    $('wmSize').addEventListener('input', () => { brand.wm.w = Number($('wmSize').value) / 100; _layoutWm(); });
+    $('wmSize').addEventListener('change', _saveBrand);
+    $('wmOpacity').addEventListener('input', () => { brand.wm.opacity = Number($('wmOpacity').value) / 100; img.style.opacity = brand.wm.opacity; });
+    $('wmOpacity').addEventListener('change', _saveBrand);
+    window.addEventListener('resize', _layoutWm);
+  })();
+  function _dataUrlToBlob(u) {
+    const [meta, b64] = u.split(',');
+    const mime = (/data:([^;]+)/.exec(meta) || [])[1] || 'image/png';
+    const bin = atob(b64); const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  }
+  // Upload whatever branding assets are set (once each) and return the
+  // extra render payload fields.
+  async function brandPayload(onStage) {
+    const out = {};
+    const up = async (tag, blob) => {
+      if (brand.keys.has(tag) && brand.keys.get(tag).blob === blob) return brand.keys.get(tag).key;
+      const key = uuid();
+      if (onStage) onStage(tag);
+      await uploadFile(blob, key, () => {});
+      brand.keys.set(tag, { blob, key });
+      return key;
+    };
+    if (brand.intro) out.intro_key = await up('intro', brand.intro);
+    if (brand.outro) out.outro_key = await up('outro', brand.outro);
+    if ($('fadeToggle').checked) out.fade = parseFloat($('fadeDur').value) || 0.5;
+    if (brand.wmDataUrl) {
+      const blob = brand.wmFile || (brand._wmBlob || (brand._wmBlob = _dataUrlToBlob(brand.wmDataUrl)));
+      out.wm_key = await up('wm', blob);
+      out.wm = { x: +brand.wm.x.toFixed(4), y: +brand.wm.y.toFixed(4), w: +brand.wm.w.toFixed(4), opacity: +brand.wm.opacity.toFixed(2) };
+    }
+    return out;
+  }
+  _loadBrand();
+
   // ── Clips mode: candidate shorts with virality estimates ──
   const RUBRIC = [['hook', 'הוק'], ['retention', 'החזקה'], ['emotion', 'רגש'], ['clarity', 'בהירות'], ['shareability', 'שיתוף']];
   function scoreTier(n) { return n >= 70 ? 't3' : n >= 50 ? 't2' : n >= 30 ? 't1' : ''; }
@@ -575,6 +812,7 @@
     const unscored = cands.filter((c) => c.score === null || c.score === undefined).length;
     $('clipsIssues').style.display = unscored ? 'block' : 'none';
     $('clipsIssues').textContent = unscored ? (unscored + ' קליפים לא קיבלו ציון בסבב הזה (החיתוך שלהם תקין). אפשר להריץ שוב לניתוח מלא.') : '';
+    showBrand((cands[0] && cands[0].thumb) || '');
     $('clipsCard').style.display = 'block';
     drawCands();
     $('clipsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -685,6 +923,13 @@
     let done = 0, failed = 0;
     const batch = uuid().slice(0, 6);
     const stage = () => { $('clipsStage').innerHTML = '<span class="spinner"></span>יוצרים קליפים... ' + done + '/' + picked.length + (failed ? ' (' + failed + ' נכשלו)' : ''); };
+    let extra = {};
+    try {
+      extra = await brandPayload(() => { $('clipsStage').innerHTML = '<span class="spinner"></span>מעלים פתיח / סיום / לוגו...'; });
+    } catch (e) {
+      showErr($('clipsErr'), 'העלאת המיתוג נכשלה - נסו שוב. (' + e.message + ')');
+      $('renderClipsBtn').disabled = false; $('clipsStage').textContent = ''; return;
+    }
     stage();
     const queue = picked.slice();
     async function worker() {
@@ -705,6 +950,7 @@
               tighten: $('clipTightenToggle').checked,
               hook_text: useHook ? c.hookText.trim() : '',
               variant: 'c' + (c.id + 1) + '_' + batch,
+              ...extra,
             }),
           });
           if (!r.ok) throw new Error('render ' + r.status);
@@ -769,6 +1015,7 @@
       $('storyText').textContent = result.story;
       $('storyCard').style.display = 'block';
     }
+    showBrand((moments[0] && moments[0].thumb) || '');
     $('board').style.display = 'block';
     $('voCard').style.display = 'block';
     drawMoments();
@@ -913,9 +1160,11 @@
         voKey = await _uploadVo();
         $('renderStage').innerHTML = '<span class="spinner"></span>חותכים, מרכיבים ומדביקים קריינות...';
       }
+      const extra = await brandPayload(() => { $('renderStage').innerHTML = '<span class="spinner"></span>מעלים פתיח / סיום / לוגו...'; });
+      $('renderStage').innerHTML = '<span class="spinner"></span>חותכים ומרכיבים את הסיפור...';
       const r = await fetch(API_BASE + '/assembler/render/', {
         method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ upload_keys: clips.map((c) => c.key), filename: (clips[0] && clips[0].name) || 'story.mp4', segments: kept, captions: $('capToggle').checked, vo_key: voKey }),
+        body: JSON.stringify({ upload_keys: clips.map((c) => c.key), filename: (clips[0] && clips[0].name) || 'story.mp4', segments: kept, captions: $('capToggle').checked, vo_key: voKey, ...extra }),
       });
       if (!r.ok) throw new Error('render ' + r.status);
       const { call_id } = await r.json();

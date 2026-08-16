@@ -72,14 +72,24 @@ def _resolve_source(upload_key: str, workdir: Path) -> Path:
     # and burn_captions_fn reload on entry for the same reason). Field:
     # back-to-back assembler runs, the second one "No upload found"
     # (2026-08-16).
-    try:
-        tmp_vol.reload()
-    except Exception:
-        pass
+    # Volume writes from the api containers publish in the BACKGROUND (a
+    # few seconds); a render that follows its uploads immediately (branding
+    # assets, VO, a just-landed clip) can otherwise read an empty view.
+    # Reload + short backoff before declaring the upload missing.
+    import time as _t
     cache = Path(TMP_DIR) / f"{upload_key}_src.mp4"
-    if cache.exists():
-        return cache
-    chunk_paths = sorted(Path(TMP_DIR).glob(f"{upload_key}_chunk_*"))
+    chunk_paths = []
+    for attempt in range(6):
+        try:
+            tmp_vol.reload()
+        except Exception:
+            pass
+        if cache.exists():
+            return cache
+        chunk_paths = sorted(Path(TMP_DIR).glob(f"{upload_key}_chunk_*"))
+        if chunk_paths:
+            break
+        _t.sleep(2)
     if not chunk_paths:
         raise ValueError(f"No upload found for key {upload_key}")
     with open(cache, "wb") as out:
@@ -737,6 +747,57 @@ def analyze_story(upload_keys, filenames=None, mode: str = "story") -> dict:
                 "moments": moments, "clips": clips_meta}
 
 
+INTRO_OUTRO_MAX_SECONDS = 20.0
+
+
+def _fade_filters(length, fade_in=0.0, fade_out=0.0):
+    """Video + audio fade filter fragments for one encoded part of `length`
+    seconds. Each fade is capped at half the part so in+out never overlap.
+    Returns (vf_suffix, af) - empty strings when no fade applies. Pure."""
+    fi = max(0.0, min(float(fade_in or 0), length / 2.0))
+    fo = max(0.0, min(float(fade_out or 0), length / 2.0))
+    vf, af = [], []
+    if fi > 0:
+        vf.append(f"fade=t=in:st=0:d={fi:.2f}")
+        af.append(f"afade=t=in:st=0:d={fi:.2f}")
+    if fo > 0:
+        st = max(0.0, length - fo)
+        vf.append(f"fade=t=out:st={st:.2f}:d={fo:.2f}")
+        af.append(f"afade=t=out:st={st:.2f}:d={fo:.2f}")
+    return ("," + ",".join(vf)) if vf else "", ",".join(af)
+
+
+def _watermark_filter(wm, canvas_w, in_label="[0:v]", out_label="[vout]"):
+    """filter_complex fragment overlaying input 1 (the logo) on `in_label`:
+    scaled to `w` x canvas width, alpha multiplied by `opacity`, placed at the
+    normalized top-left (x, y) and clamped inside the frame with overlay's
+    own W/H/w/h expressions (the logo's height is unknown until scaled).
+    Pure - the numeric clamps mirror the route's validation."""
+    x = max(0.0, min(1.0, float(wm.get("x", 0.02))))
+    y = max(0.0, min(1.0, float(wm.get("y", 0.02))))
+    w = max(0.03, min(0.8, float(wm.get("w", 0.18))))
+    op = max(0.1, min(1.0, float(wm.get("opacity", 0.85))))
+    px = max(8, int(round(w * canvas_w)))
+    px -= px % 2
+    return (f"[1:v]scale={px}:-1,format=rgba,colorchannelmixer=aa={op:.2f}[wm];"
+            f"{in_label}[wm]overlay=x='min(max(0\,{x:.4f}*W)\,W-w)':"
+            f"y='min(max(0\,{y:.4f}*H)\,H-h)':format=auto{out_label}")
+
+
+def _image_ext(path):
+    """png / jpg / webp by magic bytes (image2 picks the decoder from the
+    file EXTENSION, so an uploaded logo must be renamed to match its bytes)."""
+    with open(path, "rb") as fh:
+        head = fh.read(16)
+    if head.startswith(b"\x89PNG"):
+        return "png"
+    if head[:3] == b"\xff\xd8\xff":
+        return "jpg"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
 @app.function(
     image=burn_image,
     cpu=8,
@@ -748,7 +809,8 @@ def analyze_story(upload_keys, filenames=None, mode: str = "story") -> dict:
 def render_story(upload_keys, segments: list, filename: str = "story.mp4",
                  captions: bool = True, vo_key: str = None,
                  tighten: bool = False, hook_text: str = "",
-                 variant: str = "") -> dict:
+                 variant: str = "", intro_key: str = None, outro_key: str = None,
+                 fade: float = 0.0, wm_key: str = None, wm: dict = None) -> dict:
     """Cut the kept moments (in the user's storyboard ORDER) from their
     respective clips, normalize every part onto a common canvas (mixed
     resolutions/orientations scale+pad; uniform fps + audio), and concat.
@@ -759,8 +821,18 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
     on-screen hook line for the first seconds through the shared ASS
     builder's hook box; `variant` (validated by the route) makes the output
     key `{key}_{variant}_out.mp4` so N clips from ONE source never overwrite
-    each other in History."""
+    each other in History.
+    Branding (2026-08-16): `intro_key` / `outro_key` are user clips (first
+    INTRO_OUTRO_MAX_SECONDS each) normalized onto the same canvas and
+    concatenated around the body; `fade` seconds of video+audio fade at the
+    very start/end and at every intro|body|outro boundary; `wm_key` + `wm`
+    {x, y, w, opacity} overlay a logo on the BODY (intro/outro clips are the
+    user's own branding and stay untouched), in the same encode pass as
+    the captions. Every branding input degrades to "skipped" on failure -
+    the cut always ships."""
     from pipeline_fns import _record_job
+    fade = max(0.0, min(3.0, float(fade or 0)))
+    wm = wm if isinstance(wm, dict) else None
 
     if isinstance(upload_keys, str):
         upload_keys = [upload_keys]
@@ -821,24 +893,35 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
                       str(path)], text=True)
             return bool(r.stdout.strip())
 
+        def _encode_part(src, out, a, b, has_audio, fade_in=0.0, fade_out=0.0):
+            """One normalized, uniformly-encoded part of [a, b] from src."""
+            length = b - a
+            vf_fade, af = _fade_filters(length, fade_in, fade_out)
+            cmd = ["ffmpeg", "-y", "-ss", f"{a:.2f}", "-to", f"{b:.2f}", "-i", str(src)]
+            if not has_audio:
+                cmd += ["-f", "lavfi", "-t", f"{length:.2f}",
+                        "-i", "anullsrc=r=48000:cl=stereo",
+                        "-map", "0:v", "-map", "1:a", "-shortest"]
+            cmd += ["-vf", norm + vf_fade]
+            if af:
+                cmd += ["-af", af]
+            cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                    "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+                    "-movflags", "+faststart", str(out)]
+            _run(cmd)
+            return out
+
         clip_has_audio = {}
         parts = []
+        last = len(windows) - 1
         for i, (ci, a, b) in enumerate(windows):
             if ci not in clip_has_audio:
                 clip_has_audio[ci] = _has_audio(sources[ci])
-            part = tmp / f"part_{i:02d}.mp4"
-            cmd = ["ffmpeg", "-y", "-ss", f"{a:.2f}", "-to", f"{b:.2f}", "-i", str(sources[ci])]
-            if not clip_has_audio[ci]:
-                cmd += ["-f", "lavfi", "-t", f"{b - a:.2f}",
-                        "-i", "anullsrc=r=48000:cl=stereo",
-                        "-map", "0:v", "-map", "1:a", "-shortest"]
-            cmd += ["-vf", norm,
-                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-                    "-pix_fmt", "yuv420p",
-                    "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
-                    "-movflags", "+faststart", str(part)]
-            _run(cmd)
-            parts.append(part)
+            parts.append(_encode_part(sources[ci], tmp / f"part_{i:02d}.mp4", a, b,
+                                      clip_has_audio[ci],
+                                      fade if i == 0 else 0.0,
+                                      fade if i == last else 0.0))
 
         concat_list = tmp / "list.txt"
         concat_list.write_text("".join(f"file '{p}'\n" for p in parts))
@@ -855,6 +938,7 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
         # transcript files (expired scratch, >48h) degrade to no captions
         # rather than failing the render.
         burned = False
+        sub_filter = ""
         hook_text = str(hook_text or "").strip()[:120]
         total_len = sum(b - a for _ci, a, b in windows)
         if captions or hook_text:
@@ -874,17 +958,76 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
                         events, hook)
                     ass_path = tmp / "captions.ass"
                     ass_path.write_text(ass_str, encoding="utf-8")
-                    esc = str(ass_path).replace(":", r"\:")
-                    captioned = tmp / "captioned.mp4"
-                    _run(["ffmpeg", "-y", "-i", str(joined),
-                          "-vf", f"subtitles='{esc}'",
-                          "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-                          "-pix_fmt", "yuv420p", "-c:a", "copy",
-                          "-movflags", "+faststart", str(captioned)])
-                    burned = True
+                    sub_filter = "subtitles='" + str(ass_path).replace(":", r"\:") + "'"
             except Exception as exc:
-                print(f"[assembler] caption burn failed - shipping clean cut: {exc!r}")
+                print(f"[assembler] caption build failed - shipping without: {exc!r}")
+        # Watermark logo: uploaded through the same chunk/R2 path as clips
+        # (so its cached copy is `{key}_src.mp4` whatever the bytes are);
+        # renamed by magic bytes because image2 picks the decoder from the
+        # extension. Any problem = no watermark, never a failed render.
+        wm_path = None
+        if wm_key and wm:
+            try:
+                raw = _resolve_source(wm_key, tmp)
+                ext = _image_ext(raw)
+                if ext:
+                    import shutil as _sh
+                    wm_path = tmp / f"wm.{ext}"
+                    _sh.copy(raw, wm_path)
+                else:
+                    print("[assembler] watermark is not png/jpg/webp - skipped")
+            except Exception as exc:
+                print(f"[assembler] watermark unavailable - skipped: {exc!r}")
+        # ONE encode for captions + hook + watermark on the body.
+        if sub_filter or wm_path:
+            try:
+                cmd = ["ffmpeg", "-y", "-i", str(joined)]
+                if wm_path:
+                    cmd += ["-i", str(wm_path)]
+                    graph = ((f"[0:v]{sub_filter}[v0];" if sub_filter else "")
+                             + _watermark_filter(wm, cw, "[v0]" if sub_filter else "[0:v]", "[vout]"))
+                    cmd += ["-filter_complex", graph, "-map", "[vout]", "-map", "0:a"]
+                else:
+                    cmd += ["-vf", sub_filter]
+                captioned = tmp / "captioned.mp4"
+                cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                        "-pix_fmt", "yuv420p", "-c:a", "copy",
+                        "-movflags", "+faststart", str(captioned)]
+                _run(cmd)
+                burned = True
+            except Exception as exc:
+                print(f"[assembler] caption/watermark burn failed - shipping clean cut: {exc!r}")
         visual = captioned if burned else joined
+
+        # ── Intro / outro: the user's own clips around the body, normalized
+        # onto the same canvas (first INTRO_OUTRO_MAX_SECONDS each), with
+        # the fade at every boundary. Concat is a stream copy - every part
+        # shares the body's codec params. A missing/broken clip is skipped.
+        wrap = []
+        for tag, k in (("intro", intro_key), ("outro", outro_key)):
+            if not k:
+                continue
+            try:
+                src = _resolve_source(k, tmp)
+                dur = min(_probe_duration(src), INTRO_OUTRO_MAX_SECONDS)
+                if dur < 0.5:
+                    continue
+                wrap.append((tag, _encode_part(src, tmp / f"{tag}.mp4", 0.0, dur,
+                                               _has_audio(src), fade, fade)))
+            except Exception as exc:
+                print(f"[assembler] {tag} unavailable - skipped: {exc!r}")
+        if wrap:
+            order = ([p for t, p in wrap if t == "intro"] + [visual]
+                     + [p for t, p in wrap if t == "outro"])
+            wrap_list = tmp / "wrap.txt"
+            wrap_list.write_text("".join(f"file '{p}'\n" for p in order))
+            wrapped = tmp / "wrapped.mp4"
+            try:
+                _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(wrap_list),
+                      "-c", "copy", "-movflags", "+faststart", str(wrapped)])
+                visual = wrapped
+            except Exception as exc:
+                print(f"[assembler] intro/outro concat failed - shipping body only: {exc!r}")
 
         # ── Voice-over (Phase 3): duck the original audio under the narration
         # and mix. Video stream is COPIED - this pass costs audio-encode only.
@@ -895,9 +1038,13 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
         if vo_key:
             try:
                 vo_src = _resolve_source(vo_key, tmp)
+                # With an intro in front, the narration must still start on
+                # the body: delay it by the intro's length.
+                intro_ms = int(round(sum(_probe_duration(p) for t, p in wrap if t == "intro") * 1000))
+                delay = f"adelay={intro_ms}|{intro_ms}," if intro_ms > 0 else ""
                 _run(["ffmpeg", "-y", "-i", str(visual), "-i", str(vo_src),
                       "-filter_complex",
-                      "[1:a]aformat=sample_rates=48000:channel_layouts=stereo,apad[vo];"
+                      f"[1:a]aformat=sample_rates=48000:channel_layouts=stereo,{delay}apad[vo];"
                       "[0:a][vo]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=400[bg];"
                       "[bg][vo]amix=inputs=2:duration=first:normalize=0[aout]",
                       "-map", "0:v", "-map", "[aout]",

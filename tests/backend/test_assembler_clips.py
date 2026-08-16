@@ -182,7 +182,7 @@ class TestClipsContracts:
 
     def test_render_tightens_hooks_and_suffixes_the_output_key(self):
         i = MODAL_SRC.index("def render_story")
-        block = MODAL_SRC[i:i + 12000]
+        block = MODAL_SRC[i:i + 20000]
         assert "tighten: bool = False, hook_text: str = \"\"" in block
         assert "_tighten_windows(windows, clip_segments)" in block
         # Hook rides the shared builder's hook box, bounded duration.
@@ -196,8 +196,8 @@ class TestClipsContracts:
         assert 'mode = "clips" if data.get("mode") == "clips" else "story"' in ablock
         assert "names, mode)" in ablock
         j = MODAL_SRC.index('("/assembler/render"')
-        rblock = MODAL_SRC[j:j + 4200]
+        rblock = MODAL_SRC[j:j + 6000]
         assert "_SAFE_VARIANT_RE.match(variant)" in rblock
         assert '[:120]' in rblock and 'bool(data.get("tighten", False))' in rblock
-        assert "tighten, hook_text, variant)" in rblock
+        assert "tighten, hook_text, variant," in rblock
         assert "_SAFE_VARIANT_RE = _re.compile(r'^[a-zA-Z0-9_\\-]{1,24}$')" in MODAL_SRC

@@ -119,6 +119,24 @@ import, brand kit, teams/API. Natural next steps: keyword highlight in the
 clip captions, per-clip Metricool scheduling from the results tiles,
 pricing + linking the page.
 
+## Branding: intro / outro / fade / watermark (2026-08-16)
+
+Card "2 · מיתוג" (`#brandCard`, shown once an analysis is ready, both
+modes; later cards renumbered 3-6). Everything is OPTIONAL and every input
+degrades to "skipped" in the worker - the cut always ships.
+
+| Piece | Where | Contract |
+|---|---|---|
+| Intro / outro | `render_story(..., intro_key, outro_key)` | User clips uploaded lazily at render time through `uploadFile` (R2 first) and cached per file (`brand.keys`) - a batch of N clips uploads each asset ONCE. First `INTRO_OUTRO_MAX_SECONDS=20` of each, normalized onto the body's canvas via the same `_encode_part` (scale+pad, 30 fps, aac 48k stereo; a silent clip gets `anullsrc`), then a stream-copy concat `[intro?] + captioned/watermarked body + [outro?]`. VO is delayed by the intro length (`adelay`) so narration still starts on the body. |
+| Fade | `fade` (0-3 s, page offers 0.3/0.5/1) | `_fade_filters(length, in, out)` (pure, tested; each fade capped at half the part): video `fade` + audio `afade` on the FIRST body part (in) and LAST body part (out), and in+out on the intro and outro parts - so every start/end and intro|body|outro boundary fades; no fade inside the body's own tightened windows. The page auto-checks the toggle the first time an intro/outro is chosen (user can uncheck; the choice persists). |
+| Watermark | `wm_key` + `wm {x, y, w, opacity}` | Logo uploaded through the same path (its cached copy is `{key}_src.mp4` whatever the bytes), renamed by magic bytes (`_image_ext`: png/jpg/webp - image2 picks the decoder from the EXTENSION), overlaid on the BODY only (intro/outro are the user's own branding) in the SAME encode pass as captions+hook (`_watermark_filter`, pure, tested: `[1:v]scale=w*W:-1,format=rgba,colorchannelmixer=aa=opacity[wm]; [v][wm]overlay=x='min(max(0,x*W),W-w)':y='min(max(0,y*H),H-h)'` - clamped inside the frame with overlay's own W/H/w/h since the logo's height is unknown until scaled). Geometry is NORMALIZED (x, y = top-left as fractions of the frame, w = width fraction), clamped in the route AND the worker (x,y 0-1, w 0.03-0.8, opacity 0.1-1). |
+| Page | `.wm-stage` = a scaled preview of the output frame (aspect from the first source's `videoWidth/Height`, background = the first thumb), `.wm-img` dragged with POINTER events (mouse + touch, `setPointerCapture`, `touch-action:none`), size + opacity range inputs; drag/size are clamped inside the stage exactly like the server clamp. Persisted in localStorage `hebpipe_asm_brand` (logo data-URL if <400KB, geometry, fade choice); intro/outro files are not persisted. NEVER set `textContent` on `#wmBtn` - the file input lives inside it (`#wmBtnLabel` is the text). |
+| Route | `/assembler/render` | `intro_key` / `outro_key` / `wm_key` validated by `_SAFE_KEY_RE` + uid-prefixed; `fade` float clamped; `wm` parsed only when `wm_key` is set. Passed positionally after `variant` - keep the order in sync with `render_story`'s signature. |
+
+**Volume-lag lesson (same day):** the first production run silently skipped every asset - a render that follows its uploads by <1 s can read an EMPTY volume view because api-container writes publish in the background a few seconds later. `_resolve_source` now reloads + retries (6 x 2 s) before declaring "No upload found". Verified E2E on production: intro (landscape, letterboxed) fading from black -> body with hook + captions + watermark fading in -> silent outro fading in/out; 3 + 14.1 + 2.5 = 19.69 s.
+
+Tests: `tests/backend/test_assembler_branding.py`, `tests/frontend/assembler_branding.spec.js`.
+
 ## Roadmap (agreed 2026-08-13)
 
 Phase 2 (multi-clip) SHIPPED same day - up to 5 clips, cross-clip storyboard

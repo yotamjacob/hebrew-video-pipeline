@@ -3445,6 +3445,30 @@ def api():
                 return
             hook_text = str(data.get("hook_text") or "").strip()[:120]
             tighten = bool(data.get("tighten", False))
+            # Branding (2026-08-16): intro/outro/watermark are uploads too -
+            # validated + uid-prefixed like every key; fade and the watermark
+            # geometry are clamped here AND in the worker.
+            brand_keys = {}
+            for fld in ("intro_key", "outro_key", "wm_key"):
+                v = str(data.get(fld) or "").strip()
+                if v and not _SAFE_KEY_RE.match(v):
+                    await send_error(f"Invalid {fld}", 400)
+                    return
+                brand_keys[fld] = f"{uprefix}{v}" if v else None
+            try:
+                fade = max(0.0, min(3.0, float(data.get("fade") or 0)))
+            except (TypeError, ValueError):
+                fade = 0.0
+            wm_raw = data.get("wm")
+            wm = None
+            if isinstance(wm_raw, dict) and brand_keys["wm_key"]:
+                try:
+                    wm = {"x": max(0.0, min(1.0, float(wm_raw.get("x", 0.02)))),
+                          "y": max(0.0, min(1.0, float(wm_raw.get("y", 0.02)))),
+                          "w": max(0.03, min(0.8, float(wm_raw.get("w", 0.18)))),
+                          "opacity": max(0.1, min(1.0, float(wm_raw.get("opacity", 0.85))))}
+                except (TypeError, ValueError):
+                    wm = None
             try:
                 await asyncio.to_thread(tmp_vol.commit)   # flush before the worker reads
                 call = render_story.spawn([f"{uprefix}{k}" for k in keys],
@@ -3452,7 +3476,9 @@ def api():
                                           str(data.get("filename") or "story.mp4")[:120],
                                           bool(data.get("captions", True)),
                                           f"{uprefix}{vo_key}" if vo_key else None,
-                                          tighten, hook_text, variant)
+                                          tighten, hook_text, variant,
+                                          brand_keys["intro_key"], brand_keys["outro_key"],
+                                          fade, brand_keys["wm_key"] if wm else None, wm)
                 _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,

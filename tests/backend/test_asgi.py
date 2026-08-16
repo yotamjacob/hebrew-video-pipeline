@@ -575,7 +575,7 @@ class TestAssemblerRoutes:
 
     def _render(self):
         i = MODAL_SRC.index('("/assembler/render"')
-        return MODAL_SRC[i:i + 4400]
+        return MODAL_SRC[i:i + 6000]
 
     def test_keys_are_prefix_scoped_and_validated(self):
         # Client sends bare keys (up to 5 clips); the route validates EVERY
@@ -604,7 +604,7 @@ class TestAssemblerRoutes:
         # every part is scaled+padded to the first kept clip's frame at
         # uniform fps/audio before the copy-concat.
         i = MODAL_SRC.index("def render_story")
-        block = MODAL_SRC[i:i + 5200]
+        block = MODAL_SRC[i:i + 20000]
         assert "force_original_aspect_ratio=decrease" in block
         assert "pad=" in block and "fps=30" in block
         assert '"-ar", "48000", "-ac", "2"' in block
@@ -613,8 +613,10 @@ class TestAssemblerRoutes:
         # Warm containers hold a stale volume view; every assembler read path
         # goes through _resolve_source, which must reload first.
         i = MODAL_SRC.index("def _resolve_source")
-        block = MODAL_SRC[i:i + 1200]
+        block = MODAL_SRC[i:i + 1800]
         assert block.index("tmp_vol.reload()") < block.index("_chunk_*")
+        # Background volume commits lag a few seconds: retry before failing.
+        assert "for attempt in range(6):" in block and "_t.sleep(2)" in block
 
     def test_spawns_flush_the_volume_before_the_worker_reads(self):
         # upload_chunk defers volume commits to spawn time; a spawn without
@@ -626,7 +628,7 @@ class TestAssemblerRoutes:
         # The whole function body: render_story is the file's last def, so
         # slice generously instead of chasing its growing size.
         i = MODAL_SRC.index("def render_story")
-        block = MODAL_SRC[i:i + 12000]
+        block = MODAL_SRC[i:i + 20000]
         assert '_out.mp4' in block
         assert "_record_job(out_key" in block
 
@@ -636,7 +638,7 @@ class TestAssemblerRoutes:
         # via the SAME build_caption_ass as the main pipeline. A missing
         # transcript degrades to a clean cut, never a failed render.
         i = MODAL_SRC.index("def render_story")
-        block = MODAL_SRC[i:i + 9000]
+        block = MODAL_SRC[i:i + 20000]
         assert "build_caption_ass" in block
         assert "subtitles='" in block
         assert "_captions_for_windows" in block
@@ -690,7 +692,7 @@ class TestAssemblerRoutes:
         # un-narrated cut, never a failed render. vo_key is validated and
         # uid-prefixed like every other key.
         i = MODAL_SRC.index("def render_story")
-        block = MODAL_SRC[i:i + 11000]
+        block = MODAL_SRC[i:i + 20000]
         assert "sidechaincompress" in block
         assert "amix=inputs=2:duration=first" in block
         assert '"-c:v", "copy"' in block
