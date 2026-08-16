@@ -90,6 +90,40 @@ class TestTightenWindows:
         assert out == [(0, 0.82, 9.58)]
 
 
+class TestSalvageObjects:
+    def test_clean_answer(self):
+        f = _fn("_salvage_objects")
+        got = f('{"clips": [{"id": 0, "start": 1}, {"id": 3, "start": 2}]}')
+        assert [o["id"] for o in got] == [0, 3]
+
+    def test_truncated_array_keeps_the_complete_items(self):
+        f = _fn("_salvage_objects")
+        txt = 'Sure:\n```json\n{"clips": [{"id": 4, "hook": "a", "virality": {"score": 50}}, {"id": 5, "hook": "b", "vir'
+        got = f(txt)
+        assert len(got) == 1 and got[0]["id"] == 4 and got[0]["virality"]["score"] == 50
+
+    def test_garbage_between_items_is_skipped(self):
+        f = _fn("_salvage_objects")
+        got = f('{"id": 1} noise {broken {"id": 2, "x": [1, 2]} tail')
+        assert [o["id"] for o in got] == [1, 2]
+
+    def test_no_objects(self):
+        assert _fn("_salvage_objects")("nothing here") == []
+
+
+class TestClampEnd:
+    SEGS = [{"start": 0, "end": 10}, {"start": 10, "end": 40}, {"start": 40, "end": 95}, {"start": 95, "end": 160}]
+
+    def test_short_enough_untouched(self):
+        assert _fn("_clamp_end")(self.SEGS, 5.0, 60.0, 90) == 60.0
+
+    def test_pulls_back_to_the_last_fitting_segment_end(self):
+        assert _fn("_clamp_end")(self.SEGS, 5.0, 160.0, 100) == 95.0   # 95 <= 5+100, 160 does not fit
+
+    def test_hard_cut_when_no_segment_edge_fits(self):
+        assert _fn("_clamp_end")(self.SEGS, 41.0, 160.0, 30) == 71.0
+
+
 class TestClipsContracts:
     def _pick(self):
         i = MODAL_SRC.index("def _pick_clips")
@@ -105,9 +139,23 @@ class TestClipsContracts:
         for k in ('"hook"', '"retention"', '"emotion"', '"clarity"', '"shareability"',
                   '"reasoning"', '"tip"'):
             assert k in block
-        # A broken pass 2 ships pass-1 trims - never a failed analysis.
+        # A broken pass-2 batch ships pass-1 trims for ITS candidates only -
+        # never a failed analysis; the issue is surfaced, not swallowed.
         assert "shipping pass-1 trims" in block
-        assert 'out.sort(key=lambda c: -c["score"])' in block
+        assert "PASS2_BATCH = 4" in block
+        assert "return summary, out, pass2_errors" in block
+        # Unscored candidates carry score None (UI shows "-"), scored sort first.
+        assert '"score": _virality_score(v, dur) if v else None' in block
+        assert 'out.sort(key=lambda c: (-(c["score"] or 0), c["start"]))' in block
+        # No "short" ever exceeds the ceiling.
+        assert "_clamp_end(segs, a, b, CLIP_MAX_SECONDS + 10)" in block
+
+    def test_pass2_batches_salvage_partial_json(self):
+        i = MODAL_SRC.index("def _refine_batch")
+        block = MODAL_SRC[i:i + 6000]
+        assert '_salvage_objects(text2, "id")' in block
+        assert "max_tokens=8000" in block
+        assert "unparseable answer" in block
 
     def test_analyze_branches_on_mode_and_raises_the_input_cap(self):
         i = MODAL_SRC.index("def analyze_story")
@@ -116,6 +164,7 @@ class TestClipsContracts:
         assert 'clips_mode = (mode == "clips")' in block
         assert "CLIPS_INPUT_MAX_SECONDS if clips_mode else TOTAL_INPUT_MAX_SECONDS" in block
         assert '"mode": "clips"' in block and '"candidates": candidates' in block
+        assert '"issues": pass2_errors' in block
         assert "CLIPS_INPUT_MAX_SECONDS = 5400" in MODAL_SRC
 
     def test_render_tightens_hooks_and_suffixes_the_output_key(self):

@@ -11,7 +11,7 @@ from pipeline_core import (
     SONNET_MODEL, HAIKU_MODEL,
     _sanitize_transcript,
     _anthropic_client, _plain_anthropic_errors,
-    costs_store, _record_ai_spend,
+    costs_store, _record_ai_spend, _msg_text,
 )
 from stock_helpers import (
     fetch_pexels, fetch_pixabay, sample_frames, extract_disqualify_clause,

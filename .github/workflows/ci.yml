@@ -22,7 +22,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install pytest pytest-asyncio requests
+        run: pip install pytest pytest-asyncio requests pyflakes
 
       - name: Run stock helper unit tests
         run: python -m pytest test_stock_helpers.py -v

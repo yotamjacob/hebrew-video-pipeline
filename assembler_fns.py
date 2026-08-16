@@ -258,6 +258,49 @@ def _tighten_windows(windows, clip_segments, min_gap=0.6, pad=0.18):
     return out
 
 
+def _salvage_objects(text, key="id"):
+    """Recover every complete `{... "<key>": ...}` object from a model answer
+    whose outer JSON is broken or truncated (max_tokens mid-array, a stray
+    fence, an unescaped quote in one item). raw_decode from each candidate
+    '{' - objects that fail to decode are skipped, the rest survive. Pure
+    (in-function import so the AST test extraction runs it standalone)."""
+    import json as _json
+    dec = _json.JSONDecoder()
+    out, i, n = [], 0, len(text)
+    while i < n:
+        j = text.find("{", i)
+        if j < 0:
+            break
+        try:
+            obj, end = dec.raw_decode(text, j)
+        except ValueError:
+            i = j + 1
+            continue
+        if isinstance(obj, dict) and key in obj:
+            out.append(obj)
+            i = j + max(1, end - j)
+        elif isinstance(obj, dict) and isinstance(obj.get("clips"), list):
+            out.extend(o for o in obj["clips"] if isinstance(o, dict) and key in o)
+            i = j + max(1, end - j)
+        else:
+            i = j + 1
+    return out
+
+
+def _clamp_end(segs, a, b, max_len):
+    """If [a, b] is longer than max_len, pull b back to the LAST segment end
+    that keeps the clip within max_len (a speech edge, never mid-word); if
+    no segment end fits, hard-cut at a + max_len. Pure."""
+    if b - a <= max_len:
+        return b
+    best = None
+    for s in segs:
+        e = float(s["end"])
+        if a < e <= a + max_len:
+            best = e
+    return round(best if best is not None else a + max_len, 2)
+
+
 def _pick_clips(clips, total_duration):
     """Long -> shorts. Two Sonnet passes:
       1. the FULL segment-level transcript -> 6-12 self-contained candidate
@@ -326,9 +369,69 @@ def _pick_clips(clips, total_duration):
     if not cands:
         return summary, []
 
-    # ── Pass 2: precise trims + hook + virality rubric, one call for all ──
-    parts = []
+    # ── Pass 2: precise trims + hook + virality rubric. BATCHED (4 per
+    # call): one call for 9-12 candidates with 60-160s of word-level text
+    # each overran the answer budget on a 1-hour source and the whole
+    # rubric was lost (field, 2026-08-16). Smaller calls + salvage keep a
+    # single bad item from taking the rest down.
+    refined, pass2_errors = {}, []
+    PASS2_BATCH = 4
+    for b0 in range(0, len(cands), PASS2_BATCH):
+        batch = list(range(b0, min(len(cands), b0 + PASS2_BATCH)))
+        try:
+            got = _refine_batch(client, cands, batch)
+            refined.update(got)
+            missing = [i for i in batch if i not in got]
+            if missing:
+                pass2_errors.append(f"batch {b0}: no answer for {missing}")
+        except Exception as exc:
+            print(f"[assembler] clips pass-2 batch {b0} failed - shipping pass-1 trims: {exc!r}")
+            pass2_errors.append(f"batch {b0}: {type(exc).__name__}: {str(exc)[:160]}")
+
+    out = []
     for i, c in enumerate(cands):
+        r = refined.get(i) or {}
+        segs = clips[c["clip"]]["segs"]
+        try:
+            st, en = float(r.get("start", c["start"])), float(r.get("end", c["end"]))
+        except (TypeError, ValueError):
+            st, en = c["start"], c["end"]
+        a, b = _snap_to_words(st, en, c["words"], c["lo"], c["hi"])
+        if b - a < CLIP_MIN_SECONDS:
+            a, b = round(c["start"], 2), round(c["end"], 2)   # fall back to pass-1 range
+        # Never ship a "short" longer than the ceiling - pull the end back to
+        # a segment edge (pass 1 sometimes proposes 2-3 min ranges).
+        b = _clamp_end(segs, a, b, CLIP_MAX_SECONDS + 10)
+        v = r.get("virality") if isinstance(r.get("virality"), dict) else {}
+        dur = b - a
+        out.append({
+            "clip": c["clip"], "start": a, "end": b, "duration": round(dur, 1),
+            "title": str(r.get("title") or c["title"] or "")[:80],
+            "hook": str(r.get("hook") or "")[:120],
+            "quote": str(r.get("quote") or c["angle"] or "")[:300],
+            "visual": c["visual"],
+            "score": _virality_score(v, dur) if v else None,
+            "scored": bool(v),
+            "virality": {
+                "hook": v.get("hook"), "retention": v.get("retention"),
+                "emotion": v.get("emotion"), "clarity": v.get("clarity"),
+                "shareability": v.get("shareability"),
+                "reasoning": str(v.get("reasoning") or "")[:600],
+                "tip": str(v.get("tip") or "")[:300],
+            },
+        })
+    # Scored first (best first), unscored after in pass-1 order.
+    out.sort(key=lambda c: (-(c["score"] or 0), c["start"]))
+    if pass2_errors:
+        print(f"[assembler] clips pass-2 issues: {pass2_errors}")
+    return summary, out, pass2_errors
+
+
+def _refine_batch(client, cands, idxs):
+    """Pass 2 for a batch of candidate indexes -> {idx: refined dict}."""
+    parts = []
+    for i in idxs:
+        c = cands[i]
         toks = []
         for w in c["words"]:
             s = float(w[0])
@@ -340,7 +443,7 @@ def _pick_clips(clips, total_duration):
         parts.append(
             f'### קטע {i} · "{c["title"]}" · טווח מותר {c["lo"]:.2f}-{c["hi"]:.2f} · '
             f'הצעה ראשונית {c["start"]:.2f}-{c["end"]:.2f}\n{c["angle"]}\n{body} >>>')
-    prompt2 = f"""לפניך {len(cands)} קטעים מועמדים מתוך הקלטה ארוכה, כל אחד עם התמלול שלו ברמת מילה בפורמט [שנייה]מילה. כל קטע מגיע עם מעט הקשר לפני ואחרי ההצעה הראשונית (ההצעה מתחילה ב-<<< ונגמרת ב->>>). מותר להזיז את גבולות החיתוך רק בתוך "הטווח המותר".
+    prompt2 = f"""לפניך {len(idxs)} קטעים מועמדים מתוך הקלטה ארוכה, כל אחד עם התמלול שלו ברמת מילה בפורמט [שנייה]מילה. כל קטע מגיע עם מעט הקשר לפני ואחרי ההצעה הראשונית (ההצעה מתחילה ב-<<< ונגמרת ב->>>). מותר להזיז את גבולות החיתוך רק בתוך "הטווח המותר".
 
 לכל קטע החזר:
 - start / end: זמני חיתוך מדויקים בשניות. start = תחילת המילה הראשונה שכדאי לפתוח בה (דלג על "אז", "אה", "אוקיי", "כן", חצאי משפטים ותשובות ל"מה?"), end = סוף המילה האחרונה של המשפט שסוגר חזק. אורך יעד {CLIP_MIN_SECONDS + 7}-{CLIP_MAX_SECONDS} שניות (מותר {CLIP_MIN_SECONDS}+ אם הפאנץ' קצר ומושלם).
@@ -357,55 +460,28 @@ def _pick_clips(clips, total_duration):
   - reasoning: 2-3 משפטים - למה הציון הזה, מה החוזקה ומה החולשה
   - tip: המלצה אחת קונקרטית שתעלה את הסיכוי (מה לחתוך, איזה כיתוב להוסיף, מה לחדד)
 
-החזר JSON בלבד:
-{{"clips": [{{"id": 0, "start": 12.34, "end": 45.67, "title": "...", "hook": "...", "quote": "...", "virality": {{"hook": 7, "retention": 6, "emotion": 5, "clarity": 8, "shareability": 6, "score": 58, "reasoning": "...", "tip": "..."}}}}]}}
+החזר JSON בלבד, בלי טקסט לפני או אחרי ובלי גדרות קוד:
+{{"clips": [{{"id": {idxs[0]}, "start": 12.34, "end": 45.67, "title": "...", "hook": "...", "quote": "...", "virality": {{"hook": 7, "retention": 6, "emotion": 5, "clarity": 8, "shareability": 6, "score": 58, "reasoning": "...", "tip": "..."}}}}]}}
+שדה id חייב להיות מספר הקטע כפי שמופיע בכותרת שלו.
 
 הקטעים:
 {chr(10).join(parts)}"""
-    resp2 = client.messages.create(model=SONNET_MODEL, max_tokens=12000,
+    resp2 = client.messages.create(model=SONNET_MODEL, max_tokens=8000,
                                    messages=[{"role": "user", "content": prompt2}])
     _record_ai_spend(costs_store, "assembler_clips_score", SONNET_MODEL, resp2.usage)
     text2 = _msg_text(resp2)
-    refined = {}
-    try:
-        d2 = json.loads(text2[text2.find("{"):text2.rfind("}") + 1])
-        for r in (d2.get("clips") or []):
-            try:
-                refined[int(r.get("id"))] = r
-            except (TypeError, ValueError):
-                continue
-    except Exception as exc:
-        print(f"[assembler] clips pass-2 parse failed - shipping pass-1 trims: {exc!r}")
-
-    out = []
-    for i, c in enumerate(cands):
-        r = refined.get(i) or {}
+    got = {}
+    for r in _salvage_objects(text2, "id"):
         try:
-            st, en = float(r.get("start", c["start"])), float(r.get("end", c["end"]))
+            k = int(r.get("id"))
         except (TypeError, ValueError):
-            st, en = c["start"], c["end"]
-        a, b = _snap_to_words(st, en, c["words"], c["lo"], c["hi"])
-        if b - a < CLIP_MIN_SECONDS or b - a > CLIP_MAX_SECONDS + 15:
-            a, b = round(c["start"], 2), round(c["end"], 2)   # fall back to pass-1 range
-        v = r.get("virality") if isinstance(r.get("virality"), dict) else {}
-        dur = b - a
-        out.append({
-            "clip": c["clip"], "start": a, "end": b, "duration": round(dur, 1),
-            "title": str(r.get("title") or c["title"] or "")[:80],
-            "hook": str(r.get("hook") or "")[:120],
-            "quote": str(r.get("quote") or c["angle"] or "")[:300],
-            "visual": c["visual"],
-            "score": _virality_score(v, dur),
-            "virality": {
-                "hook": v.get("hook"), "retention": v.get("retention"),
-                "emotion": v.get("emotion"), "clarity": v.get("clarity"),
-                "shareability": v.get("shareability"),
-                "reasoning": str(v.get("reasoning") or "")[:600],
-                "tip": str(v.get("tip") or "")[:300],
-            },
-        })
-    out.sort(key=lambda c: -c["score"])
-    return summary, out
+            continue
+        if k in idxs and k not in got:
+            got[k] = r
+    if not got:
+        raise ValueError(f"unparseable answer (stop={getattr(resp2, 'stop_reason', '?')}): "
+                         f"{text2[:120]!r}...{text2[-80:]!r}")
+    return got
 
 
 def _visual_segments(src: Path, duration: float, workdir: Path, clip_name: str):
@@ -624,13 +700,15 @@ def analyze_story(upload_keys, filenames=None, mode: str = "story") -> dict:
                       for c in clips]
 
         if clips_mode:
-            summary, candidates = _pick_clips(clips, total)
+            summary, candidates, pass2_errors = _pick_clips(clips, total)
             if not candidates:
                 return {"error": "no_moments", "duration": total}
             for i, c in enumerate(candidates):
                 c["thumb"] = _thumb_b64(sources[c["clip"]], c["start"] + 0.5, tmp, i)
             return {"mode": "clips", "duration": round(total, 1), "summary": summary,
-                    "candidates": candidates, "clips": clips_meta}
+                    "candidates": candidates, "clips": clips_meta,
+                    # Diagnostics only (page shows a soft note when non-empty).
+                    "issues": pass2_errors}
 
         title, story, moments = _pick_moments(clips, total)
         if not moments:

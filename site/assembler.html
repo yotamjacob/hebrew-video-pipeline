@@ -250,6 +250,7 @@
   <div class="card" id="clipsCard" style="display:none">
     <h2>2 · הקליפים המוצעים</h2>
     <p class="summary" id="clipsSummary"></p>
+    <p class="hint" id="clipsIssues" style="display:none;text-align:start;margin:0 0 10px"></p>
     <div class="board-sub">כל קליפ מגיע עם הערכת ויראליות מנומקת (הערכה עריכתית, לא נבואה). מסמנים אילו קליפים ליצור, מתקנים את שורת ההוק אם רוצים, ויוצרים את כולם בבת אחת.</div>
     <div id="cands"></div>
     <div class="opts">
@@ -390,18 +391,27 @@
       for (let fi = 0; fi < files.length; fi++) {
         const file = files[fi], key = clips[fi].key;
         const chunks = Math.ceil(file.size / CHUNK);
-        for (let i = 0; i < chunks; i++) {
+        // 4 chunks in flight (was strictly sequential - a 500MB hour-long
+        // recording took 20+ min to upload, 2026-08-16). The chunk route is
+        // index-addressed, so order doesn't matter; one retry per chunk.
+        let next = 0;
+        const sendChunk = async (i, attempt = 0) => {
           const blob = file.slice(i * CHUNK, (i + 1) * CHUNK);
           const r = await fetch(API_BASE + '/upload_chunk/', {
             method: 'POST',
             headers: { 'Authorization': 'Bearer ' + token, 'X-Upload-Key': key, 'X-Upload-Index': String(i) },
             body: blob,
-          });
+          }).catch((e) => ({ ok: false, status: 0, netErr: e }));
           if (r.status === 401) throw new Error('auth');
-          if (!r.ok) throw new Error('upload ' + r.status);
+          if (!r.ok) {
+            if (attempt < 1) return sendChunk(i, attempt + 1);
+            throw new Error('upload ' + (r.status || 'network'));
+          }
           sent += blob.size;
           $('bar').style.width = Math.round((sent / totalBytes) * 100) + '%';
-        }
+        };
+        const lane = async () => { while (next < chunks) { const i = next++; await sendChunk(i); } };
+        await Promise.all([lane(), lane(), lane(), lane()]);
         const row = document.getElementById('clip_' + key);
         if (row) {
           row.innerHTML = '<svg class="ok" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
@@ -427,13 +437,20 @@
     });
     if (!r.ok) { showErr($('err'), 'הניתוח נכשל (' + r.status + ')'); $('stage').textContent = ''; return; }
     const { call_id } = await r.json();
-    const result = await poll('/assembler/analyze-poll/' + call_id);
+    const label = mode === 'clips'
+      ? 'מתמללים את כל ההקלטה, מאתרים קליפים ומדרגים אותם...'
+      : 'מתמללים ומחפשים את רגעי הזהב...';
+    const result = await poll('/assembler/analyze-poll/' + call_id, mode === 'clips' ? 900 : 400, (tick) => {
+      const m = Math.floor(tick * 3 / 60), sec = (tick * 3) % 60;
+      $('stage').innerHTML = '<span class="spinner"></span>' + label + ' (' + m + ':' + String(sec).padStart(2, '0') + ')';
+    });
     if (!result || result.error) {
       const msgs = { too_short: 'הסרטון קצר מדי לסיפור (מתחת ל-20 שניות).',
                      too_long: mode === 'clips' ? 'ההקלטה ארוכה מדי (עד 90 דקות).' : 'יותר מדי חומר גלם (עד 40 דקות בסך הכל).',
                      no_speech: 'לא זוהה מספיק דיבור בסרטונים.',
                      no_moments: mode === 'clips' ? 'לא מצאנו קטעים שעומדים בפני עצמם בהקלטה הזאת.' : 'לא הצלחנו לבנות סטוריבורד מהסרטון הזה.' };
       let msg = msgs[result && result.error] || 'הניתוח נכשל - נסו שוב.';
+      if (result && result.error === 'timeout') msg = 'הניתוח לוקח יותר מהצפוי ולא הסתיים בזמן. נסו שוב, או העלו הקלטה קצרה יותר.';
       if (result && result.detail) msg += ' [' + result.detail + ']';
       showErr($('err'), msg);
       $('stage').textContent = '';
@@ -449,6 +466,12 @@
   function renderCands(result) {
     cands = (result.candidates || []).map((c, i) => ({ ...c, id: i, pick: true, hookText: c.hook || '' }));
     $('clipsSummary').textContent = result.summary || '';
+    // Some candidates may come back without a rubric (a scoring batch
+    // failed server-side): they still render and can be created, they just
+    // carry no score. Say so instead of showing silent gaps.
+    const unscored = cands.filter((c) => c.score === null || c.score === undefined).length;
+    $('clipsIssues').style.display = unscored ? 'block' : 'none';
+    $('clipsIssues').textContent = unscored ? (unscored + ' קליפים לא קיבלו ציון בסבב הזה (החיתוך שלהם תקין). אפשר להריץ שוב לניתוח מלא.') : '';
     $('clipsCard').style.display = 'block';
     drawCands();
     $('clipsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -462,9 +485,10 @@
       const side = document.createElement('div');
       side.className = 'c-side';
       const sc = document.createElement('div');
-      sc.className = 'score ' + scoreTier(c.score);
-      sc.title = 'הערכת ויראליות (1-99)';
-      sc.innerHTML = String(c.score) + '<small>ויראליות</small>';
+      const scored = typeof c.score === 'number';
+      sc.className = 'score ' + (scored ? scoreTier(c.score) : 'none');
+      sc.title = scored ? 'הערכת ויראליות (1-99)' : 'לא דורג בסבב הזה';
+      sc.innerHTML = (scored ? String(c.score) : '-') + '<small>ויראליות</small>';
       const pick = document.createElement('label');
       pick.className = 'c-pick';
       const cb = document.createElement('input');
@@ -499,6 +523,7 @@
       const bars = document.createElement('div');
       bars.className = 'bars';
       const v = c.virality || {};
+      if (!scored) bars.style.display = 'none';
       RUBRIC.forEach(([k, label]) => {
         const item = document.createElement('div');
         item.className = 'bar-item';
@@ -509,6 +534,7 @@
       });
       const why = document.createElement('details');
       why.className = 'c-why';
+      if (!scored) why.style.display = 'none';
       const sum = document.createElement('summary');
       sum.textContent = 'למה הציון הזה';
       const reason = document.createElement('p');
@@ -607,9 +633,14 @@
     $('renderClipsBtn').disabled = false;
   });
 
-  async function poll(path) {
-    for (let i = 0; i < 200; i++) {
+  // maxTicks x 3s = how long we wait. Renders are quick (default 10 min);
+  // a clips-mode analysis of a 60-90 min recording legitimately runs
+  // 15-25 min (transcription + two Sonnet passes) - the old flat 10-minute
+  // cap surfaced as a bare "הניתוח נכשל" on a 1-hour file (2026-08-16).
+  async function poll(path, maxTicks = 200, onTick = null) {
+    for (let i = 0; i < maxTicks; i++) {
       await new Promise((res) => setTimeout(res, 3000));
+      if (onTick) onTick(i + 1);
       try {
         const r = await fetch(API_BASE + path, { headers: { 'Authorization': 'Bearer ' + token } });
         if (r.status === 202) continue;

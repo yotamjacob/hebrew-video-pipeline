@@ -19,7 +19,11 @@ const CANDS = {
       virality: { hook: 7, retention: 6, emotion: 4, clarity: 8, shareability: 7, reasoning: 'טיפ ישים ומובנה, פחות רגש.', tip: '' } },
     { clip: 0, start: 2400.0, end: 2418.0, duration: 18.0, title: 'הרגע שרציתי לוותר', hook: '', quote: 'ישבתי במכונית ובכיתי', score: 44, thumb: THUMB,
       virality: { hook: 5, retention: 5, emotion: 8, clarity: 6, shareability: 4, reasoning: 'רגשי אבל תלוי הקשר.', tip: 'להוסיף כיתוב הקשר בפתיחה.' } },
+    // A scoring batch failed server-side for this one: no rubric, score null.
+    { clip: 0, start: 3000.0, end: 3030.0, duration: 30.0, title: 'קליפ בלי ציון', hook: '', quote: 'משהו', score: null, scored: false, thumb: THUMB,
+      virality: { hook: null, retention: null, emotion: null, clarity: null, shareability: null, reasoning: '', tip: '' } },
   ],
+  issues: ['batch 3: ValueError: unparseable answer'],
   clips: [{ name: 'podcast.mp4', duration: 3600 }],
 };
 
@@ -79,7 +83,13 @@ test('clips flow: upload -> scored candidates -> curate -> batch render', async 
   await expect(page.locator('#storyCard')).toBeHidden();
 
   const rows = page.locator('.cand');
-  await expect(rows).toHaveCount(3);
+  await expect(rows).toHaveCount(4);
+  // The unscored one: dash badge, no rubric bars / reasoning, still pickable; a soft note explains.
+  await expect(rows.nth(3).locator('.score')).toHaveText(/^-/);
+  await expect(rows.nth(3).locator('.score')).toHaveClass(/none/);
+  await expect(rows.nth(3).locator('.bars')).toBeHidden();
+  await expect(rows.nth(3).locator('.c-why')).toBeHidden();
+  await expect(page.locator('#clipsIssues')).toContainText('1 קליפים לא קיבלו ציון');
   // Score badge, tiered by value; rubric bars; reasoning + tip.
   await expect(rows.nth(0).locator('.score')).toContainText('78');
   await expect(rows.nth(0).locator('.score')).toHaveClass(/t3/);
@@ -96,10 +106,11 @@ test('clips flow: upload -> scored candidates -> curate -> batch render', async 
   // Hook input prefilled from the model, editable.
   await expect(rows.nth(0).locator('.hook-input')).toHaveValue('הטעות שעלתה לי מיליון שקל');
   await rows.nth(0).locator('.hook-input').fill('המיליון שאיבדתי בגלל סעיף אחד');
-  await expect(page.locator('#renderClipsBtn')).toHaveText('יצירת 3 קליפים');
+  await expect(page.locator('#renderClipsBtn')).toHaveText('יצירת 4 קליפים');
 
-  // Unpick the third clip.
+  // Unpick the third and fourth clips.
   await rows.nth(2).locator('.pick-box').uncheck();
+  await rows.nth(3).locator('.pick-box').uncheck();
   await expect(rows.nth(2)).toHaveClass(/off/);
   await expect(page.locator('#renderClipsBtn')).toHaveText('יצירת 2 קליפים');
 
@@ -138,7 +149,36 @@ test('hook toggle off sends an empty hook_text', async ({ page }) => {
   await expect(page.locator('#clipsCard')).toBeVisible({ timeout: 10000 });
   await page.locator('#clipHookToggle').uncheck();
   await page.locator('#renderClipsBtn').click();
-  await expect.poll(() => renderPosts.length).toBe(3);
+  await expect.poll(() => renderPosts.length).toBe(4);
   expect(renderPosts.every(p => p.hook_text === '')).toBe(true);
   expect(renderPosts.every(p => p.tighten === true)).toBe(true);
+});
+
+test('clips analysis keeps polling well past the old 10-minute cap and shows elapsed time', async ({ page }) => {
+  const analyzePosts = [];
+  await boot(page, { analyzePosts });
+  // Never-finishing analysis: 202 forever.
+  await page.route(/\/assembler\/analyze-poll\//, r =>
+    r.fulfill({ status: 202, contentType: 'application/json', body: '{"status":"running"}' }));
+  await page.locator('#modeClips').click();
+  await page.setInputFiles('#file', { name: 'podcast.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(1024 * 1024) });
+  await expect.poll(() => analyzePosts.length).toBe(1);
+  // Drive the clock until 250 ticks (12.5 min) have been counted - past the
+  // old 200-tick cap. Each tick's poll fetch is async, so advance one tick
+  // at a time and wait for the counter to catch up.
+  const stage = page.locator('#stage');
+  const elapsed = async () => {
+    const m = /\((\d+):(\d\d)\)/.exec(await stage.textContent());
+    return m ? Number(m[1]) * 60 + Number(m[2]) : 0;
+  };
+  // Each tick's poll fetch must land before the next timer is armed, so
+  // give the event loop a beat between advances; 320 advances comfortably
+  // clear 250 counted ticks.
+  for (let i = 0; i < 320 && (await elapsed()) < 750; i++) {
+    await page.clock.fastForward(3000);
+    await page.waitForTimeout(5);
+  }
+  expect(await elapsed()).toBeGreaterThanOrEqual(750);
+  await expect(page.locator('#err')).toBeHidden();
+  await expect(page.locator('#clipsCard')).toBeHidden();
 });

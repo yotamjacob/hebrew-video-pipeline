@@ -9,7 +9,7 @@ from pipeline_core import (
     app, image, tmp_vol, TMP_DIR,
     SONNET_MODEL,
     _anthropic_client, _plain_anthropic_errors,
-    costs_store, _record_ai_spend,
+    costs_store, _record_ai_spend, _msg_text,
 )
 from stock_helpers import sample_frames
 

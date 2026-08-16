@@ -74,6 +74,25 @@ languages - user directive 2026-08-16: don't build those).
 | Render | `render_story(..., tighten, hook_text, variant)` via `/assembler/render` | One render per picked clip (the page runs 2 in flight): `segments=[[clip,start,end]]`, `tighten` -> `_tighten_windows` (pure, tested: words closer than 0.6s merge into runs, 0.18s pad, clamped to the window; wordless windows pass through) splits the window on silence gaps BEFORE the canvas/concat step; `hook_text` (<=120) rides the SAME ASS pass as captions via `build_caption_ass`'s hook box (`start_seconds 0.2`, `duration min(4.5, len-0.5)`) - the burn happens if there are caption events OR a hook; `variant` (`_SAFE_VARIANT_RE`, <=24 chars, page sends `c{n}_{batch6}`) suffixes the output key `{key}_{variant}_out.mp4` so N clips from ONE source each get their own History row. Defaults (`False`, `""`, `""`) keep the story render byte-identical. |
 | Page | `site/assembler.html` | `MODE_COPY` drives drop/hint copy + file limits per mode; `renderCands` draws `.cand` cards (CSS grid: score+thumb+title on row 1, `.c-body` under the title on wide screens and full-width on <=520px - screenshot-verified both); per-card `.hook-input` (editable, prefilled from the model), `.pick-box`, rubric `.bars`, `<details class="c-why">` reasoning + tip. Options: `#clipCapToggle`, `#clipTightenToggle`, `#clipHookToggle` (all default on). `#renderClipsBtn` batch-renders picked clips into `#outs` tiles (video + download link per clip). Story-mode cards are hidden in clips mode and vice versa. |
 
+**Field fixes (2026-08-16, same day):** (a) the page's poll cap was a flat
+200 x 3s = 10 min - a real 61-min podcast finished server-side in 632s and
+the page had already shown a bare "הניתוח נכשל"; clips-mode analyze now
+polls up to 900 ticks (45 min), story 400, with an elapsed-time counter
+and a specific timeout message. (b) Pass 2 in ONE call for 9-12
+candidates x 60-160s of word text overran the answer budget on the 1-hour
+source and the whole rubric silently fell back to pass-1 (score 1, empty
+hooks): pass 2 is now BATCHED 4 candidates per call (`_refine_batch`,
+`PASS2_BATCH=4`, max_tokens 8000), the answer is parsed with
+`_salvage_objects` (raw_decode every `{...}` carrying an `id` - survives
+truncation / fences / one bad item), a failed batch only unscores ITS
+candidates (`score: null`, `scored: false` - the UI shows "-" and a soft
+note; they still render), and `issues` rides the result for diagnostics.
+(c) Pass 1 sometimes proposes 2-3 min ranges: `_clamp_end` pulls the end
+back to the last segment edge within `CLIP_MAX_SECONDS+10`. (d) The page
+uploads 4 chunks in flight (was sequential: 527MB took 25 min). Verified
+on the real 61-min file via an ephemeral `modal run` of `_pick_clips`:
+8 clips, all scored 51-73, longest 77s, no issues, ~200s.
+
 Verified E2E on production 2026-08-16 with a synthetic 2-min Hebrew TTS
 "podcast": 6 candidates in 160s, trims skipped the intro/outro exactly,
 Hebrew hooks/reasoning/tips sensible; a rendered clip showed the hook box

@@ -15,7 +15,7 @@ from pipeline_core import (
     quota_store, users_store, errors_store, _usage_since, _send_email, _email_html, SONNET_MODEL,
     _send_push, costs_store, COST_RETENTION_DAYS, _cost_summary, _record_ai_spend,
     _sign_media_token, _poll_fn_call, API_BASE_URL,
-    _credit_cost, _upscale_allowed, UPSCALE_MAX_SECONDS,
+    _credit_cost, _upscale_allowed, UPSCALE_MAX_SECONDS, _msg_text,
 )
 
 
