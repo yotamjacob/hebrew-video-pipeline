@@ -25,6 +25,10 @@ async function bootAssembler(page, { analyzePosts = [], renderPosts = [] } = {})
   await page.addInitScript(() => localStorage.setItem('hebpipe_token', 'test-token'));
   await page.route(new RegExp(`${API_BASE}/upload_chunk`.replace(/[/.]/g, '\\$&')), r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
+  // R2 unconfigured -> the page falls back to the chunk path (the default
+  // these specs exercise); the R2 happy path has its own test.
+  await page.route(/\/upload_r2\/init\/$/, r =>
+    r.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"R2 not configured","code":"r2_unavailable"}' }));
   await page.route(/\/assembler\/analyze\/$/, async (route, request) => {
     analyzePosts.push(request.postDataJSON());
     await route.fulfill({ status: 202, contentType: 'application/json', body: '{"call_id":"fc-analyze"}' });

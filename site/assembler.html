@@ -387,31 +387,11 @@
     $('stage').innerHTML = '<span class="spinner"></span>מעלים את הסרטונים...';
     try {
       const totalBytes = files.reduce((s, f) => s + f.size, 0);
-      let sent = 0;
+      const perFile = files.map(() => 0);
+      const report = () => { $('bar').style.width = Math.round((perFile.reduce((a, b) => a + b, 0) / totalBytes) * 100) + '%'; };
       for (let fi = 0; fi < files.length; fi++) {
         const file = files[fi], key = clips[fi].key;
-        const chunks = Math.ceil(file.size / CHUNK);
-        // 4 chunks in flight (was strictly sequential - a 500MB hour-long
-        // recording took 20+ min to upload, 2026-08-16). The chunk route is
-        // index-addressed, so order doesn't matter; one retry per chunk.
-        let next = 0;
-        const sendChunk = async (i, attempt = 0) => {
-          const blob = file.slice(i * CHUNK, (i + 1) * CHUNK);
-          const r = await fetch(API_BASE + '/upload_chunk/', {
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer ' + token, 'X-Upload-Key': key, 'X-Upload-Index': String(i) },
-            body: blob,
-          }).catch((e) => ({ ok: false, status: 0, netErr: e }));
-          if (r.status === 401) throw new Error('auth');
-          if (!r.ok) {
-            if (attempt < 1) return sendChunk(i, attempt + 1);
-            throw new Error('upload ' + (r.status || 'network'));
-          }
-          sent += blob.size;
-          $('bar').style.width = Math.round((sent / totalBytes) * 100) + '%';
-        };
-        const lane = async () => { while (next < chunks) { const i = next++; await sendChunk(i); } };
-        await Promise.all([lane(), lane(), lane(), lane()]);
+        await uploadFile(file, key, (loaded) => { perFile[fi] = Math.min(file.size, loaded); report(); });
         const row = document.getElementById('clip_' + key);
         if (row) {
           row.innerHTML = '<svg class="ok" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
@@ -424,6 +404,129 @@
       showErr($('err'), 'ההעלאה נכשלה - נסו שוב. (' + e.message + ')');
       $('stage').textContent = '';
     }
+  }
+
+  // ── Upload strategy: R2 direct first, Modal chunks as the fallback ──
+  // Chunk POSTs to the Modal ingress ride ONE HTTP/2 connection and cap at
+  // ~3-4 Mbps regardless of parallelism (see docs/uploads.md); presigned
+  // part PUTs straight to R2 get real parallel connections and run at the
+  // uplink's speed (a 500MB hour-long recording: ~25 min -> a few min,
+  // 2026-08-16). /upload_r2/complete lands the object on the volume as
+  // chunk_0000 and only spawns a job when a /process registration exists -
+  // for the assembler there is none, so the analyze spawn stays ours. Any
+  // R2-specific failure (unconfigured 503, bucket CORS, expired presign)
+  // falls back to the chunk path with the SAME key, exactly like app.js.
+  const R2_CONCURRENCY = 4;
+  async function uploadFile(file, key, onLoaded) {
+    try {
+      await r2Upload(file, key, onLoaded);
+      return;
+    } catch (e) {
+      if (e.message === 'auth') throw e;
+      if (!e.r2Fallback) throw e;
+      onLoaded(0);
+    }
+    await chunkUpload(file, key, onLoaded);
+  }
+  function _r2Err(msg, extra) { return Object.assign(new Error(msg), extra || {}); }
+  function _putPart(url, body, onBytes) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      let watchdog;
+      const arm = () => { clearTimeout(watchdog); watchdog = setTimeout(() => { try { xhr.abort(); } catch (_) {} reject(_r2Err('stalled', { isNetwork: true })); }, 35000); };
+      xhr.open('PUT', url);
+      xhr.upload.onprogress = (e) => { arm(); if (e.lengthComputable) onBytes(e.loaded); };
+      xhr.onload = () => {
+        clearTimeout(watchdog);
+        const etag = xhr.getResponseHeader('ETag');
+        if (xhr.status >= 200 && xhr.status < 300 && etag) { resolve(etag); return; }
+        if (xhr.status >= 200 && xhr.status < 300) { reject(_r2Err('no etag', { r2Fallback: true })); return; }
+        if (xhr.status >= 400 && xhr.status < 500 && xhr.status !== 408 && xhr.status !== 429) { reject(_r2Err('part ' + xhr.status, { r2Fallback: true })); return; }
+        reject(_r2Err('server ' + xhr.status, { isNetwork: true }));
+      };
+      xhr.onerror = () => { clearTimeout(watchdog); reject(_r2Err('network', { isNetwork: true })); };
+      arm();
+      xhr.send(body);
+    });
+  }
+  async function r2Upload(file, key, onLoaded) {
+    let init;
+    try {
+      init = await fetch(API_BASE + '/upload_r2/init/', {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, size: file.size }),
+      });
+    } catch (_) { throw _r2Err('r2 init unreachable', { r2Fallback: true }); }
+    if (init.status === 401) throw new Error('auth');
+    if (!init.ok) throw _r2Err('r2 init ' + init.status, { r2Fallback: true });
+    const { upload_id, part_size, urls } = await init.json();
+    if (!upload_id || !part_size || !Array.isArray(urls) || !urls.length) throw _r2Err('r2 init malformed', { r2Fallback: true });
+    const loaded = new Array(urls.length).fill(0);
+    const etags = new Array(urls.length);
+    const report = () => onLoaded(loaded.reduce((a, b) => a + b, 0));
+    let next = 0, anySuccess = false;
+    const lane = async () => {
+      while (next < urls.length) {
+        const i = next++;
+        const body = file.slice(i * part_size, Math.min(file.size, (i + 1) * part_size));
+        let attempt = 0;
+        for (;;) {
+          try {
+            etags[i] = await _putPart(urls[i], body, (n) => { loaded[i] = n; report(); });
+            loaded[i] = body.size; report(); anySuccess = true;
+            break;
+          } catch (e) {
+            // A part that never succeeded anywhere = bucket CORS unset: bail
+            // to the chunk path. Otherwise one retry per part for network blips.
+            if (e.r2Fallback || (e.isNetwork && !anySuccess && attempt >= 1)) throw _r2Err(e.message, { r2Fallback: true });
+            if (attempt >= 2) throw e;
+            attempt++;
+          }
+        }
+      }
+    };
+    try {
+      await Promise.all(Array.from({ length: R2_CONCURRENCY }, lane));
+      const done = await fetch(API_BASE + '/upload_r2/complete/', {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, upload_id, etags }),
+      });
+      if (done.status === 401) throw new Error('auth');
+      if (!done.ok) throw _r2Err('r2 complete ' + done.status, { r2Fallback: true });
+    } catch (e) {
+      // Best-effort cleanup of the multipart upload, then let the caller decide.
+      try {
+        fetch(API_BASE + '/upload_r2/abort/', {
+          method: 'POST', keepalive: true, headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key, upload_id }),
+        }).catch(() => {});
+      } catch (_) {}
+      throw e;
+    }
+  }
+  async function chunkUpload(file, key, onLoaded) {
+    const chunks = Math.ceil(file.size / CHUNK);
+    // 4 chunks in flight (was strictly sequential - a 500MB hour-long
+    // recording took 20+ min to upload, 2026-08-16). The chunk route is
+    // index-addressed, so order doesn't matter; one retry per chunk.
+    let next = 0, sent = 0;
+    const sendChunk = async (i, attempt = 0) => {
+      const blob = file.slice(i * CHUNK, (i + 1) * CHUNK);
+      const r = await fetch(API_BASE + '/upload_chunk/', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token, 'X-Upload-Key': key, 'X-Upload-Index': String(i) },
+        body: blob,
+      }).catch((e) => ({ ok: false, status: 0, netErr: e }));
+      if (r.status === 401) throw new Error('auth');
+      if (!r.ok) {
+        if (attempt < 1) return sendChunk(i, attempt + 1);
+        throw new Error('upload ' + (r.status || 'network'));
+      }
+      sent += blob.size;
+      onLoaded(sent);
+    };
+    const lane = async () => { while (next < chunks) { const i = next++; await sendChunk(i); } };
+    await Promise.all([lane(), lane(), lane(), lane()]);
   }
 
   // ── Analyze: transcribe + pick golden moments ──

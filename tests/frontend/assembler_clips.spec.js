@@ -32,6 +32,10 @@ async function boot(page, { analyzePosts = [], renderPosts = [] } = {}) {
   await page.addInitScript(() => localStorage.setItem('hebpipe_token', 'test-token'));
   await page.route(new RegExp(`${API_BASE}/upload_chunk`.replace(/[/.]/g, '\\$&')), r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
+  // R2 unconfigured -> the page falls back to the chunk path (the default
+  // these specs exercise); the R2 happy path has its own test.
+  await page.route(/\/upload_r2\/init\/$/, r =>
+    r.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"R2 not configured","code":"r2_unavailable"}' }));
   await page.route(/\/assembler\/analyze\/$/, async (route, request) => {
     analyzePosts.push(request.postDataJSON());
     await route.fulfill({ status: 202, contentType: 'application/json', body: '{"call_id":"fc-analyze"}' });
@@ -181,4 +185,63 @@ test('clips analysis keeps polling well past the old 10-minute cap and shows ela
   expect(await elapsed()).toBeGreaterThanOrEqual(750);
   await expect(page.locator('#err')).toBeHidden();
   await expect(page.locator('#clipsCard')).toBeHidden();
+});
+
+test('R2 direct upload: parts PUT to presigned URLs, complete, then analyze', async ({ page }) => {
+  const analyzePosts = [], puts = [], completes = [];
+  await boot(page, { analyzePosts });
+  // Override the 503 stub with a real init answer: 2 parts of 1 MB.
+  await page.route(/\/upload_r2\/init\/$/, async (route, request) => {
+    const body = request.postDataJSON();
+    expect(body.size).toBe(2 * 1024 * 1024);
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      upload_id: 'mp-1', part_size: 1024 * 1024,
+      urls: ['https://r2.test/part/1?sig=a', 'https://r2.test/part/2?sig=b'] }) });
+  });
+  await page.route(/https:\/\/r2\.test\/part\//, async (route, request) => {
+    if (request.method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'PUT', 'Access-Control-Allow-Headers': '*', 'Access-Control-Expose-Headers': 'ETag' } });
+      return;
+    }
+    puts.push({ url: request.url(), len: request.postDataBuffer().length });
+    await route.fulfill({ status: 200, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Expose-Headers': 'ETag', 'ETag': '"etag-' + puts.length + '"' }, body: '' });
+  });
+  await page.route(/\/upload_r2\/complete\/$/, async (route, request) => {
+    completes.push(request.postDataJSON());
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+  });
+  let chunkPosts = 0;
+  await page.route(new RegExp(`${API_BASE}/upload_chunk`.replace(/[/.]/g, '\\$&')), r => { chunkPosts++; return r.fulfill({ status: 200, body: '{"ok":true}' }); });
+
+  await page.locator('#modeClips').click();
+  await page.setInputFiles('#file', { name: 'podcast.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(2 * 1024 * 1024) });
+  await expect.poll(() => analyzePosts.length).toBe(1);
+  expect(puts).toHaveLength(2);
+  expect(puts.map(p => p.len).sort()).toEqual([1024 * 1024, 1024 * 1024]);
+  expect(completes).toHaveLength(1);
+  expect(completes[0].upload_id).toBe('mp-1');
+  expect(completes[0].etags).toHaveLength(2);
+  expect(completes[0].etags.every(e => /^"etag-\d"$/.test(e))).toBe(true);
+  expect(completes[0].key).toBe(analyzePosts[0].upload_keys[0]);   // same key the analyze uses
+  expect(chunkPosts).toBe(0);                                       // no fallback needed
+  await expect(page.locator('#bar')).toHaveAttribute('style', /width: 100%/);
+});
+
+test('R2 part without a readable ETag falls back to the chunk path with the same key', async ({ page }) => {
+  const analyzePosts = [];
+  await boot(page, { analyzePosts });
+  await page.route(/\/upload_r2\/init\/$/, r => r.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify({ upload_id: 'mp-2', part_size: 1024 * 1024, urls: ['https://r2.test/part/1'] }) }));
+  // 200 but no ETag exposed = bucket CORS missing ExposeHeaders.
+  await page.route(/https:\/\/r2\.test\/part\//, r => r.fulfill({ status: 200, headers: { 'Access-Control-Allow-Origin': '*' }, body: '' }));
+  const chunkKeys = [];
+  await page.route(new RegExp(`${API_BASE}/upload_chunk`.replace(/[/.]/g, '\\$&')), (route, request) => {
+    chunkKeys.push(request.headers()['x-upload-key']);
+    return route.fulfill({ status: 200, body: '{"ok":true}' });
+  });
+  await page.locator('#modeClips').click();
+  await page.setInputFiles('#file', { name: 'podcast.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(1024 * 1024) });
+  await expect.poll(() => analyzePosts.length).toBe(1);
+  expect(chunkKeys.length).toBeGreaterThan(0);
+  expect(new Set(chunkKeys)).toEqual(new Set([analyzePosts[0].upload_keys[0]]));
 });

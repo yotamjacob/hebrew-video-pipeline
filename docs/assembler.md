@@ -89,7 +89,7 @@ candidates (`score: null`, `scored: false` - the UI shows "-" and a soft
 note; they still render), and `issues` rides the result for diagnostics.
 (c) Pass 1 sometimes proposes 2-3 min ranges: `_clamp_end` pulls the end
 back to the last segment edge within `CLIP_MAX_SECONDS+10`. (d) The page
-uploads 4 chunks in flight (was sequential: 527MB took 25 min). Verified
+uploads via **R2 direct first** (`uploadFile` -> `r2Upload`: `/upload_r2/init` -> 4 parallel presigned part PUTs (XHR, ETag required, 35s stall watchdog, one retry per part) -> `/upload_r2/complete`, which lands the object as `chunk_0000` and spawns NOTHING because the assembler never registers a pending job - `_resolve_source` globs it up unchanged), falling back to `chunkUpload` (4 chunks in flight, same key) on any R2-specific failure (init 503/unreachable, no readable ETag, 4xx part) - the same fallback contract as app.js. Measured on production: the 527MB hour-long file landed in 163s at 29.5 Mbps vs ~25 min through the chunk path; an R2-landed file analyzed E2E fine. Specs stub `/upload_r2/init/` with 503 by default; the R2 happy path + the CORS-fallback path have their own tests in `assembler_clips.spec.js`. Verified
 on the real 61-min file via an ephemeral `modal run` of `_pick_clips`:
 8 clips, all scored 51-73, longest 77s, no issues, ~200s.
 
