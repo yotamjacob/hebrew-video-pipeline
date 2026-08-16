@@ -143,7 +143,7 @@ test('admin gets a buy-credits pill and the admin tab with user limit controls',
     r.fulfill({ status: 200, contentType: 'application/json',
                 body: JSON.stringify({ users: [
                   { username: 'boss',   role: 'admin', videos_used: 0, video_limit: null, created: 1 },
-                  { username: 'tester', role: 'user',  videos_used: 2, video_limit: 5,    created: 2, src: 'linkedin' },
+                  { username: 'tester', role: 'user',  videos_used: 2, video_limit: 5,    created: 1786800000, src: 'linkedin' },
                 ] }) }));
   const limitPosts = [];
   await page.route(`${API_BASE}/admin/limit`, async (route, request) => {
@@ -163,6 +163,11 @@ test('admin gets a buy-credits pill and the admin tab with user limit controls',
   const rows = page.locator('.admin-row');
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toContainText('boss');
+  // Joined date line under the header (server orders newest first; the
+  // fixture order is rendered as-is). 1786800000 = 15 Aug 2026 UTC.
+  await expect(rows.nth(1).locator('.admin-meta')).toContainText('הצטרפות:');
+  await expect(rows.nth(1).locator('.admin-meta')).toContainText('2026');
+  await expect(rows.nth(0).locator('.admin-meta')).toContainText('1970');   // created: 1 -> epoch
   await expect(rows.nth(0).locator('.admin-star svg')).toBeVisible();   // admin marker is an SVG star, not an emoji
   // Campaign attribution badge shows the signup source (?src= link).
   await expect(rows.nth(1).locator('.admin-src')).toHaveText('linkedin');

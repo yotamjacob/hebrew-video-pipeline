@@ -2424,6 +2424,7 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .admin-used { flex: 0 0 auto; font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+.admin-meta { font-size: 0.74rem; color: var(--muted); margin-top: -4px; }
 /* Campaign attribution badge (?src= the account signed up through). */
 .admin-src {
   display: inline-block; margin: 0 6px; padding: 1px 8px; border-radius: 999px;

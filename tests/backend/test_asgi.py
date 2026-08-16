@@ -549,6 +549,14 @@ class TestStatsRoute:
         assert b"public, max-age=60".decode() in block
 
 
+class TestAdminUsersOrder:
+    def test_newest_signups_first_with_created(self):
+        i = MODAL_SRC.index('("/admin/users"')
+        block = MODAL_SRC[i:i + 2600]
+        assert 'out.sort(key=lambda r: -(r.get("created") or 0))' in block
+        assert '"created": _r.get("created")' in block
+
+
 class TestAssemblerRoutes:
     """/assembler/* - the standalone Story Assembler page (hidden beta).
     Additive routes; the main pipeline must stay untouched."""

@@ -661,6 +661,7 @@
     'admin.used':       { en: 'used {used}', he: 'בשימוש: {used}' },
     'admin.srcTip':     { en: 'Signup source', he: 'מקור ההרשמה' },
     'admin.unlimited':  { en: 'unlimited', he: 'בלי הגבלה' },
+    'admin.joined':     { en: 'joined {date}', he: 'הצטרפות: {date}' },
     'admin.save':       { en: 'Save', he: 'שמירה' },
     'admin.saveFailed': { en: 'Failed', he: 'נכשל' },
     'admin.resetPw':    { en: 'Reset password', he: 'איפוס סיסמה' },

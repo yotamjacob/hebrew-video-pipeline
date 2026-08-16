@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.50.1';
+  const APP_VERSION = '1.50.2';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -9179,11 +9179,24 @@
     used.className = 'admin-used';
     used.textContent = u.role === 'admin' ? t('admin.unlimited') : t('admin.used', {used: u.videos_used});
     header.append(name, used);
+    // Joined date (server sorts newest first) - a second, quieter line so
+    // the email keeps its full width on the header line.
+    const meta = document.createElement('div');
+    meta.className = 'admin-meta';
+    if (u.created) {
+      const d = new Date(u.created * 1000);
+      const date = d.toLocaleDateString(document.documentElement.lang === 'en' ? 'en-GB' : 'he-IL',
+                                        { day: 'numeric', month: 'short', year: 'numeric' });
+      meta.textContent = t('admin.joined', { date });
+      meta.title = d.toLocaleString();
+    } else {
+      meta.textContent = t('admin.joined', { date: '-' });
+    }
     // Controls sit on their own line so a long email never gets clipped or
     // broken vertically - the name always reads horizontally on the line above.
     const controls = document.createElement('div');
     controls.className = 'admin-controls';
-    row.append(header, controls);
+    row.append(header, meta, controls);
     if (u.role !== 'admin') {
       const inp = document.createElement('input');
       inp.type = 'number'; inp.min = -1; inp.max = 100000;

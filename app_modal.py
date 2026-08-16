@@ -2451,7 +2451,10 @@ def api():
                             "purchased_credits": _purchased,
                             "src": _r.get("signup_src"),
                             "created": _r.get("created")})
-            out.sort(key=lambda r: r.get("created") or 0)
+            # Newest signups first (user directive 2026-08-16) - the list is
+            # read to see who just joined; legacy records without `created`
+            # sink to the bottom.
+            out.sort(key=lambda r: -(r.get("created") or 0))
             body = json.dumps({"users": out}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
