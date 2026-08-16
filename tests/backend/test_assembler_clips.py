@@ -150,6 +150,19 @@ class TestClipsContracts:
         # No "short" ever exceeds the ceiling.
         assert "_clamp_end(segs, a, b, CLIP_MAX_SECONDS + 10)" in block
 
+    def test_every_pick_clips_return_is_a_3_tuple(self):
+        # analyze unpacks (summary, candidates, issues) - the empty-candidates
+        # early return shipped as a 2-tuple once (1-minute source, 500).
+        import re
+        block = self._pick()
+        end = block.index("\ndef _refine_batch")
+        rets = re.findall(r"^\s+return (.+)$", block[:end], re.M)
+        assert rets, "no returns found"
+        for r in rets:
+            assert r.count(",") == 2, r
+        # Short sources ask for fewer candidates instead of forcing 3-12.
+        assert "want_lo = 1 if total_duration < 600 else MIN_CANDIDATES" in block
+
     def test_pass2_batches_salvage_partial_json(self):
         i = MODAL_SRC.index("def _refine_batch")
         block = MODAL_SRC[i:i + 6000]

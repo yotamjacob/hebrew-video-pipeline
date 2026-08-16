@@ -67,6 +67,15 @@ def _run(cmd, **kw):
 def _resolve_source(upload_key: str, workdir: Path) -> Path:
     """Assemble chunk files into the cached `{key}_src.mp4` (same layout and
     cache convention as process_video) or reuse an existing cache."""
+    # A WARM container keeps the volume view it started with - without a
+    # reload it never sees chunks committed after it spun up (process_video
+    # and burn_captions_fn reload on entry for the same reason). Field:
+    # back-to-back assembler runs, the second one "No upload found"
+    # (2026-08-16).
+    try:
+        tmp_vol.reload()
+    except Exception:
+        pass
     cache = Path(TMP_DIR) / f"{upload_key}_src.mp4"
     if cache.exists():
         return cache
@@ -323,7 +332,12 @@ def _pick_clips(clips, total_duration):
             for i, s in enumerate(clip["segs"]))
         blocks.append(f'### קליפ {ci} - "{clip["name"]}" ({clip["duration"]:.0f} שניות)\n'
                       + (lines or "(אין דיבור בקליפ הזה)"))
-    prompt1 = f"""לפניך תמלול מתוזמן של הקלטה ארוכה ({total_duration:.0f} שניות): פודקאסט, הרצאה, ראיון או שיחה. המטרה: לאתר {MIN_CANDIDATES}-{MAX_CANDIDATES} קטעים שכל אחד מהם יכול לעמוד בפני עצמו כסרטון קצר (Reels / TikTok / Shorts), באורך {CLIP_MIN_SECONDS + 7}-{CLIP_MAX_SECONDS} שניות כל אחד.
+    # Short recordings (a 1-3 minute clip) can't yield 3-12 distinct shorts -
+    # scale the ask so the model returns 1-2 real candidates instead of
+    # padding with junk or nothing.
+    want_hi = max(1, min(MAX_CANDIDATES, int(total_duration // 240) + 1))
+    want_lo = 1 if total_duration < 600 else MIN_CANDIDATES
+    prompt1 = f"""לפניך תמלול מתוזמן של הקלטה ({total_duration:.0f} שניות): פודקאסט, הרצאה, ראיון או שיחה. המטרה: לאתר {want_lo}-{want_hi} קטעים שכל אחד מהם יכול לעמוד בפני עצמו כסרטון קצר (Reels / TikTok / Shorts), באורך {CLIP_MIN_SECONDS + 7}-{CLIP_MAX_SECONDS} שניות כל אחד. אם ההקלטה קצרה, החזר קטע אחד או שניים בלבד - אל תמציא קטעים חלשים כדי למלא מכסה, ואל תחזיר רשימה ריקה אם יש קטע אחד סביר.
 
 מה הופך קטע לחזק: הוא נפתח בשורה שעוצרת גלילה תוך 3 שניות (טענה חדה, שאלה, סיפור, מספר מפתיע, "הטעות ש..."), הוא מובן לגמרי גם למי שלא צפה בשאר, יש בו מתח ותשלום (payoff) - תובנה, פאנץ', רגע רגשי, טיפ ישים - והוא נגמר במשפט חזק, לא באמצע מחשבה. חפש גיוון: לא שמונה גרסאות של אותו רעיון. אל תבחר קטעי מעבר, פרסומות, הצגות עצמיות ארוכות, דיבור טכני/מנהלי או "אז על מה נדבר היום".
 
@@ -367,7 +381,10 @@ def _pick_clips(clips, total_duration):
             "visual": bool(segs[a].get("visual")),
         })
     if not cands:
-        return summary, []
+        # Same 3-tuple shape as the success path (a 2-tuple here crashed
+        # analyze on a 1-minute source: "not enough values to unpack",
+        # field 2026-08-16).
+        return summary, [], ["pass 1: no valid candidates"]
 
     # ── Pass 2: precise trims + hook + virality rubric. BATCHED (4 per
     # call): one call for 9-12 candidates with 60-160s of word-level text

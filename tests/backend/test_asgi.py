@@ -549,6 +549,14 @@ class TestStatsRoute:
         assert b"public, max-age=60".decode() in block
 
 
+class TestR2LandingCommits:
+    def test_landing_commits_in_the_writing_container(self):
+        i = MODAL_SRC.index("def _r2_land_on_volume")
+        block = MODAL_SRC[i:i + 1800]
+        assert "_os.replace(staging, chunk_path)" in block
+        assert block.index("tmp_vol.commit()") > block.index("_os.replace(staging, chunk_path)")
+
+
 class TestAdminUsersOrder:
     def test_newest_signups_first_with_created(self):
         i = MODAL_SRC.index('("/admin/users"')
@@ -600,6 +608,13 @@ class TestAssemblerRoutes:
         assert "force_original_aspect_ratio=decrease" in block
         assert "pad=" in block and "fps=30" in block
         assert '"-ar", "48000", "-ac", "2"' in block
+
+    def test_worker_reloads_the_volume_before_reading(self):
+        # Warm containers hold a stale volume view; every assembler read path
+        # goes through _resolve_source, which must reload first.
+        i = MODAL_SRC.index("def _resolve_source")
+        block = MODAL_SRC[i:i + 1200]
+        assert block.index("tmp_vol.reload()") < block.index("_chunk_*")
 
     def test_spawns_flush_the_volume_before_the_worker_reads(self):
         # upload_chunk defers volume commits to spawn time; a spawn without

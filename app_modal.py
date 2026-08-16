@@ -362,6 +362,12 @@ def _r2_land_on_volume(s3, bucket, obj_key, full_key):
             for part in iter(lambda: obj["Body"].read(8 * 1024 * 1024), b""):
                 fh.write(part)
         _os.replace(staging, chunk_path)
+        # Commit HERE, in the container that wrote the file. The next request
+        # (assembler /analyze, or a /process spawn) may land on a DIFFERENT
+        # api container whose commit() can't publish this one's writes - the
+        # worker then sees no chunk ("No upload found", field 2026-08-16,
+        # R2 upload followed immediately by /assembler/analyze).
+        tmp_vol.commit()
     except BaseException:
         staging.unlink(missing_ok=True)
         raise

@@ -93,6 +93,17 @@ uploads via **R2 direct first** (`uploadFile` -> `r2Upload`: `/upload_r2/init` -
 on the real 61-min file via an ephemeral `modal run` of `_pick_clips`:
 8 clips, all scored 51-73, longest 77s, no issues, ~200s.
 
+**Short sources + volume freshness (2026-08-16, evening):** a 1-minute
+source 500ed twice. (1) `_pick_clips`' empty-candidates early return was a
+2-tuple (analyze unpacks 3) - now `(summary, [], ["pass 1: no valid
+candidates"])`, and pass 1 asks for 1-2 clips when the recording is short
+(`want_lo/want_hi` scale with duration) instead of forcing 3-12. (2)
+"No upload found" right after an R2 upload: `_r2_land_on_volume` never
+committed (the /process spawn in the same request masked it) and the
+assembler workers never `reload()`ed - a warm container kept a stale view.
+Both fixed: commit after landing, `tmp_vol.reload()` at the top of
+`_resolve_source`. Verified: two back-to-back 60s runs -> 3 scored clips.
+
 Verified E2E on production 2026-08-16 with a synthetic 2-min Hebrew TTS
 "podcast": 6 candidates in 160s, trims skipped the intro/outro exactly,
 Hebrew hooks/reasoning/tips sensible; a rendered clip showed the hook box
