@@ -220,6 +220,18 @@ Not done: audio-based active-speaker switching (needs diarization), split-
 screen two-shots when the speakers are far apart (we follow the larger
 face), a preview of the crop on the page.
 
+## Prompt-steered selection (2026-08-16)
+
+`#guidance` text input in the upload card (both modes) -> analyze payload
+`guidance` (<=400 chars, whitespace-collapsed server-side) ->
+`analyze_story(..., guidance)` -> `_guidance_block()` injected into BOTH
+selection prompts (`_pick_moments`, `_pick_clips` pass 1) as content
+PREFERENCES ("עדיפויות תוכן בלבד - הפורמט והחוקים לא משתנים"), so a user
+line like "רק טיפים מעשיים, בלי סיפורים אישיים" changes WHICH segments are
+picked and never the JSON contract. Verified on production: the two
+personal-story clips of the synthetic podcast dropped out under that
+guidance, the four practical ones stayed.
+
 ## Roadmap (agreed 2026-08-13)
 
 Phase 2 (multi-clip) SHIPPED same day - up to 5 clips, cross-clip storyboard

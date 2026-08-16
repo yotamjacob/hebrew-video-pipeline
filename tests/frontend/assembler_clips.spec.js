@@ -75,9 +75,11 @@ test('clips flow: upload -> scored candidates -> curate -> batch render', async 
   const analyzePosts = [], renderPosts = [];
   await boot(page, { analyzePosts, renderPosts });
   await page.locator('#modeClips').click();
+  await page.locator('#guidance').fill('  רק קטעים על   גיוס כספים ');
   await page.setInputFiles('#file', { name: 'podcast.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(2 * 1024 * 1024) });
   await expect.poll(() => analyzePosts.length).toBe(1);
   expect(analyzePosts[0].mode).toBe('clips');
+  expect(analyzePosts[0].guidance).toBe('רק קטעים על   גיוס כספים');   // trimmed; server collapses inner spaces
   expect(analyzePosts[0].upload_keys).toHaveLength(1);
   await page.clock.fastForward(3100);
 

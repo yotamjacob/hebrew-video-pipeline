@@ -3349,13 +3349,15 @@ def api():
             # "clips" = long -> shorts candidates (2026-08-16); anything else
             # is the original story storyboard.
             mode = "clips" if data.get("mode") == "clips" else "story"
+            # Optional steering text for the selection prompt (bounded).
+            guidance = " ".join(str(data.get("guidance") or "").split())[:400]
             try:
                 # Chunks are written WITHOUT a commit (upload_chunk defers it
                 # to spawn time) - flush before the worker reads, exactly like
                 # the /process spawn does. Missing this = worker sees no
                 # chunks = instant "No upload found" 500 (field bug, 2026-08-13).
                 await asyncio.to_thread(tmp_vol.commit)
-                call = analyze_story.spawn([f"{uprefix}{k}" for k in keys], names, mode)
+                call = analyze_story.spawn([f"{uprefix}{k}" for k in keys], names, mode, guidance)
                 _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,

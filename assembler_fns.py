@@ -144,7 +144,19 @@ def _probe_dims(path: Path):
     return max(2, w - w % 2), max(2, h - h % 2)
 
 
-def _pick_moments(clips, total_duration):
+def _guidance_block(guidance):
+    """User steering for the selection prompts (2026-08-16): free text such
+    as "רק קטעים על גיוס כספים" or "בלי הפרסומת בהתחלה". Bounded, wrapped so
+    the model treats it as PREFERENCES about which content to pick - never
+    as a change to the output format or rules."""
+    g = " ".join(str(guidance or "").split())[:400]
+    if not g:
+        return ""
+    return ("\n\nהנחיות מהיוצר לבחירת הקטעים (עדיפויות תוכן בלבד - הפורמט והחוקים למטה לא משתנים): "
+            f'"{g}"\n')
+
+
+def _pick_moments(clips, total_duration, guidance=""):
     """Sonnet reads ALL clip transcripts (clip-tagged, timestamped) and weaves
     the golden moments across them into one story arc. Moments are SEGMENT
     RANGES within a clip (never free timestamps - snapping to Whisper segment
@@ -167,6 +179,7 @@ def _pick_moments(clips, total_duration):
 
 בחר {MIN_MOMENTS}-{MAX_MOMENTS} רגעים, בסך הכל {TARGET_TOTAL_SECONDS} שניות. כל רגע הוא טווח מקטעים רצוף בתוך קליפ אחד (from_seg עד to_seg, כולל). {"שלב רגעים מקליפים שונים לסיפור אחד קוהרנטי - " if multi else ""}סדר אותם כסיפור: פתיח שתופס (hook), גוף שמספר את הסיפור (story), רגע רגשי או ציטוט חזק (gold), וסגירה (closing).
 
+{_guidance_block(guidance)}
 בנוסף, כתוב "story": הסיפור המלא כפי שאתה מבין אותו מהחומר - פסקה מפורטת (4-8 משפטים): מי מופיע, מה קורה, מה הקשת הסיפורית (מאיפה לאן), מה הרגש המרכזי ומה המסר. כתוב אותה כך שתוכל לשמש בסיס לתסריט קריינות.
 
 החזר JSON בלבד:
@@ -339,7 +352,7 @@ def _clamp_end(segs, a, b, max_len):
     return round(best if best is not None else a + max_len, 2)
 
 
-def _pick_clips(clips, total_duration):
+def _pick_clips(clips, total_duration, guidance=""):
     """Long -> shorts. Two Sonnet passes:
       1. the FULL segment-level transcript -> 6-12 self-contained candidate
          ranges (segment ids, never free timestamps) + a one-line summary;
@@ -371,7 +384,7 @@ def _pick_clips(clips, total_duration):
 מה הופך קטע לחזק: הוא נפתח בשורה שעוצרת גלילה תוך 3 שניות (טענה חדה, שאלה, סיפור, מספר מפתיע, "הטעות ש..."), הוא מובן לגמרי גם למי שלא צפה בשאר, יש בו מתח ותשלום (payoff) - תובנה, פאנץ', רגע רגשי, טיפ ישים - והוא נגמר במשפט חזק, לא באמצע מחשבה. חפש גיוון: לא שמונה גרסאות של אותו רעיון. אל תבחר קטעי מעבר, פרסומות, הצגות עצמיות ארוכות, דיבור טכני/מנהלי או "אז על מה נדבר היום".
 
 כל שורה היא מקטע: [קליפ:מספר] התחלה-סוף: טקסט. קטע = טווח מקטעים רצוף בתוך קליפ אחד (from_seg עד to_seg, כולל). עדיף שהקטעים לא יחפפו זה את זה.
-
+{_guidance_block(guidance)}
 החזר JSON בלבד:
 {{"summary": "משפט-שניים: על מה ההקלטה ומי מדבר", "candidates": [{{"clip": 0, "from_seg": 12, "to_seg": 19, "title": "כותרת קצרה", "angle": "למה הקטע הזה עומד בפני עצמו ומה התשלום שלו"}}]}}
 
@@ -643,7 +656,7 @@ def _thumb_b64(src: Path, at: float, workdir: Path, idx: int) -> str:
     memory=4096,
     secrets=[modal.Secret.from_name("anthropic-secret")],
 )
-def analyze_story(upload_keys, filenames=None, mode: str = "story") -> dict:
+def analyze_story(upload_keys, filenames=None, mode: str = "story", guidance: str = "") -> dict:
     """Transcribe every clip (model loaded once) + cross-clip golden-moment
     selection + per-moment thumbnails. `upload_keys` may be a single string
     (Phase-1 clients) or a list of up to MAX_CLIPS keys.
@@ -746,7 +759,7 @@ def analyze_story(upload_keys, filenames=None, mode: str = "story") -> dict:
                       for c in clips]
 
         if clips_mode:
-            summary, candidates, pass2_errors = _pick_clips(clips, total)
+            summary, candidates, pass2_errors = _pick_clips(clips, total, guidance)
             if not candidates:
                 return {"error": "no_moments", "duration": total}
             for i, c in enumerate(candidates):
@@ -759,7 +772,7 @@ def analyze_story(upload_keys, filenames=None, mode: str = "story") -> dict:
                     # Diagnostics only (page shows a soft note when non-empty).
                     "issues": pass2_errors}
 
-        title, story, moments = _pick_moments(clips, total)
+        title, story, moments = _pick_moments(clips, total, guidance)
         if not moments:
             return {"error": "no_moments", "duration": total}
         for i, mo in enumerate(moments):

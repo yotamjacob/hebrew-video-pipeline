@@ -163,6 +163,19 @@ class TestClipsContracts:
         # Short sources ask for fewer candidates instead of forcing 3-12.
         assert "want_lo = 1 if total_duration < 600 else MIN_CANDIDATES" in block
 
+    def test_guidance_steers_both_selection_prompts(self):
+        # Free-text steering ("only clips about X") is bounded, wrapped as
+        # content PREFERENCES, and injected into both the story and the clips
+        # pass-1 prompts; the route forwards it into analyze_story.
+        i = MODAL_SRC.index("def _guidance_block")
+        gb = MODAL_SRC[i:i + 900]
+        assert "[:400]" in gb and "עדיפויות תוכן בלבד" in gb
+        assert "_pick_clips(clips, total_duration, guidance=" in MODAL_SRC
+        assert "_pick_moments(clips, total_duration, guidance=" in MODAL_SRC
+        assert MODAL_SRC.count("{_guidance_block(guidance)}") == 2
+        j = MODAL_SRC.index('("/assembler/analyze"')
+        assert 'names, mode, guidance)' in MODAL_SRC[j:j + 3400]
+
     def test_pass2_batches_salvage_partial_json(self):
         i = MODAL_SRC.index("def _refine_batch")
         block = MODAL_SRC[i:i + 6000]
@@ -195,7 +208,7 @@ class TestClipsContracts:
         i = MODAL_SRC.index('("/assembler/analyze"')
         ablock = MODAL_SRC[i:i + 3200]
         assert 'mode = "clips" if data.get("mode") == "clips" else "story"' in ablock
-        assert "names, mode)" in ablock
+        assert "names, mode, guidance)" in ablock
         j = MODAL_SRC.index('("/assembler/render"')
         rblock = MODAL_SRC[j:j + 6000]
         assert "_SAFE_VARIANT_RE.match(variant)" in rblock

@@ -49,6 +49,13 @@
     }
     .drop:hover { background: var(--purple-50); }
     .hint { font-size: 0.78rem; color: var(--muted); margin-top: 8px; text-align: center; }
+    .guide-row { margin-top: 12px; display: flex; flex-direction: column; gap: 5px; }
+    .guide-row label { font-size: 0.78rem; font-weight: 700; color: var(--sage-dark); }
+    .guide-row input {
+      width: 100%; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line);
+      background: var(--white); font-family: inherit; font-size: 0.9rem; color: var(--text);
+    }
+    .guide-row input::placeholder { color: var(--muted); font-size: 0.82rem; }
     .bar-wrap { background: var(--purple-50); border-radius: 999px; height: 12px; overflow: hidden; margin: 14px 0 6px; display: none; }
     .bar { background: var(--terracotta); height: 100%; width: 0%; transition: width 0.25s ease; }
     .stage { text-align: center; color: var(--sage-dark); font-size: 0.9rem; font-weight: 600; min-height: 1.4em; }
@@ -295,6 +302,10 @@
     </div>
     <div class="drop" id="drop"><span id="dropText">בחרו או גררו עד 5 סרטוני גלם</span><input type="file" id="file" accept="video/*" multiple style="display:none" /></div>
     <p class="hint" id="hintText">ראיון, סיורים, אינטראקציות · עד 40 דקות גלם בסך הכל · הניתוח לא מנצל קרדיטים בשלב הבטא</p>
+    <div class="guide-row">
+      <label for="guidance">הנחיה ל-AI לבחירת הקטעים (רשות)</label>
+      <input type="text" id="guidance" maxlength="400" placeholder='למשל: "רק קטעים על גיוס כספים", "בלי הפרסומת בהתחלה", "דגש על סיפורים אישיים"' />
+    </div>
     <div id="clipList" style="margin-top:10px"></div>
     <div class="bar-wrap" id="barWrap"><div class="bar" id="bar"></div></div>
     <p class="stage" id="stage"></p>
@@ -657,7 +668,7 @@
       try {
         r = await fetch(API_BASE + '/assembler/analyze/', {
           method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ upload_keys: clips.map((c) => c.key), filenames: clips.map((c) => c.name), mode }),
+          body: JSON.stringify({ upload_keys: clips.map((c) => c.key), filenames: clips.map((c) => c.name), mode, guidance: ($('guidance').value || '').trim().slice(0, 400) }),
         });
         if (r.status !== 502 && r.status !== 503 && r.status !== 504) break;
       } catch (e) { r = null; }
