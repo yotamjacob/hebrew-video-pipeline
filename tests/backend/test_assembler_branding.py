@@ -57,21 +57,41 @@ class TestBrandingContracts:
         assert "fade if i == 0 else 0.0" in block
         assert "fade if i == last else 0.0" in block
 
-    def test_intro_outro_wrap_the_captioned_body_and_are_capped(self):
+    def test_intro_outro_wrap_the_body_before_captions_and_are_capped(self):
         block = self._render()
         assert "INTRO_OUTRO_MAX_SECONDS = 20.0" in MODAL_SRC
         assert 'min(_probe_duration(src), INTRO_OUTRO_MAX_SECONDS)' in block
-        assert '[p for t, p in wrap if t == "intro"] + [visual]' in block
+        assert '[p for t, p in wrap if t == "intro"] + [joined]' in block
         assert "shipping body only" in block
         # VO still starts on the body when an intro leads.
         assert "adelay={intro_ms}|{intro_ms}" in block
+        # Captions/hook are burned LAST on the full timeline, shifted by the
+        # intro so they stay on the body.
+        assert 'e["start"] + intro_len' in block
+        assert '"start_seconds": round(intro_len + 0.2, 2)' in block
+        assert block.index("wrap.append") < block.index("build_caption_ass")
 
-    def test_watermark_shares_the_caption_encode_and_degrades(self):
+    def test_watermark_rides_the_body_part_encode_and_degrades(self):
         block = self._render()
-        assert "_watermark_filter(wm, cw" in block
-        assert '"-map", "[vout]", "-map", "0:a"' in block
+        assert "_watermark_filter(wm, cw, \"[v]\", \"[vout]\")" in block
+        assert 'cmd += ["-filter_complex", graph, "-map", "[vout]", "-map", a_map]' in block
+        assert "logo=wm_path" in block                    # body parts only
+        assert "_has_audio(src), fade, fade))" in block   # intro/outro: no logo kwarg
         assert "watermark unavailable - skipped" in block
         assert "_image_ext(raw)" in block
+
+    def test_every_render_is_re_editable_from_history(self):
+        # "Export to the pipeline": the composed, UN-captioned video is saved
+        # as `_cut.mp4` and recorded as the burn-style edit_state source, so
+        # History's pencil reopens the clip in the main editor.
+        block = self._render()
+        assert 'cut_key = f"{upload_keys[0]}{suffix}_cut.mp4"' in block
+        assert "_shutil.copy(composed, cut_path)" in block
+        i = block.index("_record_job(out_key")
+        rec = block[i:i + 600]
+        for k in ('"src_key":       cut_key', '"captions":      events', '"hook":          hook or {}',
+                  '"font":          "Heebo"', '"margin_v_pct":  0.08', '"caption_style": {}'):
+            assert k in rec, k
 
     def test_route_validates_and_forwards_branding(self):
         i = MODAL_SRC.index('("/assembler/render"')

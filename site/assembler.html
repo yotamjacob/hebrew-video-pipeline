@@ -190,6 +190,28 @@
     .c-pick input { accent-color: var(--terracotta); width: 15px; height: 15px; }
     .c-title { font-size: 0.95rem; font-weight: 700; line-height: 1.35; }
     .c-time { font-size: 0.72rem; color: var(--sage-dark); margin-top: 2px; font-weight: 600; }
+    /* Trim steppers: extend / shrink a candidate by whole seconds. */
+    .c-trim { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 8px; font-size: 0.74rem; font-weight: 700; color: var(--muted); }
+    .c-trim .step { display: inline-flex; align-items: center; gap: 4px; }
+    .c-trim button {
+      width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--line); background: var(--white);
+      color: var(--purple-700); font-size: 0.95rem; font-weight: 700; cursor: pointer; line-height: 1;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .c-trim button:hover { background: var(--purple-50); }
+    .c-trim button:disabled { opacity: 0.35; cursor: default; }
+    .c-trim .val { min-width: 34px; text-align: center; color: var(--sage-dark); }
+    .c-trim .prev {
+      margin-inline-start: auto; display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px;
+      border-radius: 999px; border: 1px solid var(--purple-100); background: transparent; color: var(--purple-700);
+      font-family: inherit; font-size: 0.76rem; font-weight: 700; cursor: pointer; width: auto; height: auto;
+    }
+    .c-trim .prev.on { border-color: var(--terracotta); color: var(--terracotta-dark); }
+    .c-preview { margin-top: 8px; display: none; }
+    .c-preview.on { display: block; }
+    .c-preview video { width: 100%; max-height: 360px; border-radius: 10px; background: #000; }
+    .out .o-actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+    .out .o-actions a { font-size: 0.8rem; }
     .c-hook { display: flex; align-items: center; gap: 6px; }
     .c-hook label { font-size: 0.72rem; font-weight: 700; color: var(--muted); white-space: nowrap; }
     .c-hook input {
@@ -382,7 +404,7 @@
   <div class="card result" id="result">
     <h2>6 · הסרטון שלכם</h2>
     <video id="outVideo" controls playsinline></video>
-    <p><a id="dlLink" href="#" download>הורדת הסרטון</a> · הסרטון נשמר גם בהיסטוריה <a href="/">באפליקציה</a></p>
+    <p><a id="dlLink" href="#" download>הורדת הסרטון</a> · <a id="editLink" href="/" target="_blank" rel="noopener">עריכה בפייפליין</a> · הסרטון נשמר גם בהיסטוריה <a href="/">באפליקציה</a></p>
   </div>
 
   <p class="foot">Story Assembler - סיפור + קליפים (בטא שקטה) · <a href="/">חזרה לפייפליין</a></p>
@@ -556,12 +578,30 @@
     };
     try {
       await Promise.all(Array.from({ length: R2_CONCURRENCY }, lane));
-      const done = await fetch(API_BASE + '/upload_r2/complete/', {
-        method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key, upload_id, etags }),
-      });
-      if (done.status === 401) throw new Error('auth');
-      if (!done.ok) throw _r2Err('r2 complete ' + done.status, { r2Fallback: true });
+      // /complete is idempotent (an already-landed file short-circuits) and
+      // streams the object onto the volume - a hour-long file takes a while
+      // and a mid-flight blip surfaced as "Failed to fetch" (2026-08-16).
+      // Retry with backoff before giving up; never fall back to re-uploading
+      // 500MB through the chunk path just because ONE small POST dropped.
+      let done = null, lastErr = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        if (attempt) await new Promise((r) => setTimeout(r, 2000 * attempt));
+        try {
+          done = await fetch(API_BASE + '/upload_r2/complete/', {
+            method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key, upload_id, etags }),
+          });
+          if (done.status === 401) throw new Error('auth');
+          if (done.ok) break;
+          lastErr = _r2Err('r2 complete ' + done.status, { r2Fallback: done.status === 503 });
+          if (done.status >= 400 && done.status < 500) break;   // not retryable
+          done = null;
+        } catch (e) {
+          if (e.message === 'auth') throw e;
+          lastErr = e; done = null;
+        }
+      }
+      if (!done || !done.ok) throw lastErr || _r2Err('r2 complete failed', {});
     } catch (e) {
       // Best-effort cleanup of the multipart upload, then let the caller decide.
       try {
@@ -603,10 +643,21 @@
     $('stage').innerHTML = '<span class="spinner"></span>' + (mode === 'clips'
       ? 'מתמללים את כל ההקלטה, מאתרים קליפים ומדרגים אותם... (הקלטה ארוכה = כמה דקות טובות)'
       : 'מתמללים ומחפשים את רגעי הזהב... (כמה דקות)');
-    const r = await fetch(API_BASE + '/assembler/analyze/', {
-      method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ upload_keys: clips.map((c) => c.key), filenames: clips.map((c) => c.name), mode }),
-    });
+    // The analyze POST is cheap and idempotent-enough to retry over a
+    // network blip (it only spawns the worker) - after a long upload the
+    // one thing that must not fail is this call.
+    let r = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt) await new Promise((res) => setTimeout(res, 1500 * attempt));
+      try {
+        r = await fetch(API_BASE + '/assembler/analyze/', {
+          method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ upload_keys: clips.map((c) => c.key), filenames: clips.map((c) => c.name), mode }),
+        });
+        if (r.status !== 502 && r.status !== 503 && r.status !== 504) break;
+      } catch (e) { r = null; }
+    }
+    if (!r) { showErr($('err'), 'ההעלאה הסתיימה אבל הניתוח לא התחיל (בעיית רשת) - נסו שוב.'); $('stage').textContent = ''; return; }
     if (!r.ok) { showErr($('err'), 'הניתוח נכשל (' + r.status + ')'); $('stage').textContent = ''; return; }
     const { call_id } = await r.json();
     const label = mode === 'clips'
@@ -803,8 +854,11 @@
   // ── Clips mode: candidate shorts with virality estimates ──
   const RUBRIC = [['hook', 'הוק'], ['retention', 'החזקה'], ['emotion', 'רגש'], ['clarity', 'בהירות'], ['shareability', 'שיתוף']];
   function scoreTier(n) { return n >= 70 ? 't3' : n >= 50 ? 't2' : n >= 30 ? 't1' : ''; }
+  let sourceKeys = [], sourceDur = [];   // streamable `_src.mp4` keys + durations per clip
   function renderCands(result) {
-    cands = (result.candidates || []).map((c, i) => ({ ...c, id: i, pick: true, hookText: c.hook || '' }));
+    sourceKeys = result.sources || [];
+    sourceDur = (result.clips || []).map((c) => Number(c.duration) || 0);
+    cands = (result.candidates || []).map((c, i) => ({ ...c, id: i, pick: true, hookText: c.hook || '', start0: c.start, end0: c.end }));
     $('clipsSummary').textContent = result.summary || '';
     // Some candidates may come back without a rubric (a scoring batch
     // failed server-side): they still render and can be created, they just
@@ -848,7 +902,42 @@
       title.textContent = c.title || ('קליפ ' + (c.id + 1));
       const time = document.createElement('div');
       time.className = 'c-time';
-      time.textContent = fmt(c.start) + ' - ' + fmt(c.end) + ' (' + Math.round(c.end - c.start) + ' שנ\')';
+      const setTime = () => { time.textContent = fmt(c.start) + ' - ' + fmt(c.end) + ' (' + Math.round(c.end - c.start) + ' שנ\')'; };
+      setTime();
+      // Trim steppers: extend or shrink by whole seconds on either side,
+      // bounded by the source (0 .. its duration) and a sane clip length.
+      const trim = document.createElement('div');
+      trim.className = 'c-trim';
+      const srcLen = sourceDur[c.clip || 0] || Infinity;
+      const mkStep = (label, apply) => {
+        const wrap = document.createElement('span'); wrap.className = 'step';
+        const minus = document.createElement('button'); minus.type = 'button'; minus.textContent = '−'; minus.title = 'שנייה פחות';
+        const plus = document.createElement('button'); plus.type = 'button'; plus.textContent = '+'; plus.title = 'שנייה יותר';
+        const val = document.createElement('span'); val.className = 'val';
+        const refresh = () => {
+          const before = Math.round(c.start0 - c.start), after = Math.round(c.end - c.end0);
+          val.textContent = (label === 'before' ? (before > 0 ? '+' + before : String(before)) : (after > 0 ? '+' + after : String(after))) + ' שנ\'';
+          if (label === 'before') { plus.disabled = c.start <= 0; minus.disabled = c.end - c.start <= 3; }
+          else { plus.disabled = c.end >= srcLen; minus.disabled = c.end - c.start <= 3; }
+          setTime();
+        };
+        minus.onclick = () => { apply(-1); refresh(); _syncPreview(c); };
+        plus.onclick = () => { apply(+1); refresh(); _syncPreview(c); };
+        wrap.append(document.createTextNode(label === 'before' ? 'לפני' : 'אחרי'), minus, val, plus);
+        wrap._refresh = refresh; refresh();
+        return wrap;
+      };
+      // "+1 before" = start moves EARLIER; "+1 after" = end moves LATER.
+      const stepBefore = mkStep('before', (d) => { c.start = Math.max(0, Math.min(c.end - 3, +(c.start - d).toFixed(2))); });
+      const stepAfter = mkStep('after', (d) => { c.end = Math.min(srcLen, Math.max(c.start + 3, +(c.end + d).toFixed(2))); });
+      const prevBtn = document.createElement('button');
+      prevBtn.type = 'button'; prevBtn.className = 'prev';
+      prevBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>תצוגה מקדימה';
+      prevBtn.onclick = () => togglePreview(c, prevBox, prevBtn);
+      trim.append(stepBefore, stepAfter, prevBtn);
+      const prevBox = document.createElement('div');
+      prevBox.className = 'c-preview';
+      c._ui = { prevBox, prevBtn, stepBefore, stepAfter };
       const hookRow = document.createElement('div');
       hookRow.className = 'c-hook';
       const hl = document.createElement('label');
@@ -888,7 +977,7 @@
         why.append(tip);
       }
       head.append(title, time);
-      meta.append(hookRow, quote, bars, why);
+      meta.append(trim, prevBox, hookRow, quote, bars, why);
       row.append(side, img, head, meta);
       box.appendChild(row);
     });
@@ -898,6 +987,40 @@
     const n = cands.filter((c) => c.pick).length;
     $('renderClipsBtn').textContent = n ? ('יצירת ' + n + ' קליפים') : 'בחרו לפחות קליפ אחד';
     $('renderClipsBtn').disabled = n === 0;
+  }
+
+  // ── In-place preview: stream the SOURCE from /media (range-capable) and
+  // play just [start, end] - media fragments for the seek, plus a
+  // timeupdate guard so every browser stops at the end. One open at a time.
+  let _openPreview = null;
+  async function togglePreview(c, box, btn) {
+    if (box.classList.contains('on')) { closePreview(); return; }
+    closePreview();
+    const srcKey = sourceKeys[c.clip || 0];
+    if (!srcKey) return;
+    await ensureMediaToken();
+    const v = document.createElement('video');
+    v.controls = true; v.playsInline = true; v.preload = 'metadata';
+    box.innerHTML = ''; box.appendChild(v); box.classList.add('on'); btn.classList.add('on');
+    _openPreview = { c, box, btn, v };
+    _syncPreview(c, true);
+  }
+  function _syncPreview(c, play) {
+    if (!_openPreview || _openPreview.c !== c) return;
+    const { v } = _openPreview;
+    const srcKey = sourceKeys[c.clip || 0];
+    const base = API_BASE + '/media/' + encodeURIComponent(srcKey) + '?token=' + encodeURIComponent(mediaToken);
+    v.src = base + '#t=' + c.start.toFixed(2) + ',' + c.end.toFixed(2);
+    v.ontimeupdate = () => { if (v.currentTime >= c.end - 0.05) { v.pause(); } };
+    v.onloadedmetadata = () => { if (Math.abs(v.currentTime - c.start) > 0.5) v.currentTime = c.start; };
+    if (play) v.play().catch(() => {});
+  }
+  function closePreview() {
+    if (!_openPreview) return;
+    try { _openPreview.v.pause(); _openPreview.v.removeAttribute('src'); _openPreview.v.load(); } catch (_) {}
+    _openPreview.box.classList.remove('on'); _openPreview.box.innerHTML = '';
+    _openPreview.btn.classList.remove('on');
+    _openPreview = null;
   }
 
   // Batch render: every picked candidate is its own render_story call (one
@@ -963,10 +1086,20 @@
           vid.controls = true; vid.playsInline = true; vid.src = url;
           tile.insertBefore(vid, st);
           st.innerHTML = '';
+          const acts = document.createElement('div');
+          acts.className = 'o-actions';
           const a = document.createElement('a');
           a.href = API_BASE + '/download/' + encodeURIComponent(result.video_key) + '?token=' + encodeURIComponent(mediaToken);
           a.download = ''; a.textContent = 'הורדה';
-          st.appendChild(a);
+          // Every render is recorded as a re-editable History job: this opens
+          // the clip in the main editor (captions styles, zoom, B-roll,
+          // hooks) - "export to the pipeline".
+          const ed = document.createElement('a');
+          ed.href = '/?edit=' + encodeURIComponent(result.video_key);
+          ed.target = '_blank'; ed.rel = 'noopener'; ed.className = 'edit-link';
+          ed.textContent = 'עריכה בפייפליין';
+          acts.append(a, ed);
+          st.appendChild(acts);
           st.classList.add('ok');
         } catch (e) {
           failed++;
@@ -1192,6 +1325,7 @@
     const url = API_BASE + '/media/' + encodeURIComponent(videoKey) + '?token=' + encodeURIComponent(mediaToken);
     $('outVideo').src = url;
     $('dlLink').href = API_BASE + '/download/' + encodeURIComponent(videoKey) + '?token=' + encodeURIComponent(mediaToken);
+    $('editLink').href = '/?edit=' + encodeURIComponent(videoKey);
     $('result').style.display = 'block';
     $('result').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }

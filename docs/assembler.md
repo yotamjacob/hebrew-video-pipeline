@@ -137,6 +137,41 @@ degrades to "skipped" in the worker - the cut always ships.
 
 Tests: `tests/backend/test_assembler_branding.py`, `tests/frontend/assembler_branding.spec.js`.
 
+## Trim steppers, previews, export to the pipeline (2026-08-16, later)
+
+- **Trim steppers** (clips mode, `.c-trim`): "לפני −/+" moves the START
+  earlier/later, "אחרי −/+" moves the END, whole seconds, bounded by the
+  source (`sourceDur` from `result.clips[].duration`) and a 3 s minimum;
+  the render payload simply uses the adjusted `c.start/c.end`
+  (`start0/end0` keep the model's proposal for the "+2 שנ'" readout).
+- **Preview** (`.c-trim .prev` → `.c-preview`): analyze now returns
+  `sources` = the uid-prefixed `_src.mp4` keys; the page streams that
+  through `/media` (range-capable, media-token auth) with a media fragment
+  `#t=start,end` plus a `timeupdate` guard that pauses at `end` (Safari
+  ignores the fragment's end). One preview open at a time; the steppers
+  re-sync an open preview.
+- **Export to the pipeline = every render is a re-editable History job.**
+  `render_story` now composes in this order: body parts (fades + WATERMARK
+  inside the part encode) → intro/outro concat → VO mix → save the
+  composed, UN-captioned video as `{key}{suffix}_cut.mp4` → captions +
+  hook burned LAST on the full timeline (events and hook `start_seconds`
+  shifted by `intro_len`) → `_out.mp4`. `_record_job(..., edit_state=
+  {src_key: cut_key, captions: events, hook, broll: [], font "Heebo",
+  font_size 48, margin_v_pct 0.08, caption_style {}})` - the exact shape a
+  burn records (docs/outputs.md), so History shows the pencil, prune pins
+  the cut for 30 days, and `/jobs/{key}/edit` rehydrates the main editor
+  (restyle captions, zoom, B-roll, hooks, re-burn). Result tiles and the
+  story result link to `/?edit=<out key>`; `app.js` `showApp()` consumes
+  `?edit=` once (validated key, stripped via `replaceState`, wins over the
+  auto-resume) and calls `editFromHistory({key})`. Verified on production:
+  job `editable: true`, edit state served, first caption at 3.03 s after a
+  3 s intro, cut source streams.
+- **Upload robustness**: `/upload_r2/complete` is retried 5x with backoff
+  (idempotent server-side; a dropped POST after a 500MB upload surfaced as
+  "Failed to fetch") and the analyze POST 4x on network errors / 5xx, with
+  a specific message when the upload finished but the analyze never
+  started.
+
 ## Roadmap (agreed 2026-08-13)
 
 Phase 2 (multi-clip) SHIPPED same day - up to 5 clips, cross-clip storyboard

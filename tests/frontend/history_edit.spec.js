@@ -206,3 +206,23 @@ test('a pruned source explains itself instead of opening a broken editor', async
   await expect(page.locator('.history-card').first()
     .locator('.history-actions button')).toHaveCount(3);
 });
+
+test('/?edit=<key> deep link opens that job in the editor and strips the param', async ({ page }) => {
+  // The assembler page links here ("edit in the pipeline"): the editor
+  // opens on the History job without visiting the History tab, and the
+  // query is consumed so a reload does not re-trigger it.
+  await mockAllApis(page);
+  await mockJobs(page, [EDITABLE_JOB]);
+  await mockEditState(page);
+  await page.route(/\/thumbnail\//, r => r.fulfill({ status: 404, body: '' }));
+  const editCalls = [];
+  await page.route(/\/jobs\/.*\/edit/, (route, request) => {
+    editCalls.push(request.url());
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(EDIT_STATE) });
+  });
+  await page.goto('/?edit=' + encodeURIComponent(EDITABLE_JOB.key));
+  await expect(page.locator('#captionEditorCard')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('#historyEditHint')).toBeVisible();
+  expect(editCalls.some(u => u.includes(EDITABLE_JOB.key))).toBe(true);
+  await expect.poll(() => page.evaluate(() => location.search)).toBe('');
+});

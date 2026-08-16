@@ -186,9 +186,10 @@ class TestClipsContracts:
         assert "tighten: bool = False, hook_text: str = \"\"" in block
         assert "_tighten_windows(windows, clip_segments)" in block
         # Hook rides the shared builder's hook box, bounded duration.
-        assert '"start_seconds": 0.2' in block
+        assert '"start_seconds": round(intro_len + 0.2, 2)' in block
         assert "events, hook)" in block
-        assert 'f"{upload_keys[0]}_{variant}_out.mp4" if variant' in block
+        assert 'suffix = f"_{variant}" if variant else ""' in block
+        assert 'out_key = f"{upload_keys[0]}{suffix}_out.mp4"' in block
 
     def test_routes_forward_and_bound_the_new_fields(self):
         i = MODAL_SRC.index('("/assembler/analyze"')

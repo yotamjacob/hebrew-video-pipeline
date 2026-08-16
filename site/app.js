@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.51.0';
+  const APP_VERSION = '1.52.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -321,6 +321,22 @@
     // app (e.g. from the "ready to edit" push) lands straight back in the
     // flow; when processing finished while away, the poll returns instantly
     // and the editor + preview load immediately.
+    // Deep link from the assembler page: /?edit=<job key> reopens that
+    // History job in the editor ("export to the pipeline", 2026-08-16).
+    // Wins over the auto-resume - the user just clicked it. Consumed once
+    // and stripped from the URL so a reload doesn't re-trigger it.
+    let _editKey = '';
+    try {
+      const _sp = new URLSearchParams(location.search);
+      _editKey = (_sp.get('edit') || '').trim();
+      if (_editKey && !/^[a-zA-Z0-9_\-\.]{1,128}$/.test(_editKey)) _editKey = '';
+      if (_sp.has('edit')) { _sp.delete('edit'); history.replaceState(null, '', location.pathname + (_sp.toString() ? '?' + _sp.toString() : '') + location.hash); }
+    } catch (_) {}
+    if (_editKey && !window.__editLinkStarted) {
+      window.__editLinkStarted = true;
+      setTimeout(() => { editFromHistory({ key: _editKey }).catch(e => console.warn('edit link failed', e)); }, 80);
+      return;
+    }
     if (!window.__resumeStarted && loadSavedJob()) {
       window.__resumeStarted = true;
       setTimeout(() => { resumeSavedJob().catch(e => console.warn('auto-resume failed', e)); }, 50);

@@ -25,6 +25,7 @@ const CANDS = {
   ],
   issues: ['batch 3: ValueError: unparseable answer'],
   clips: [{ name: 'podcast.mp4', duration: 3600 }],
+  sources: ['u1234__srckey_src.mp4'],
 };
 
 async function boot(page, { analyzePosts = [], renderPosts = [] } = {}) {
@@ -107,6 +108,27 @@ test('clips flow: upload -> scored candidates -> curate -> batch render', async 
   await expect(rows.nth(0).locator('.c-why .tip')).toContainText('טיפ:');
   await expect(rows.nth(1).locator('.c-why .tip')).toHaveCount(0);   // empty tip -> no line
   await expect(rows.nth(0).locator('.c-time')).toContainText('10:12 - 10:55 (43 שנ\')');
+  // Trim steppers: "+1 before" moves the start earlier, "+1 after" the end later.
+  const stepBtns = rows.nth(0).locator('.c-trim .step');
+  await stepBtns.nth(0).locator('button').nth(1).click();   // before +
+  await stepBtns.nth(0).locator('button').nth(1).click();   // before +
+  await stepBtns.nth(1).locator('button').nth(1).click();   // after +
+  await stepBtns.nth(1).locator('button').nth(0).click();   // after -
+  await stepBtns.nth(1).locator('button').nth(0).click();   // after -  (net -1)
+  await expect(stepBtns.nth(0).locator('.val')).toHaveText('+2 שנ\'');
+  await expect(stepBtns.nth(1).locator('.val')).toHaveText('-1 שנ\'');
+  await expect(rows.nth(0).locator('.c-time')).toContainText('10:10 - 10:54 (44 שנ\')');
+  // Preview: streams the source from /media, scoped to the (adjusted) window.
+  await rows.nth(0).locator('.c-trim .prev').click();
+  const pv = rows.nth(0).locator('.c-preview video');
+  await expect(pv).toHaveCount(1);
+  await expect(pv).toHaveAttribute('src', /\/media\/u1234__srckey_src\.mp4\?token=m\.test#t=610\.30,653\.90$/);
+  // Opening another preview closes the first (one at a time).
+  await rows.nth(1).locator('.c-trim .prev').click();
+  await expect(rows.nth(0).locator('.c-preview video')).toHaveCount(0);
+  await expect(rows.nth(1).locator('.c-preview video')).toHaveCount(1);
+  await rows.nth(1).locator('.c-trim .prev').click();   // toggle off
+  await expect(rows.nth(1).locator('.c-preview video')).toHaveCount(0);
   // Hook input prefilled from the model, editable.
   await expect(rows.nth(0).locator('.hook-input')).toHaveValue('הטעות שעלתה לי מיליון שקל');
   await rows.nth(0).locator('.hook-input').fill('המיליון שאיבדתי בגלל סעיף אחד');
@@ -125,7 +147,7 @@ test('clips flow: upload -> scored candidates -> curate -> batch render', async 
   const byTitle = Object.fromEntries(renderPosts.map(p => [p.filename, p]));
   const p1 = byTitle['הטעות שעלתה לי מיליון.mp4'], p2 = byTitle['למה משקיעים אומרים לא.mp4'];
   expect(p1).toBeTruthy(); expect(p2).toBeTruthy();
-  expect(p1.segments).toEqual([[0, 612.3, 654.9]]);
+  expect(p1.segments).toEqual([[0, 610.3, 653.9]]);   // the stepper-adjusted window
   expect(p2.segments).toEqual([[0, 1502.0, 1531.5]]);
   expect(p1.hook_text).toBe('המיליון שאיבדתי בגלל סעיף אחד');   // the edited hook
   expect(p2.hook_text).toBe('שלוש סיבות שמשקיע אומר לא');
@@ -141,7 +163,9 @@ test('clips flow: upload -> scored candidates -> curate -> batch render', async 
   await expect(page.locator('#clipsOut')).toBeVisible();
   await expect(page.locator('.out')).toHaveCount(2);
   await expect(page.locator('.out video')).toHaveCount(2);
-  await expect(page.locator('.out a')).toHaveCount(2);
+  await expect(page.locator('.out a')).toHaveCount(4);   // download + edit-in-pipeline per clip
+  // "Export to the pipeline": deep link into the main editor on this History job.
+  await expect(page.locator('.out .edit-link').first()).toHaveAttribute('href', /^\/\?edit=u1234__abc_c\d_out\.mp4$/);
   await expect(page.locator('#clipsStage')).toContainText('כל 2 הקליפים מוכנים');
 });
 
