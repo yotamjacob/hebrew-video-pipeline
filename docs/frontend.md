@@ -1,6 +1,8 @@
 # Frontend UI conventions
 
 Deep contracts moved out of CLAUDE.md (2026-08-09) to keep the always-loaded core lean.
+**Redirects / indexing (2026-08-17, Search Console "Page with redirect")** — the only redirecting URLs are the `http://` (Vercel, 308) and `www.` variants: `www.hebrew-pipeline.app` was an UNCLAIMED subdomain that Vercel served with a generic 307; it is now attached to the `site` project as a permanent 308 redirect to the apex (Vercel API `POST /v10/projects/{id}/domains {redirect, redirectStatusCode: 308}` - the same setup as the other domains). GSC listing http:// / www URLs there is expected and correct (Google indexes the target). Also in root `vercel.json` (mirrored in `site/vercel.json`): `/index.html` -> `/` 308, and the SPA catch-all rewrite (`/(.*)` -> index.html) is GONE - it served `index.html` with 200 for ANY path (soft-duplicates); nothing in the app uses path routing (only query strings such as `?tab=`, `?edit=`), so unknown paths now 404. Kept rewrites: `/welcome`, `/assembler`. Sitemap URLs (`/`, `/welcome`, `/legal.html`) all 200 with self-canonicals.
+
 **Read this file fully before changing** the design system, footer, tab caching, celebrations, error telemetry, or frontend test conventions. Everything here is load-bearing;
 update it in place when behavior changes.
 

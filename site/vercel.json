@@ -1,7 +1,26 @@
 {
+  "framework": null,
+  "buildCommand": "",
+  "outputDirectory": "site",
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "www.hebrew-pipeline.app" }],
+      "destination": "https://hebrew-pipeline.app/$1",
+      "permanent": true
+    },
+    { "source": "/index.html", "destination": "/", "permanent": true }
+  ],
   "rewrites": [
     { "source": "/welcome", "destination": "/welcome.html" },
-    { "source": "/assembler", "destination": "/assembler.html" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/assembler", "destination": "/assembler.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin-allow-popups" }
+      ]
+    }
   ]
 }
