@@ -3473,7 +3473,7 @@ def api():
                     wm = None
             # Auto-reframe (2026-08-16): only "9:16" is a valid value; the
             # worker ignores it for sources that are already vertical.
-            reframe = "9:16" if data.get("reframe") == "9:16" else None
+            reframe = data.get("reframe") if data.get("reframe") in ("9:16", "fit") else None
             try:
                 await asyncio.to_thread(tmp_vol.commit)   # flush before the worker reads
                 call = render_story.spawn([f"{uprefix}{k}" for k in keys],

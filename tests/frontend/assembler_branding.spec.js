@@ -8,7 +8,7 @@ const { API_BASE } = require('./helpers');
 const THUMB = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/APvSiigD/9k=';
 // 1x1 transparent PNG.
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
-const CANDS = { mode: 'clips', duration: 600, summary: 's', clips: [{ name: 'p.mp4', duration: 600 }], candidates: [
+const CANDS = { mode: 'clips', duration: 600, summary: 's', clips: [{ name: 'p.mp4', duration: 600 }], sources: ['u1__s_src.mp4'], candidates: [
   { clip: 0, start: 10, end: 40, duration: 30, title: 'A', hook: 'h1', quote: 'q', score: 70, thumb: THUMB, virality: { hook: 7, retention: 7, emotion: 7, clarity: 7, shareability: 7, reasoning: 'r', tip: '' } },
   { clip: 0, start: 100, end: 130, duration: 30, title: 'B', hook: 'h2', quote: 'q', score: 60, thumb: THUMB, virality: { hook: 6, retention: 6, emotion: 6, clarity: 6, shareability: 6, reasoning: 'r', tip: '' } },
 ] };
@@ -150,8 +150,12 @@ test('output format 9:16 rides the payload, is remembered, and the watermark sta
   const renderPosts = [];
   await boot(page, { renderPosts });
   await expect(page.locator('#frameOrig')).toHaveClass(/on/);
+  // Three-way: as source / full frame ("fit") / tracked crop ("9:16").
+  await page.locator('#frameFit').click();
+  await expect(page.locator('#frameFit')).toHaveClass(/on/);
   await page.locator('#frameVert').click();
   await expect(page.locator('#frameVert')).toHaveClass(/on/);
+  await expect(page.locator('#frameFit')).not.toHaveClass(/on/);
   await page.setInputFiles('#wmFile', { name: 'logo.png', mimeType: 'image/png', buffer: PNG });
   await expect(page.locator('#wmStage')).toBeVisible();
   // No source dims are known in the stubbed flow (1MB zero buffer): the
@@ -174,4 +178,26 @@ test('output format 9:16 rides the payload, is remembered, and the watermark sta
   await page.locator('#renderClipsBtn').click();
   await expect.poll(() => posts2.length).toBe(2);
   expect(posts2.every(p => p.reframe === undefined)).toBe(true);
+});
+
+test('preview mirrors the output format: full-frame shows a blurred copy, crop shows a cover box, as-source is plain', async ({ page }) => {
+  await boot(page);
+  const row = page.locator('.cand').first();
+  await row.locator('.c-trim .prev').click();
+  await expect(row.locator('.c-preview video')).toHaveCount(1);          // plain
+  await expect(row.locator('.c-preview')).not.toHaveClass(/vert/);
+  await page.locator('#frameFit').click();                                // rebuilds the open preview
+  await expect(row.locator('.c-preview')).toHaveClass(/vert/);
+  await expect(row.locator('.c-preview .pv-box video')).toHaveCount(2);   // main + blurred bg
+  await expect(row.locator('.c-preview .pv-box video.bg')).toHaveCount(1);
+  await expect(row.locator('.c-preview .pv-note')).toContainText('הפריים המלא');
+  await page.locator('#frameVert').click();
+  await expect(row.locator('.c-preview')).toHaveClass(/crop/);
+  await expect(row.locator('.c-preview .pv-box video')).toHaveCount(1);   // cover, no bg
+  await page.locator('#frameOrig').click();
+  await expect(row.locator('.c-preview')).not.toHaveClass(/vert/);
+  await expect(row.locator('.c-preview video')).toHaveCount(1);
+  // The trim steppers re-point the open preview at the new window.
+  await row.locator('.c-trim .step').nth(0).locator('button').nth(1).click();   // before +1
+  await expect(row.locator('.c-preview video')).toHaveAttribute('src', /#t=9\.00,40\.00$/);
 });

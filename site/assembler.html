@@ -216,7 +216,18 @@
     .c-trim .prev.on { border-color: var(--terracotta); color: var(--terracotta-dark); }
     .c-preview { margin-top: 8px; display: none; }
     .c-preview.on { display: block; }
-    .c-preview video { width: 100%; max-height: 360px; border-radius: 10px; background: #000; }
+    .c-preview video { width: 100%; max-height: 360px; border-radius: 10px; background: #000; display: block; }
+    /* Vertical previews mirror the output format: a 9:16 box; "fit" =
+       whole frame contained over a blurred copy, "crop" = centered cover
+       (the real render tracks the speaker - the preview approximates). */
+    .c-preview.vert { max-width: 250px; margin-inline: auto; }
+    .c-preview.vert .pv-box { position: relative; aspect-ratio: 9 / 16; background: #000; border-radius: 10px; overflow: hidden; }
+    .c-preview.vert .pv-box video { position: absolute; inset: 0; width: 100%; height: 100%; max-height: none; border-radius: 0; object-fit: contain; }
+    .c-preview.vert.crop .pv-box video.main { object-fit: cover; }
+    .c-preview.vert .pv-box video.bg { inset: -12%; width: 124%; height: 124%; object-fit: cover; filter: blur(14px) brightness(0.85); pointer-events: none; }
+    .c-preview .pv-note { font-size: 0.7rem; color: var(--muted); text-align: center; margin-top: 4px; }
+    #frameRow .mode-btn { padding: 8px 8px; font-size: 0.8rem; }
+    @media (max-width: 520px) { #frameRow { flex-direction: column; } }
     .out .o-actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
     .out .o-actions a { font-size: 0.8rem; }
     .c-hook { display: flex; align-items: center; gap: 6px; }
@@ -315,8 +326,9 @@
   <div class="card" id="brandCard" style="display:none">
     <h2>2 · פורמט ומיתוג (רשות)</h2>
     <div class="mode-row" role="tablist" id="frameRow" style="margin-bottom:6px">
-      <button type="button" class="mode-btn on" id="frameOrig" role="tab" aria-selected="true">כמו המקור<small>ללא חיתוך</small></button>
-      <button type="button" class="mode-btn" id="frameVert" role="tab" aria-selected="false">אנכי 9:16 עם מעקב אחרי הדובר<small>לסרטונים רוחביים - חיתוך אוטומטי שעוקב אחרי הפנים</small></button>
+      <button type="button" class="mode-btn on" id="frameOrig" role="tab" aria-selected="true">כמו המקור<small>ללא שינוי</small></button>
+      <button type="button" class="mode-btn" id="frameFit" role="tab" aria-selected="false">אנכי 9:16 - הפריים המלא<small>כל התמונה נשמרת, רקע מטושטש ממלא</small></button>
+      <button type="button" class="mode-btn" id="frameVert" role="tab" aria-selected="false">אנכי 9:16 - חיתוך עם מעקב דובר<small>חיתוך לגובה מלא שעוקב אחרי הפנים</small></button>
     </div>
     <p class="brand-hint" id="frameHint" style="margin:0 0 14px">מקורות שכבר אנכיים לא משתנים.</p>
     <div class="brand-grid">
@@ -725,25 +737,27 @@
   // sources (server-side, see docs/assembler.md). The watermark preview
   // stage follows the OUTPUT aspect so the logo lands where it shows.
   function setFrame(v) {
-    brand.reframe = v === '9:16' ? '9:16' : '';
-    $('frameOrig').classList.toggle('on', !brand.reframe);
-    $('frameVert').classList.toggle('on', !!brand.reframe);
-    $('frameOrig').setAttribute('aria-selected', String(!brand.reframe));
-    $('frameVert').setAttribute('aria-selected', String(!!brand.reframe));
+    brand.reframe = (v === '9:16' || v === 'fit') ? v : '';
+    [['frameOrig', ''], ['frameFit', 'fit'], ['frameVert', '9:16']].forEach(([id, val]) => {
+      $(id).classList.toggle('on', brand.reframe === val);
+      $(id).setAttribute('aria-selected', String(brand.reframe === val));
+    });
     _applyStageAspect();
+    _applyPreviewFormat();
   }
   $('frameOrig').addEventListener('click', () => { setFrame(''); _saveBrand(); });
+  $('frameFit').addEventListener('click', () => { setFrame('fit'); _saveBrand(); });
   $('frameVert').addEventListener('click', () => { setFrame('9:16'); _saveBrand(); });
   function _applyStageAspect() {
     const st = $('wmStage');
     const srcLandscape = srcDims && srcDims.w > srcDims.h;
-    const vertical = brand.reframe === '9:16' && srcLandscape;
+    const vertical = !!brand.reframe && srcLandscape;
     st.classList.toggle('landscape', !!srcLandscape && !vertical);
     if (vertical) st.style.aspectRatio = '9 / 16';
     else if (srcDims) st.style.aspectRatio = srcDims.w + ' / ' + srcDims.h;
     else st.style.aspectRatio = '';
     if (srcDims) $('frameHint').textContent = srcLandscape
-      ? 'המקור רוחבי - החיתוך האנכי יעקוב אחרי הדובר (או ימרכז שני דוברים כשהם קרובים).'
+      ? 'המקור רוחבי. "הפריים המלא" שומר את כל התמונה על רקע מטושטש; "חיתוך עם מעקב" חותך לגובה מלא ועוקב אחרי הדובר (או ממרכז שני דוברים קרובים).'
       : 'המקור כבר אנכי - הבחירה לא משנה אותו.';
     _layoutWm();
   }
@@ -755,7 +769,7 @@
       if (saved.wmDataUrl) { brand.wmDataUrl = saved.wmDataUrl; brand.wmName = saved.wmName || 'logo'; }
       if (saved.fadeOn) $('fadeToggle').checked = true;
       if (saved.fadeDur) $('fadeDur').value = String(saved.fadeDur);
-      if (saved.reframe === '9:16') setFrame('9:16');
+      if (saved.reframe === '9:16' || saved.reframe === 'fit') setFrame(saved.reframe);
     } catch (_) {}
   }
   function _saveBrand() {
@@ -879,7 +893,7 @@
     if (brand.intro) out.intro_key = await up('intro', brand.intro);
     if (brand.outro) out.outro_key = await up('outro', brand.outro);
     if ($('fadeToggle').checked) out.fade = parseFloat($('fadeDur').value) || 0.5;
-    if (brand.reframe === '9:16') out.reframe = '9:16';
+    if (brand.reframe) out.reframe = brand.reframe;
     if (brand.wmDataUrl) {
       const blob = brand.wmFile || (brand._wmBlob || (brand._wmBlob = _dataUrlToBlob(brand.wmDataUrl)));
       out.wm_key = await up('wm', blob);
@@ -1037,26 +1051,74 @@
     const srcKey = sourceKeys[c.clip || 0];
     if (!srcKey) return;
     await ensureMediaToken();
-    const v = document.createElement('video');
-    v.controls = true; v.playsInline = true; v.preload = 'metadata';
-    box.innerHTML = ''; box.appendChild(v); box.classList.add('on'); btn.classList.add('on');
-    _openPreview = { c, box, btn, v };
+    box.classList.add('on'); btn.classList.add('on');
+    _openPreview = { c, box, btn, v: null, bg: null };
+    _applyPreviewFormat();
     _syncPreview(c, true);
   }
-  function _syncPreview(c, play) {
+  // (Re)build the open preview's DOM for the current output format: plain
+  // video for "as source"; a 9:16 box for the vertical modes - "fit" =
+  // contained frame over a blurred copy of itself, "crop" = centered cover.
+  function _applyPreviewFormat() {
+    if (!_openPreview) return;
+    const { c, box } = _openPreview;
+    const wasTime = _openPreview.v ? _openPreview.v.currentTime : null;
+    const wasPlaying = !!(_openPreview.v && !_openPreview.v.paused);
+    const landscape = !srcDims || srcDims.w > srcDims.h;
+    const mode = (brand.reframe && landscape) ? brand.reframe : '';
+    box.innerHTML = '';
+    box.classList.toggle('vert', !!mode);
+    box.classList.toggle('crop', mode === '9:16');
+    const v = document.createElement('video');
+    v.controls = true; v.playsInline = true; v.preload = 'metadata'; v.className = 'main';
+    let bg = null;
+    if (mode) {
+      const pv = document.createElement('div'); pv.className = 'pv-box';
+      if (mode === 'fit') {
+        bg = document.createElement('video');
+        bg.muted = true; bg.playsInline = true; bg.preload = 'metadata'; bg.className = 'bg';
+        pv.appendChild(bg);
+      }
+      pv.appendChild(v);
+      box.appendChild(pv);
+      const note = document.createElement('div'); note.className = 'pv-note';
+      note.textContent = mode === 'fit' ? 'תצוגה מקדימה: הפריים המלא על רקע מטושטש' : 'תצוגה מקדימה: חיתוך ממורכז - בסרטון הסופי החיתוך עוקב אחרי הדובר';
+      box.appendChild(note);
+    } else {
+      box.appendChild(v);
+    }
+    _openPreview.v = v; _openPreview.bg = bg;
+    if (bg) {
+      // Keep the blurred copy in step with the main video.
+      v.addEventListener('play', () => bg.play().catch(() => {}));
+      v.addEventListener('pause', () => bg.pause());
+      v.addEventListener('seeked', () => { bg.currentTime = v.currentTime; });
+      v.addEventListener('timeupdate', () => { if (Math.abs(bg.currentTime - v.currentTime) > 0.4) bg.currentTime = v.currentTime; });
+    }
+    _syncPreview(c, wasPlaying, wasTime);
+  }
+  function _syncPreview(c, play, resumeAt) {
     if (!_openPreview || _openPreview.c !== c) return;
-    const { v } = _openPreview;
+    const { v, bg } = _openPreview;
     const srcKey = sourceKeys[c.clip || 0];
     const base = API_BASE + '/media/' + encodeURIComponent(srcKey) + '?token=' + encodeURIComponent(mediaToken);
-    v.src = base + '#t=' + c.start.toFixed(2) + ',' + c.end.toFixed(2);
+    const startAt = (typeof resumeAt === 'number' && resumeAt >= c.start && resumeAt < c.end) ? resumeAt : c.start;
+    const url = base + '#t=' + startAt.toFixed(2) + ',' + c.end.toFixed(2);
+    v.src = url;
+    if (bg) bg.src = url;
     v.ontimeupdate = () => { if (v.currentTime >= c.end - 0.05) { v.pause(); } };
-    v.onloadedmetadata = () => { if (Math.abs(v.currentTime - c.start) > 0.5) v.currentTime = c.start; };
+    // Some browsers keep the old frame after a src change while paused:
+    // seek explicitly once metadata is in so the new start shows.
+    v.onloadedmetadata = () => { if (Math.abs(v.currentTime - startAt) > 0.3) v.currentTime = startAt; };
     if (play) v.play().catch(() => {});
   }
   function closePreview() {
     if (!_openPreview) return;
-    try { _openPreview.v.pause(); _openPreview.v.removeAttribute('src'); _openPreview.v.load(); } catch (_) {}
-    _openPreview.box.classList.remove('on'); _openPreview.box.innerHTML = '';
+    for (const el of [_openPreview.v, _openPreview.bg]) {
+      if (!el) continue;
+      try { el.pause(); el.removeAttribute('src'); el.load(); } catch (_) {}
+    }
+    _openPreview.box.classList.remove('on', 'vert', 'crop'); _openPreview.box.innerHTML = '';
     _openPreview.btn.classList.remove('on');
     _openPreview = null;
   }

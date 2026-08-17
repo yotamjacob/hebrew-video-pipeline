@@ -76,7 +76,7 @@ class TestBrandingContracts:
         assert "_watermark_filter(wm, cw, \"[v]\", \"[vout]\")" in block
         assert 'cmd += ["-filter_complex", graph, "-map", "[vout]", "-map", a_map]' in block
         assert "logo=wm_path" in block                    # body parts only
-        assert "_has_audio(src), fade, fade))" in block   # intro/outro: no logo kwarg
+        assert "_has_audio(src), fade, fade," in block    # intro/outro: no logo kwarg (only the fit pre)
         assert "watermark unavailable - skipped" in block
         assert "_image_ext(raw)" in block
 

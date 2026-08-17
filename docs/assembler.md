@@ -216,9 +216,34 @@ follows her continuously (peak pan ~10% W/s), a bowed-face gap is bridged,
 hook + fade + watermark ride the vertical canvas. Cost: ~3 samples/s of
 YuNet (~40 ms each) + the same encodes as before.
 
+**"fit" mode (2026-08-17, user: "it needs to contain all the frame - actually
+convert it to portrait, not just cut the sides")** - `reframe="fit"`: the
+WHOLE landscape frame is kept, fitted to the width of a portrait canvas
+(`_fit_dims`: width = min(source width, 1080), height 16/9 of it -> a
+1920x1080 talk becomes 1080x1920) and centered over a blurred, zoomed-to-
+cover copy of itself (`_fit_chain`: split -> bg scaled to cover at 1/8
+size, gblur sigma 4, -6% brightness, upscaled - same look as a full-res
+blur at a fraction of the CPU -> fg scaled to width -> overlay centered).
+Applied as the `pre` sub-graph of every body part AND of landscape
+intro/outro (`_pre_for`), so the whole output shares one look; because it
+is a labeled sub-graph, `_encode_part` now ALWAYS uses `-filter_complex`.
+The page's format control is three-way (`#frameOrig` / `#frameFit` /
+`#frameVert`), persisted; the watermark stage goes 9:16 for both vertical
+modes. Verified on production: 1080x1920, hook + watermark on the canvas,
+the landscape intro fitted the same way.
+
+**Previews follow the selection (2026-08-17):** the candidate preview is
+rebuilt on every format change (`_applyPreviewFormat`, keeps the playhead):
+plain video for "as source"; a 9:16 `.pv-box` for the vertical modes -
+"fit" = main video contained over a muted blurred copy kept in step
+(play/pause/seek/drift-sync), "9:16" = centered `object-fit: cover` with a
+note that the render tracks the speaker. Trim steppers re-point the open
+preview at the new window (explicit seek after the src change - some
+browsers keep the old frame while paused).
+
 Not done: audio-based active-speaker switching (needs diarization), split-
 screen two-shots when the speakers are far apart (we follow the larger
-face), a preview of the crop on the page.
+face).
 
 ## Prompt-steered selection (2026-08-16)
 

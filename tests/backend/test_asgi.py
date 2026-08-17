@@ -682,7 +682,7 @@ class TestAssemblerRoutes:
         i = MODAL_SRC.index("def analyze_story")
         assert "no transcribable audio" in MODAL_SRC[i:i + 6000]
         j = MODAL_SRC.index("def render_story")
-        rblock = MODAL_SRC[j:j + 9000]
+        rblock = MODAL_SRC[j:j + 14000]
         assert "anullsrc=r=48000:cl=stereo" in rblock
         assert "_has_audio" in rblock
 

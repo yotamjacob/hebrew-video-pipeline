@@ -115,14 +115,28 @@ class TestReframeContracts:
     def test_wired_into_body_parts_only_and_canvas(self):
         i = MODAL_SRC.index("def render_story")
         block = MODAL_SRC[i:i + 22000]
-        assert 'reframe = "9:16" if reframe == "9:16" else None' in block
+        assert 'reframe = reframe if reframe in ("9:16", "fit") else None' in block
         assert "def _crop_dims(ci):" in block
         assert "cw, ch = _crop_dims(first_ci) or src_dims[first_ci]" in block
         assert "_reframe_samples(sources[ci], a, b, tmp" in block
         assert "pre = f\"crop={crop_w}:{crop_h}:x='{_crop_x_expr(plan, sw, crop_w)}':y=0\"" in block
         assert "logo=wm_path, pre=pre))" in block
-        # intro/outro never get the crop
-        assert "_has_audio(src), fade, fade))" in block
+        # intro/outro never get the tracked crop (only the "fit" pre)
+        assert "_has_audio(src), fade, fade,\n" in block
+
+    def test_fit_mode_keeps_the_whole_frame_over_a_blurred_fill(self):
+        i = MODAL_SRC.index("def render_story")
+        block = MODAL_SRC[i:i + 24000]
+        assert 'reframe = reframe if reframe in ("9:16", "fit") else None' in block
+        assert "def _fit_dims(dims):" in block and "w = min(1080, sw)" in block
+        # blur at 1/8 scale then upscale; foreground fitted to width, centered
+        assert "gblur=sigma=4" in block and "[fg]scale={cw}:-2[fgs]" in block
+        assert "[bgb][fgs]overlay=(W-w)/2:(H-h)/2" in block
+        # applied to body parts and to landscape intro/outro alike
+        assert "pre = _pre_for(src_dims[ci])" in block
+        assert "pre=_pre_for(_probe_dims(src))" in block
+        # every part now goes through -filter_complex (labeled sub-graphs)
+        assert 'cmd += ["-filter_complex", f"[0:v]{norm_here}{vf_fade}[vout]", "-map", "[vout]", "-map", a_map]' in block
 
     def test_probe_dims_is_rotation_aware(self):
         i = MODAL_SRC.index("def _probe_dims")
@@ -133,5 +147,5 @@ class TestReframeContracts:
     def test_route_forwards_reframe(self):
         i = MODAL_SRC.index('("/assembler/render"')
         block = MODAL_SRC[i:i + 7000]
-        assert 'reframe = "9:16" if data.get("reframe") == "9:16" else None' in block
+        assert 'reframe = data.get("reframe") if data.get("reframe") in ("9:16", "fit") else None' in block
         assert "wm,\n                                          reframe)" in block

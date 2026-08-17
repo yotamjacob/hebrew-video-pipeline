@@ -1054,7 +1054,10 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
     intro/outro/watermark/captions follow. Portrait sources are untouched.
     Sampling failure -> a centered static crop, never a failed render."""
     from pipeline_fns import _record_job
-    reframe = "9:16" if reframe == "9:16" else None
+    # "9:16" = speaker-tracked full-height CROP; "fit" = the WHOLE landscape
+    # frame kept, centered on a portrait canvas over a blurred, zoomed copy
+    # of itself (2026-08-17 - "convert it to portrait, not just cut the sides").
+    reframe = reframe if reframe in ("9:16", "fit") else None
     fade = max(0.0, min(3.0, float(fade or 0)))
     wm = wm if isinstance(wm, dict) else None
 
@@ -1106,18 +1109,61 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
         # audio params, so the concat-demuxer copy is always safe.
         src_dims = {ci: _probe_dims(sources[ci]) for ci in {w[0] for w in windows}}
 
+        def _is_wide(dims):
+            """Wider than 9:16 by a margin - i.e. there is something to reframe."""
+            sw, sh = dims
+            return sw > int(round(sh * 9 / 16.0)) + 8
+
         def _crop_dims(ci):
             """(crop_w, crop_h) of a full-height 9:16 window for source ci,
             or None when it is not wider than 9:16 (nothing to reframe)."""
             sw, sh = src_dims[ci]
             want = int(round(sh * 9 / 16.0))
             want -= want % 2
-            return (want, sh) if reframe and sw > want + 8 else None
+            return (want, sh) if reframe == "9:16" and _is_wide((sw, sh)) else None
+
+        def _fit_dims(dims):
+            """Portrait canvas for "fit": width = the source width capped at
+            1080 (a 1920x1080 talk becomes 1080x1920, a 1280x720 one
+            720x1280), height = 16/9 of it."""
+            sw, sh = dims
+            w = min(1080, sw)
+            w -= w % 2
+            h = int(round(w * 16 / 9.0))
+            h -= h % 2
+            return (w, h)
 
         first_ci = windows[0][0]
-        cw, ch = _crop_dims(first_ci) or src_dims[first_ci]
+        if reframe == "fit" and _is_wide(src_dims[first_ci]):
+            cw, ch = _fit_dims(src_dims[first_ci])
+        else:
+            cw, ch = _crop_dims(first_ci) or src_dims[first_ci]
         norm = (f"scale={cw}:{ch}:force_original_aspect_ratio=decrease,"
                 f"pad={cw}:{ch}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30")
+
+        def _fit_chain():
+            """Filter fragment (ends with a comma-less overlay, ready to be
+            chained) that keeps the WHOLE frame: a blurred, zoomed-to-cover
+            copy fills the canvas, the untouched frame is fitted to the
+            canvas width and centered."""
+            # Blur at 1/8 scale then upscale: identical look to a full-res
+            # gblur at a fraction of the CPU (1080x1920 x 30fps x sigma 32
+            # would dominate the encode).
+            bw, bh = max(2, (cw // 8) - (cw // 8) % 2), max(2, (ch // 8) - (ch // 8) % 2)
+            return (f"split=2[bg][fg];"
+                    f"[bg]scale={bw}:{bh}:force_original_aspect_ratio=increase,"
+                    f"crop={bw}:{bh},gblur=sigma=4,eq=brightness=-0.06,scale={cw}:{ch}[bgb];"
+                    f"[fg]scale={cw}:-2[fgs];"
+                    f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2")
+
+        def _pre_for(dims):
+            """The reframe pre-filter for a source of `dims` in "fit" mode
+            (used for body parts AND landscape intro/outro so the whole
+            output shares one look); crop mode is per-window (needs the
+            face plan) and handled in the loop."""
+            if reframe == "fit" and _is_wide(dims):
+                return _fit_chain()
+            return ""
 
         # A part from a silent clip must still carry an audio STREAM (silence),
         # or the concat mixes audio-ful and audio-less parts and breaks - and
@@ -1154,6 +1200,9 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
             reframe crop)."""
             length = b - a
             vf_fade, af = _fade_filters(length, fade_in, fade_out)
+            # `pre` may be a labeled sub-graph (the "fit" split/overlay), so
+            # every part goes through -filter_complex; a linear pre (crop)
+            # simply chains.
             norm_here = (pre + "," if pre else "") + norm
             cmd = ["ffmpeg", "-y", "-ss", f"{a:.2f}", "-to", f"{b:.2f}", "-i", str(src)]
             n_in = 1
@@ -1170,7 +1219,7 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
                 graph = f"[0:v]{norm_here}{vf_fade}[v];" + _watermark_filter(wm, cw, "[v]", "[vout]")
                 cmd += ["-filter_complex", graph, "-map", "[vout]", "-map", a_map]
             else:
-                cmd += ["-vf", norm_here + vf_fade, "-map", "0:v", "-map", a_map]
+                cmd += ["-filter_complex", f"[0:v]{norm_here}{vf_fade}[vout]", "-map", "[vout]", "-map", a_map]
             if not has_audio:
                 cmd += ["-shortest"]
             if af:
@@ -1188,7 +1237,7 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
         for i, (ci, a, b) in enumerate(windows):
             if ci not in clip_has_audio:
                 clip_has_audio[ci] = _has_audio(sources[ci])
-            pre = ""
+            pre = _pre_for(src_dims[ci])
             cd = _crop_dims(ci)
             if cd:
                 crop_w, crop_h = cd
@@ -1228,7 +1277,8 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
                 if dur < 0.5:
                     continue
                 wrap.append((tag, _encode_part(src, tmp / f"{tag}.mp4", 0.0, dur,
-                                               _has_audio(src), fade, fade)))
+                                               _has_audio(src), fade, fade,
+                                               pre=_pre_for(_probe_dims(src)))))
             except Exception as exc:
                 print(f"[assembler] {tag} unavailable - skipped: {exc!r}")
         composed = joined
