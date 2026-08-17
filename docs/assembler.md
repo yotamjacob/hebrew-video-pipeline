@@ -265,6 +265,14 @@ Not done: audio-based active-speaker switching (needs diarization), split-
 screen two-shots when the speakers are far apart (we follow the larger
 face).
 
+**Selection answers are parsed defensively (2026-08-17)** - a 1-hour
+source failed with `Expecting ',' delimiter` (pass-1 answer truncated /
+malformed). Both `_pick_moments` and `_pick_clips` pass 1 now go through
+`_parse_answer(text, list_key, item_key, scalar_keys)`: strict JSON first,
+else salvage every complete item object (`_salvage_objects`) plus the
+scalar strings by regex, and log `stop_reason`; pass-1 `max_tokens` 8000
+-> 12000. Same doctrine as pass 2: a broken answer degrades, never 500s.
+
 ## Prompt-steered selection (2026-08-16)
 
 `#guidance` text input in the upload card (both modes) -> analyze payload

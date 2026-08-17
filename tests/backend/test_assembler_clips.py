@@ -215,3 +215,36 @@ class TestClipsContracts:
         assert '[:120]' in rblock and 'bool(data.get("tighten", False))' in rblock
         assert "tighten, hook_text, variant," in rblock
         assert "_SAFE_VARIANT_RE = _re.compile(r'^[a-zA-Z0-9_\\-]{1,24}$')" in MODAL_SRC
+
+
+class TestParseAnswer:
+    def _fn(self):
+        # needs _salvage_objects in the namespace
+        i = MODAL_SRC.index("def _salvage_objects"); j = MODAL_SRC.index("\ndef ", i)
+        k = MODAL_SRC.index("def _parse_answer"); l = MODAL_SRC.index("\ndef ", k)
+        ns = {"json": __import__("json")}
+        exec(MODAL_SRC[i:j], ns); exec(MODAL_SRC[k:l], ns)
+        return ns["_parse_answer"]
+
+    def test_clean_json_is_strict(self):
+        d, salvaged = self._fn()('{"summary": "s", "candidates": [{"clip": 0, "from_seg": 1, "to_seg": 2}]}',
+                                 "candidates", "from_seg", ("summary",))
+        assert not salvaged and d["summary"] == "s" and len(d["candidates"]) == 1
+
+    def test_truncated_answer_salvages_items_and_scalars(self):
+        # The field failure: a 1-hour transcript answer cut mid-array.
+        txt = ('{"summary": "פרק על יוגה \\"ורוח\\"", "candidates": [\n'
+               '  {"clip": 0, "from_seg": 12, "to_seg": 19, "title": "a", "angle": "b"},\n'
+               '  {"clip": 0, "from_seg": 40, "to_seg": 46, "title": "c", "angle": "d"},\n'
+               '  {"clip": 0, "from_seg": 80, "to_seg": 8')
+        d, salvaged = self._fn()(txt, "candidates", "from_seg", ("summary",))
+        assert salvaged
+        assert [c["from_seg"] for c in d["candidates"]] == [12, 40]
+        assert d["summary"] == 'פרק על יוגה "ורוח"'
+
+    def test_both_selection_prompts_use_it(self):
+        i = MODAL_SRC.index("def _pick_moments")
+        assert '_parse_answer(text, "moments", "from_seg", ("title", "story"))' in MODAL_SRC[i:i + 6000]
+        j = MODAL_SRC.index("def _pick_clips")
+        assert '_parse_answer(text, "candidates", "from_seg", ("summary",))' in MODAL_SRC[j:j + 8000]
+        assert "max_tokens=12000" in MODAL_SRC[j:j + 8000]

@@ -156,6 +156,32 @@ def _guidance_block(guidance):
             f'"{g}"\n')
 
 
+def _parse_answer(text, list_key, item_key, scalar_keys=()):
+    """Parse a model answer that SHOULD be one JSON object with a list under
+    `list_key`. Strict first; when that fails (truncated by max_tokens, a
+    stray quote inside one item, text around the object - all seen on
+    1-hour transcripts, 2026-08-17: "Expecting ',' delimiter") fall back to
+    salvaging every complete `{... item_key ...}` object plus the scalar
+    string fields by regex. Returns (data_dict, salvaged: bool)."""
+    import re as _re
+    try:
+        start, end = text.find("{"), text.rfind("}")
+        data = json.loads(text[start:end + 1])
+        if isinstance(data, dict):
+            return data, False
+    except Exception:
+        pass
+    data = {list_key: _salvage_objects(text, item_key)}
+    for k in scalar_keys:
+        m = _re.search(r'"' + _re.escape(k) + r'"\s*:\s*"((?:[^"\\]|\\.)*)"', text)
+        if m:
+            try:
+                data[k] = json.loads('"' + m.group(1) + '"')
+            except Exception:
+                data[k] = m.group(1)
+    return data, True
+
+
 def _pick_moments(clips, total_duration, guidance=""):
     """Sonnet reads ALL clip transcripts (clip-tagged, timestamped) and weaves
     the golden moments across them into one story arc. Moments are SEGMENT
@@ -201,8 +227,10 @@ def _pick_moments(clips, total_duration, guidance=""):
     # Sonnet 5 may emit a ThinkingBlock BEFORE the text block (observed on
     # this prompt 2026-08-13 - the intermittent analyze 500).
     text = _msg_text(resp)
-    start, end = text.find("{"), text.rfind("}")
-    data = json.loads(text[start:end + 1])
+    data, salvaged = _parse_answer(text, "moments", "from_seg", ("title", "story"))
+    if salvaged:
+        print(f"[assembler] story answer salvaged (stop={getattr(resp, 'stop_reason', '?')}, "
+              f"{len(data.get('moments') or [])} moments)")
 
     moments = []
     for m in (data.get("moments") or [])[:MAX_MOMENTS]:
@@ -390,11 +418,14 @@ def _pick_clips(clips, total_duration, guidance=""):
 
 התמלול:
 {chr(10).join(blocks)}"""
-    resp = client.messages.create(model=SONNET_MODEL, max_tokens=8000,
+    resp = client.messages.create(model=SONNET_MODEL, max_tokens=12000,
                                   messages=[{"role": "user", "content": prompt1}])
     _record_ai_spend(costs_store, "assembler_clips_pick", SONNET_MODEL, resp.usage)
     text = _msg_text(resp)
-    data = json.loads(text[text.find("{"):text.rfind("}") + 1])
+    data, salvaged = _parse_answer(text, "candidates", "from_seg", ("summary",))
+    if salvaged:
+        print(f"[assembler] clips pass-1 answer salvaged (stop={getattr(resp, 'stop_reason', '?')}, "
+              f"{len(data.get('candidates') or [])} candidates)")
     summary = str(data.get("summary") or "")[:400]
 
     cands = []
