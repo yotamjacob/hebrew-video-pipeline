@@ -232,6 +232,26 @@ The page's format control is three-way (`#frameOrig` / `#frameFit` /
 modes. Verified on production: 1080x1920, hook + watermark on the canvas,
 the landscape intro fitted the same way.
 
+**Split-screen for two speakers (2026-08-17, user example: a Zoom-style
+side-by-side interview -> the Instagram clip has one speaker stacked above
+the other)** - "9:16" is now SMART: `_split_plan` (pure) 2-means-clusters
+every sampled face center on x (seeds 0.3/0.7); when both groups are
+present in >= 40% of samples AND too far apart to share one tracked crop
+(separation > 0.9 x crop_frac - close two-shots keep the group crop) it
+returns the LEFT/RIGHT median (cx, cy). `_split_chain` (pure) then stacks
+two tiles of (canvas w x canvas h/2) = 9:8 on the 1080x1920 canvas: LEFT
+speaker on TOP, RIGHT below; each tile's source crop is half the source
+width (a Zoom pane) at the matching 9:8 height, x centered on the face, y
+= face y - 45% of the crop height (face a little above center), clamped;
+`crop,scale` per tile, `vstack`. Sampling runs ONCE per body window before
+the canvas decision (`rf_samples` / `rf_split`); the FIRST window's verdict
+picks the canvas (`split_mode` -> fit dims), later single-speaker windows
+fall back to the tracked crop scaled onto it. The hook box moves to the
+seam (`vertical_position` 46) in split mode - the default top-10% box sat
+on the upper speaker's face (caught on the first render). Verified on
+production with a synthetic two-pane clip: 1080x1920, both speakers framed,
+hook on the seam. Not done: active-speaker emphasis (needs diarization).
+
 **Previews follow the selection (2026-08-17):** the candidate preview is
 rebuilt on every format change (`_applyPreviewFormat`, keeps the playhead):
 plain video for "as source"; a 9:16 `.pv-box` for the vertical modes -

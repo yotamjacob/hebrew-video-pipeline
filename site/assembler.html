@@ -328,7 +328,7 @@
     <div class="mode-row" role="tablist" id="frameRow" style="margin-bottom:6px">
       <button type="button" class="mode-btn on" id="frameOrig" role="tab" aria-selected="true">כמו המקור<small>ללא שינוי</small></button>
       <button type="button" class="mode-btn" id="frameFit" role="tab" aria-selected="false">אנכי 9:16 - הפריים המלא<small>כל התמונה נשמרת, רקע מטושטש ממלא</small></button>
-      <button type="button" class="mode-btn" id="frameVert" role="tab" aria-selected="false">אנכי 9:16 - חיתוך עם מעקב דובר<small>חיתוך לגובה מלא שעוקב אחרי הפנים</small></button>
+      <button type="button" class="mode-btn" id="frameVert" role="tab" aria-selected="false">אנכי 9:16 - חכם<small>דובר אחד: חיתוך שעוקב אחריו · שני דוברים (זום): מסך מפוצל, אחד מעל השני</small></button>
     </div>
     <p class="brand-hint" id="frameHint" style="margin:0 0 14px">מקורות שכבר אנכיים לא משתנים.</p>
     <div class="brand-grid">
@@ -757,7 +757,7 @@
     else if (srcDims) st.style.aspectRatio = srcDims.w + ' / ' + srcDims.h;
     else st.style.aspectRatio = '';
     if (srcDims) $('frameHint').textContent = srcLandscape
-      ? 'המקור רוחבי. "הפריים המלא" שומר את כל התמונה על רקע מטושטש; "חיתוך עם מעקב" חותך לגובה מלא ועוקב אחרי הדובר (או ממרכז שני דוברים קרובים).'
+      ? 'המקור רוחבי. "הפריים המלא" שומר את כל התמונה על רקע מטושטש; "חכם" עוקב אחרי הדובר, ובראיון זום עם שני משתתפים זה לצד זה - מפצל אותם אחד מעל השני.'
       : 'המקור כבר אנכי - הבחירה לא משנה אותו.';
     _layoutWm();
   }
@@ -1082,7 +1082,7 @@
       pv.appendChild(v);
       box.appendChild(pv);
       const note = document.createElement('div'); note.className = 'pv-note';
-      note.textContent = mode === 'fit' ? 'תצוגה מקדימה: הפריים המלא על רקע מטושטש' : 'תצוגה מקדימה: חיתוך ממורכז - בסרטון הסופי החיתוך עוקב אחרי הדובר';
+      note.textContent = mode === 'fit' ? 'תצוגה מקדימה: הפריים המלא על רקע מטושטש' : 'תצוגה מקדימה משוערת - בסרטון הסופי החיתוך עוקב אחרי הדובר, ושני דוברים מפוצלים אחד מעל השני';
       box.appendChild(note);
     } else {
       box.appendChild(v);

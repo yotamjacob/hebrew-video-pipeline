@@ -910,6 +910,73 @@ def _crop_x_expr(keyframes, src_w, crop_w):
     return expr
 
 
+def _split_plan(samples, crop_frac, min_presence=0.4):
+    """Two-speaker detector for the stacked split-screen. Clusters every
+    detected face center into a LEFT and a RIGHT group (2-means on x, seeded
+    at 0.3 / 0.7); returns {"left": (cx, cy), "right": (cx, cy)} medians
+    when BOTH groups are present in >= `min_presence` of the samples and
+    are too far apart to share one tracked crop (separation > 0.9 x
+    crop_frac - when they fit, the tracked crop's group-center framing is
+    the better picture). Otherwise None (-> tracked crop). Pure."""
+    pts = [(f[0], f[1]) for _t, faces in samples for f in faces]
+    if len(samples) < 3 or len(pts) < 4:
+        return None
+    c1, c2 = 0.3, 0.7
+    for _ in range(8):
+        g1 = [p for p in pts if abs(p[0] - c1) <= abs(p[0] - c2)]
+        g2 = [p for p in pts if abs(p[0] - c1) > abs(p[0] - c2)]
+        if not g1 or not g2:
+            return None
+        c1 = sum(p[0] for p in g1) / len(g1)
+        c2 = sum(p[0] for p in g2) / len(g2)
+    if abs(c1 - c2) <= 0.9 * crop_frac:
+        return None
+    left, right = (g1, g2) if c1 < c2 else (g2, g1)
+    mid = (c1 + c2) / 2.0
+    n = len(samples)
+    pres_l = sum(1 for _t, faces in samples if any(f[0] < mid for f in faces)) / float(n)
+    pres_r = sum(1 for _t, faces in samples if any(f[0] >= mid for f in faces)) / float(n)
+    if pres_l < min_presence or pres_r < min_presence:
+        return None
+
+    def _median(vals):
+        v = sorted(vals)
+        return v[len(v) // 2]
+    return {"left": (_median([p[0] for p in left]), _median([p[1] for p in left])),
+            "right": (_median([p[0] for p in right]), _median([p[1] for p in right]))}
+
+
+def _split_chain(plan, sw, sh, cw, ch):
+    """filter fragment (chainable) that stacks two speaker crops: the LEFT
+    speaker on top, the RIGHT below. Each tile is (cw x ch/2) - 9:8 on a
+    9:16 canvas; the source crop for a tile is half the source width (a
+    Zoom participant's pane) at the matching 9:8 height, positioned around
+    the speaker's median face (a little above center), clamped inside the
+    frame. Pure."""
+    tile_h = ch // 2
+    tile_h -= tile_h % 2
+    crop_w = sw // 2
+    crop_w -= crop_w % 2
+    crop_h = int(round(crop_w * tile_h / float(cw)))
+    if crop_h > sh:
+        crop_h = sh - sh % 2
+        crop_w = int(round(crop_h * cw / float(tile_h)))
+        crop_w -= crop_w % 2
+    crop_h -= crop_h % 2
+
+    def _xy(c):
+        cx, cy = c
+        x = int(round(min(max(0.0, cx * sw - crop_w / 2.0), sw - crop_w)))
+        y = int(round(min(max(0.0, cy * sh - crop_h * 0.45), sh - crop_h)))
+        return x, y
+    xl, yl = _xy(plan["left"])
+    xr, yr = _xy(plan["right"])
+    return (f"split=2[sl][sr];"
+            f"[sl]crop={crop_w}:{crop_h}:{xl}:{yl},scale={cw}:{tile_h}[tl];"
+            f"[sr]crop={crop_w}:{crop_h}:{xr}:{yr},scale={cw}:{tile_h}[tr];"
+            f"[tl][tr]vstack")
+
+
 def _faces_in_image(img_path, det_cache):
     """All faces in a frame as (cx, cy, w, h) fractions via YuNet (the same
     detector the punch-in zoom uses); [] on any failure. det_cache reuses
@@ -1133,8 +1200,24 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
             h -= h % 2
             return (w, h)
 
+        # "9:16" is SMART (2026-08-17): two persistent speakers too far apart
+        # for one crop (a Zoom side-by-side) -> stacked split-screen on the
+        # 1080x1920 canvas; otherwise the speaker-tracked crop. Sampled once
+        # per body window (cached) - the FIRST window's decision picks the
+        # canvas, later windows follow it (a Zoom interview is consistently
+        # a two-shot; a lone different window is scaled onto the canvas).
         first_ci = windows[0][0]
-        if reframe == "fit" and _is_wide(src_dims[first_ci]):
+        rf_samples = {}
+        rf_split = {}
+        if reframe == "9:16":
+            for i, (ci, a, b) in enumerate(windows):
+                if _is_wide(src_dims[ci]):
+                    smp = _reframe_samples(sources[ci], a, b, tmp, f"{i:02d}")
+                    rf_samples[i] = smp
+                    cwc, _chc = _crop_dims(ci) or (0, 0)
+                    rf_split[i] = _split_plan(smp, cwc / float(src_dims[ci][0])) if smp and cwc else None
+        split_mode = bool(rf_split.get(0))
+        if (reframe == "fit" or split_mode) and _is_wide(src_dims[first_ci]):
             cw, ch = _fit_dims(src_dims[first_ci])
         else:
             cw, ch = _crop_dims(first_ci) or src_dims[first_ci]
@@ -1242,9 +1325,17 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
             if cd:
                 crop_w, crop_h = cd
                 sw, sh = src_dims[ci]
-                samples = _reframe_samples(sources[ci], a, b, tmp, f"{i:02d}")
-                plan = _reframe_plan(samples, crop_w / float(sw)) if samples else [(0.0, 0.5)]
-                pre = f"crop={crop_w}:{crop_h}:x='{_crop_x_expr(plan, sw, crop_w)}':y=0"
+                samples = rf_samples.get(i) or []
+                if split_mode and rf_split.get(i):
+                    pre = _split_chain(rf_split[i], sw, sh, cw, ch)
+                elif split_mode:
+                    # Canvas is the split canvas but this window has one
+                    # speaker: track them and let `norm` fit the crop onto it.
+                    plan = _reframe_plan(samples, crop_w / float(sw)) if samples else [(0.0, 0.5)]
+                    pre = f"crop={crop_w}:{crop_h}:x='{_crop_x_expr(plan, sw, crop_w)}':y=0"
+                else:
+                    plan = _reframe_plan(samples, crop_w / float(sw)) if samples else [(0.0, 0.5)]
+                    pre = f"crop={crop_w}:{crop_h}:x='{_crop_x_expr(plan, sw, crop_w)}':y=0"
             parts.append(_encode_part(sources[ci], tmp / f"part_{i:02d}.mp4", a, b,
                                       clip_has_audio[ci],
                                       fade if i == 0 else 0.0,
@@ -1351,6 +1442,10 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
         if hook_text:
             hook = {"text": hook_text, "start_seconds": round(intro_len + 0.2, 2),
                     "duration_seconds": max(1.5, min(4.5, body_len - 0.5))}
+            # Split-screen: the default top-10% box lands on the upper
+            # speaker's face - park it on the seam between the two tiles.
+            if split_mode:
+                hook["vertical_position"] = 46
         burned = False
         if events or hook:
             try:
