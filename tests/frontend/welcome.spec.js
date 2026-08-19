@@ -18,9 +18,11 @@ test('welcome page renders logo, platform links and the live counter', async ({ 
 
   // Web CTA carries campaign attribution (?src= is recorded on signup).
   await expect(page.locator('a.platform.web')).toHaveAttribute('href', '/?src=welcome');
+  // Android is out of beta (2026-08-19): the card links the production listing.
   await expect(page.locator('a.platform.android')).toHaveAttribute(
-    'href', /play\.google\.com\/apps\/testing\/com\.heb\.pipeline/);
-  await expect(page.locator('a.platform.android .status')).toContainText('בטא');
+    'href', 'https://play.google.com/store/apps/details?id=com.heb.pipeline');
+  await expect(page.locator('a.platform.android .status')).toContainText('Google Play');
+  await expect(page.locator('a.platform.android .status')).not.toContainText('בטא');
 
   // iPhone is deliberately NOT a link - a disabled card until the App Store launch.
   const ios = page.locator('.platform.ios');
