@@ -65,6 +65,15 @@ const config = {
     ],
   },
   plugins: {
+    // Capacitor 8.5's built-in SystemBars plugin owns the status/gesture bars on
+    // Android 15+ (edge-to-edge is mandatory at targetSdk 35+ and the theme's
+    // statusBarColor is ignored there). Its DEFAULT style follows the phone's
+    // dark/light mode, so a phone in dark mode got WHITE icons on the light
+    // strip the plugin paints behind the bar - clock/battery invisible
+    // (2026-08-19). The web UI is always light, so pin LIGHT = dark icons.
+    SystemBars: {
+      style: 'LIGHT',
+    },
     SplashScreen: {
       launchAutoHide: false,
       backgroundColor: '#E8DFD3',

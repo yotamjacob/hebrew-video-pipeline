@@ -15,8 +15,14 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
-        <!-- Status bar: brand sand with DARK icons. Without windowLightStatusBar
-             the bar was white with white icons - clock/battery invisible. -->
+        <!-- Android 15+ (targetSdk 35+) is edge-to-edge: Capacitor's SystemBars
+             plugin pads the WebView below the status bar and paints that strip
+             with windowBackground - which was the AppCompat Light default
+             (white). Sand keeps it continuous with the app header. -->
+        <item name="android:windowBackground">#E8DFD3</item>
+        <!-- Status bar (Android 14 and below): brand sand with DARK icons.
+             Without windowLightStatusBar the bar was white with white icons -
+             clock/battery invisible. -->
         <item name="android:statusBarColor">#E8DFD3</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:navigationBarColor">#E8DFD3</item>
