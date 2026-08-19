@@ -103,9 +103,9 @@ Type **Consumable** for all three. The product IDs must match
 
 | Product ID | Reference name | Display name (HE) | Target price |
 |---|---|---|---|
-| `pipeline_credits_10` | 10 video credits | 10 קרדיטים לסרטונים | ₪59 |
-| `pipeline_credits_30` | 30 video credits | 30 קרדיטים לסרטונים | ₪149 |
-| `pipeline_credits_100` | 100 video credits | 100 קרדיטים לסרטונים | ₪399 |
+| `pipeline_credits_10` | 10 video credits | 10 קרדיטים לסרטונים | ₪39 |
+| `pipeline_credits_30` | 30 video credits | 30 קרדיטים לסרטונים | ₪99 |
+| `pipeline_credits_100` | 100 video credits | 100 קרדיטים לסרטונים | ₪279 |
 
 For each one:
 - Pick the Israel price point nearest the target (Apple sets every other

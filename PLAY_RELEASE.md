@@ -79,15 +79,17 @@ are immutable and must match the app exactly:
 
 | Product ID | Credits | Price | Per video |
 |------------|---------|-------|-----------|
-| `pipeline_credits_10` | 10 | ₪59 | ₪5.90 |
-| `pipeline_credits_30` | 30 | ₪149 | ₪4.97 |
-| `pipeline_credits_100` | 100 | ₪399 | ₪3.99 |
+| `pipeline_credits_10` | 10 | ₪39 | ₪3.90 |
+| `pipeline_credits_30` | 30 | ₪99 | ₪3.30 |
+| `pipeline_credits_100` | 100 | ₪279 | ₪2.79 |
 
 The `_5` / `_20` / `_50` IDs were retired on 2026-07-31 but remain in
 `PLAY_CREDIT_PRODUCTS` and `BILLING_CREDITS`, so a purchase of one still grants
 while it is live. Deactivate them in Play once the new ladder is published;
 past purchases are unaffected either way, since each grant stores its credit
-count at purchase time.
+count at purchase time. Prices were lowered from ₪59/₪149/₪399 on 2026-08-19
+(before the products were ever created in Play). Product images: `assets/play-products/`.
+Purchase option: one `Buy` option per product (ID e.g. `credits-10`), no multi-quantity.
 
 **Credits are not a flat per-video price.** One credit covers 10 minutes of
 source; a longer video costs 2, and the 4K upscale adds 1 (and is refused above

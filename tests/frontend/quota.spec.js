@@ -283,15 +283,15 @@ test('pricing plans are derived from the measured cost, not hardcoded', async ({
 
   const rows = page.locator('#costPlanRows tr');
   await expect(rows).toHaveCount(3);
-  // 10-credit pack at ₪59: net 50.15, cost 2.775, profit ₪47.38 → 94%.
+  // 10-credit pack at ₪39: net 33.15, cost 2.775, profit ₪30.38 → 92%.
   await expect(rows.nth(0)).toContainText('10');
-  await expect(rows.nth(0)).toContainText('₪59');      // price rides the pack cell
-  await expect(rows.nth(0)).toContainText('₪5.90');    // per credit
-  await expect(rows.nth(0)).toContainText('₪47.38');
-  await expect(rows.nth(0)).toContainText('94%');
-  // 100-credit pack: the cost side actually bites (₪27.75 of ₪339 net).
-  await expect(rows.nth(2)).toContainText('₪311');
-  await expect(rows.nth(2)).toContainText('92%');
+  await expect(rows.nth(0)).toContainText('₪39');      // price rides the pack cell
+  await expect(rows.nth(0)).toContainText('₪3.90');    // per credit
+  await expect(rows.nth(0)).toContainText('₪30.38');
+  await expect(rows.nth(0)).toContainText('92%');
+  // 100-credit pack: the cost side actually bites (₪27.75 of ₪237 net).
+  await expect(rows.nth(2)).toContainText('₪209');
+  await expect(rows.nth(2)).toContainText('88%');
   // Three columns, like every other table in this card (a fourth overflowed
   // the card on a phone).
   await expect(page.locator('#costPlanRows tr').first().locator('td')).toHaveCount(3);

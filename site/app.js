@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.54.2';
+  const APP_VERSION = '1.54.3';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -8853,9 +8853,9 @@
   // ProductDetails at purchase time), so this ladder exists ONLY to reason
   // about margin here. Keep it in sync when a price changes in the console.
   const PLAY_PACKS = [
-    { credits: 10,  ils: 59 },
-    { credits: 30,  ils: 149 },
-    { credits: 100, ils: 399 },
+    { credits: 10,  ils: 39 },
+    { credits: 30,  ils: 99 },
+    { credits: 100, ils: 279 },
   ];
   const PLAY_FEE = 0.15;   // Google Play commission, standard program (<$1M/yr)
   const USD_ILS  = 3.7;    // shown in the note so the assumption is auditable
