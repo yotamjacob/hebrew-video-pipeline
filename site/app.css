@@ -2387,6 +2387,8 @@
   text-decoration: none;
 }
 .billing-cta svg { width: 18px; height: 18px; flex: 0 0 auto; }
+.web-billing-body { margin-top: 14px; line-height: 1.55; }
+.web-billing-actions { display: flex; justify-content: center; margin-top: 6px; }
 
 .mc-chip {
   display: inline-block; margin: 8px 8px 8px 0;

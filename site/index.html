@@ -1224,6 +1224,25 @@
   </div>
 </div>
 
+<!-- ── Web: credits are sold only inside the Android app (Play Billing), so the
+     site explains where to buy and links the Play listing (2026-08-19). ── -->
+<div id="webBillingOverlay" class="modal-overlay" style="display:none;z-index:965" onclick="if(event.target===this)closeWebBillingModal()">
+  <div class="modal-dialog billing-dialog">
+    <div class="sched-dialog-head">
+      <div>
+        <p class="modal-dialog-title" data-i18n="billing.title">Buy video credits</p>
+        <p class="modal-dialog-body billing-subtitle" data-i18n="billing.subtitle">One credit processes one video. Credits do not expire.</p>
+      </div>
+      <button type="button" class="sched-close" onclick="closeWebBillingModal()" aria-label="Close" data-i18n-title="tpl.close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
+    </div>
+    <p class="modal-dialog-body web-billing-body" data-i18n="billing.webModalBody">Credit packs are purchased inside the Pipeline Android app through Google Play. Install the app, sign in with the same account, and tap the credits pill to choose a pack. Credits you buy there are available everywhere you sign in, including this site.</p>
+    <div class="web-billing-actions">
+      <a id="webBillingPlayCta" class="billing-cta" href="https://play.google.com/store/apps/details?id=com.heb.pipeline" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8h12l-1 12H7L6 8z"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/></svg><span data-i18n="billing.getOnPlay">Get it on Google Play</span></a>
+    </div>
+    <p class="billing-footnote" data-i18n="billing.secure">Payment is handled securely by Google Play.</p>
+  </div>
+</div>
+
 <!-- Mobile source chooser: record with the camera or pick an existing file.
      The record input's capture attr opens the camera recorder directly
      (front camera - this is a talking-head product). -->

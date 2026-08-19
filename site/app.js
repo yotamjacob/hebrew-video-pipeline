@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.54.3';
+  const APP_VERSION = '1.55.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -476,10 +476,15 @@
       ? t('quota.pill', {left: left, limit: quotaInfo.video_limit})
       : t('quota.pillZero');
     pill.classList.toggle('quota-pill-empty', left === 0);
-    pill.classList.toggle('billing-enabled', _billingAvailable() || left === 0);
+    // The website pill is always actionable too: it opens the "buy it in the
+    // Android app" modal with the Play link (2026-08-19). Old native shells
+    // without the billing bridge stay exhaustion-only (they route to a Play
+    // update).
+    const webInfo = !_isNative() && _playStoreCtaAllowed();
+    pill.classList.toggle('billing-enabled', _billingAvailable() || left === 0 || webInfo);
     pill.title = _billingAvailable()
       ? t('billing.open')
-      : (left === 0 ? t('billing.openPlayStore') : '');
+      : (left === 0 || webInfo ? t('billing.openPlayStore') : '');
     pill.style.display = '';
   }
 
@@ -1693,13 +1698,29 @@
       openBillingModal();
       return;
     }
-    // Web (and pre-billing native shells) can only point at the Play listing.
+    if (!_playStoreCtaAllowed()) return;
+    // The website cannot sell credits (Play Billing only) - explain that in a
+    // modal and link the listing, for every user regardless of balance.
+    if (!_isNative()) { openWebBillingModal(); return; }
+    // Pre-billing native shells can only point at the Play listing (update).
     // Regular users see that only once they are out of credits; an admin has no
     // exhausted state, so their pill always routes there.
-    if (!_playStoreCtaAllowed()) return;
     if (!_quotaExhausted() && !_isAdminUser()) return;
     const opened = window.open(PLAY_STORE_URL, '_blank', 'noopener');
     if (!opened) window.location.href = PLAY_STORE_URL;
+  }
+
+  function openWebBillingModal() {
+    const overlay = document.getElementById('webBillingOverlay');
+    if (!overlay) return;
+    const cta = document.getElementById('webBillingPlayCta');
+    if (cta) cta.href = PLAY_STORE_URL;
+    overlay.style.display = 'flex';
+  }
+
+  function closeWebBillingModal() {
+    const overlay = document.getElementById('webBillingOverlay');
+    if (overlay) overlay.style.display = 'none';
   }
 
   function _initBillingListener() {
@@ -7575,9 +7596,11 @@
     const legal = document.getElementById('legalOverlay');
     const contact = document.getElementById('contactOverlay');
     const billing = document.getElementById('billingOverlay');
+    const webBilling = document.getElementById('webBillingOverlay');
     if (legal && legal.style.display !== 'none') closeLegalModal();
     if (contact && contact.style.display !== 'none') closeContactModal();
     if (billing && billing.style.display !== 'none') closeBillingModal();
+    if (webBilling && webBilling.style.display !== 'none') closeWebBillingModal();
   });
 
   // Transient AI-service failures (Anthropic 529 "Overloaded", 429, 5xx) reach

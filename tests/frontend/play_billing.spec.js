@@ -81,7 +81,7 @@ test('native credit pill opens Play Billing before credits run out', async ({ pa
   await expect(page.locator('.billing-product')).toHaveCount(3);
 });
 
-test('web exhausted-credit actions open the Pipeline Play Store listing', async ({ page }) => {
+test('web exhausted-credit pill opens the buy-in-the-app modal with the Play link', async ({ page }) => {
   await page.addInitScript(() => {
     window.__openedPlayUrl = null;
     window.open = url => {
@@ -99,9 +99,34 @@ test('web exhausted-credit actions open the Pipeline Play Store listing', async 
   });
 
   await page.locator('#quotaPill').click();
-  await expect.poll(() => page.evaluate(() => window.__openedPlayUrl)).toBe(
+  const overlay = page.locator('#webBillingOverlay');
+  await expect(overlay).toBeVisible();
+  await expect(overlay).toContainText('Google Play');
+  await expect(page.locator('#webBillingPlayCta')).toHaveAttribute(
+    'href',
     'https://play.google.com/store/apps/details?id=com.heb.pipeline',
   );
+  await expect(page.locator('#webBillingPlayCta')).toHaveAttribute('target', '_blank');
+  // No window.open: the listing is a link inside the modal, never a popup.
+  expect(await page.evaluate(() => window.__openedPlayUrl)).toBeNull();
+  // The native products modal stays closed on the web.
+  await expect(page.locator('#billingOverlay')).toBeHidden();
+  await page.locator('#webBillingOverlay .sched-close').click();
+  await expect(overlay).toBeHidden();
+});
+
+test('a web user with credits remaining can still open the buy-in-the-app modal', async ({ page }) => {
+  await bootApp(page, {
+    me: { username: 'tester', role: 'user', videos_used: 1, video_limit: 5 },
+  });
+  const pill = page.locator('#quotaPill');
+  await expect(pill).toHaveClass(/billing-enabled/);
+  await expect(pill).toHaveAttribute('title', 'הורדת אפליקציית Android לרכישת קרדיטים');
+  await pill.click();
+  await expect(page.locator('#webBillingOverlay')).toBeVisible();
+  await expect(page.locator('#webBillingOverlay')).toContainText('פייפליין ל-Android');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#webBillingOverlay')).toBeHidden();
 });
 
 test('an older native shell routes to a Play update, never WhatsApp', async ({ page }) => {
@@ -262,7 +287,7 @@ test('an admin can buy credits even though the quota never blocks them', async (
 });
 
 
-test('an admin on the web is routed to the Play listing', async ({ page }) => {
+test('an admin on the web gets the buy-in-the-app modal with the Play link', async ({ page }) => {
   await page.addInitScript(() => {
     window.__opened = [];
     window.open = url => { window.__opened.push(url); return {}; };
@@ -272,7 +297,10 @@ test('an admin on the web is routed to the Play listing', async ({ page }) => {
   });
 
   await page.locator('#quotaPill').click();
-  expect(await page.evaluate(() => window.__opened)).toEqual([
+  await expect(page.locator('#webBillingOverlay')).toBeVisible();
+  await expect(page.locator('#webBillingPlayCta')).toHaveAttribute(
+    'href',
     'https://play.google.com/store/apps/details?id=com.heb.pipeline',
-  ]);
+  );
+  expect(await page.evaluate(() => window.__opened)).toEqual([]);
 });

@@ -135,7 +135,7 @@ test('iOS billing copy names the App Store, never Google Play', async ({ page })
   await bootApp(page, { me: QUOTA_ME });
 
   await page.evaluate(() => openBillingModal());
-  const footnote = page.locator('[data-i18n="billing.secure"]');
+  const footnote = page.locator('#billingOverlay [data-i18n="billing.secure"]');
   await expect(footnote).toContainText('App Store');
   await expect(footnote).not.toContainText('Google Play');
 

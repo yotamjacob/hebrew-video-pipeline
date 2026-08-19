@@ -562,6 +562,8 @@
     'billing.getAndroidApp': { en: 'Get the Android app', he: 'הורדת אפליקציית Android' },
     'billing.updateApp': { en: 'Update the Android app', he: 'עדכון אפליקציית Android' },
     'billing.title':    { en: 'Buy video credits', he: 'רכישת קרדיטים לסרטונים' },
+    'billing.webModalBody': { en: 'Credit packs are purchased inside the Pipeline Android app through Google Play. Install the app, sign in with the same account, and tap the credits pill to choose a pack. Credits you buy there are available everywhere you sign in, including this site.', he: 'חבילות קרדיטים נרכשות בתוך אפליקציית פייפליין ל-Android דרך Google Play. התקינו את האפליקציה, התחברו עם אותו חשבון ולחצו על תגית הקרדיטים כדי לבחור חבילה. הקרדיטים שתרכשו שם זמינים בכל מקום שבו תתחברו, כולל באתר הזה.' },
+    'billing.getOnPlay': { en: 'Get it on Google Play', he: 'להורדה מ-Google Play' },
     'billing.subtitle': { en: 'One credit processes one video. Credits do not expire.', he: 'קרדיט אחד מעבד סרטון אחד. הקרדיטים אינם פגים.' },
     'billing.buyCredits': { en: 'Buy credits', he: 'רכישת קרדיטים' },
     'billing.pack':     { en: '{count} video credits', he: '{count} קרדיטים לסרטונים' },
