@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.55.4';
+  const APP_VERSION = '1.55.5';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -6255,6 +6255,24 @@
     'Karantina': 1.012, 'Playpen Sans Hebrew': 1.530, 'Miriam Libre': 1.313,
   };
 
+  // Caption-overlay writes go through these guards: rewriting the SAME text
+  // still replaces the text node and re-layouts (jank the smoothness spec
+  // polices). Font-face loads and style refreshes call updatePreviewCaption
+  // mid-playback, so unguarded writes raced renderPlayerFrame's cue-change
+  // gate. The __capWasHTML flag keeps a karaoke->plain switch honest even
+  // when both serialize to the same visible text.
+  function _setCapText(el, txt) {
+    if (!el.__capWasHTML && el.textContent === txt) return;
+    el.__capWasHTML = false;
+    el.textContent = txt;
+  }
+  function _setCapHTML(el, html) {
+    if (el.__capWasHTML && el.__capHTML === html) return;
+    el.__capWasHTML = true;
+    el.__capHTML = html;
+    el.innerHTML = html;
+  }
+
   function updatePreviewCaption() {
     // Called by font/size/position sliders - refreshes player caption overlay immediately
     const capEl = document.getElementById('playerCap');
@@ -6276,9 +6294,9 @@
       const cap = captionsData && captionsData.find(c => t >= c.start && t <= c.end + 0.05);
       if (cap) {
         const q = (_capMode() === 'word' || _capMode() === 'karaoke') ? _wordCueAt(cap, t) : null;
-        if (_capMode() === 'word') capEl.textContent = q ? q.text : '';
-        else if (_capMode() === 'karaoke' && q) capEl.innerHTML = _karaokeHTML(cap, q, displayW);
-        else capEl.textContent = rewrapCaption(cap.text, displayW, _capBurnPx());
+        if (_capMode() === 'word') _setCapText(capEl, q ? q.text : '');
+        else if (_capMode() === 'karaoke' && q) _setCapHTML(capEl, _karaokeHTML(cap, q, displayW));
+        else _setCapText(capEl, rewrapCaption(cap.text, displayW, _capBurnPx()));
       }
     }
     // Keep the hook wrap (hidden measurement canvas) + on-player overlay in sync.
@@ -6660,10 +6678,10 @@
       if (cueKey !== _lastCapCue) {
         _lastCapCue = cueKey;
         _lastCap = cap;
-        if (!cap || (!cueText && mode === 'word')) capEl.textContent = '';
-        else if (mode === 'word') capEl.textContent = cueText;
-        else if (mode === 'karaoke' && cue) capEl.innerHTML = _karaokeHTML(cap, cue, vid.videoWidth || 1080);
-        else capEl.textContent = rewrapCaption(cap.text, vid.videoWidth || 1080, _capBurnPx());
+        if (!cap || (!cueText && mode === 'word')) _setCapText(capEl, '');
+        else if (mode === 'word') _setCapText(capEl, cueText);
+        else if (mode === 'karaoke' && cue) _setCapHTML(capEl, _karaokeHTML(cap, cue, vid.videoWidth || 1080));
+        else _setCapText(capEl, rewrapCaption(cap.text, vid.videoWidth || 1080, _capBurnPx()));
         if (cap) _applyCaptionStyles();
         _highlightRow();
       }
