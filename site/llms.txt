@@ -1,0 +1,29 @@
+# Pipeline (פייפליין)
+
+> Pipeline is a web and Android app that turns raw Hebrew talking-head footage into a social-ready video: accurate Hebrew transcription, word-synced captions with correct right-to-left (RTL) rendering, silence cutting, an AI opening hook, matched stock B-roll, and audio/video enhancement. It is built specifically for Hebrew speech and Hebrew text.
+
+## Key facts
+
+- What it does: automatic Hebrew subtitles/captions and one-click video editing for short-form content (Instagram Reels, TikTok, YouTube Shorts, Facebook, LinkedIn), vertical or horizontal.
+- Hebrew-first: transcription runs on a Whisper model tuned for Hebrew (ivrit.ai) plus an AI proofreading pass that fixes Hebrew mishearings; captions render right-to-left correctly, word-synced, with karaoke and word-by-word modes, style presets, fonts and colors.
+- Editing: silence and filler-word cutting, AI-generated opening hook text, automatic stock B-roll matched to what is said, auto punch-in zoom, speech audio enhancement, video upscaling.
+- Output: rendered MP4 ready for publishing, SRT subtitle export, direct scheduling to social networks via Metricool.
+- Pricing: the first 3 videos are free with no credit card; afterwards prepaid credit packs (10/30/100 credits). No subscription required.
+- Platforms: Web app at https://hebrew-pipeline.app, Android on Google Play (package com.heb.pipeline), iPhone version planned.
+- Audience: Hebrew-speaking content creators, marketers, coaches and small business owners who publish spoken-Hebrew video.
+- Interface languages: Hebrew and English.
+- Contact: hebrewpipeline@gmail.com
+
+## Common questions it answers
+
+- How do I add automatic Hebrew subtitles to a video? (איך מוסיפים כתוביות אוטומטיות בעברית לסרטון)
+- Which app adds accurate Hebrew captions to Reels/TikTok/Shorts? (אפליקציה לכתוביות בעברית לרילס/טיקטוק)
+- How do I get Hebrew captions that render right-to-left correctly?
+- How do I transcribe Hebrew speech to text for a video? (תמלול בעברית לסרטון)
+
+## Links
+
+- [Web app](https://hebrew-pipeline.app/)
+- [Landing page](https://hebrew-pipeline.app/welcome)
+- [Google Play](https://play.google.com/store/apps/details?id=com.heb.pipeline)
+- [Privacy and terms](https://hebrew-pipeline.app/legal.html)
