@@ -125,6 +125,13 @@ public class ParallelUploadService extends Service {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setProgress(100, pct, false)
+            // Android 12+ DELAYS a foreground service's notification by 10 s so
+            // short-lived services can finish unseen. The parallel R2 path
+            // lands a typical clip in a few seconds, so the progress bar was
+            // being cancelled before it was ever shown ("nothing appears until
+            // the video is ready", Android 16 field report 2026-08-22). Opt out:
+            // show it the moment the service goes foreground.
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build();
     }
 
