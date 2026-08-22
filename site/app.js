@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.55.5';
+  const APP_VERSION = '1.55.6';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -2055,7 +2055,28 @@
   // falls back to the classic /upload_stream target - except a user cancel,
   // and except after the PUT succeeded (the bytes are in R2; the server
   // sweep spawns the job even if the app dies, so re-uploading is wrong).
+  // Android 13+ hides EVERY notification - including the foreground upload
+  // service's progress bar - unless POST_NOTIFICATIONS was granted. The only
+  // prompt used to be the push one at login; a single "Don't allow" there (or
+  // a reinstall) silently killed the upload progress notification for good.
+  // Re-check right before each native upload: prompt again while the OS still
+  // allows it, and say so once when it is off for good.
+  let _notifWarned = false;
+  async function _ensureNotifPermission() {
+    const Push = _capPlugin('PushNotifications');
+    if (!Push || !Push.checkPermissions) return;
+    try {
+      let p = await Push.checkPermissions();
+      if (p.receive === 'prompt' || p.receive === 'prompt-with-rationale') p = await Push.requestPermissions();
+      if (p.receive !== 'granted' && !_notifWarned) {
+        _notifWarned = true;
+        celebrateToast(t('upload.notifOff'), { kind: 'error', duration: 6000 });
+      }
+    } catch (_) {}
+  }
+
   async function nativeUpload(desc, onProgress, presetKey) {
+    await _ensureNotifPermission();
     const key = presetKey || _uuid();
     // Fastest: N parallel byte-range PUTs via the custom foreground service
     // (binaries that ship ParallelUploader). Then: single presigned PUT via

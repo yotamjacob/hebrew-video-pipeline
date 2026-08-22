@@ -103,6 +103,8 @@
 
     // ── Upload card ──
     'upload.title':    { en: 'Upload Video', he: 'העלאת סרטון' },
+    'upload.notifOff': { en: 'Notifications are off for Pipeline - turn them on in the phone settings to see upload progress in the status bar',
+                         he: 'ההתראות של פייפליין כבויות - הפעילו אותן בהגדרות הטלפון כדי לראות את התקדמות ההעלאה בשורת המצב' },
     'upload.drop':     { en: 'Drop your video here', he: 'גררו את הסרטון לכאן' },
     'upload.browse':   { en: 'or <span class="upload-link">browse files</span>', he: 'או <span class="upload-link">בחרו קובץ</span>' },
     'upload.hint':     { en: 'MP4 · MOV · MKV &nbsp;·&nbsp; max 20 min &nbsp;·&nbsp; max 1 GB', he: 'MP4 · MOV · MKV &nbsp;·&nbsp; עד 20 דקות &nbsp;·&nbsp; עד 1 GB' },

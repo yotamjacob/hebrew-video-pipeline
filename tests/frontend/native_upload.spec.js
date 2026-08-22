@@ -18,8 +18,9 @@ async function bootNative(page, {
   withParallel = false,
   fireCompleted = true,
   cancelEventName = 'cancelled',
+  pushPerm = null,           // 'granted' | 'denied' | 'prompt' - stubs PushNotifications
 } = {}) {
-  await page.addInitScript(({ withUploader, withParallel, fireCompleted, cancelEventName }) => {
+  await page.addInitScript(({ withUploader, withParallel, fireCompleted, cancelEventName, pushPerm }) => {
     window.__streamUploads = [];
     window.__parallelUploads = [];
     window.__ackEvents = [];
@@ -83,12 +84,23 @@ async function bootNative(page, {
         },
       };
     }
+    if (pushPerm) {
+      // Android 13+ notification permission, as surfaced by the push plugin.
+      // A 'prompt' state resolves to denied when asked (user taps Don't allow).
+      window.__notifPermChecks = 0; window.__notifPermRequests = 0;
+      Plugins.PushNotifications = {
+        checkPermissions: () => { window.__notifPermChecks++; return Promise.resolve({ receive: pushPerm }); },
+        requestPermissions: () => { window.__notifPermRequests++; return Promise.resolve({ receive: 'denied' }); },
+        addListener: () => ({ remove() {} }),
+        createChannel: () => Promise.resolve(),
+      };
+    }
     window.Capacitor = {
       isNativePlatform: () => true,
       Plugins,
       convertFileSrc: p => '/__native_file__',
     };
-  }, { withUploader, withParallel, fireCompleted, cancelEventName });
+  }, { withUploader, withParallel, fireCompleted, cancelEventName, pushPerm });
   await bootApp(page);
 }
 
@@ -128,6 +140,38 @@ test('large native file uses the notification-owning background uploader', async
   expect(streams[0].notificationTitle).toBeTruthy();
   expect(streams[0].headers['X-Upload-Size']).toBe(String(200 * 1024 * 1024));
   expect(chunkPosts.length).toBe(0);
+});
+
+test('notifications denied: upload still runs and the user is told once why no progress bar shows', async ({ page }) => {
+  await bootNative(page, { pushPerm: 'denied' });
+  await mockAllApis(page);
+  await primeNativePick(page, 512 * 1024);
+  await page.click('#runBtn');
+  const toast = page.locator('#celebrateToast');
+  await expect(toast).toHaveClass(/show/, { timeout: 10_000 });
+  await expect(toast).toContainText(/הגדרות הטלפון|phone settings/);
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
+  const streams = await page.evaluate(() => window.__streamUploads);
+  expect(streams).toHaveLength(1);                      // the upload itself is never blocked
+  expect(await page.evaluate(() => window.__notifPermChecks)).toBeGreaterThanOrEqual(1);
+});
+
+test('notifications still promptable: the OS prompt is re-raised before the upload', async ({ page }) => {
+  await bootNative(page, { pushPerm: 'prompt' });
+  await mockAllApis(page);
+  await primeNativePick(page, 512 * 1024);
+  await page.click('#runBtn');
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
+  expect(await page.evaluate(() => window.__notifPermRequests)).toBeGreaterThanOrEqual(1);
+});
+
+test('notifications granted: no warning toast', async ({ page }) => {
+  await bootNative(page, { pushPerm: 'granted' });
+  await mockAllApis(page);
+  await primeNativePick(page, 512 * 1024);
+  await page.click('#runBtn');
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
+  await expect(page.locator('#celebrateToast')).not.toContainText(/הגדרות הטלפון|phone settings/);
 });
 
 test('small native file also uses the background stream uploader', async ({ page }) => {
