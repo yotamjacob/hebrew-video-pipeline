@@ -14,11 +14,21 @@ The app is signed with an **upload keystore** that lives only on this Mac:
 | Keystore file | `android/pipeline-upload.jks` |
 | Key alias | `upload` |
 | Store/key password | see `android/keystore.properties` (local, gitignored) — save it in your password manager |
-| Cert SHA-256 | `3F:55:C6:20:5D:34:67:9D:00:FD:F2:E9:A4:E4:5B:CE:CE:F3:B8:99:07:5E:6B:F4:1D:C5:2A:9C:E8:79:53:F2` |
+| Cert SHA-256 (current) | `C8:C4:E7:2F:FF:E2:A6:B1:6B:75:B1:3B:01:AE:54:EF:A4:C3:18:F4:B0:24:CB:C1:9A:B9:B6:AA:9B:28:0E:48` |
+| Cert SHA-256 (old, lost) | `3F:55:C6:20:5D:34:67:9D:00:FD:F2:E9:A4:E4:5B:CE:CE:F3:B8:99:07:5E:6B:F4:1D:C5:2A:9C:E8:79:53:F2` |
 
 > This guide is committed to a **public** repo, so the actual password is **not**
 > written here. It lives in `android/keystore.properties` (gitignored) and in the
 > chat where the key was generated. Copy it into your password manager now.
+
+> **Upload key was REGENERATED on 2026-08-23.** The original `.jks` was never
+> carried over to the new Mac and exists in no backup on it, so a fresh 4096-bit
+> upload key was generated (same alias `upload`, valid to 2054). Play will REJECT
+> bundles signed with it until you request an upload-key reset: Play Console →
+> **Setup → App signing → Request upload key reset**, and give Google the
+> "current" SHA-256 above. Turnaround is typically 1-2 days. This works only
+> because Play App Signing is enrolled (step 2) - the real app-signing key is
+> Google's and is unchanged, so existing installs still update normally.
 
 **Do this now:**
 1. Copy `android/pipeline-upload.jks` somewhere safe and off this machine
@@ -44,8 +54,10 @@ recoverable via Google support — but back it up anyway.
 
 Rebuild the AAB anytime after code changes:
 ```bash
-export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
-export ANDROID_HOME="$HOME/Library/Android/sdk"
+# Current Mac has no Android Studio - the toolchain is Homebrew, and the shell
+# env already exports these. Only set them if a build cannot find the SDK/JDK.
+export JAVA_HOME="/opt/homebrew/opt/openjdk@21"
+export ANDROID_HOME="/opt/homebrew/share/android-commandlinetools"
 npx cap sync android && (cd android && ./gradlew bundleRelease)
 ```
 Bump `versionCode` (and usually `versionName`) in `android/app/build.gradle`
