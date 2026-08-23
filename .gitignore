@@ -56,3 +56,6 @@ ios/App/App/GoogleService-Info.plist
 *.p12
 *firebase-adminsdk*.json
 *-service-account*.json
+
+# Claude Code personal project settings (account guard - not for the public repo)
+.claude/settings.local.json
