@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.55.6';
+  const APP_VERSION = '1.55.7';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -2061,13 +2061,36 @@
   // a reinstall) silently killed the upload progress notification for good.
   // Re-check right before each native upload: prompt again while the OS still
   // allows it, and say so once when it is off for good.
+  // These calls must NEVER gate the upload. `requestPermissions` parks a
+  // Capacitor PluginCall that is only resolved from the permission
+  // ActivityResult; an activity that is not resumed - minimized, or destroyed
+  // and recreated while backgrounded - never delivers that result, so the
+  // promise stays PENDING forever rather than rejecting, and a try/catch
+  // cannot see it. Awaiting it directly stalled every backgrounded upload
+  // until the user reopened the app (field report 2026-08-23: "stuck, or
+  // finishes after several minutes"). Bound every call, and never raise a
+  // dialog while hidden - the OS cannot show one, it can only hang.
+  const NOTIF_PERM_TIMEOUT_MS = 2500;
+  function _permSettle(call) {
+    const limit = window.__NOTIF_PERM_TIMEOUT_MS || NOTIF_PERM_TIMEOUT_MS;
+    return Promise.race([
+      Promise.resolve(call).catch(() => null),
+      new Promise(res => setTimeout(() => res(null), limit)),
+    ]);
+  }
   let _notifWarned = false;
   async function _ensureNotifPermission() {
     const Push = _capPlugin('PushNotifications');
     if (!Push || !Push.checkPermissions) return;
     try {
-      let p = await Push.checkPermissions();
-      if (p.receive === 'prompt' || p.receive === 'prompt-with-rationale') p = await Push.requestPermissions();
+      let p = await _permSettle(Push.checkPermissions());
+      if (!p) return;                       // unknown state - stay silent
+      if ((p.receive === 'prompt' || p.receive === 'prompt-with-rationale')
+          && !document.hidden) {
+        // Still worth raising, but the upload starts with or without an answer.
+        p = await _permSettle(Push.requestPermissions());
+        if (!p) return;                     // user still reading the dialog
+      }
       if (p.receive !== 'granted' && !_notifWarned) {
         _notifWarned = true;
         celebrateToast(t('upload.notifOff'), { kind: 'error', duration: 6000 });

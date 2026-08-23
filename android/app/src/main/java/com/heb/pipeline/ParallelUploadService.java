@@ -150,6 +150,7 @@ public class ParallelUploadService extends Service {
             wakeLock.setReferenceCounted(false);
             wakeLock.acquire(60 * 60 * 1000L);   // hard cap, released in finally
         }
+        Thread progress = null;
         try {
             JSONArray urlsArr = cfg.optJSONArray("urls");
             final int nParts = urlsArr.length();
@@ -165,7 +166,7 @@ public class ParallelUploadService extends Service {
             final String[] etags = new String[nParts];
 
             // Progress: notification + JS event, throttled to ~1/s.
-            final Thread progress = new Thread(() -> {
+            progress = new Thread(() -> {
                 NotificationManager nm = getSystemService(NotificationManager.class);
                 int lastPct = -1;
                 while (!Thread.currentThread().isInterrupted()) {
@@ -226,6 +227,12 @@ public class ParallelUploadService extends Service {
             ev.put("payload", payload);
             ParallelUploaderPlugin.dispatch(this, ev, true);
         } finally {
+            // Must happen here, not only on the success path above: a part
+            // that fails all its attempts makes f.get() rethrow, which used to
+            // skip that interrupt and leak this thread (and its Service
+            // reference) for the life of the process. Interrupting twice on
+            // the success path is harmless.
+            if (progress != null) progress.interrupt();
             ExecutorService p = pool;
             if (p != null) p.shutdownNow();
             if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();

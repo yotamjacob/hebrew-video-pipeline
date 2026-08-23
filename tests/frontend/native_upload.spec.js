@@ -19,8 +19,9 @@ async function bootNative(page, {
   fireCompleted = true,
   cancelEventName = 'cancelled',
   pushPerm = null,           // 'granted' | 'denied' | 'prompt' - stubs PushNotifications
+  hangPermRequest = false,   // requestPermissions() never settles (backgrounded activity)
 } = {}) {
-  await page.addInitScript(({ withUploader, withParallel, fireCompleted, cancelEventName, pushPerm }) => {
+  await page.addInitScript(({ withUploader, withParallel, fireCompleted, cancelEventName, pushPerm, hangPermRequest }) => {
     window.__streamUploads = [];
     window.__parallelUploads = [];
     window.__ackEvents = [];
@@ -90,7 +91,14 @@ async function bootNative(page, {
       window.__notifPermChecks = 0; window.__notifPermRequests = 0;
       Plugins.PushNotifications = {
         checkPermissions: () => { window.__notifPermChecks++; return Promise.resolve({ receive: pushPerm }); },
-        requestPermissions: () => { window.__notifPermRequests++; return Promise.resolve({ receive: 'denied' }); },
+        requestPermissions: () => {
+          window.__notifPermRequests++;
+          // A backgrounded Android activity never delivers the permission
+          // ActivityResult, so Capacitor's saved PluginCall is never resolved
+          // and this promise stays pending FOREVER (not rejected).
+          if (hangPermRequest) return new Promise(() => {});
+          return Promise.resolve({ receive: 'denied' });
+        },
         addListener: () => ({ remove() {} }),
         createChannel: () => Promise.resolve(),
       };
@@ -100,7 +108,7 @@ async function bootNative(page, {
       Plugins,
       convertFileSrc: p => '/__native_file__',
     };
-  }, { withUploader, withParallel, fireCompleted, cancelEventName, pushPerm });
+  }, { withUploader, withParallel, fireCompleted, cancelEventName, pushPerm, hangPermRequest });
   await bootApp(page);
 }
 
@@ -162,6 +170,25 @@ test('notifications still promptable: the OS prompt is re-raised before the uplo
   await primeNativePick(page, 512 * 1024);
   await page.click('#runBtn');
   await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
+  expect(await page.evaluate(() => window.__notifPermRequests)).toBeGreaterThanOrEqual(1);
+});
+
+test('notifications prompt that never answers does not stall the upload (backgrounded activity)', async ({ page }) => {
+  // Field report 2026-08-23: "upload while minimized is stuck, or finishes
+  // after several minutes". requestPermissions() parks a PluginCall that only
+  // resolves from the permission ActivityResult; a non-resumed (minimized, or
+  // destroyed-and-recreated) activity never delivers it, so the promise stays
+  // PENDING - try/catch cannot see that. nativeUpload awaited it as its first
+  // statement, so the upload never started until the user reopened the app.
+  // docs/uploads.md: "The upload itself is never gated on the permission."
+  await bootNative(page, { pushPerm: 'prompt', hangPermRequest: true });
+  await mockAllApis(page);
+  await primeNativePick(page, 512 * 1024);
+  await page.click('#runBtn');
+  // The upload must start regardless of the unanswered prompt.
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
+  const streams = await page.evaluate(() => window.__streamUploads);
+  expect(streams).toHaveLength(1);
   expect(await page.evaluate(() => window.__notifPermRequests)).toBeGreaterThanOrEqual(1);
 });
 
