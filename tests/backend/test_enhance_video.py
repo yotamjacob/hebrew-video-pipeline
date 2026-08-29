@@ -8,6 +8,7 @@ _ns = _build_ns()
 # render() calls run(cmd) — stub it to capture the command
 _captured = []
 _ns["run"] = lambda cmd: _captured.append(cmd)
+_ns["run_video_encode"] = _ns["run"]   # renders route through the NVENC→x264 fallback wrapper
 _ns["_rotation_vf"] = _extract_fn(MODAL_SRC, "_rotation_vf")["_rotation_vf"]
 # Encoder selection is probed at runtime (NVENC vs libx264) - pin the CPU path
 # here; test_render_encoder.py covers the selection itself.

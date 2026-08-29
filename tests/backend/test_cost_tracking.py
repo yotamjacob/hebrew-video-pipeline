@@ -197,3 +197,36 @@ def test_every_ai_call_site_is_metered():
     assert '_record_ai_spend(costs_store, "broll_context"' in broll
     assert broll.count('"broll_vision"') == 2      # both score_clips call sites
     assert "on_usage(r.usage)" in stock            # helper stays pure - callback only
+
+
+class TestNvencFallback:
+    """2026-08-29: NVENC 'pts/dts pair unsupported' on a 240fps-tagged WhatsApp clip."""
+
+    def _fns(self):
+        from tests.backend.conftest import MODAL_SRC, _extract_fn
+        return _extract_fn(MODAL_SRC, "_swap_nvenc_for_x264")
+
+    def test_swap_rewrites_only_the_encoder_block(self):
+        f = self._fns()["_swap_nvenc_for_x264"]
+        cmd = ["ffmpeg", "-y", "-i", "in.mp4", "-vf", "eq=contrast=1.02",
+               "-c:v", "h264_nvenc", "-rc", "vbr", "-cq", "19", "-b:v", "0",
+               "-preset", "p5", "-tune", "hq", "-profile:v", "high",
+               "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", "out.mp4"]
+        out = f(cmd)
+        assert out == ["ffmpeg", "-y", "-i", "in.mp4", "-vf", "eq=contrast=1.02",
+                       "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
+                       "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", "out.mp4"]
+        assert cmd[7] == "h264_nvenc"                     # input untouched
+
+    def test_swap_is_a_noop_without_nvenc(self):
+        f = self._fns()["_swap_nvenc_for_x264"]
+        assert f(["ffmpeg", "-c:v", "libx264", "-crf", "18", "out.mp4"]) is None
+
+    def test_every_gpu_render_site_goes_through_the_fallback(self):
+        from tests.backend.conftest import MODAL_SRC
+        src = open("pipeline_fns.py", encoding="utf-8").read()
+        # Every `_vcodec_args(` inside a run([...]) call must use run_video_encode.
+        import re
+        bare = re.findall(r"\n\s*run\(\[[^\n]*(?:\n[^\n]*){0,6}_vcodec_args\(", src)
+        assert not bare, "a render still calls run() with NVENC args and no libx264 fallback"
+        assert src.count("run_video_encode(") >= 3          # def + 2 call sites

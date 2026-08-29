@@ -309,6 +309,44 @@ def run(cmd):
         stderr_tail = result.stderr.decode("utf-8", errors="replace")[-3000:]
         raise RuntimeError(f"ffmpeg exited {result.returncode}:\n{stderr_tail}")
 
+
+def _swap_nvenc_for_x264(cmd):
+    """Rewrite an ffmpeg command's `_vcodec_args` NVENC block into the libx264
+    equivalent (same CRF target: nvenc's -cq is crf+1). Pure; leaves any other
+    argument untouched. Returns None if the command has no NVENC block."""
+    cmd = list(cmd)
+    if "h264_nvenc" not in cmd:
+        return None
+    i = cmd.index("h264_nvenc") - 1                  # the "-c:v" before it
+    block = cmd[i:i + 14]                            # -c:v h264_nvenc -rc vbr -cq N -b:v 0 -preset p5 -tune hq -profile:v high
+    try:
+        crf = int(block[block.index("-cq") + 1]) - 1
+    except (ValueError, IndexError):
+        crf = 18
+    return cmd[:i] + ["-c:v", "libx264", "-crf", str(crf), "-preset", "veryfast"] + cmd[i + 14:]
+
+
+def run_video_encode(cmd):
+    """`run()` for renders: if the NVENC encode fails, retry once on libx264.
+
+    2026-08-29 field failure: a WhatsApp clip whose container advertises 240 fps
+    (real rate ~29.5, slightly jittered timestamps) makes ffmpeg 5.1's nvenc
+    wrapper derive B-frame dts offsets from the bogus rate, so dts overtakes pts
+    and the mp4 muxer aborts with "pts/dts pair unsupported" within ~15 frames.
+    libx264 (and nvenc with -bf 0) encode the same file fine; -fps_mode cfr does
+    not help and +negative_cts_offsets crashes ffmpeg. The retry is cheap because
+    the failure is immediate, and it keeps the fast GPU path for every normal
+    file. Reproduced on the real source with scripts in the session notes (see
+    docs/processing.md)."""
+    try:
+        run(cmd)
+    except RuntimeError as e:
+        alt = _swap_nvenc_for_x264(cmd)
+        if alt is None:
+            raise
+        print(f"[encode] NVENC render failed, retrying on libx264: {str(e).strip().splitlines()[-1][:160]}")
+        run(alt)
+
 def probe_video(path):
     r = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "v:0",
@@ -818,7 +856,7 @@ def render(video, audio, segs, ass_file, out, crf=18, rotation=0, extra_vf=""):
     # -noautorotate: disable implicit rotation so our explicit transpose is the sole source of truth
     input_args = ["-noautorotate"] if rotation else []
     meta_args  = ["-metadata:s:v:0", "rotate=0"] if rotation else []
-    run(["ffmpeg", "-y"] + input_args + ["-i", str(video), "-i", str(audio),
+    run_video_encode(["ffmpeg", "-y"] + input_args + ["-i", str(video), "-i", str(audio),
          "-filter_complex", fc,
          "-map", "[vout]", "-map", "[ac]"]
         + _vcodec_args(crf) +
@@ -1429,7 +1467,7 @@ def process_video(
             vf = (rot_vf + enh_vf).strip(",") or "null"
             input_args = ["-noautorotate"] if rotation else []
             meta_args  = ["-metadata:s:v:0", "rotate=0"] if rotation else []
-            run(["ffmpeg", "-y"] + input_args + ["-i", str(src),
+            run_video_encode(["ffmpeg", "-y"] + input_args + ["-i", str(src),
                  "-vf", vf] + _vcodec_args(18) +
                 ["-pix_fmt", "yuv420p", "-c:a", "copy"] + meta_args +
                 ["-movflags", "+faststart", str(out_file)])
