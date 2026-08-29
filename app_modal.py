@@ -1058,6 +1058,7 @@ def api():
         # /upload_r2/init (scope binds the upload key, uid inside, 4 h TTL),
         # so it is unguessable and can only ever land its own upload.
         if path in ("/upload_r2/landed", "/upload_r2/landed/") and method == "POST":
+            import os as _os
             _qs  = parse_qs(scope.get("query_string", b"").decode())
             _tok = _qs.get("token", [""])[0]
             _key = _qs.get("key", [""])[0]
@@ -1926,6 +1927,7 @@ def api():
                     # Signed server callback the service hits after completing
                     # the multipart (see /upload_r2/landed above) - the job
                     # spawns without the app being awake.
+                    import os as _os
                     _ltok = _sign_scoped_token(uid, f"r2land-{key}", _os.environ["AUTH_SECRET"], R2_URL_TTL)
                     extra = {"complete_url": complete_url, "abort_url": abort_url,
                              "callback_url": f"{API_BASE_URL}/upload_r2/landed/?key={key}&token={_ltok}"}
