@@ -378,7 +378,7 @@ def _r2_land_on_volume(s3, bucket, obj_key, full_key):
     return True
 
 
-@app.function(image=light_image, schedule=modal.Period(minutes=5),
+@app.function(image=light_image, schedule=modal.Period(seconds=30),
               volumes={TMP_DIR: tmp_vol},
               secrets=[modal.Secret.from_name("hebpipe-backup")])
 def sweep_r2_uploads():
@@ -388,8 +388,9 @@ def sweep_r2_uploads():
     /upload_r2/complete - the registered job would sit pending forever and the
     'upload done' push would never fire. Every 5 minutes: for each pending
     registration whose bytes are not on the volume yet, check R2 for the
-    completed object; if present, land it and spawn. Races with an in-app
-    /complete are safe: the volume copy is idempotent and the spawn claim is
+    completed object; if present, land it and spawn. Runs every 30 s (see
+    the grace note below). Races with an in-app /complete or the service's
+    /landed callback are safe: the volume copy is idempotent and the spawn claim is
     an atomic pop."""
     s3, bucket = _r2_client_env()
     if s3 is None:
@@ -406,8 +407,13 @@ def sweep_r2_uploads():
         rec = pending_store.get(full_key)
         if not isinstance(rec, dict) or "params" not in rec:
             continue
-        # Give a just-registered upload time to land through the normal path.
-        if _time.time() - float(rec.get("ts") or 0) < 60:
+        # Give a just-registered upload time to land through the normal path
+        # (the service's /upload_r2/landed callback or the app's /complete).
+        # 2026-08-29: every 30 s / 15 s grace instead of 5 min / 60 s - for
+        # binaries without the callback (Play 1.4.2..1.4.5) this sweep IS the
+        # spawn path once the app is frozen, and a 5-minute cadence showed
+        # up as "the ready push takes 3-4 minutes when I minimize".
+        if _time.time() - float(rec.get("ts") or 0) < 15:
             continue
         if (_Path(TMP_DIR) / f"{full_key}_chunk_0000").exists():
             continue   # landed - the request path's spawn is in flight
@@ -1042,6 +1048,52 @@ def api():
         # used to learn WHICH transaction to ask Apple about, and the revocation
         # decision comes from that authenticated App Store Server API read. A
         # forged notification therefore achieves nothing.
+        # ── Native upload landed callback (2026-08-29) ──
+        # The Android ParallelUploadService completes the multipart directly
+        # against R2, then POSTs here so the server lands the object on the
+        # volume and spawns the job itself - the WebView is usually FROZEN by
+        # then (a minimized app), so the JS `completed` handler that used to
+        # call /upload_r2/complete could not run and the job waited for the
+        # sweep. No session: the URL carries a scoped HMAC token minted by
+        # /upload_r2/init (scope binds the upload key, uid inside, 4 h TTL),
+        # so it is unguessable and can only ever land its own upload.
+        if path in ("/upload_r2/landed", "/upload_r2/landed/") and method == "POST":
+            _qs  = parse_qs(scope.get("query_string", b"").decode())
+            _tok = _qs.get("token", [""])[0]
+            _key = _qs.get("key", [""])[0]
+            _luid = (_verify_scoped_token(_tok, f"r2land-{_key}", _os.environ["AUTH_SECRET"])
+                     if _tok and _SAFE_KEY_RE.match(_key) else None)
+            if not _luid:
+                await send_error("invalid token", 401)
+                return
+            full_key = f"u{_luid}__{_key}"
+            s3, bucket = await asyncio.to_thread(_r2_client_env)
+            if s3 is None:
+                await send_error("R2 not configured", 503, code="r2_unavailable")
+                return
+            from pathlib import Path as _Path
+            spawned_call = None
+            try:
+                if not await asyncio.to_thread((_Path(TMP_DIR) / f"{full_key}_chunk_0000").exists):
+                    def _land():
+                        obj_key = f"uploads/{full_key}.src"
+                        s3.head_object(Bucket=bucket, Key=obj_key)   # object must exist
+                        _r2_land_on_volume(s3, bucket, obj_key, full_key)
+                    await asyncio.to_thread(_land)
+                if isinstance(pending_store.get(full_key), dict):
+                    spawned_call = await asyncio.to_thread(
+                        _spawn_pending_job_impl, full_key, _luid)
+                print(f"[r2] landed callback for {full_key!r}: spawned={spawned_call}")
+            except Exception as e:
+                print(f"[r2] landed callback failed for {full_key!r}: {e!r}")
+                await send_error("land failed", 502, code="r2_land_failed")
+                return
+            body = json.dumps({"ok": True, **({"call_id": spawned_call} if spawned_call else {})}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
         if path in ("/billing/apple/notify", "/billing/apple/notify/") and method == "POST":
             import time as _time
             try:
@@ -1871,7 +1923,12 @@ def api():
                                         "UploadId": upload_id},
                                 ExpiresIn=R2_URL_TTL, HttpMethod="DELETE"))
                     complete_url, abort_url = await asyncio.to_thread(_ctl_urls)
-                    extra = {"complete_url": complete_url, "abort_url": abort_url}
+                    # Signed server callback the service hits after completing
+                    # the multipart (see /upload_r2/landed above) - the job
+                    # spawns without the app being awake.
+                    _ltok = _sign_scoped_token(uid, f"r2land-{key}", _os.environ["AUTH_SECRET"], R2_URL_TTL)
+                    extra = {"complete_url": complete_url, "abort_url": abort_url,
+                             "callback_url": f"{API_BASE_URL}/upload_r2/landed/?key={key}&token={_ltok}"}
             except Exception as e:
                 print(f"[r2] init failed: {e!r}")
                 await send_error("R2 init failed", 503, code="r2_unavailable")

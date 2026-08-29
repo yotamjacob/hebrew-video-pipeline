@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.55.9';
+  const APP_VERSION = '1.55.10';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -2167,6 +2167,10 @@
               size: desc.size || 0,
               completeUrl: cfg.complete_url,
               abortUrl: cfg.abort_url || '',
+              // Signed server callback (2026-08-29): the service POSTs it after
+              // completing the multipart so the job spawns even while this
+              // WebView is frozen. Older binaries ignore the option.
+              callbackUrl: cfg.callback_url || '',
               concurrency: 5,
               notificationTitle: t('upload.title') || 'Uploading video',
             },
@@ -5734,6 +5738,7 @@
   }
 
   function _resetChecklist() {
+    checklistEl.classList.remove('finished');
     Object.keys(checkItems).forEach(name => {
       if (stepTimers[name]) { clearInterval(stepTimers[name].id); stepTimers[name] = null; }
       const item = checkItems[name];
@@ -5976,7 +5981,15 @@
   }
 
   function showDone() {
-    checklistEl.style.display = 'none';
+    // Keep the finished checklist (with its per-step runtimes) above the done
+    // card - hiding it threw away the timings the user just watched
+    // (2026-08-29 report). Only rows that never started are dropped.
+    checklistEl.classList.add('finished');
+    Object.keys(checkItems).forEach(name => {
+      const item = checkItems[name];
+      if (item && item.classList.contains('pending')) item.style.display = 'none';
+      if (stepTimers[name]) { clearInterval(stepTimers[name].id); stepTimers[name] = null; }
+    });
     statusDone.classList.add('visible');
     _maybeShowShare();
     if (!burnMode) runBtn.style.display = 'none';

@@ -893,3 +893,42 @@ class TestProcessingNudge:
         route = self._route()
         assert '"processing", "hebpipe-job"' in route
         assert route.index("_poll_fn_call(") < route.index("_send_push")
+
+
+class TestR2LandedCallback:
+    """2026-08-29: the native service lands + spawns via a signed callback so a
+    frozen (minimized) WebView no longer delays the job until the sweep."""
+
+    def _route(self):
+        r = MODAL_SRC[MODAL_SRC.index('if path in ("/upload_r2/landed", "/upload_r2/landed/")'):]
+        return r[:r.index('if path in ("/billing/apple/notify"')]
+
+    def test_route_is_public_but_token_scoped_to_the_upload_key(self):
+        route = self._route()
+        # Above the session guard: it must run without a session token...
+        assert MODAL_SRC.index('("/upload_r2/landed"') < MODAL_SRC.index('("/push/register"')
+        # ...but only with a scoped token whose scope binds THIS key.
+        assert '_verify_scoped_token(_tok, f"r2land-{_key}"' in route
+        assert '_SAFE_KEY_RE.match(_key)' in route
+        assert 'await send_error("invalid token", 401)' in route
+        # uid comes from the token, never from the request.
+        assert 'full_key = f"u{_luid}__{_key}"' in route
+
+    def test_route_lands_then_spawns_with_the_token_uid(self):
+        route = self._route()
+        assert "head_object" in route
+        assert "_r2_land_on_volume(s3, bucket, obj_key, full_key)" in route
+        assert "_spawn_pending_job_impl, full_key, _luid" in route
+        assert route.index("_r2_land_on_volume") < route.index("_spawn_pending_job_impl")
+
+    def test_init_mints_the_callback_for_parallel_uploads(self):
+        init_block = MODAL_SRC[MODAL_SRC.index('("/upload_r2/init"'):
+                               MODAL_SRC.index('("/upload_r2/complete"')]
+        assert '_sign_scoped_token(uid, f"r2land-{key}"' in init_block
+        assert '"callback_url": f"{API_BASE_URL}/upload_r2/landed/?key={key}&token={_ltok}"' in init_block
+
+    def test_sweep_runs_every_30s_as_the_no_callback_fallback(self):
+        decl = MODAL_SRC[MODAL_SRC.index("def sweep_r2_uploads") - 300:MODAL_SRC.index("def sweep_r2_uploads")]
+        assert "modal.Period(seconds=30)" in decl
+        sweep = MODAL_SRC[MODAL_SRC.index("def sweep_r2_uploads"):]
+        assert "< 15:" in sweep[:sweep.index("head_object")]

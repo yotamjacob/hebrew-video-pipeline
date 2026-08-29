@@ -538,3 +538,22 @@ test('the save stage renders as a live checklist row with a flow-aware label', a
   });
   await expect(page.locator('#checkSave .check-label')).toHaveAttribute('data-i18n', 'prog.save');
 });
+
+test('done card keeps the finished checklist and its runtimes visible', async ({ page }, testInfo) => {
+  // 2026-08-29 report: the "video is ready" card replaced the progress list,
+  // hiding the per-step runtimes the user had just watched.
+  await mockAllApis(page, { captions: [] });
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await expect(page.locator('#statusDone')).toBeVisible({ timeout: 10_000 });
+  const checklist = page.locator('#statusChecklist');
+  await expect(checklist).toBeVisible();
+  await expect(checklist).toHaveClass(/finished/);
+  await expect(page.locator('#checkUpload')).toHaveClass(/done/);
+  await expect(page.locator('#checkUploadTime')).not.toHaveText('');
+  // Rows that never started are dropped, finished rows stay.
+  const pendingVisible = await page.locator('#statusChecklist .check-item.pending:visible').count();
+  expect(pendingVisible).toBe(0);
+  await page.locator('#statusCard').screenshot({ path: testInfo.outputPath('done-card.png') });
+});

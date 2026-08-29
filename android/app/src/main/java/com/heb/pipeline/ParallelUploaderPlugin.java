@@ -87,6 +87,7 @@ public class ParallelUploaderPlugin extends Plugin {
             cfg.put("size", (long) call.getDouble("size", 0.0).doubleValue());
             cfg.put("completeUrl", completeUrl);
             cfg.put("abortUrl", call.getString("abortUrl", ""));
+            cfg.put("callbackUrl", call.getString("callbackUrl", ""));
             cfg.put("concurrency", call.getInt("concurrency", 5));
             cfg.put("notificationTitle", call.getString("notificationTitle", "Uploading video"));
 

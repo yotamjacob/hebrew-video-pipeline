@@ -904,6 +904,8 @@ def render_audio(audio_in, segs, out):
 def notify_when_previewable(uid: str, video_key: str, title: str, body: str,
                             kind: str, upload_key: str = None):
     import os, time, urllib.request
+    _t0 = time.time()
+    _g1 = "n/a"
 
     # Gate 1: the result must be collectable via /process_poll (call finished).
     try:
@@ -912,13 +914,19 @@ def notify_when_previewable(uid: str, video_key: str, title: str, body: str,
         if call_id:
             fc = modal.FunctionCall.from_id(call_id)
             deadline = time.time() + 90
+            _g1 = "timeout"
             while time.time() < deadline:
                 _, running = _poll_fn_call(fc)
                 if not running:
+                    _g1 = "finished"
                     break
                 time.sleep(1)
+        else:
+            _g1 = "no-record"
     except Exception as e:
+        _g1 = f"skipped:{type(e).__name__}"
         print(f"[notify] call-finish gate skipped: {e!r}")
+    _t1 = time.time()
 
     # Gate 2: the preview URL must actually serve bytes.
     ready = False
@@ -942,8 +950,13 @@ def notify_when_previewable(uid: str, video_key: str, title: str, body: str,
         print(f"[notify] preview gate skipped: {e!r}")
     if not ready:
         print(f"[notify] preview gate timed out for {video_key} - pushing anyway")
+    _t2 = time.time()
 
     _send_push(uid, title, body, kind=kind, tag="hebpipe-job")
+    # Timeline telemetry (2026-08-29): which gate a late push waited on.
+    print(f"[notify] {kind} {video_key[-20:]} gate1={_g1} {_t1 - _t0:.1f}s "
+          f"gate2={'ready' if ready else 'timeout'} {_t2 - _t1:.1f}s "
+          f"send={time.time() - _t2:.1f}s total={time.time() - _t0:.1f}s")
 
 
 def _notify_ready(uid, video_key, title, body, kind, upload_key=None):

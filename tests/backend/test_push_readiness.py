@@ -58,7 +58,12 @@ class TestNotifierGates:
         body = _notifier_body()
         assert body.count("deadline = time.time() + ") == 2
         assert "pushing anyway" in body
-        assert body.rstrip().endswith('_send_push(uid, title, body, kind=kind, tag="hebpipe-job")')
+        # The push is the last ACTION (only the timeline telemetry print follows it),
+        # and it comes after both gates have run out.
+        send = body.index('_send_push(uid, title, body, kind=kind, tag="hebpipe-job")')
+        assert send > body.index("pushing anyway")
+        assert "_send_push(" not in body[send + 10:]
+        assert '[notify] {kind}' in body[send:]          # timeline line logged after the send
 
     def test_spawn_failure_falls_back_to_a_direct_push(self):
         i = MODAL_SRC.index("def _notify_ready(")

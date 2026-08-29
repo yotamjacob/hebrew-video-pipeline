@@ -140,6 +140,7 @@ public class ParallelUploadService extends Service {
         final String filePath = cfg.optString("filePath");
         final String completeUrl = cfg.optString("completeUrl");
         final String abortUrl = cfg.optString("abortUrl", "");
+        final String callbackUrl = cfg.optString("callbackUrl", "");
         final long partSize = cfg.optLong("partSize", 8L * 1024 * 1024);
         final int concurrency = Math.max(1, Math.min(8, cfg.optInt("concurrency", 5)));
         final String title = cfg.optString("notificationTitle", "Uploading video");
@@ -206,6 +207,11 @@ public class ParallelUploadService extends Service {
             if (cancelled.get()) throw new InterruptedException("cancelled");
 
             completeMultipart(completeUrl, etags);
+            // Tell the server the object is complete so it lands + spawns the
+            // job NOW, while the WebView may be frozen (minimized app). Best
+            // effort: the JS `completed` handler and the server sweep remain
+            // as fallbacks, so a failed callback never fails the upload.
+            notifyLanded(callbackUrl);
 
             JSObject ev = event(id, "completed");
             JSObject payload = new JSObject();
@@ -367,6 +373,32 @@ public class ParallelUploadService extends Service {
             }
         }
         throw last != null ? last : new IllegalStateException("complete failed");
+    }
+
+    private void notifyLanded(String callbackUrl) {
+        if (callbackUrl == null || callbackUrl.isEmpty()) return;
+        for (int attempt = 0; attempt < COMPLETE_ATTEMPTS; attempt++) {
+            HttpURLConnection conn = null;
+            try {
+                if (attempt > 0) Thread.sleep(2000L * attempt);
+                conn = (HttpURLConnection) new URL(callbackUrl).openConnection();
+                conn.setRequestMethod("POST");
+                conn.setDoOutput(true);
+                conn.setFixedLengthStreamingMode(0);
+                conn.setConnectTimeout(30_000);
+                conn.setReadTimeout(120_000);   // the server copies the object to its volume
+                conn.getOutputStream().close();
+                int code = conn.getResponseCode();
+                if (code >= 200 && code < 300) return;
+                if (code == 401 || code == 400) return;   // token rejected - retrying cannot help
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (Exception ignored) {
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+        }
     }
 
     private String readBody(HttpURLConnection conn) {

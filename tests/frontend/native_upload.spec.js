@@ -321,6 +321,7 @@ async function enableNativeR2(page, seen, { parallel = false } = {}) {
           urls: [0, 1, 2].map(i => `https://fake-r2.test/part/${i}`),
           complete_url: 'https://fake-r2.test/complete',
           abort_url: 'https://fake-r2.test/abort',
+          callback_url: `${API_BASE}/upload_r2/landed/?key=k&token=r2land-k.u.9.sig`,
         } : { upload_id: 'mpu-1', part_size: 512 * 1024,
               urls: ['https://fake-r2.test/part/0'] }) });
     }
@@ -414,6 +415,9 @@ test('a ParallelUploader binary uploads via the parallel service with part urls 
   expect(up.urls.length).toBe(3);
   expect(up.completeUrl).toBe('https://fake-r2.test/complete');
   expect(up.abortUrl).toBe('https://fake-r2.test/abort');
+  // The signed server callback rides along so the service can land + spawn
+  // the job itself while the WebView is frozen (2026-08-29).
+  expect(up.callbackUrl).toMatch(/\/upload_r2\/landed\/\?key=k&token=/);
   expect(up.partSize).toBe(512 * 1024);
   expect(up.concurrency).toBeGreaterThan(1);
   // The stock single-connection uploader must NOT have been used.
