@@ -483,3 +483,29 @@ test('native: without the Filesystem plugin a recording still flows through the 
   expect(await page.evaluate(() => nativeUploadDesc)).toBeNull();
   await expect(page.locator('#fileName')).toHaveText('recorded.mp4');
 });
+
+test('native: minimizing while the server is processing asks for the processing push', async ({ page }) => {
+  await bootNative(page, { withParallel: true });
+  await mockAllApis(page);
+  const seen = [];
+  await enableNativeR2(page, seen, { parallel: true });
+  const nudges = [];
+  await page.route(`${API_BASE}/push/processing/**`, route => {
+    nudges.push(route.request().url());
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"sent":true}' });
+  });
+  // Keep the job "processing" for a while so the poll is active when we hide.
+  await page.route(`${API_BASE}/process_poll/**`, async route => {
+    await new Promise(r => setTimeout(r, 400));
+    route.fulfill({ status: 202, contentType: 'application/json', body: '{"stage":"cut","progress":0.3}' });
+  });
+  await primeNativePick(page, 5 * 1024 * 1024);
+  await page.click('#runBtn');
+  await page.waitForFunction(() => !!currentPollInfo, null, { timeout: 15_000 });
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { get: () => true, configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect.poll(() => nudges.length).toBe(1);
+  expect(nudges[0]).toMatch(/\/push\/processing\/\?key=/);
+});

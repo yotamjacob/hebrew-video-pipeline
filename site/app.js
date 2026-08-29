@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.55.8';
+  const APP_VERSION = '1.55.9';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -7336,6 +7336,18 @@
       }
     });
   }
+
+  // Native: when the app is minimized while the server is still processing,
+  // ask the backend to (re)send the "processing" push. FCM never shows a
+  // notification to a foregrounded app, and the original one fires at job
+  // start while the user is still watching the checklist - so without this
+  // the shade is empty for the whole processing phase (2026-08-29).
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden || !_isNative() || !currentPollInfo || !currentUploadKey) return;
+    if (!/\/process_poll\//.test(currentPollInfo.pollUrl || '')) return;   // not for exports
+    apiFetch(`${API_BASE}/push/processing/?key=${encodeURIComponent(currentUploadKey)}`,
+             { method: 'POST', keepalive: true }).catch(() => {});
+  });
 
   function triggerStockBroll() {
     document.getElementById('stockBrollRerunBanner').style.display = 'none';

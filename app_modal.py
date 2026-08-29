@@ -18,7 +18,7 @@ import modal
 from pipeline_core import (
     light_image,
     jobs_store, progress_store, users_store, calls_store, quota_store, purchases_store, fcm_store,
-    pending_store, errors_store, _alert_admins, costs_store, _cost_summary, stats_store,
+    pending_store, errors_store, _alert_admins, _send_push, costs_store, _cost_summary, stats_store,
     _record_ai_spend, _face_center_from_image,
     codes_store, _normalize_email, _gen_login_code,
     _verify_google_id_token, GOOGLE_WEB_CLIENT_ID,
@@ -2117,6 +2117,49 @@ def api():
             except Exception as e:
                 print(f"[push] register failed: {e}")
             body = json.dumps({"ok": True}).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── Processing nudge (2026-08-29) ──
+        # The "upload finished - processing on the server" push fires at
+        # process_video start, while the user is still watching the checklist,
+        # and a FOREGROUNDED Android app never displays an FCM notification.
+        # So a user who minimizes seconds later has NOTHING in the shade for
+        # the whole processing phase (the upload notification is long gone -
+        # a typical clip uploads in a few seconds). The client calls this when
+        # it goes hidden mid-processing; we re-send the same message (same
+        # tag, so the completion push still replaces it) only while the job is
+        # genuinely still running, at most once a minute per job.
+        if path in ("/push/processing", "/push/processing/") and method == "POST":
+            if not uid:
+                await send_error("unauthorized", 401)
+                return
+            qs  = parse_qs(scope.get("query_string", b"").decode())
+            key = qs.get("key", [""])[0]
+            if not key or not _SAFE_KEY_RE.match(key):
+                await send_error("Invalid or missing key", 400)
+                return
+            full_key = uprefix + key
+            sent = False
+            try:
+                done = pending_store.get("done:" + full_key)
+                call_id = done.get("call_id") if isinstance(done, dict) and done.get("uid") == uid else None
+                last = pending_store.get("nudge:" + full_key)
+                fresh = isinstance(last, (int, float)) and (_time.time() - last) < 60
+                if call_id and not fresh:
+                    _, running = _poll_fn_call(modal.FunctionCall.from_id(call_id))
+                    if running:
+                        pending_store["nudge:" + full_key] = _time.time()
+                        await asyncio.to_thread(
+                            _send_push, uid, "ההעלאה הסתיימה",
+                            "הסרטון בעיבוד בשרת - אפשר לסגור את האפליקציה, נעדכן כשיהיה מוכן.",
+                            "processing", "hebpipe-job")
+                        sent = True
+            except Exception as e:
+                print(f"[push] processing nudge skipped: {e!r}")
+            body = json.dumps({"sent": sent}).encode()
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})

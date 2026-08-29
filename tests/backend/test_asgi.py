@@ -870,3 +870,26 @@ class TestAdminDeleteUserRoute:
         assert "if not urec:" in block
         assert '"account_deleted"' in block
         assert "401" in block
+
+
+class TestProcessingNudge:
+    """Minimizing mid-processing re-sends the 'processing' push (2026-08-29)."""
+
+    def _route(self):
+        route = MODAL_SRC[MODAL_SRC.index(
+            'if path in ("/push/processing", "/push/processing/")'):]
+        return route[:route.index('if path in ("/error-report", "/error-report/")')]
+
+    def test_only_while_the_job_is_running_and_rate_limited(self):
+        route = self._route()
+        assert 'await send_error("unauthorized", 401)' in route
+        assert '_SAFE_KEY_RE.match(key)' in route
+        # Owner check + liveness check + 60s dedupe, in that order.
+        assert route.index('done.get("uid") == uid') < route.index("_poll_fn_call(")
+        assert "< 60" in route
+        assert 'pending_store["nudge:" + full_key] = _time.time()' in route
+
+    def test_same_tag_as_the_completion_push(self):
+        route = self._route()
+        assert '"processing", "hebpipe-job"' in route
+        assert route.index("_poll_fn_call(") < route.index("_send_push")
