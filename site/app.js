@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.55.7';
+  const APP_VERSION = '1.55.8';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -1919,7 +1919,13 @@
       return;
     }
     if (!desc.path) { showBlockNotice(t('file.badTypeTitle'), 'No file path from picker'); return; }
+    _selectNativeDesc(desc);
+  }
 
+  // Attach a native file descriptor ({path,name,size,mimeType}) as the current
+  // selection. Shared by the file picker and the staged camera recording so
+  // BOTH ride the foreground-service uploader (nativeUploadDesc set).
+  function _selectNativeDesc(desc) {
     const _isAudio = _isAudioFile(desc);
     const _isVideo = (desc.mimeType || '').startsWith('video/') || /\.(mp4|mov|m4v|mkv|avi|webm)$/i.test(desc.name);
     if (!_isVideo && !_isAudio) { showBlockNotice(t('file.badTypeTitle'), t('file.badType')); return; }
@@ -1948,6 +1954,49 @@
     blocked = false; runBtn.disabled = false;
     updateTimeEstimate();
     apiFetch(API_BASE + '/warmup/').catch(() => {});
+  }
+
+  // ── Camera recordings on native (2026-08-29) ─────────────────────────────
+  // The record option hands back a BROWSER File (the WebView's capture input)
+  // with no filesystem path, so it used to ride the web upload path inside the
+  // WebView - no foreground service, no progress notification, and Android
+  // freezes the process a minute after minimizing, killing the upload. Copy the
+  // bytes into the app cache first and select the result as a native
+  // descriptor so the ParallelUploader service carries it like a picked file.
+  let _stagedRecordingPath = null;
+  async function _stageRecordedFile(file) {
+    const Filesystem = _capPlugin('Filesystem');
+    if (!Filesystem || !Filesystem.writeFile || !Filesystem.getUri) return false;
+    const ext = (/\.([a-z0-9]{2,4})$/i.exec(file.name || '') || [, 'mp4'])[1].toLowerCase();
+    const path = 'rec_' + _uuid() + '.' + ext;
+    selectedFile = file;
+    fileName.textContent = file.name || path;
+    _revealFileInfo();
+    fileDetail.textContent = t('file.staging', { size: formatSize(file.size) });
+    runBtn.disabled = true;
+    try {
+      _disposeStagedRecording();
+      await _writeBlobToCache(Filesystem, file, path);
+      const { uri } = await Filesystem.getUri({ directory: 'CACHE', path });
+      if (!uri) throw new Error('no cache uri');
+      _stagedRecordingPath = path;
+      _selectNativeDesc({ path: uri, name: file.name || path, size: file.size,
+                          mimeType: file.type || 'video/mp4' });
+      return true;
+    } catch (e) {
+      console.warn('recording staging failed - using the in-app upload:', e && e.message);
+      _disposeStagedRecording();
+      return false;
+    }
+  }
+  function _disposeStagedRecording() {
+    const path = _stagedRecordingPath;
+    _stagedRecordingPath = null;
+    if (!path) return;
+    const Filesystem = _capPlugin('Filesystem');
+    if (Filesystem && Filesystem.deleteFile) {
+      Filesystem.deleteFile({ path, directory: 'CACHE' }).catch(() => {});
+    }
   }
 
   function _rememberActiveNativeUpload(id, key, pluginName) {
@@ -2763,10 +2812,15 @@
       forward(() => (_isNative() ? pickNativeFile() : fileInput.click())));
     document.getElementById('srcCancelBtn')?.addEventListener('click', hide);
     ov.addEventListener('click', (e) => { if (e.target === ov) hide(); });
-    document.getElementById('recordInput')?.addEventListener('change', (e) => {
+    document.getElementById('recordInput')?.addEventListener('change', async (e) => {
       const f = e.target.files && e.target.files[0];
-      if (f) handleFile(f);
       e.target.value = '';   // allow re-recording the same flow
+      if (!f) return;
+      // Native: stage the recording on disk so the foreground-service uploader
+      // (progress notification, survives minimize) carries it. Falls back to
+      // the in-WebView upload only if the copy fails.
+      if (_isNative() && await _stageRecordedFile(f)) return;
+      handleFile(f);
     });
   })();
   // Mobile WEB: intercept the zone tap (the covering <input> would open the
@@ -3340,6 +3394,7 @@
 
       if (_upMode === 'stream') {
         await nativeUpload(nativeUploadDesc, _onUpProgress, uploadKey);
+        _disposeStagedRecording();   // a staged camera recording is on the server now
       } else {
         // Fast path: presigned parallel PUTs to R2 (~uplink speed). Falls back
         // to the chunked Modal path on any R2-specific failure (old backend,
@@ -3748,6 +3803,7 @@
   }
   function _disposeSnapshot() {
     stableBlob = null;
+    _disposeStagedRecording();
     if (_snapshotId) { _idbDel(_snapshotId); _snapshotId = null; }
   }
 

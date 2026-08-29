@@ -20,8 +20,9 @@ async function bootNative(page, {
   cancelEventName = 'cancelled',
   pushPerm = null,           // 'granted' | 'denied' | 'prompt' - stubs PushNotifications
   hangPermRequest = false,   // requestPermissions() never settles (backgrounded activity)
+  withFilesystem = false,    // @capacitor/filesystem stub (camera-recording staging)
 } = {}) {
-  await page.addInitScript(({ withUploader, withParallel, fireCompleted, cancelEventName, pushPerm, hangPermRequest }) => {
+  await page.addInitScript(({ withUploader, withParallel, fireCompleted, cancelEventName, pushPerm, hangPermRequest, withFilesystem }) => {
     window.__streamUploads = [];
     window.__parallelUploads = [];
     window.__ackEvents = [];
@@ -103,12 +104,22 @@ async function bootNative(page, {
         createChannel: () => Promise.resolve(),
       };
     }
+    if (withFilesystem) {
+      // Records every write so a spec can assert the recording was staged
+      // to the app cache (base64 chunks, append after the first).
+      window.__fsWrites = []; window.__fsDeleted = [];
+      Plugins.Filesystem = {
+        writeFile: (o) => { window.__fsWrites.push({ path: o.path, append: !!o.append, len: (o.data || '').length }); return Promise.resolve({ uri: 'file:///cache/' + o.path }); },
+        getUri: ({ path }) => Promise.resolve({ uri: 'file:///data/user/0/com.heb.pipeline/cache/' + path }),
+        deleteFile: ({ path }) => { window.__fsDeleted.push(path); return Promise.resolve(); },
+      };
+    }
     window.Capacitor = {
       isNativePlatform: () => true,
       Plugins,
       convertFileSrc: p => '/__native_file__',
     };
-  }, { withUploader, withParallel, fireCompleted, cancelEventName, pushPerm, hangPermRequest });
+  }, { withUploader, withParallel, fireCompleted, cancelEventName, pushPerm, hangPermRequest, withFilesystem });
   await bootApp(page);
 }
 
@@ -432,4 +443,43 @@ test('native: tapping the upload zone opens the source chooser (record or file)'
   await expect(page.locator('#sourceOverlay')).toBeVisible();
   await page.click('#srcCancelBtn');
   await expect(page.locator('#sourceOverlay')).toBeHidden();
+});
+
+test('native: a camera recording is staged to the app cache and rides the foreground-service uploader', async ({ page }) => {
+  // Field report 2026-08-29: "no progress notification, processing dies when
+  // I minimize" - only for RECORDED clips. The capture input yields a browser
+  // File (no path), which used to take the in-WebView web upload path.
+  await bootNative(page, { withParallel: true, withFilesystem: true });
+  await mockAllApis(page);
+  const seen = [];
+  await enableNativeR2(page, seen, { parallel: true });
+  const chunkPosts = countChunkPosts(page);
+  await page.setInputFiles('#recordInput', {
+    name: 'recorded.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(768 * 1024),
+  });
+  await page.waitForSelector('#runBtn:not([disabled])', { timeout: 10_000 });
+  await expect(page.locator('#fileName')).toHaveText('recorded.mp4');
+  const desc = await page.evaluate(() => nativeUploadDesc);
+  expect(desc.path).toMatch(/^file:\/\/.*\/cache\/rec_.*\.mp4$/);
+  expect(desc.size).toBe(768 * 1024);
+  expect(await page.evaluate(() => window.__fsWrites.length)).toBeGreaterThan(0);
+
+  await page.click('#runBtn');
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
+  const up = await page.evaluate(() => window.__parallelUploads[0]);
+  expect(up.filePath).toBe(desc.path);
+  expect(chunkPosts.length).toBe(0);                     // never the web path
+  // The staged copy is deleted once the bytes are on the server.
+  await expect.poll(() => page.evaluate(() => window.__fsDeleted.length)).toBe(1);
+});
+
+test('native: without the Filesystem plugin a recording still flows through the in-app upload', async ({ page }) => {
+  await bootNative(page, { withParallel: true });
+  await mockAllApis(page);
+  await page.setInputFiles('#recordInput', {
+    name: 'recorded.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(512 * 1024),
+  });
+  await page.waitForSelector('#runBtn:not([disabled])', { timeout: 10_000 });
+  expect(await page.evaluate(() => nativeUploadDesc)).toBeNull();
+  await expect(page.locator('#fileName')).toHaveText('recorded.mp4');
 });

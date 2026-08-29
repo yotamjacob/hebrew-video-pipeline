@@ -421,6 +421,7 @@
     'file.tooLargeTitle': { en: 'File too large', he: 'הקובץ גדול מדי' },
     'file.tooLarge':      { en: 'Max size is 1 GB. This file is {size}. Please trim or compress it first.', he: 'הגודל המרבי הוא 1 GB. הקובץ הזה שוקל {size}. קצרו או דחסו אותו קודם.' },
     'file.reading':       { en: '{size} · reading…', he: '{size} · קורא…' },
+    'file.staging':       { en: '{size} · saving the recording…', he: '{size} · שומר את ההקלטה…' },
     'file.res4kTitle':    { en: '4K video', he: 'סרטון 4K' },
     'file.res4k':         { en: 'This is a 4K video, so the file is large - the upload may take a few minutes on a mobile connection. Video quality is kept as-is. Keep the app open until the upload finishes.', he: 'זהו סרטון 4K, ולכן הקובץ גדול - ההעלאה עשויה לקחת כמה דקות בחיבור סלולרי. איכות הווידאו נשמרת כמו שהיא. השאירו את האפליקציה פתוחה עד שההעלאה תסתיים.' },
     'file.largeWarnTitle': { en: 'Large file', he: 'קובץ גדול' },
