@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.55.10';
+  const APP_VERSION = '1.55.11';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -1078,6 +1078,9 @@
   // so the editor's preview is ready instantly instead of downloading on open.
   let _previewBlobPromise    = null;
   let _previewBlobKey        = null;   // remembered so a failed prefetch can be retried
+  let _previewGraceSpentFor  = null;   // key whose checklist grace wait already ran (player skips its own)
+  let _previewStreamGate     = null;   // while set, the blob prefetch yields the downlink to the streaming player
+  let _srcErrors             = 0;      // consecutive <video> source failures for the CURRENT player setup
   function _prefetchPreviewBlob(key) {
     if (!key || String(key).endsWith('.m4a')) { _previewBlobPromise = null; _previewBlobKey = null; return; }  // audio has no video preview
     _previewBlobKey = key;
@@ -1086,7 +1089,11 @@
       // longest pole between "processing finished" and "editor ready", both on
       // a fresh run and when resuming after reopening the app.
       let blob = null;
-      try { blob = await _rangeFetchBlob(`${API_BASE}/download/${key}`); }
+      // yieldTo: once the player has gone stream-first, the 4 parallel range
+      // workers pause at their next chunk until the stream can play (or 8s) -
+      // otherwise the prefetch hogged the phone's downlink and the "instant"
+      // stream buffered behind it (2026-09-09).
+      try { blob = await _rangeFetchBlob(`${API_BASE}/download/${key}`, { yieldTo: () => _previewStreamGate }); }
       catch (_) { /* range hiccup - single stream below */ }
       if (!blob) {
         const resp = await apiFetch(_withToken(`${API_BASE}/download/${key}`));
@@ -1124,6 +1131,7 @@
     const bounded = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r(undefined), ms))]);
     const _w = (window.__PREVIEW_READY_WAIT_MS != null) ? window.__PREVIEW_READY_WAIT_MS : 2500;   // test seam
     try { await bounded(_previewBlobPromise, _w); } catch (_) {}
+    _previewGraceSpentFor = _previewBlobKey;   // the player must not wait a SECOND time (2026-09-09)
     // Deliberately NOT _stepDone here: the step ticks off only when the real
     // player reports it can play (_finishPreviewStepWhenPlayable) - a fixed
     // grace marked it done while the video still buffered (field report:
@@ -2496,7 +2504,7 @@
   function _rangeTimeoutSig() {
     try { return AbortSignal.timeout(60_000); } catch (_) { return undefined; }
   }
-  async function _rangeFetchBlob(url, { maxBytes = Infinity } = {}) {
+  async function _rangeFetchBlob(url, { maxBytes = Infinity, yieldTo = null } = {}) {
     const tokUrl = _withToken(url);
     const CHUNK = _rangeChunkBytes();
     const first = await fetch(tokUrl, { headers: { 'Range': `bytes=0-${CHUNK - 1}` }, signal: _rangeTimeoutSig() });
@@ -2518,6 +2526,8 @@
     let next = 0;
     async function worker() {
       while (next < jobs.length) {
+        const gate = yieldTo && yieldTo();
+        if (gate) { try { await gate; } catch (_) {} }
         const j = jobs[next++];
         const r = await fetch(tokUrl, { headers: { 'Range': `bytes=${j.start}-${j.end}` }, signal: _rangeTimeoutSig() });
         if (r.status !== 206) throw new Error('range fetch ' + r.status);
@@ -6220,6 +6230,8 @@
     if (_vid) { _vid.pause(); _vid.removeAttribute('src'); _vid.load(); }
     if (_previewObjURL) { try { URL.revokeObjectURL(_previewObjURL); } catch (_) {} _previewObjURL = null; }
     _playerSetupDone = false;
+    _previewGraceSpentFor = null;
+    _previewStreamGate = null;
     _playerDispW = 0;
     const _cp = document.getElementById('captionPlayer');
     if (_cp) _cp.style.display = 'none';
@@ -6583,9 +6595,25 @@
     if (p) p.catch(e => { if (e.name !== 'AbortError') console.error(e); });
   }
 
+  // The streaming source URL for the current video (fresh media token each time).
+  function _setStreamSrc(vid) {
+    vid.src = _withToken(`${API_BASE}/download/${videoKey}`);
+    try { vid.load(); } catch (_) {}
+  }
+  // Spinner state of the player overlay (also clears the tappable retry state).
+  function _showPlayerSpinner(loadingEl) {
+    if (!loadingEl) return;
+    loadingEl.onclick = null;
+    loadingEl.classList.remove('retry');
+    loadingEl.innerHTML = '<span class="player-spinner" aria-hidden="true"></span><span>' +
+                          _escapeHtml(t('capedit.previewLoading')) + '</span>';
+    loadingEl.style.display = 'flex';
+  }
+
   function setupCaptionPlayer() {
     if (_playerSetupDone) return;
     _playerSetupDone = true;
+    _srcErrors = 0;   // a previous video's failures must not shorten this one's retry ladder
 
     const vid     = document.getElementById('cutVideo');
     const capEl   = document.getElementById('playerCap');
@@ -6623,7 +6651,12 @@
       // otherwise stream now and hot-swap to the blob when the background
       // prefetch finishes.
       const bounded = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r(null), ms))]);
-      const waitMs = (window.__PREVIEW_BLOB_WAIT_MS != null) ? window.__PREVIEW_BLOB_WAIT_MS : 1500;
+      // The checklist's "Loading preview" grace already waited for this key
+      // (2026-09-09): don't stack a second wait on top - an already-landed
+      // blob still wins the 0ms race (microtask before timer), a pending one
+      // streams NOW.
+      const graceSpent = !!_previewBlobKey && _previewGraceSpentFor === _previewBlobKey;
+      const waitMs = (window.__PREVIEW_BLOB_WAIT_MS != null) ? window.__PREVIEW_BLOB_WAIT_MS : (graceSpent ? 0 : 1500);
       let objURL = null;
       try { objURL = _previewBlobPromise ? await bounded(_previewBlobPromise, waitMs) : null; }
       catch (_) {}
@@ -6634,7 +6667,14 @@
         vid.src = _previewObjURL;
       } else {
         console.info('preview: streaming now, blob upgrade armed');
-        vid.src = _withToken(`${API_BASE}/download/${videoKey}`);
+        // Hold the parallel prefetch back until the stream can play (cap 8s
+        // so a dead stream never starves the blob path).
+        _previewStreamGate = new Promise(res => {
+          const open = () => { _previewStreamGate = null; res(); };
+          vid.addEventListener('canplay', open, { once: true });
+          setTimeout(open, 8000);
+        });
+        _setStreamSrc(vid);
         _armPreviewBlobUpgrade(vid);
       }
       _finishPreviewStepWhenPlayable(vid);
@@ -6647,44 +6687,52 @@
     if (!vid._bufWired) {
       vid._bufWired = true;
       const _showBuf = () => {
-        // onclick set = the failure-retry overlay owns the element - don't
+        // .retry set = the failure-retry overlay owns the element - don't
         // repurpose it as a buffering spinner.
-        if (!_playerSetupDone || !loadingEl || loadingEl.onclick) return;
+        if (!_playerSetupDone || !loadingEl || loadingEl.classList.contains('retry')) return;
         loadingEl.style.display = 'flex';
       };
-      const _hideBuf = () => { if (loadingEl && !loadingEl.onclick) loadingEl.style.display = 'none'; };
+      const _hideBuf = () => { if (loadingEl && !loadingEl.classList.contains('retry')) loadingEl.style.display = 'none'; };
       vid.addEventListener('waiting', _showBuf);
       vid.addEventListener('stalled', () => { if (!vid.paused) _showBuf(); });
       ['playing', 'seeked', 'loadeddata'].forEach(ev => vid.addEventListener(ev, _hideBuf));
     }
 
-    // A failed source (stalled network, corrupt blob, expired token) must
-    // never strand the spinner: first failure retries as a live stream, a
-    // second shows a tappable retry instead of spinning forever.
+    // A failed source (stalled network, corrupt blob, expired token, a cold
+    // api() container) must never strand the spinner. Retry ladder
+    // (2026-09-09): an immediate stream fallback (a bad blob), then two
+    // SPACED stream retries (a transient 5xx / cold container - the old
+    // immediate second attempt hit the same failure and dead-ended), then a
+    // tappable retry. The tap re-mints the media token first (an expired
+    // token after a long idle was one way to reach it) and restarts the ladder.
     if (!vid._errWired) {
       vid._errWired = true;
-      let srcErrors = 0;
+      const RETRY_DELAYS_MS = [0, 2000, 5000];
       vid.addEventListener('error', () => {
         if (!_playerSetupDone || !videoKey) return;
-        srcErrors++;
-        if (srcErrors <= 1) {
-          console.warn('player source failed - falling back to streaming');
-          vid.src = _withToken(`${API_BASE}/download/${videoKey}`);
-          try { vid.load(); } catch (_) {}
+        _srcErrors++;
+        if (_srcErrors <= RETRY_DELAYS_MS.length) {
+          const n = _srcErrors, key = videoKey;
+          console.warn('player source failed (' + n + ') - retrying as a stream');
+          if (loadingEl && !loadingEl.classList.contains('retry')) loadingEl.style.display = 'flex';
+          setTimeout(() => {
+            if (!_playerSetupDone || videoKey !== key || _srcErrors !== n) return;
+            _setStreamSrc(vid);
+          }, RETRY_DELAYS_MS[n - 1]);
           return;
         }
         if (loadingEl) {
           loadingEl.style.display = 'flex';
           loadingEl.textContent = t('capedit.previewFailed');
-          loadingEl.style.cursor = 'pointer';
-          loadingEl.onclick = () => {
-            srcErrors = 0;
-            loadingEl.onclick = null;
-            loadingEl.style.cursor = '';
-            loadingEl.innerHTML = '<span class="player-spinner" aria-hidden="true"></span><span>' +
-                                  _escapeHtml(t('capedit.previewLoading')) + '</span>';
-            vid.src = _withToken(`${API_BASE}/download/${videoKey}`);
-            try { vid.load(); } catch (_) {}
+          // .retry lifts the overlay's pointer-events:none - without it the
+          // "tap to retry" text was dead to real taps (field report).
+          loadingEl.classList.add('retry');
+          loadingEl.onclick = async () => {
+            _srcErrors = 0;
+            _showPlayerSpinner(loadingEl);
+            try { await refreshMediaToken(); } catch (_) {}
+            if (!_playerSetupDone) return;
+            _setStreamSrc(vid);
           };
         }
       });

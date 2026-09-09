@@ -3035,7 +3035,16 @@ def api():
 
                 # Reload is inside the loop so "open files" transient errors
                 # (volume still being committed by the GPU container) are retried.
+                # A file this container ALREADY sees is served without any reload
+                # (2026-09-09): Volume.reload() raises "open files" while any
+                # request is mid-stream from the volume, and the stream-first
+                # preview keeps one open for its whole play - so every seek and
+                # every prefetch chunk used to burn up to 10x1s retries and then
+                # 500 ("preview failed to load"). Outputs are written once and
+                # never rewritten, so a visible file is the final file.
                 for _attempt in range(10):
+                    if file_path.exists():
+                        break
                     try:
                         tmp_vol.reload()
                         if file_path.exists():
@@ -3130,6 +3139,8 @@ def api():
                         str(file_path.resolve()) != _base:
                     raise ValueError("Forbidden path")
                 for _attempt in range(10):
+                    if file_path.exists():
+                        break              # visible = final; no reload (see /download)
                     try:
                         tmp_vol.reload()
                         if file_path.exists():
@@ -3212,6 +3223,8 @@ def api():
                     await send({"type": "http.response.body", "body": cache_path.read_bytes()})
                     return
                 for _attempt in range(10):
+                    if file_path.exists():
+                        break              # visible = final; no reload (see /download)
                     try:
                         tmp_vol.reload()
                         if cache_path.exists():

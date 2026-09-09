@@ -86,6 +86,7 @@ test('long video: player streams within seconds, then upgrades to the blob', asy
 });
 
 test('a source that keeps failing shows a tappable retry, not an eternal spinner', async ({ page }) => {
+  test.setTimeout(45_000);   // two full REAL retry ladders (0s + 2s + 5s each) before the tap re-offers
   await page.addInitScript(() => { window.__PREVIEW_BLOB_WAIT_MS = 500; window.__PREVIEW_READY_WAIT_MS = 500; });
   await bootApp(page);
   await mockAllApis(page);
@@ -99,9 +100,46 @@ test('a source that keeps failing shows a tappable retry, not an eternal spinner
   await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 20_000 });
   const loading = page.locator('#playerLoading');
   await expect(loading).toContainText(/retry|לניסיון חוזר/i, { timeout: 20_000 });
-  // Tapping retry re-attempts; the source is still garbage, so the cycle
-  // must re-arm and offer retry again (briefly flashing the spinner in
-  // between) - the point is it can never dead-end.
-  await loading.click({ force: true });   // decorative animations make strict stability flaky
+  // A REAL tap (no force): the overlay's base rule is pointer-events:none and
+  // the retry state must lift it - with `force` this test passed while users'
+  // taps did nothing (field report: "no option to retry").
+  await expect(loading).toHaveClass(/retry/);
+  await expect(loading).toHaveCSS('pointer-events', 'auto');
+  await loading.click();
+  await expect(loading).not.toHaveClass(/retry/);   // ladder restarted (spinner)
+  // The source is still garbage, so the ladder must re-arm and offer retry
+  // again - the point is it can never dead-end.
   await expect(loading).toContainText(/retry|לניסיון חוזר/i, { timeout: 20_000 });
+});
+
+test('a transient source failure heals on its own (spaced retries, no tap needed)', async ({ page }) => {
+  // A cold api() container / a 5xx on the first stream request used to spend
+  // both attempts of the old ladder within the same instant and dead-end on
+  // the retry overlay. The ladder now spaces its retries, so a source that
+  // recovers within seconds plays without any user action.
+  await page.addInitScript(() => { window.__PREVIEW_BLOB_WAIT_MS = 300; window.__PREVIEW_READY_WAIT_MS = 300; });
+  await bootApp(page);
+  await mockAllApis(page);
+  const buf = fs.readFileSync(MP4);
+  let mediaHits = 0;
+  await page.route(`${API_BASE}/download/**`, async (route, request) => {
+    if ((request.headers()['range'] || '') !== 'bytes=0-') return;   // JS prefetch stalls forever
+    mediaHits++;
+    if (mediaHits <= 2) return route.fulfill({ status: 500, body: 'cold' });
+    await route.fulfill({ status: 200,
+      headers: { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes',
+                 'Content-Length': String(buf.length) }, body: buf });
+  });
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])', { timeout: 10_000 });
+  await page.click('#runBtn');
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
+  await page.waitForFunction(() => {
+    const v = document.getElementById('cutVideo');
+    return v && v.videoHeight > 0;
+  }, { timeout: 20_000 });
+  const loading = page.locator('#playerLoading');
+  await expect(loading).toBeHidden({ timeout: 15_000 });
+  await expect(loading).not.toHaveClass(/retry/);
+  expect(mediaHits).toBeGreaterThanOrEqual(3);
 });

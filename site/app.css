@@ -1761,6 +1761,10 @@
       color: rgba(255,255,255,0.9); font-size: 0.85rem; font-weight: 500;
       pointer-events: none; background: rgba(0,0,0,0.35); text-align: center;
     }
+    /* Failure state: the overlay becomes the "tap to retry" control, so it
+       must receive taps (the base rule is pointer-events:none so the spinner
+       never blocks the player). */
+    .player-loading.retry { pointer-events: auto; cursor: pointer; }
     .player-spinner {
       width: 30px; height: 30px; border-radius: 50%;
       border: 2.5px solid rgba(255,255,255,0.25);
