@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light only">
+<meta name="supported-color-schemes" content="light only">
+<title>{{title}}</title>
+<style>
+  :root { color-scheme: light only; supported-color-schemes: light only; }
+  body { margin:0; padding:0; background:#E8DFD3; -webkit-text-size-adjust:100%; }
+  table { border-collapse:collapse; }
+  img { border:0; outline:none; text-decoration:none; }
+  a { color:#7E8E6A; }
+  /* Gmail-safe rules only: no @import, no position, no transform, no keyframes.
+     Display type and the hero are images; body copy is system Arial. */
+  [data-ogsb] .bg, [data-ogsb] body { background-color:#E8DFD3 !important; }
+  [data-ogsb] .card { background-color:#F4ECE0 !important; }
+  [data-ogsb] .tile-a { background-color:#A3B196 !important; }
+  [data-ogsb] .tile-b { background-color:#C4703F !important; }
+  [data-ogsc] .txt { color:#3A3630 !important; }
+  [data-ogsc] .muted { color:#6F675D !important; }
+  [data-ogsc] .olive { color:#7E8E6A !important; }
+  [data-ogsc] .cream { color:#FBF4EA !important; }
+  @media only screen and (max-width:600px) {
+    .card { padding:30px 20px !important; border-radius:22px !important; }
+    .pad { padding:26px 12px !important; }
+  }
+</style>
+</head>
+<body class="body" style="margin:0;padding:0;background:#E8DFD3;" bgcolor="#E8DFD3">
+<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;color:#E8DFD3;">{{preheader}}</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="bg" bgcolor="#E8DFD3" dir="rtl" style="background-color:#E8DFD3;direction:rtl;">
+<tr><td align="center" class="pad" style="padding:40px 16px 36px;">
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:580px;">
+
+    <!-- wordmark -->
+    <tr><td align="right" dir="rtl" style="padding:0 6px 18px;text-align:right;">
+      <span class="olive" style="font-family:'Frank Ruhl Libre',Georgia,'Times New Roman',serif;font-size:24px;font-weight:700;color:#7E8E6A;">פייפליין</span>
+      <span class="muted" style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#8A8175;padding-right:10px;">hebrew-pipeline.app</span>
+    </td></tr>
+
+    <!-- card -->
+    <tr><td class="card" bgcolor="#F4ECE0" style="background-color:#F4ECE0;border:1px solid #DFD4C4;border-radius:26px;padding:40px 38px 36px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" dir="rtl">
+
+        <!-- opener + headline -->
+        <tr><td dir="rtl" style="font-family:Arial,Helvetica,sans-serif;text-align:right;">
+          {{opener_html}}
+          {{headline_html}}
+          {{lede_html}}
+          {{body_html}}
+        </td></tr>
+
+        {{hero_html}}
+
+        <!-- steps -->
+        {{steps_html}}
+
+        <!-- CTA -->
+        {{cta_html}}
+
+        <!-- signature -->
+        <tr><td dir="rtl" style="padding:26px 0 0;text-align:right;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:1px solid #DFD4C4;font-size:0;line-height:0;">&nbsp;</td></tr></table>
+          <p class="txt" style="margin:18px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:17px;line-height:1.6;color:#3A3630;">{{signoff_html}}</p>
+        </td></tr>
+
+      </table>
+    </td></tr>
+
+    <!-- footer -->
+    <tr><td align="center" class="muted" style="padding:24px 12px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.9;color:#6F675D;">
+      <a class="olive" href="https://hebrew-pipeline.app" style="color:#7E8E6A;text-decoration:none;">hebrew-pipeline.app</a>
+      &nbsp;·&nbsp;
+      <a class="olive" href="mailto:hebrewpipeline@gmail.com" style="color:#7E8E6A;text-decoration:none;">hebrewpipeline@gmail.com</a>
+    </td></tr>
+
+  </table>
+
+</td></tr>
+</table>
+</body>
+</html>

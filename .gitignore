@@ -59,3 +59,7 @@ ios/App/App/GoogleService-Info.plist
 
 # Claude Code personal project settings (account guard - not for the public repo)
 .claude/settings.local.json
+.env*
+
+# built emails + campaign send logs (recipient addresses)
+tools/mail/out/

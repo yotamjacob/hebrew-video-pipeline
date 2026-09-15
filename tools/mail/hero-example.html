@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<style>
+  @import url('fonts/fonts.css');
+  html,body { margin:0; padding:0; background:#F4ECE0; }
+  body { width:560px; height:470px; overflow:hidden; display:flex; align-items:center; justify-content:center; font-family:Rubik,Arial,sans-serif; }
+  .hero { position:relative; width:500px; height:400px; border-radius:28px; overflow:hidden;
+          background:#C4703F; background-image:linear-gradient(135deg,#D98B52 0%,#C4703F 55%,#A9582A 100%);
+          box-shadow:0 20px 44px rgba(196,112,63,.32); text-align:center; color:#FBF4EA; }
+  .in { position:relative; padding:38px 30px 34px; }
+  .label { font-size:15px; letter-spacing:3px; font-weight:500; opacity:.9; }
+  .big { font-family:Karantina,'Arial Narrow',Impact,sans-serif; font-size:150px; line-height:.9; font-weight:700; direction:ltr;
+         text-shadow:0 8px 0 rgba(120,55,20,.28), 0 18px 40px rgba(0,0,0,.18); }
+  .sub { font-size:26px; line-height:1.2; font-weight:700; margin-top:4px; }
+  .sticker { display:inline-block; margin-top:18px; transform:rotate(-6deg); background:#F4ECE0; border:2px dashed #C4703F; border-radius:14px;
+             padding:8px 18px; font-size:17px; font-weight:700; color:#9E4E25; box-shadow:0 8px 18px rgba(80,40,15,.22);
+             animation: hp-pop 2.5s ease-in-out infinite; }
+  .tw { position:absolute; line-height:1; color:#FBF4EA; animation: hp-twinkle 2.5s ease-in-out infinite; }
+  .dot { position:absolute; border-radius:50%; }
+  .shine { position:absolute; top:-40%; left:-10%; width:34%; height:180%;
+           background:linear-gradient(90deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.28) 50%,rgba(255,255,255,0) 100%);
+           animation: hp-shimmer 5s ease-in-out infinite; }
+  @keyframes hp-float   { 0%,100% { transform:translateY(0) rotate(-1deg); } 50% { transform:translateY(-8px) rotate(1deg); } }
+  @keyframes hp-glow    { 0%,100% { box-shadow:0 18px 40px rgba(196,112,63,.28); } 50% { box-shadow:0 26px 60px rgba(196,112,63,.50); } }
+  @keyframes hp-shimmer { 0% { transform:translateX(-160%) skewX(-18deg); } 55%,100% { transform:translateX(260%) skewX(-18deg); } }
+  @keyframes hp-twinkle { 0%,100% { opacity:.35; transform:scale(.8) rotate(0deg); } 50% { opacity:1; transform:scale(1.15) rotate(25deg); } }
+  @keyframes hp-pop     { 0%,100% { transform:rotate(-6deg) scale(1); } 50% { transform:rotate(-3deg) scale(1.06); } }
+</style>
+</head>
+<body>
+  <div class="hero">
+    <div class="tw" style="top:18px;right:22px;font-size:26px;">✦</div>
+    <div class="tw" style="top:60px;left:26px;font-size:18px;animation-delay:-.7s;">✦</div>
+    <div class="tw" style="bottom:26px;right:40px;font-size:16px;animation-delay:-1.3s;">✦</div>
+    <div class="tw" style="bottom:48px;left:52px;font-size:24px;animation-delay:-1.9s;">✦</div>
+    <div class="dot" style="top:34px;left:70px;width:10px;height:10px;background:#A3B196;"></div>
+    <div class="dot" style="bottom:70px;right:18px;width:8px;height:8px;background:#F4ECE0;opacity:.7;"></div>
+    <div class="dot" style="top:100px;right:14px;width:6px;height:6px;background:#A3B196;"></div>
+    <div class="dot" style="bottom:22px;left:24px;width:12px;height:12px;background:#F4ECE0;opacity:.5;"></div>
+    <div class="shine"></div>
+    <div class="in">
+      <div class="label">מקבלים</div>
+      <div class="big">100</div>
+      <div class="sub">קרדיטים במתנה</div>
+      <div class="sticker">שווי 279 ₪</div>
+    </div>
+  </div>
+<script>
+  addEventListener('load', () => {
+    const m = location.hash.match(/t=([\d.]+)/); const t = m ? parseFloat(m[1]) : 0;
+    document.getAnimations().forEach(a => { a.pause(); a.currentTime = t * 1000; });
+  });
+</script>
+</body>
+</html>
