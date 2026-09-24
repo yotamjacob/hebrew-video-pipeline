@@ -39,7 +39,7 @@ async function boot(page, { posts = { analyze: [], render: [] }, holdUpload = nu
   });
   await page.route(/\/assembler\/render-poll\/(fc-r\d+)/, (route, req) => {
     const id = req.url().match(/fc-r(\d+)/)[1];
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ video_key: `u1__k_c${id}_out.mp4`, duration: 30, style_warnings: [] }) });
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ video_key: `u1__k_c${id}_out.mp4`, duration: 30, style_warnings: [], thumb: 'RENDERED' + id }) });
   });
   await page.route(/\/auth\/media-token/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"token":"m"}' }));
   await page.route(/\/media\//, (r) => r.fulfill({ status: 200, contentType: 'video/mp4', body: Buffer.alloc(64) }));
@@ -270,4 +270,22 @@ test('the mode choice and the upload zone are locked while the video is processi
   await locked(false);                                         // all done - a new video can start
   await expect(page.locator('#dropText')).toContainText('הקלטה ארוכה אחת');
   expect(posts.analyze).toHaveLength(1);                       // the dropped second file never started anything
+});
+
+test('the card image and the player poster show the FINISHED clip, not the raw source', async ({ page }) => {
+  const posts = await boot(page);
+  await page.locator('#modeClips').click();
+  await pick(page);
+  await page.locator('#processBtn').click();
+  await expect.poll(() => posts.analyze.length).toBe(1);
+  await page.clock.fastForward(3100);
+  const card = page.locator('.cand').nth(0);
+  await expect(card.locator('img')).toHaveAttribute('src', /^data:image\/jpeg;base64,\/9j\//);   // source thumb while creating
+  await expect.poll(() => posts.render.length).toBe(2);
+  await page.clock.fastForward(3100);
+  await expect(card.locator('img')).toHaveAttribute('src', 'data:image/jpeg;base64,RENDERED0');
+  await expect(card.locator('.c-preview video')).toHaveAttribute('poster', 'data:image/jpeg;base64,RENDERED0');
+  // No preview button - the player is there already, one plays at a time.
+  await expect(page.locator('.c-trim .prev')).toHaveCount(0);
+  await expect(page.locator('.cand .c-preview video')).toHaveCount(2);
 });

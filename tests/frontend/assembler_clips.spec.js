@@ -123,9 +123,10 @@ test('clips flow: upload -> scored candidates -> curate -> batch render', async 
   await expect(stepBtns.nth(0).locator('.val')).toHaveText('+2 שנ\'');
   await expect(stepBtns.nth(1).locator('.val')).toHaveText('-1 שנ\'');
   await expect(rows.nth(0).locator('.c-time')).toContainText('10:10 - 10:54 (44 שנ\')');
-  // Preview (2026-09-24): shown only once the clip's video is READY, and it
-  // plays the RENDERED clip - nothing to preview while it is being created.
-  await expect(rows.nth(0).locator('.c-trim .prev')).toBeHidden();
+  // Preview (2026-09-24): the player appears by itself once the clip's video
+  // is READY - nothing to preview while it is being created, nothing to click.
+  await expect(rows.nth(0).locator('.c-preview video')).toHaveCount(0);
+  await expect(rows.nth(0).locator('.c-trim .prev')).toHaveCount(0);
   // Hook input prefilled from the model, editable.
   await expect(rows.nth(0).locator('.hook-input')).toHaveValue('הטעות שעלתה לי מיליון שקל');
   await rows.nth(0).locator('.hook-input').fill('המיליון שאיבדתי בגלל סעיף אחד');
@@ -134,18 +135,10 @@ test('clips flow: upload -> scored candidates -> curate -> batch render', async 
   await expect.poll(() => renderPosts.length).toBe(4);
   await page.clock.fastForward(3100);
   await expect(page.locator('#renderClipsBtn')).toHaveText('רענון הקליפים (4)');
-  // Ready: the card's preview plays that clip's own render.
-  await expect(rows.nth(0).locator('.c-trim .prev')).toBeVisible();
-  await rows.nth(0).locator('.c-trim .prev').click();
-  const pv = rows.nth(0).locator('.c-preview video');
-  await expect(pv).toHaveCount(1);
-  await expect(pv).toHaveAttribute('src', /\/media\/u1234__abc_c0_out\.mp4\?token=m\.test$/);
-  // Opening another preview closes the first (one at a time).
-  await rows.nth(1).locator('.c-trim .prev').click();
-  await expect(rows.nth(0).locator('.c-preview video')).toHaveCount(0);
+  // Ready: every card loaded its own render's player, no click needed.
+  await expect(page.locator('.cand .c-preview video')).toHaveCount(4);
+  await expect(rows.nth(0).locator('.c-preview video')).toHaveAttribute('src', /\/media\/u1234__abc_c0_out\.mp4\?token=m\.test$/);
   await expect(rows.nth(1).locator('.c-preview video')).toHaveAttribute('src', /u1234__abc_c1_out\.mp4/);
-  await rows.nth(1).locator('.c-trim .prev').click();   // toggle off
-  await expect(rows.nth(1).locator('.c-preview video')).toHaveCount(0);
   // The result lives in the card: download + edit, no separate section.
   await expect(rows.nth(0).locator('.c-out .o-actions a')).toHaveCount(2);
   await expect(page.locator('#clipsOut')).toHaveCount(0);
@@ -176,9 +169,9 @@ test('clips flow: upload -> scored candidates -> curate -> batch render', async 
   expect(p1.upload_keys).toEqual(analyzePosts[0].upload_keys);
 
   // While refreshing, a picked clip has no preview; it comes back with the new render.
-  await expect(rows.nth(0).locator('.c-trim .prev')).toBeHidden();
+  await expect(rows.nth(0).locator('.c-preview video')).toHaveCount(0);
   await page.clock.fastForward(3100);
-  await expect(rows.nth(0).locator('.c-trim .prev')).toBeVisible();
+  await expect(rows.nth(0).locator('.c-preview video')).toHaveAttribute('src', /u1234__abc_c[45]_out\.mp4/);
   // Every card keeps its result: the 2 refreshed clips got new renders, the 2
   // unpicked ones keep the automatic batch's videos.
   await expect(page.locator('.cand .c-out .o-actions')).toHaveCount(4);

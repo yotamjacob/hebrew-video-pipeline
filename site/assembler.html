@@ -330,9 +330,14 @@
     .wm-wrap { margin-top: 16px; }
     .wm-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
     .wm-head .slot-title { font-size: 0.82rem; font-weight: 700; color: var(--purple-800); }
+    /* Abstract output frame (a speaker silhouette, a caption bar) - never a
+       frame of the user's video (user 2026-09-24). */
     .wm-stage {
       position: relative; margin: 0 auto; max-width: 260px; aspect-ratio: 9 / 16;
-      background: #2A2A26 center / cover no-repeat; border-radius: 10px; overflow: hidden;
+      background:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 90 160'%3E%3Ccircle cx='45' cy='62' r='15' fill='%23E6DCCB'/%3E%3Cpath d='M17 118c0-19 13-30 28-30s28 11 28 30z' fill='%23E6DCCB'/%3E%3Crect x='20' y='134' width='50' height='5' rx='2.5' fill='%23F4ECE0' opacity='.7'/%3E%3C/svg%3E") center / contain no-repeat,
+        linear-gradient(160deg, #7E8E6A, #55604A);
+      border-radius: 10px; overflow: hidden;
       touch-action: none; user-select: none; display: none;
     }
     .wm-stage.landscape { max-width: 100%; aspect-ratio: 16 / 9; }
@@ -662,7 +667,6 @@
     uploaded = false; processRequested = false;
     busy.upload = true;   // locks the mode choice + upload zone right away
     showSetup('pre');
-    layoutsFromFile(files[0]);
     clips = files.map((f) => ({ key: uuid(), name: f.name }));
     cands = []; moments = [];
     clearSession();
@@ -1045,25 +1049,6 @@
     go.fillStyle = '#7E8E6A'; go.fillRect(0, H / 2 - W * 0.28, W, W * 0.56);
     person(go, W * 0.32, H / 2 - W * 0.12, W * 0.06); person(go, W * 0.68, H / 2 - W * 0.12, W * 0.06);
   }
-  function layoutsFromFile(file) {
-    if (!file || !/^video\//.test(file.type || '')) { _drawLayouts(null); return; }
-    try {
-      const v = document.createElement('video');
-      const url = URL.createObjectURL(file);
-      v.muted = true; v.preload = 'auto'; v.playsInline = true;
-      const done = () => { URL.revokeObjectURL(url); };
-      v.onloadedmetadata = () => { try { v.currentTime = Math.min(5, (v.duration || 10) * 0.2); } catch (_) { _drawLayouts(null); done(); } };
-      v.onseeked = () => { _drawLayouts(v); done(); };
-      v.onerror = () => { _drawLayouts(null); done(); };
-      v.src = url;
-    } catch (_) { _drawLayouts(null); }
-  }
-  function layoutsFromThumb(b64) {
-    if (!b64) return;
-    const img = new Image();
-    img.onload = () => _drawLayouts(img);
-    img.src = 'data:image/jpeg;base64,' + b64;
-  }
   function _applyStageAspect() {
     const st = $('wmStage');
     const srcLandscape = srcDims && srcDims.w > srcDims.h;
@@ -1110,7 +1095,7 @@
   }
   function showBrand(thumbB64) {
     $('brandCard').style.display = 'block';
-    if (thumbB64) $('wmStage').style.backgroundImage = 'url(data:image/jpeg;base64,' + thumbB64 + ')';
+    // (abstract stage - never a frame of the user's video, user 2026-09-24)
     _applyStageAspect();
     _renderWm();
   }
@@ -1125,12 +1110,13 @@
       if (f.size > 300 * 1024 * 1024) { showErr($('brandErr'), 'הקליפ גדול מדי (עד 300MB)'); file.value = ''; return; }
       brand[kind] = f; name.textContent = f.name; slot.classList.add('has');
       if (!$('fadeToggle').checked && !brand._fadeTouched) $('fadeToggle').checked = true;   // fades make sense once there is a boundary
+      brandingChanged();
     });
-    rm.addEventListener('click', () => { brand[kind] = null; name.textContent = ''; slot.classList.remove('has'); file.value = ''; });
+    rm.addEventListener('click', () => { brand[kind] = null; name.textContent = ''; slot.classList.remove('has'); file.value = ''; brandingChanged(); });
   }
   _slot('intro'); _slot('outro');
-  $('fadeToggle').addEventListener('change', () => { brand._fadeTouched = true; _saveBrand(); });
-  $('fadeDur').addEventListener('change', _saveBrand);
+  $('fadeToggle').addEventListener('change', () => { brand._fadeTouched = true; _saveBrand(); brandingChanged(); });
+  $('fadeDur').addEventListener('change', () => { _saveBrand(); brandingChanged(); });
   // Watermark: pick, preview, drag, size, opacity.
   $('wmBtn').addEventListener('click', () => $('wmFile').click());
   $('wmFile').addEventListener('change', () => {
@@ -1140,10 +1126,10 @@
     if (f.size > 5 * 1024 * 1024) { showErr($('brandErr'), 'הלוגו גדול מדי (עד 5MB)'); $('wmFile').value = ''; return; }
     brand.wmFile = f; brand.wmName = f.name; brand.keys.delete('wm');
     const rd = new FileReader();
-    rd.onload = () => { brand.wmDataUrl = String(rd.result || ''); _renderWm(); _saveBrand(); };
+    rd.onload = () => { brand.wmDataUrl = String(rd.result || ''); _renderWm(); _saveBrand(); brandingChanged(); };
     rd.readAsDataURL(f);
   });
-  $('wmRemove').addEventListener('click', () => { brand.wmFile = null; brand.wmDataUrl = ''; brand.keys.delete('wm'); $('wmFile').value = ''; _renderWm(); _saveBrand(); });
+  $('wmRemove').addEventListener('click', () => { brand.wmFile = null; brand.wmDataUrl = ''; brand.keys.delete('wm'); $('wmFile').value = ''; _renderWm(); _saveBrand(); brandingChanged(); });
   function _renderWm() {
     const on = !!brand.wmDataUrl;
     $('wmStage').classList.toggle('on', on);
@@ -1190,12 +1176,12 @@
       brand.wm.x = left / W; brand.wm.y = top / H;
       img.style.left = left + 'px'; img.style.top = top + 'px';
     });
-    const end = () => { if (drag) { drag = null; _saveBrand(); } };
+    const end = () => { if (drag) { drag = null; _saveBrand(); brandingChanged(); } };
     img.addEventListener('pointerup', end); img.addEventListener('pointercancel', end);
     $('wmSize').addEventListener('input', () => { brand.wm.w = Number($('wmSize').value) / 100; _layoutWm(); });
-    $('wmSize').addEventListener('change', _saveBrand);
+    $('wmSize').addEventListener('change', () => { _saveBrand(); brandingChanged(); });
     $('wmOpacity').addEventListener('input', () => { brand.wm.opacity = Number($('wmOpacity').value) / 100; img.style.opacity = brand.wm.opacity; });
-    $('wmOpacity').addEventListener('change', _saveBrand);
+    $('wmOpacity').addEventListener('change', () => { _saveBrand(); brandingChanged(); });
     window.addEventListener('resize', _layoutWm);
   })();
   function _dataUrlToBlob(u) {
@@ -1376,7 +1362,6 @@
     $('clipsIssues').style.display = unscored ? 'block' : 'none';
     $('clipsIssues').textContent = unscored ? (unscored + ' קליפים לא קיבלו ציון בסבב הזה (החיתוך שלהם תקין). אפשר להריץ שוב לניתוח מלא.') : '';
     showBrand((cands[0] && cands[0].thumb) || '');
-    layoutsFromThumb(cands[0] && cands[0].thumb);
     $('clipsCard').style.display = 'block';
     drawCands();
     $('clipsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1443,18 +1428,13 @@
       // "+1 before" = start moves EARLIER; "+1 after" = end moves LATER.
       const stepBefore = mkStep('before', (d) => { c.start = Math.max(0, Math.min(c.end - 3, +(c.start - d).toFixed(2))); });
       const stepAfter = mkStep('after', (d) => { c.end = Math.min(srcLen, Math.max(c.start + 3, +(c.end + d).toFixed(2))); });
-      const prevBtn = document.createElement('button');
-      prevBtn.type = 'button'; prevBtn.className = 'prev';
-      prevBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>תצוגה מקדימה';
-      prevBtn.onclick = () => togglePreview(c, prevBox, prevBtn);
-      prevBtn.hidden = true;   // only once this clip's video is READY (renderOut)
-      trim.append(stepBefore, stepAfter, prevBtn);
+      trim.append(stepBefore, stepAfter);
       const prevBox = document.createElement('div');
       prevBox.className = 'c-preview';
       const out = document.createElement('div');
       out.className = 'c-out';
       row.dataset.id = String(c.id);
-      c._ui = { prevBox, prevBtn, stepBefore, stepAfter, out };
+      c._ui = { prevBox, stepBefore, stepAfter, out, img };
       const hookRow = document.createElement('div');
       hookRow.className = 'c-hook';
       const hl = document.createElement('label');
@@ -1513,9 +1493,17 @@
     const ui = c._ui;
     if (!ui || !ui.out) return;
     const out = ui.out, r = c.render;
+    // The card image = a frame of the FINISHED clip once one exists (the
+    // analysis thumbnail is the raw source).
+    if (r && r.thumb) c.lastThumb = r.thumb;
+    const shown = c.lastThumb || c.thumb;
+    if (shown && ui.img) ui.img.src = 'data:image/jpeg;base64,' + shown;
     if (!r || r.status !== 'done') {
-      ui.prevBtn.hidden = true;
-      if (_openPreview && _openPreview.c === c) closePreview();
+      // Nothing to preview until this clip's video is ready.
+      const old = ui.prevBox.querySelector('video');
+      if (old) { try { old.pause(); old.removeAttribute('src'); old.load(); } catch (_) {} }
+      ui.prevBox.innerHTML = '';
+      ui.prevBox.classList.remove('on');
     }
     out.innerHTML = '';
     if (!r && !c.social) return;
@@ -1548,7 +1536,24 @@
       st.appendChild(acts);
       const note = styleNoteText(r.style_warnings);
       if (note) { const n = document.createElement('p'); n.className = 'style-note'; n.textContent = note; st.appendChild(n); }
-      ui.prevBtn.hidden = false;
+      // The player loads by itself the moment the clip is ready (user
+      // 2026-09-24: "so users don't have to click each one").
+      const url = API_BASE + '/media/' + encodeURIComponent(r.video_key) + '?token=' + encodeURIComponent(mediaToken);
+      let v = ui.prevBox.querySelector('video');
+      if (!v || v.dataset.key !== r.video_key) {
+        ui.prevBox.innerHTML = '';
+        v = document.createElement('video');
+        v.controls = true; v.playsInline = true; v.preload = 'metadata'; v.className = 'rendered';
+        v.dataset.key = r.video_key;
+        if (r.thumb) v.poster = 'data:image/jpeg;base64,' + r.thumb;
+        v.src = url;
+        // One plays at a time.
+        v.addEventListener('play', () => {
+          document.querySelectorAll('.c-preview video').forEach((o) => { if (o !== v) o.pause(); });
+        });
+        ui.prevBox.appendChild(v);
+      }
+      ui.prevBox.classList.add('on');
     }
     if (!c._social) c._social = socialBlock(c);
     out.appendChild(c._social);
@@ -1610,33 +1615,6 @@
     $('renderClipsBtn').textContent = !n ? 'בחרו לפחות קליפ אחד'
       : (made ? 'רענון הקליפים (' + n + ')' : 'יצירת ' + n + ' קליפים');
     $('renderClipsBtn').disabled = n === 0 || busy.renders > 0;
-  }
-
-  // ── In-place preview of the RENDERED clip (only once it is ready - the
-  // button is hidden until then). One open at a time. The render already
-  // carries the chosen layout, so it plays as-is.
-  let _openPreview = null;
-  async function togglePreview(c, box, btn) {
-    if (box.classList.contains('on')) { closePreview(); return; }
-    closePreview();
-    const r = c.render;
-    if (!r || r.status !== 'done' || !r.video_key) return;
-    await ensureMediaToken();
-    const v = document.createElement('video');
-    v.controls = true; v.playsInline = true; v.preload = 'metadata'; v.className = 'rendered';
-    v.src = API_BASE + '/media/' + encodeURIComponent(r.video_key) + '?token=' + encodeURIComponent(mediaToken);
-    box.innerHTML = '';
-    box.appendChild(v);
-    box.classList.add('on'); btn.classList.add('on');
-    _openPreview = { c, box, btn, v };
-    v.play().catch(() => {});
-  }
-  function closePreview() {
-    if (!_openPreview) return;
-    try { _openPreview.v.pause(); _openPreview.v.removeAttribute('src'); _openPreview.v.load(); } catch (_) {}
-    _openPreview.box.classList.remove('on'); _openPreview.box.innerHTML = '';
-    _openPreview.btn.classList.remove('on');
-    _openPreview = null;
   }
 
   // ── Keyboard auto-space after a geresh (2026-09-24) ─────────────────────
@@ -1762,7 +1740,8 @@
     try {
       const result = await poll('/assembler/render-poll/' + call_id);
       if (!result || result.error || !result.video_key) throw new Error((result && (result.detail || result.error)) || 'render');
-      c.render = { status: 'done', video_key: result.video_key, style_warnings: result.style_warnings || [] };
+      c.render = { status: 'done', video_key: result.video_key, style_warnings: result.style_warnings || [],
+                   thumb: result.thumb || '' };
       saveSessionNow();
       renderOut(c);
       return true;
@@ -1774,6 +1753,22 @@
     } finally {
       busy.renders--;
     }
+  }
+
+  // Branding change after clips exist -> re-create them automatically so the
+  // previews show the real intro / outro / logo / fade (user 2026-09-24:
+  // "when adding logo and outro intro load them into the previews").
+  // Debounced (a logo drag or a slider settles first) and coalesced (a
+  // change during a running batch queues ONE more batch).
+  let _brandTimer = null, _brandPending = false;
+  function brandingChanged() {
+    if (mode !== 'clips' || !cands.some((c) => c.render)) return;
+    clearTimeout(_brandTimer);
+    $('clipsStage').textContent = 'המיתוג השתנה - הקליפים מתעדכנים עוד רגע...';
+    _brandTimer = setTimeout(() => {
+      if (busy.renders > 0) { _brandPending = true; return; }
+      renderClips();
+    }, 1500);
   }
 
   $('renderClipsBtn').addEventListener('click', () => renderClips());
@@ -1844,6 +1839,7 @@
     $('clipsStage').textContent = failed ? (done - failed) + ' קליפים מוכנים, ' + failed + ' נכשלו - אפשר לנסות שוב.' : 'כל ' + done + ' הקליפים מוכנים.';
     $('renderClipsBtn').disabled = false;
     updateCta();
+    if (_brandPending) { _brandPending = false; renderClips(); }
   }
 
   // maxTicks x 3s = how long we wait. Renders are quick (default 10 min);
@@ -1880,7 +1876,6 @@
       $('storyCard').style.display = 'block';
     }
     showBrand((moments[0] && moments[0].thumb) || '');
-    layoutsFromThumb(moments[0] && moments[0].thumb);
     $('board').style.display = 'block';
     $('voCard').style.display = 'block';
     drawMoments();
@@ -2171,7 +2166,8 @@
     }
     saveSessionNow();
   }
-  setFrame(brand.reframe);   // sync the layout tiles / stage / preview once everything exists
+  setFrame(brand.reframe);   // sync the layout tiles / stage once everything exists
+  _drawLayouts(null);        // abstract layout illustrations (never the user's video)
   restoreSession();
 </script>
 </body>

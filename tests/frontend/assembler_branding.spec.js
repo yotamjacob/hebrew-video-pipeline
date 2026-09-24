@@ -193,18 +193,40 @@ test('layout: smart vertical by default, a refresh applies a new pick, the pick 
   expect(posts2.every((p) => p.reframe === undefined)).toBe(true);
 });
 
-test('the card preview plays the ready render; a layout switch asks for a refresh instead of faking it', async ({ page }) => {
+test('the ready clip plays in its card; a layout switch asks for a refresh instead of faking it', async ({ page }) => {
   const renderPosts = [];
   await boot(page, { renderPosts });            // the automatic batch has landed
   const row = page.locator('.cand').first();
-  await row.locator('.c-trim .prev').click();
-  await expect(row.locator('.c-preview video')).toHaveAttribute('src', /\/media\/u1__k_c1_out\.mp4/);
-  // The render already carries its layout: switching it does not rebuild the
-  // preview - the settings note points to the refresh.
+  await expect(row.locator('.c-preview video')).toHaveAttribute('src', /\/media\/u1__k_c1_out\.mp4/);   // no click needed
   await page.locator('#frameFit').click();
-  await expect(row.locator('.c-preview video')).toHaveCount(1);
+  await expect(row.locator('.c-preview video')).toHaveCount(1);   // the render keeps its own layout
   await expect(page.locator('#settingsNote')).toBeVisible();
-  // A trim after the render is a change too.
-  await row.locator('.c-trim .step').nth(0).locator('button').nth(1).click();
+  await row.locator('.c-trim .step').nth(0).locator('button').nth(1).click();   // a trim after the render is a change too
   await expect(page.locator('#settingsNote')).toBeVisible();
+});
+
+test('branding added after the clips exist re-creates them by itself (debounced, coalesced)', async ({ page }) => {
+  const renderPosts = [];
+  await boot(page, { renderPosts });
+  // The logo stage is an abstract frame - never a snippet of the video.
+  const bg = await page.locator('#wmStage').evaluate((el) => getComputedStyle(el).backgroundImage);
+  expect(bg).toContain('svg');
+  expect(bg).not.toContain('jpeg');
+  // Adding a logo + dragging its size: ONE refresh once things settle.
+  await page.setInputFiles('#wmFile', { name: 'logo.png', mimeType: 'image/png', buffer: PNG });
+  await expect(page.locator('#wmStage')).toBeVisible();
+  await page.locator('#wmSize').fill('25');
+  await page.locator('#wmSize').dispatchEvent('change');
+  await expect(page.locator('#clipsStage')).toContainText('המיתוג השתנה');
+  expect(renderPosts).toHaveLength(2);            // nothing yet - debounced
+  await page.clock.fastForward(1600);
+  await expect.poll(() => renderPosts.length).toBe(4);
+  expect(renderPosts.slice(2).every((p) => p.wm_key && Math.abs(p.wm.w - 0.25) < 0.01)).toBe(true);
+  // A change WHILE that batch runs queues exactly one more batch.
+  await page.setInputFiles('#outroFile', { name: 'outro.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(64 * 1024) });
+  await page.clock.fastForward(1600);
+  expect(renderPosts).toHaveLength(4);
+  await page.clock.fastForward(3100);             // the running batch lands...
+  await expect.poll(() => renderPosts.length).toBe(6);   // ...then the queued one starts
+  expect(renderPosts.slice(4).every((p) => p.outro_key && p.wm_key)).toBe(true);
 });

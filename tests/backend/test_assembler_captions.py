@@ -324,3 +324,13 @@ class TestGereshGlue:
         assert "clip_segments.append(_glued_segments(" in MODAL_SRC[i:MODAL_SRC.index("\ndef ", i)]
         i = MODAL_SRC.index("def assembler_social_caption")
         assert "segs = _glued_segments(json.loads(" in MODAL_SRC[i:MODAL_SRC.index("\ndef ", i)]
+
+
+class TestRenderThumb:
+    def test_render_result_carries_a_frame_of_the_finished_clip(self):
+        i = MODAL_SRC.index("def render_story")
+        block = MODAL_SRC[i:MODAL_SRC.index("\ndef ", i)]
+        assert '"thumb": _thumb_b64(out_path, intro_len + min(1.0, max(0.0, body_len - 0.2)), tmp, 999)' in block
+        # _thumb_b64 is best-effort: a failed extraction is "" - never a failed render
+        j = MODAL_SRC.index("def _thumb_b64")
+        assert 'return ""' in MODAL_SRC[j:MODAL_SRC.index("\ndef ", j)]

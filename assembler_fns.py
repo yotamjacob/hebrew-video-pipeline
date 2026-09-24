@@ -2663,7 +2663,13 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
         })
         total = body_len
         result = {"video_key": out_key, "duration": round(total, 1),
-                  "style_warnings": warnings_out}
+                  "style_warnings": warnings_out,
+                  # A frame of the FINISHED clip (layout, captions, hook,
+                  # logo) for the page's card thumbnail / player poster -
+                  # the analysis thumbnail is the raw source (2026-09-24,
+                  # user: "the preview thumbnail is not reflecting the
+                  # actual clip"). ~1 s into the body (past an intro).
+                  "thumb": _thumb_b64(out_path, intro_len + min(1.0, max(0.0, body_len - 0.2)), tmp, 999)}
         if reframe == "9:16":
             result["reframe_report"] = _reframe_summary(
                 [dict(rf_plans[i]["report"], window=i) for i in sorted(rf_plans)],

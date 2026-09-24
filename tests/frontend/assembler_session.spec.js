@@ -97,7 +97,7 @@ test('clips: analysis, edits, a finished render and its social caption survive a
   await expect(rows.nth(0).locator('.hook-input')).toHaveValue('הוק חדש');
   await expect(rows.nth(0).locator('.c-trim .step').nth(0).locator('.val')).toHaveText('+2 שנ\'');
   await expect(rows.nth(1).locator('.pick-box')).not.toBeChecked();
-  await expect(page.locator('.cand').nth(0).locator('.c-trim .prev')).toBeVisible();   // its ready preview came back
+  await expect(page.locator('.cand').nth(0).locator('.c-preview video')).toHaveAttribute('src', /u1__k_c2_out\.mp4/);   // its player came back
   await expect(page.locator('.cand').nth(0).locator('.edit-link')).toHaveAttribute('href', /u1__k_c2_out\.mp4/);   // the refresh's render
   await expect(page.locator('.cand').nth(0).locator('.edit-link')).toHaveAttribute('href', '/?edit=u1__k_c2_out.mp4');
   await expect(page.locator('.cand').nth(1).locator('.edit-link')).toHaveAttribute('href', '/?edit=u1__k_c1_out.mp4');   // unpicked: keeps its first render
