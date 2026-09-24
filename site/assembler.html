@@ -651,7 +651,11 @@
     try {
       const totalBytes = files.reduce((s, f) => s + f.size, 0);
       const perFile = files.map(() => 0);
-      const report = () => { $('bar').style.width = Math.round((perFile.reduce((a, b) => a + b, 0) / totalBytes) * 100) + '%'; };
+      const report = () => {
+        const pct = Math.round((perFile.reduce((a, b) => a + b, 0) / totalBytes) * 100);
+        $('bar').style.width = pct + '%';
+        setUploadProgress(pct);
+      };
       busy.upload = true;
       for (let fi = 0; fi < files.length; fi++) {
         const file = files[fi], key = clips[fi].key;
@@ -666,8 +670,8 @@
       uploaded = true;
       session.phase = 'uploaded';
       saveSessionNow();
-      if (processRequested) await analyze();
-      else $('stage').textContent = 'ההעלאה הסתיימה - בחרו פורמט ואפשרויות ולחצו על "עיבוד".';
+      showSetup('pre');   // "עיבוד" opens now
+      $('stage').textContent = 'ההעלאה הסתיימה - בחרו פורמט ואפשרויות ולחצו על "עיבוד".';
     } catch (e) {
       busy.upload = false;
       processRequested = false;
@@ -829,8 +833,10 @@
     card.dataset.mode = mode;
     const post = state === 'post';
     $('processBtn').style.display = post ? 'none' : '';
-    $('processBtn').disabled = post || processRequested;
-    $('processBtn').textContent = processRequested ? 'מעבדים...' : 'עיבוד';
+    // "עיבוד" opens only once the video finished uploading (user 2026-09-24);
+    // until then the button shows the upload's progress.
+    $('processBtn').disabled = post || processRequested || !uploaded;
+    $('processBtn').textContent = processRequested ? 'מעבדים...' : (uploaded ? 'עיבוד' : 'מעלים את הסרטון...');
     // After processing, clips mode refreshes its clips here; story mode
     // renders from its storyboard below.
     $('renderClipsBtn').style.display = post && mode === 'clips' ? '' : 'none';
@@ -838,12 +844,15 @@
     if (post) updateCta();
   }
   $('processBtn').addEventListener('click', async () => {
-    if (processRequested) return;
+    if (processRequested || !uploaded) return;
     processRequested = true;
     showSetup('pre');
-    if (uploaded) { await analyze(); return; }
-    $('stage').innerHTML = '<span class="spinner"></span>ממשיכים להעלות - העיבוד יתחיל מיד כשההעלאה תסתיים...';
+    await analyze();
   });
+  function setUploadProgress(pct) {
+    if (uploaded || processRequested) return;
+    $('processBtn').textContent = 'מעלים את הסרטון... ' + pct + '%';
+  }
   // A setting changed after clips exist: say that a refresh applies it.
   function markSettingsChanged() {
     if ($('renderClipsBtn').style.display === 'none') return;

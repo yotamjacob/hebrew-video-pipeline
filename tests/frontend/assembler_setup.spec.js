@@ -88,18 +88,30 @@ test('layout + options come BEFORE processing; nothing is analyzed until "עיב
   await expect(page.locator('#renderClipsBtn')).toBeVisible();
 });
 
-test('clicking "עיבוד" during the upload queues the analysis until it lands', async ({ page }) => {
+test('"עיבוד" stays disabled until the video finished uploading, showing the progress', async ({ page }) => {
   let release;
   const holdUpload = { promise: new Promise((r) => { release = r; }) };
   const posts = await boot(page, { holdUpload });
   await page.locator('#modeClips').click();
   await pick(page);
-  await page.locator('#processBtn').click();
-  await expect(page.locator('#processBtn')).toBeDisabled();
-  await expect(page.locator('#stage')).toContainText('העיבוד יתחיל מיד');
+  // The layout and options can be chosen while the upload runs...
+  await page.locator('#frameFit').click();
+  await page.locator('#clipHookToggle').uncheck();
+  // ...but processing can not start yet.
+  const btn = page.locator('#processBtn');
+  await expect(btn).toBeDisabled();
+  await expect(btn).toContainText('מעלים את הסרטון');
+  await btn.click({ force: true });                       // a click on the disabled button does nothing
   expect(posts.analyze).toHaveLength(0);
   release();
+  await expect(btn).toBeEnabled();
+  await expect(btn).toHaveText('עיבוד');
+  expect(posts.analyze).toHaveLength(0);                  // still waits for the click
+  await btn.click();
   await expect.poll(() => posts.analyze.length).toBe(1);
+  await page.clock.fastForward(3100);
+  await expect.poll(() => posts.render.length).toBe(2);
+  expect(posts.render.every((p) => p.reframe === 'fit' && p.hook_text === '')).toBe(true);
 });
 
 test('after processing: switch the layout, see the note, refresh recreates every picked clip', async ({ page }) => {
