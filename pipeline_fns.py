@@ -1873,6 +1873,15 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
         _cs_border_style = 1
         _cs_back = "&H80000000"
 
+    # Karaoke RTL (2026-09-24): libass bidi-reorders each override-tag-
+    # separated RUN on its own (VSFilter compatibility) unless the style's
+    # Encoding is -1, so karaoke's inline \c highlight tags laid a Hebrew
+    # line's words out LEFT to right whenever a mid-line word was highlighted
+    # (and flipped a trailing comma to the line start). Measured on the burn
+    # image's libass 0.17.1: Encoding -1 makes every tagged line match the
+    # untagged layout. Karaoke only - classic / word events carry no inline
+    # tags, so their output stays byte-identical.
+    _cs_encoding = -1 if _cap_mode == "karaoke" else 1
     header = (
         "[Script Info]\nScriptType: v4.00+\n"
         f"PlayResX: {width}\nPlayResY: {height}\n"
@@ -1885,7 +1894,7 @@ def build_caption_ass(width, height, font, font_size, margin_h, margin_v, captio
         f"Style: Default,{font},{render_fs},"
         f"{_cs_primary},&H000000FF,{_cs_outline_col},{_cs_back},"
         f"-1,0,0,0,100,100,0,0,{_cs_border_style},{_cs_outline_w},0,2,"
-        f"{margin_h},{margin_h},{margin_v},1\n"
+        f"{margin_h},{margin_h},{margin_v},{_cs_encoding}\n"
         + hook_style_line +
         "\n[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"

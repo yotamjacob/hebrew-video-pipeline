@@ -622,6 +622,17 @@ class TestKaraokeMode:
     CAP = {'start': 0.0, 'end': 3.0, 'text': 'שלום עולם טוב',
            'words': [[0.0, 1.0, 'שלום'], [1.0, 2.0, 'עולם'], [2.0, 3.0, 'טוב']]}
 
+    def test_karaoke_style_uses_encoding_minus_one_for_rtl_bidi(self):
+        # libass bidi-reorders each override-tag run on its own unless the
+        # style Encoding is -1 - the \\c highlight tags then laid Hebrew words
+        # out left to right (2026-09-24, measured on libass 0.17.1).
+        style = lambda ass: [l for l in ass.splitlines() if l.startswith('Style: Default')][0]
+        assert style(self._build([self.CAP], {'mode': 'karaoke'})).endswith(',-1')
+        # classic / word carry no inline tags: Encoding 1, byte-identical
+        assert style(self._build([self.CAP], {'mode': 'classic'})).endswith(',1')
+        assert style(self._build([self.CAP], {'mode': 'word'})).endswith(',1')
+        assert style(self._build([self.CAP], {})).endswith(',1')
+
     def test_one_event_per_word_with_full_line(self):
         lines = self._dialogues(self._build([self.CAP], {'mode': 'karaoke'}))
         assert len(lines) == 3

@@ -263,31 +263,19 @@ class TestSplitSeamPlacement:
 
 
 class TestKaraokeRtl:
-    def test_only_the_caption_style_gets_encoding_minus_one(self):
-        fix = _one("_rtl_karaoke_ass")
-        ass = ("[V4+ Styles]\nStyle: Default,Heebo,71,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,0,2,77,77,153,1\n"
-               "Style: Hook,Heebo,81,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,3,0,0,8,20,20,0,1\n"
-               "[Events]\nDialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,x\n")
-        out = fix(ass)
-        assert "Style: Default,Heebo,71,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,0,2,77,77,153,-1" in out
-        assert "Style: Hook,Heebo,81,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,3,0,0,8,20,20,0,1" in out
-        assert out.count("\n") == ass.count("\n")
+    """The karaoke RTL fix (style Encoding -1) lives in the SHARED builder
+    (2026-09-24) - the assembler and the main pipeline both get it."""
 
-    def test_applied_only_when_karaoke_is_chosen(self):
-        i = MODAL_SRC.index("def render_story")
-        block = MODAL_SRC[i:MODAL_SRC.index("\ndef ", i)]
-        assert ('if caption_style.get("mode") == "karaoke":\n'
-                '                        ass_str = _rtl_karaoke_ass(ass_str)') in block
-        # the default path never reaches it (byte-identical)
-        j = block.index("if caption_style is None:")
-        assert "_rtl_karaoke_ass" not in block[j:block.index("else:", j)]
-
-    def test_the_real_builder_ass_carries_it(self):
+    def test_the_real_builder_sets_encoding_minus_one_for_karaoke_only(self):
         ev = _fn()([(0, 10.0, 14.0)], [SEGS_CLIP0])
-        ass = _one("_rtl_karaoke_ass")(_builder()(CW, CH, "Heebo", 48, max(25, CW // 14), int(0.08 * CH), ev, {},
-                                                  caption_style={"mode": "karaoke"}))
-        style = [l for l in ass.splitlines() if l.startswith("Style: Default")][0]
-        assert style.endswith(",-1")
+        args = (CW, CH, "Heebo", 48, max(25, CW // 14), int(0.08 * CH), ev, {})
+        style = lambda ass: [l for l in ass.splitlines() if l.startswith("Style: Default")][0]
+        assert style(_builder()(*args, caption_style={"mode": "karaoke"})).endswith(",-1")
+        assert style(_builder()(*args, caption_style={"mode": "word"})).endswith(",1")
+        assert style(_builder()(*args)).endswith(",1")
+
+    def test_the_assembler_no_longer_patches_it(self):
+        assert "_rtl_karaoke_ass" not in MODAL_SRC
 
 
 class TestGereshGlue:

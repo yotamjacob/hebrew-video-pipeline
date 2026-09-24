@@ -736,24 +736,6 @@ def _caption_max_chars(cw):
     return max(8, int((cw - 2 * max(25, cw // 14)) / (48 * 0.60)))
 
 
-def _rtl_karaoke_ass(ass_str):
-    """Karaoke burns of Hebrew lines (2026-09-24, user screenshot: "rtl is
-    not working correctly on the karaoke"): libass bidi-reorders each
-    override-tag-separated RUN on its own (VSFilter compatibility) unless
-    the style's Encoding is -1 - so the highlight's color tags split an RTL
-    line into runs laid out left to right, and a trailing comma flipped to
-    the line's start. Measured with libass: Encoding -1 makes every tagged
-    line match the untagged layout (word order and punctuation). Applied to
-    the Default (caption) style of the assembler's ASS only when karaoke is
-    the chosen mode - the shared build_caption_ass is untouched. Pure."""
-    out = []
-    for ln in ass_str.split("\n"):
-        if ln.startswith("Style: Default,"):
-            ln = ln.rpartition(",")[0] + ",-1"
-        out.append(ln)
-    return "\n".join(out)
-
-
 def _seam_margin_pct(cw, ch, font_size=None):
     """Split-screen caption placement (2026-09-24, user: "subtitles are on
     Alina's head, they should be on the split line"): the bottom margin
@@ -2647,9 +2629,9 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
                 if caption_style is None:
                     ass_str = build_caption_ass(*ass_args, events, hook)
                 else:
+                    # (karaoke's RTL fix - style Encoding -1 - lives in the
+                    # shared builder, so the main pipeline gets it too)
                     ass_str = build_caption_ass(*ass_args, events, hook, caption_style=caption_style)
-                    if caption_style.get("mode") == "karaoke":
-                        ass_str = _rtl_karaoke_ass(ass_str)
                 ass_path = tmp / "captions.ass"
                 ass_path.write_text(ass_str, encoding="utf-8")
                 esc = str(ass_path).replace(":", r"\:")
