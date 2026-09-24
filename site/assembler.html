@@ -466,6 +466,68 @@
   let clips = [], moments = [], mediaToken = '';   // clips: [{key, name}]
   let mode = 'story', cands = [];                  // clips mode: candidate shorts
 
+  // ── Refresh-proof session (2026-09-24, user: "make everything persistent
+  // to refresh to not lose data") ──
+  // One localStorage record per device: the uploaded clip keys, the running
+  // analysis' call id (polling resumes after a refresh), the analysis result,
+  // every per-clip edit (trim, pick, hook, social caption), the story's order
+  // / kept moments, and each render (running = its call id, done = its key).
+  // The sources live 48 h in scratch, so a session older than 47 h is
+  // dropped. What cannot survive a refresh: an upload mid-flight (the File
+  // is gone - the page says so), branding files and a recorded voice-over.
+  const SESSION_LS = 'hebpipe_asm_session';
+  const SESSION_TTL_MS = 47 * 3600 * 1000;
+  const session = { phase: '', analyzeCall: '', analyzeStart: 0, result: null, storyRender: null };
+  let _saveTimer = null;
+  function _sessionRecord(dropThumbs) {
+    const result = session.result && dropThumbs
+      ? { ...session.result,
+          candidates: (session.result.candidates || []).map((c) => ({ ...c, thumb: '' })),
+          moments: (session.result.moments || []).map((m) => ({ ...m, thumb: '' })) }
+      : session.result;
+    return {
+      v: 1, ts: Date.now(), mode, clips, guidance: ($('guidance').value || '').slice(0, 400),
+      phase: session.phase, analyzeCall: session.analyzeCall, analyzeStart: session.analyzeStart, result,
+      cands: cands.map((c) => ({ id: c.id, start: c.start, end: c.end, pick: c.pick, hookText: c.hookText,
+                                 social: c.social || null, render: c.render || null })),
+      moments: moments.map((m) => ({ id: m.id, keep: m.keep })),
+      storyRender: session.storyRender,
+    };
+  }
+  function saveSessionNow() {
+    clearTimeout(_saveTimer);
+    if (!session.phase) return;
+    try { localStorage.setItem(SESSION_LS, JSON.stringify(_sessionRecord(false))); }
+    catch (_) {
+      // Quota: keep everything but the thumbnails rather than lose the session.
+      try { localStorage.setItem(SESSION_LS, JSON.stringify(_sessionRecord(true))); } catch (__) {}
+    }
+  }
+  function saveSession() { clearTimeout(_saveTimer); _saveTimer = setTimeout(saveSessionNow, 400); }
+  function clearSession() {
+    session.phase = ''; session.analyzeCall = ''; session.analyzeStart = 0; session.result = null; session.storyRender = null;
+    try { localStorage.removeItem(SESSION_LS); } catch (_) {}
+  }
+  function loadSession() {
+    try {
+      const s = JSON.parse(localStorage.getItem(SESSION_LS) || 'null');
+      if (!s || s.v !== 1 || !s.phase || Date.now() - (s.ts || 0) > SESSION_TTL_MS) return null;
+      return s;
+    } catch (_) { return null; }
+  }
+  window.addEventListener('pagehide', saveSessionNow);
+  // Leave / refresh warning while work is in flight: an upload can not be
+  // resumed (the File is gone); analyses and renders DO resume from the
+  // session, but the user should know the page is still working.
+  const busy = { upload: false, analyze: false, renders: 0, story: false };
+  window.addEventListener('beforeunload', (e) => {
+    if (busy.upload || busy.analyze || busy.renders > 0 || busy.story) {
+      saveSessionNow();
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+
   // ── Mode switch: one story cut vs. many shorts from a long recording ──
   const MODE_COPY = {
     story: { drop: 'בחרו או גררו עד 5 סרטוני גלם', hint: 'ראיון, סיורים, אינטראקציות · עד 40 דקות גלם בסך הכל · הניתוח לא מנצל קרדיטים בשלב הבטא', maxFiles: 5, maxBytes: 1024 * 1024 * 1024 },
@@ -513,6 +575,10 @@
     ['brandCard', 'clipsCard', 'clipsOut', 'storyCard', 'board', 'voCard', 'result'].forEach((id) => { $(id).style.display = 'none'; });
     _probeDims(files[0]);   // aspect for the watermark stage (best effort)
     clips = files.map((f) => ({ key: uuid(), name: f.name }));
+    cands = []; moments = [];
+    clearSession();
+    session.phase = 'uploading';
+    saveSessionNow();
     $('clipList').innerHTML = '';
     clips.forEach((c) => {
       const row = document.createElement('div');
@@ -527,6 +593,7 @@
       const totalBytes = files.reduce((s, f) => s + f.size, 0);
       const perFile = files.map(() => 0);
       const report = () => { $('bar').style.width = Math.round((perFile.reduce((a, b) => a + b, 0) / totalBytes) * 100) + '%'; };
+      busy.upload = true;
       for (let fi = 0; fi < files.length; fi++) {
         const file = files[fi], key = clips[fi].key;
         await uploadFile(file, key, (loaded) => { perFile[fi] = Math.min(file.size, loaded); report(); });
@@ -536,8 +603,11 @@
           row.appendChild(document.createTextNode(' ' + file.name));
         }
       }
+      busy.upload = false;
       await analyze();
     } catch (e) {
+      busy.upload = false;
+      clearSession();
       if (e.message === 'auth') { $('authGate').style.display = ''; $('uploadCard').style.display = 'none'; return; }
       showErr($('err'), 'ההעלאה נכשלה - נסו שוב. (' + e.message + ')');
       $('stage').textContent = '';
@@ -704,17 +774,28 @@
         if (r.status !== 502 && r.status !== 503 && r.status !== 504) break;
       } catch (e) { r = null; }
     }
-    if (!r) { showErr($('err'), 'ההעלאה הסתיימה אבל הניתוח לא התחיל (בעיית רשת) - נסו שוב.'); $('stage').textContent = ''; return; }
-    if (!r.ok) { showErr($('err'), 'הניתוח נכשל (' + r.status + ')'); $('stage').textContent = ''; return; }
+    if (!r) { clearSession(); showErr($('err'), 'ההעלאה הסתיימה אבל הניתוח לא התחיל (בעיית רשת) - נסו שוב.'); $('stage').textContent = ''; return; }
+    if (!r.ok) { clearSession(); showErr($('err'), 'הניתוח נכשל (' + r.status + ')'); $('stage').textContent = ''; return; }
     const { call_id } = await r.json();
+    session.phase = 'analyzing'; session.analyzeCall = call_id; session.analyzeStart = Date.now();
+    saveSessionNow();
+    await awaitAnalysis(call_id, 0);
+  }
+  // Poll one analysis to its result (also the resume path after a refresh:
+  // `elapsedTicks` keeps the on-screen clock honest across the reload).
+  async function awaitAnalysis(call_id, elapsedTicks) {
     const label = mode === 'clips'
       ? 'מתמללים את כל ההקלטה, מאתרים קליפים ומדרגים אותם...'
       : 'מתמללים ומחפשים את רגעי הזהב...';
-    const result = await poll('/assembler/analyze-poll/' + call_id, mode === 'clips' ? 900 : 400, (tick) => {
-      const m = Math.floor(tick * 3 / 60), sec = (tick * 3) % 60;
+    busy.analyze = true;
+    const result = await poll('/assembler/analyze-poll/' + call_id, (mode === 'clips' ? 900 : 400) - elapsedTicks, (tick) => {
+      const t = tick + elapsedTicks;
+      const m = Math.floor(t * 3 / 60), sec = (t * 3) % 60;
       $('stage').innerHTML = '<span class="spinner"></span>' + label + ' (' + m + ':' + String(sec).padStart(2, '0') + ')';
     });
+    busy.analyze = false;
     if (!result || result.error) {
+      clearSession();
       const msgs = { too_short: 'הסרטון קצר מדי לסיפור (מתחת ל-20 שניות).',
                      too_long: mode === 'clips' ? 'ההקלטה ארוכה מדי (עד 90 דקות).' : 'יותר מדי חומר גלם (עד 40 דקות בסך הכל).',
                      no_speech: 'לא זוהה מספיק דיבור בסרטונים.',
@@ -727,7 +808,9 @@
       return;
     }
     $('stage').textContent = '';
+    session.phase = 'ready'; session.analyzeCall = ''; session.result = result;
     if (result.mode === 'clips' || mode === 'clips') renderCands(result); else renderBoard(result);
+    saveSessionNow();
   }
 
   // ── Branding: intro / outro clips, fades, draggable watermark ──
@@ -1388,23 +1471,86 @@
   // Batch render: every picked candidate is its own render_story call (one
   // window, tighten + captions + hook), 2 in flight, each landing in
   // History under its own `_{variant}_out.mp4` key.
+  // One result tile per clip. Shared by a live batch render and by the
+  // refresh-restore (a render that finished / is still running before the
+  // reload), so both draw exactly the same tile.
+  function makeTile(c) {
+    const t = document.createElement('div');
+    t.className = 'out';
+    t.innerHTML = '<div class="o-title"></div><div class="o-state"><span class="spinner"></span>בתור...</div>';
+    t.querySelector('.o-title').textContent = c.title || ('קליפ ' + (c.id + 1));
+    t.appendChild(socialBlock(c));
+    $('outs').appendChild(t);
+    return t;
+  }
+  async function fillTileDone(tile, c, result) {
+    const st = tile.querySelector('.o-state');
+    c.videoKey = result.video_key;   // frames for the social caption
+    await ensureMediaToken();
+    const url = API_BASE + '/media/' + encodeURIComponent(result.video_key) + '?token=' + encodeURIComponent(mediaToken);
+    const vid = document.createElement('video');
+    vid.controls = true; vid.playsInline = true; vid.src = url;
+    tile.insertBefore(vid, st);
+    st.innerHTML = '';
+    const acts = document.createElement('div');
+    acts.className = 'o-actions';
+    const a = document.createElement('a');
+    a.href = API_BASE + '/download/' + encodeURIComponent(result.video_key) + '?token=' + encodeURIComponent(mediaToken);
+    a.download = ''; a.textContent = 'הורדה';
+    // Every render is recorded as a re-editable History job: this opens
+    // the clip in the main editor (captions styles, zoom, B-roll,
+    // hooks) - "export to the pipeline".
+    const ed = document.createElement('a');
+    ed.href = '/?edit=' + encodeURIComponent(result.video_key);
+    ed.target = '_blank'; ed.rel = 'noopener'; ed.className = 'edit-link';
+    ed.textContent = 'עריכה בפייפליין';
+    acts.append(a, ed);
+    st.appendChild(acts);
+    const note = styleNoteText(result.style_warnings);
+    if (note) { const n = document.createElement('p'); n.className = 'style-note'; n.textContent = note; st.appendChild(n); }
+    st.classList.add('ok');
+  }
+  function fillTileFail(tile, msg) {
+    const st = tile.querySelector('.o-state');
+    st.textContent = 'נכשל (' + msg + ')';
+    st.classList.add('fail');
+  }
+  // Poll one clip render to its tile; the call id rides the session first so
+  // a refresh mid-render resumes here instead of losing the clip.
+  async function awaitClipRender(c, tile, call_id) {
+    c.render = { status: 'pending', call: call_id };
+    saveSessionNow();
+    busy.renders++;
+    try {
+      const result = await poll('/assembler/render-poll/' + call_id);
+      if (!result || result.error || !result.video_key) throw new Error((result && (result.detail || result.error)) || 'render');
+      c.render = { status: 'done', video_key: result.video_key, style_warnings: result.style_warnings || [] };
+      saveSessionNow();
+      await fillTileDone(tile, c, result);
+      return true;
+    } catch (e) {
+      c.render = { status: 'fail', err: e.message };
+      saveSessionNow();
+      fillTileFail(tile, e.message);
+      return false;
+    } finally {
+      busy.renders--;
+    }
+  }
+
   $('renderClipsBtn').addEventListener('click', async () => {
     $('clipsErr').style.display = 'none';
     const picked = cands.filter((c) => c.pick);
     if (!picked.length) return;
     $('renderClipsBtn').disabled = true;
+    busy.renders++;   // the whole batch (branding uploads included) counts as work in flight
     $('clipsOut').style.display = 'block';
     $('outs').innerHTML = '';
+    cands.forEach((c) => { c.render = null; });
     const tiles = new Map();
     picked.forEach((c) => {
-      const t = document.createElement('div');
-      t.className = 'out';
-      t.innerHTML = '<div class="o-title"></div><div class="o-state"><span class="spinner"></span>בתור...</div>';
-      t.querySelector('.o-title').textContent = c.title || ('קליפ ' + (c.id + 1));
       c.videoKey = '';
-      t.appendChild(socialBlock(c));
-      $('outs').appendChild(t);
-      tiles.set(c.id, t);
+      tiles.set(c.id, makeTile(c));
     });
     $('clipsOut').scrollIntoView({ behavior: 'smooth', block: 'start' });
     let done = 0, failed = 0;
@@ -1415,6 +1561,7 @@
       extra = await brandPayload(() => { $('clipsStage').innerHTML = '<span class="spinner"></span>מעלים פתיח / סיום / לוגו...'; });
     } catch (e) {
       showErr($('clipsErr'), 'העלאת המיתוג נכשלה - נסו שוב. (' + e.message + ')');
+      busy.renders--;
       $('renderClipsBtn').disabled = false; $('clipsStage').textContent = ''; return;
     }
     stage();
@@ -1443,42 +1590,19 @@
           });
           if (!r.ok) throw new Error('render ' + r.status);
           const { call_id } = await r.json();
-          const result = await poll('/assembler/render-poll/' + call_id);
-          if (!result || result.error || !result.video_key) throw new Error((result && (result.detail || result.error)) || 'render');
-          c.videoKey = result.video_key;   // frames for the social caption
-          await ensureMediaToken();
-          const url = API_BASE + '/media/' + encodeURIComponent(result.video_key) + '?token=' + encodeURIComponent(mediaToken);
-          const vid = document.createElement('video');
-          vid.controls = true; vid.playsInline = true; vid.src = url;
-          tile.insertBefore(vid, st);
-          st.innerHTML = '';
-          const acts = document.createElement('div');
-          acts.className = 'o-actions';
-          const a = document.createElement('a');
-          a.href = API_BASE + '/download/' + encodeURIComponent(result.video_key) + '?token=' + encodeURIComponent(mediaToken);
-          a.download = ''; a.textContent = 'הורדה';
-          // Every render is recorded as a re-editable History job: this opens
-          // the clip in the main editor (captions styles, zoom, B-roll,
-          // hooks) - "export to the pipeline".
-          const ed = document.createElement('a');
-          ed.href = '/?edit=' + encodeURIComponent(result.video_key);
-          ed.target = '_blank'; ed.rel = 'noopener'; ed.className = 'edit-link';
-          ed.textContent = 'עריכה בפייפליין';
-          acts.append(a, ed);
-          st.appendChild(acts);
-          const note = styleNoteText(result.style_warnings);
-          if (note) { const n = document.createElement('p'); n.className = 'style-note'; n.textContent = note; st.appendChild(n); }
-          st.classList.add('ok');
+          if (!(await awaitClipRender(c, tile, call_id))) failed++;
         } catch (e) {
           failed++;
-          st.textContent = 'נכשל (' + e.message + ')';
-          st.classList.add('fail');
+          c.render = { status: 'fail', err: e.message };
+          saveSessionNow();
+          fillTileFail(tile, e.message);
         }
         done++;
         stage();
       }
     }
     await Promise.all([worker(), worker()]);
+    busy.renders--;
     $('clipsStage').textContent = failed ? (done - failed) + ' קליפים מוכנים, ' + failed + ' נכשלו - אפשר לנסות שוב.' : 'כל ' + done + ' הקליפים מוכנים.';
     $('renderClipsBtn').disabled = false;
   });
@@ -1653,6 +1777,7 @@
     const kept = moments.filter((m) => m.keep).map((m) => [m.clip || 0, m.start, m.end]);
     if (!kept.length) return;
     $('renderBtn').disabled = true;
+    busy.story = true;   // voice-over / branding uploads count as work in flight
     $('renderStage').innerHTML = '<span class="spinner"></span>חותכים ומרכיבים את הסיפור...';
     try {
       let voKey = null;
@@ -1669,20 +1794,40 @@
       });
       if (!r.ok) throw new Error('render ' + r.status);
       const { call_id } = await r.json();
-      const result = await poll('/assembler/render-poll/' + call_id);
-      if (!result || result.error || !result.video_key) {
-        throw new Error((result && (result.detail || result.error)) || 'render');
-      }
-      const note = styleNoteText(result.style_warnings);
-      $('storyStyleNote').textContent = note;
-      $('storyStyleNote').style.display = note ? 'block' : 'none';
-      await showResult(result.video_key);
+      await awaitStoryRender(call_id);
     } catch (e) {
       showErr($('renderErr'), 'הרינדור נכשל - נסו שוב. (' + e.message + ')');
     }
+    busy.story = false;
     $('renderStage').textContent = '';
     $('renderBtn').disabled = false;
   });
+
+  // Poll the story render to the result card (also the refresh-resume path).
+  async function awaitStoryRender(call_id) {
+    session.storyRender = { status: 'pending', call: call_id };
+    saveSessionNow();
+    busy.story = true;
+    try {
+      const result = await poll('/assembler/render-poll/' + call_id);
+      if (!result || result.error || !result.video_key) {
+        session.storyRender = null;
+        saveSessionNow();
+        throw new Error((result && (result.detail || result.error)) || 'render');
+      }
+      session.storyRender = { status: 'done', video_key: result.video_key, style_warnings: result.style_warnings || [] };
+      saveSessionNow();
+      showStoryDone(result);
+      await showResult(result.video_key);
+    } finally {
+      busy.story = false;
+    }
+  }
+  function showStoryDone(result) {
+    const note = styleNoteText(result.style_warnings);
+    $('storyStyleNote').textContent = note;
+    $('storyStyleNote').style.display = note ? 'block' : 'none';
+  }
 
   async function ensureMediaToken() {
     if (mediaToken) return;
@@ -1700,6 +1845,83 @@
     $('result').style.display = 'block';
     $('result').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+  // ── Refresh-restore: bring the session back exactly where it was ──
+  // Any edit on the cards / storyboard / result tiles schedules a save (the
+  // state itself lives in `cands` / `moments`; the save reads them).
+  ['clipsCard', 'board', 'clipsOut', 'storyCard'].forEach((id) => {
+    const el = $(id);
+    if (el) ['input', 'change', 'click'].forEach((ev) => el.addEventListener(ev, saveSession));
+  });
+  async function restoreSession() {
+    if (!token) return;
+    const saved = loadSession();
+    if (!saved) return;
+    setMode(saved.mode === 'clips' ? 'clips' : 'story');
+    clips = Array.isArray(saved.clips) ? saved.clips : [];
+    if (saved.guidance) $('guidance').value = saved.guidance;
+    if (saved.phase === 'uploading') {
+      // The browser dropped the File with the page - nothing to resume.
+      clearSession();
+      showErr($('err'), 'הרענון קטע את ההעלאה - בחרו את הקובץ שוב.');
+      return;
+    }
+    if (saved.phase === 'analyzing' && saved.analyzeCall) {
+      session.phase = 'analyzing';
+      session.analyzeCall = saved.analyzeCall;
+      session.analyzeStart = saved.analyzeStart || Date.now();
+      await awaitAnalysis(saved.analyzeCall, Math.max(0, Math.floor((Date.now() - session.analyzeStart) / 3000)));
+      return;
+    }
+    if (saved.phase !== 'ready' || !saved.result) { clearSession(); return; }
+    session.phase = 'ready';
+    session.result = saved.result;
+    if (saved.mode === 'clips') {
+      renderCands(saved.result);
+      const edits = new Map((saved.cands || []).map((e) => [e.id, e]));
+      cands.forEach((c) => {
+        const e = edits.get(c.id);
+        if (!e) return;
+        if (isFinite(e.start)) c.start = e.start;
+        if (isFinite(e.end)) c.end = e.end;
+        c.pick = !!e.pick;
+        c.hookText = typeof e.hookText === 'string' ? e.hookText : c.hookText;
+        if (e.social) c.social = e.social;
+        c.render = e.render || null;
+      });
+      drawCands();
+      const rendered = cands.filter((c) => c.render);
+      if (rendered.length) {
+        $('clipsOut').style.display = 'block';
+        $('outs').innerHTML = '';
+        rendered.forEach((c) => {
+          const tile = makeTile(c);
+          if (c.render.status === 'done') fillTileDone(tile, c, c.render);
+          else if (c.render.status === 'pending') awaitClipRender(c, tile, c.render.call);
+          else fillTileFail(tile, c.render.err || '');
+        });
+      }
+    } else {
+      renderBoard(saved.result);
+      const byId = new Map(moments.map((m) => [m.id, m]));
+      const ordered = (saved.moments || []).map((e) => {
+        const m = byId.get(e.id);
+        if (m) m.keep = !!e.keep;
+        return m;
+      }).filter(Boolean);
+      if (ordered.length === moments.length) moments = ordered;
+      drawMoments();
+      const sr = saved.storyRender;
+      if (sr && sr.status === 'done') {
+        session.storyRender = sr;
+        showStoryDone(sr);
+        showResult(sr.video_key);
+      } else if (sr && sr.status === 'pending') {
+        awaitStoryRender(sr.call).catch((e) => showErr($('renderErr'), 'הרינדור נכשל - נסו שוב. (' + e.message + ')'));
+      }
+    }
+    saveSessionNow();
+  }
+  restoreSession();
 </script>
 </body>
 </html>

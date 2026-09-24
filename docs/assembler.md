@@ -370,6 +370,36 @@ Tests: `tests/backend/test_assembler_social.py`, `tests/backend/test_assembler_c
 `tests/frontend/assembler_social.spec.js`, `tests/frontend/assembler_caption_style.spec.js`
 (every assembler spec now stubs `/profiles` - a new boot call).
 
+## Refresh-proof session + leave warning (2026-09-24)
+
+User: "while processing a video - add a warning if leaving the page or
+refreshing; also make everything persistent to refresh". `site/assembler.html`
+keeps ONE `localStorage` record, `hebpipe_asm_session` (`v:1`, 47 h TTL - the
+sources are 48 h scratch): mode, uploaded clip keys, guidance, `phase`
+(`uploading` / `analyzing` / `ready`), the running analysis' call id + start
+time, the analysis result, every candidate edit (`start/end/pick/hookText/
+social/render`), the story's moment order + kept flags, and each render
+(`{status: pending, call}` -> `{status: done, video_key, style_warnings}` /
+`fail`). Saved on every phase change and render transition, debounced on any
+`input`/`change`/`click` in the clip cards / storyboard / result tiles, and on
+`pagehide`; on quota errors it retries without the thumbnails.
+
+Restore on load (`restoreSession`): `analyzing` -> `awaitAnalysis(call_id,
+elapsedTicks)` resumes the SAME job's polling (never re-spawned; the clock
+keeps counting); `ready` -> the cards are rebuilt from the saved result with
+the edits laid over them, finished renders come back as tiles
+(`makeTile` / `fillTileDone` - the same helpers a live batch uses), running
+renders resume polling (`awaitClipRender` / `awaitStoryRender`), the story
+result card comes back; `uploading` -> the browser dropped the File, so the
+page says "הרענון קטע את ההעלאה - בחרו את הקובץ שוב" and starts clean. A new
+file selection starts a new session.
+
+Leave warning: `beforeunload` prompts while `busy` - an upload, an analysis
+poll, any clip batch (branding uploads included) or the story render (voice-over
+/ branding uploads included) is in flight - and saves the session first.
+Not persisted (by nature): an upload mid-flight, the intro/outro/logo FILES and
+a recorded voice-over blob. Tests: `tests/frontend/assembler_session.spec.js`.
+
 ## Prompt-steered selection (2026-08-16)
 
 `#guidance` text input in the upload card (both modes) -> analyze payload

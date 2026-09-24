@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.56.0';
+  const APP_VERSION = '1.57.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -340,6 +340,15 @@
     if (!window.__resumeStarted && loadSavedJob()) {
       window.__resumeStarted = true;
       setTimeout(() => { resumeSavedJob().catch(e => console.warn('auto-resume failed', e)); }, 50);
+      return;
+    }
+    // Nothing running: reopen an unsaved editing session from before a refresh.
+    if (!window.__draftRestored) {
+      const d = loadEditorDraft();
+      if (d) {
+        window.__draftRestored = true;
+        setTimeout(() => { restoreEditorDraft(d); }, 60);
+      }
     }
   }
 
@@ -894,6 +903,7 @@
     const ok = await showConfirmModal(t('logout.title'), t('logout.body'), t('logout.confirm'));
     if (!ok) return;
     _clearToken();
+    clearEditorDraft();   // the next account on this device must not inherit it
     _intentionalNav = true;   // confirmed in-app; skip the browser "leave page?" prompt
     location.reload();
   }
@@ -930,6 +940,7 @@
     // The session token is a stateless HMAC that outlives the record, so the
     // local copy has to go or the app would keep presenting a dead account.
     _clearToken();
+    clearEditorDraft();
     _intentionalNav = true;
     location.reload();
   }
@@ -1210,6 +1221,69 @@
   }
   function clearSavedJob() {
     localStorage.removeItem(JOB_KEY);
+  }
+
+  // ── Editor draft: unsaved editing survives a refresh (2026-09-24) ─────────
+  // A captions job is recorded in History only by its BURN, so before this a
+  // refresh in the editor lost the processed video AND every edit (captions,
+  // hook, B-roll picks, style) - the user had to process (and pay) again.
+  // The draft is the History edit-state shape ({src_key, captions, font,
+  // font_size, margin_v_pct, caption_style, broll, hook}) plus the file name,
+  // audio flag and burn state, saved on every editor change (debounced) and
+  // when the page hides; boot restores it through the SAME rehydrate path a
+  // History re-edit uses. TTL 36 h - the processed `_cut` source is scratch
+  // (48 h). Cleared on Start over, logout / account deletion and a new run.
+  const EDITOR_DRAFT_KEY = 'hebpipe_editor_draft';
+  const EDITOR_DRAFT_TTL = 36 * 3600 * 1000;
+  let _draftTimer = null;
+  function _editorVisible() {
+    const c = document.getElementById('captionEditorCard');
+    return !!c && c.style.display !== 'none';
+  }
+  function _draftHook() {
+    // The selected hook, in the burn payload's shape (without calling
+    // drawHookPreview - an autosave must not repaint the canvas).
+    if (typeof selectedHookIdx === 'undefined' || selectedHookIdx < 0) return {};
+    const text = (document.getElementById(`hookText${selectedHookIdx}`)?.value || '').trim();
+    if (!text) return {};
+    const val = (id, d) => document.getElementById(id)?.value ?? d;
+    return {
+      text,
+      font: val('hookFont', 'Heebo'), font_color: val('hookFontColor', '#FFFFFF'),
+      bg_color: val('hookBgColor', '#000000'), bg_opacity: parseInt(val('hookBgOpacity', '60'), 10) / 100,
+      font_size_pct: parseInt(val('hookFontSize', '100'), 10),
+      border_color: val('hookBorderColor', '#000000'), border_size: parseInt(val('hookBorderSize', '0'), 10),
+      start_seconds: parseFloat(val('hookStartSec', '0')), duration_seconds: parseFloat(val('hookDurationSec', '3')),
+      vertical_position: parseInt(val('hookPosition', '10'), 10),
+    };
+  }
+  function saveEditorDraftNow() {
+    clearTimeout(_draftTimer);
+    if (typeof videoKey === 'undefined' || !videoKey || !_editorVisible()) return;
+    try {
+      localStorage.setItem(EDITOR_DRAFT_KEY, JSON.stringify({
+        v: 1, ts: Date.now(), src_key: videoKey,
+        name: (selectedFile && selectedFile.name) || historyEditName || 'video',
+        is_audio: !!isAudioInput, burned: !!hasBurnedOnce,
+        captions: getCaptionsFromEditor(),
+        font: captionFont, font_size: captionFontSize, margin_v_pct: captionMarginPct,
+        caption_style: _captionStylePayload(),
+        broll: Object.values(stockBrollSelections || {}),
+        hook: _draftHook(),
+      }));
+    } catch (_) {}
+  }
+  function saveEditorDraft() { clearTimeout(_draftTimer); _draftTimer = setTimeout(saveEditorDraftNow, 600); }
+  function clearEditorDraft() {
+    clearTimeout(_draftTimer);
+    try { localStorage.removeItem(EDITOR_DRAFT_KEY); } catch (_) {}
+  }
+  function loadEditorDraft() {
+    try {
+      const d = JSON.parse(localStorage.getItem(EDITOR_DRAFT_KEY) || 'null');
+      if (!d || d.v !== 1 || !d.src_key || Date.now() - (d.ts || 0) > EDITOR_DRAFT_TTL) { clearEditorDraft(); return null; }
+      return d;
+    } catch (_) { return null; }
   }
   function loadSavedJob() {
     try {
@@ -3300,6 +3374,13 @@
   // beforeunload guard below doesn't pop the browser's "leave page?" prompt -
   // the user already confirmed in the app's own modal.
   let _intentionalNav = false;
+  // Editor draft autosave: any change inside the editor card (captions, style,
+  // hook, B-roll, effects, undo...) schedules a save; hiding the page (tab
+  // switch, app to background, refresh) saves at once.
+  ['input', 'change', 'click'].forEach(ev =>
+    document.getElementById('captionEditorCard')?.addEventListener(ev, saveEditorDraft));
+  window.addEventListener('pagehide', saveEditorDraftNow);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveEditorDraftNow(); });
   window.addEventListener('beforeunload', (e) => {
     if (_intentionalNav) return;
     const editing = document.getElementById('captionEditorCard').style.display !== 'none';
@@ -3321,6 +3402,11 @@
       return;
     }
     if (!(await _confirmQuotaUse())) return;
+    clearEditorDraft();   // a new job replaces the previous editing session
+    // The punch-in starts OFF for every NEW video (user directive 2026-08-10) -
+    // also after a refresh-restored session that had it on.
+    { const z = document.getElementById('fxAutoZoom');
+      if (z && z.checked) { z.checked = false; z.dispatchEvent(new Event('change', { bubbles: true })); } }
 
     resultBlob = null;
     resultDownloadUrl = null;
@@ -4390,6 +4476,7 @@
     if (currentCallId) apiFetch(`${API_BASE}/cancel/${currentCallId}/`, { keepalive: true }).catch(() => {});
     _r2AbortActive();   // keepalive - survives the reload below
     clearSavedJob();
+    clearEditorDraft();
     _intentionalNav = true;   // already confirmed in-app; skip the browser prompt
     location.reload();
   }
@@ -8710,6 +8797,7 @@
     _updateDeleteButtons();
     _resetCaptionUndo();
     document.getElementById('captionEditorCard').style.display = 'block';
+    saveEditorDraft();   // a freshly processed job is refresh-proof from its first frame
 
     if (isAudioInput) {
       // Audio mode: reduced editor - a native audio player, the editable
@@ -9843,16 +9931,44 @@
       }
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const st = await resp.json();
+      await _rehydrateEditor(st, { history: true });
+    } catch (e) {
+      console.error('History edit failed:', e && e.message);
+      _reportError('history-edit', e && e.message);
+      celebrateToast(t('hist.editFailed'));
+    } finally {
+      if (btn && btn.isConnected) { _btnBusy(btn, false); btn.title = t('hist.edit'); }
+    }
+  }
 
+  // Refresh-restore of an unsaved editing session (see EDITOR_DRAFT_KEY).
+  async function restoreEditorDraft(d) {
+    // Never clobber a newer action: a file picked / an upload or job started
+    // in the moment between boot and this restore wins.
+    if (selectedFile || isUploading || pollController) return;
+    try {
+      await _rehydrateEditor(d, { history: false });
+      celebrateToast(t('draft.restored'));
+    } catch (e) {
+      console.warn('draft restore failed:', e && e.message);
+      clearEditorDraft();
+    }
+  }
+
+  // Open the editor on a saved edit state - a History job's (`history:
+  // true`: video only, re-burn) or a refresh draft's (its own audio / burn
+  // flags). ONE path so both reopen exactly the same editor.
+  async function _rehydrateEditor(st, opts = {}) {
+    {
       resetStatus();            // drop any stale checklist / editor / hook / B-roll
       switchTab('pipeline');
 
       historyEditName  = st.name || 'video';
-      isAudioInput     = false;   // only video burns are re-editable
-      applyAudioMode(false);
+      isAudioInput     = opts.history ? false : !!st.is_audio;   // only video burns are re-editable from History
+      applyAudioMode(isAudioInput);
       captionsData     = st.captions || [];
       videoKey         = st.src_key;
-      cutFilename      = historyEditName.replace(/\.[^/.]+$/, '') + '_cut.mp4';
+      cutFilename      = historyEditName.replace(/\.[^/.]+$/, '') + (isAudioInput ? '_clean.m4a' : '_cut.mp4');
       captionFont      = st.font || 'Heebo';
       captionFontSize  = st.font_size || 48;
       captionMarginPct = (st.margin_v_pct != null) ? st.margin_v_pct : 0.08;
@@ -9868,19 +9984,14 @@
       (st.broll || []).forEach((it, i) => { stockBrollSelections[i] = it; });
       syncBrollPreviewPool();
 
-      hasBurnedOnce = true;     // the action button reads "Re-burn & Download"
+      hasBurnedOnce = opts.history ? true : !!st.burned;   // "Re-burn & Download" once burned
       _prefetchPreviewBlob(videoKey);
       await showCaptionEditor();
       _renderKeptBroll(st.broll || []);
       _restoreHookState(st.hook || {});
       updateBurnBtn();
-      { const h = document.getElementById('historyEditHint'); if (h) h.style.display = 'block'; }
-    } catch (e) {
-      console.error('History edit failed:', e && e.message);
-      _reportError('history-edit', e && e.message);
-      celebrateToast(t('hist.editFailed'));
-    } finally {
-      if (btn && btn.isConnected) { _btnBusy(btn, false); btn.title = t('hist.edit'); }
+      if (opts.history) { const h = document.getElementById('historyEditHint'); if (h) h.style.display = 'block'; }
+      saveEditorDraftNow();   // the reopened editor is itself refresh-proof
     }
   }
 

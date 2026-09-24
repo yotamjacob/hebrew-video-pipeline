@@ -111,7 +111,10 @@ test('the toggle starts OFF on every launch; only the strength is remembered', a
   expect(saved.zoom_strength).toBe('strong');
 
   // ...but a fresh launch never re-applies the punch-in on its own (user
-  // directive, 2026-08-10) - the remembered STRENGTH survives.
+  // directive, 2026-08-10) - the remembered STRENGTH survives. (A fresh
+  // launch = no unsaved editing session; a refresh WITH one restores that
+  // same session - see editor_draft.spec.js.)
+  await page.evaluate(() => localStorage.removeItem('hebpipe_editor_draft'));
   await page.reload();
   await runFullUpload(page);
   await page.click('#tabBtnEffects');

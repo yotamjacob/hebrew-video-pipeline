@@ -368,6 +368,7 @@
     'hist.editLoading': { en: 'Opening the editor…', he: 'פותח את העורך…' },
     'hist.editGone':   { en: 'This video can no longer be edited - the source was cleaned up. Upload it again to make changes.', he: 'לא ניתן לערוך את הסרטון הזה יותר - קובץ המקור נמחק. העלו אותו שוב כדי לבצע שינויים.' },
     'hist.editFailed': { en: 'Could not open the editor - try again in a moment.', he: 'פתיחת העורך נכשלה - נסו שוב עוד רגע.' },
+    'draft.restored':  { en: 'Your editing session is back - nothing was lost.', he: 'העריכה שלכם חזרה - שום דבר לא אבד.' },
     'hist.editHint':   { en: 'Editing a previous export. Your changes create a new video - the original stays in history.', he: 'עריכה של סרטון קודם. השינויים ייצרו סרטון חדש - המקורי יישאר בהיסטוריה.' },
     'stock.keptFromExport': { en: '{n} clips kept from the previous export. Run a new search to change them.', he: '{n} קטעים נשמרו מהייצוא הקודם. הריצו חיפוש חדש כדי לשנות אותם.' },
     'resume.uploadIncomplete': { en: 'The upload did not finish - select the file again and it will resume from where it stopped.', he: 'ההעלאה לא הסתיימה - בחרו שוב את הקובץ והיא תמשיך מאיפה שנעצרה.' },
