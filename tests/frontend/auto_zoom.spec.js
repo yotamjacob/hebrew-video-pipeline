@@ -113,8 +113,10 @@ test('the toggle starts OFF on every launch; only the strength is remembered', a
   // ...but a fresh launch never re-applies the punch-in on its own (user
   // directive, 2026-08-10) - the remembered STRENGTH survives. (A fresh
   // launch = no unsaved editing session; a refresh WITH one restores that
-  // same session - see editor_draft.spec.js.)
-  await page.evaluate(() => localStorage.removeItem('hebpipe_editor_draft'));
+  // same session - see editor_draft.spec.js.) Cleared in an init script,
+  // i.e. before the app boots: a removeItem before reload() races the
+  // pagehide flush, which re-saves the draft (flaked CI 3 of 5 runs).
+  await page.addInitScript(() => localStorage.removeItem('hebpipe_editor_draft'));
   await page.reload();
   await runFullUpload(page);
   await page.click('#tabBtnEffects');
