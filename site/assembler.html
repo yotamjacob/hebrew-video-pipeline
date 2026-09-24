@@ -156,6 +156,35 @@
     .foot a { color: var(--purple-700); font-weight: 600; text-decoration: none; }
     /* ── Mode switch (story cut / long -> shorts) ── */
     .mode-row { display: flex; gap: 8px; margin-bottom: 14px; }
+    /* Layout picker (setup card): three equal tiles, each previewing the
+       choice on a frame of the user's own video. */
+    .layout-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 8px; }
+    .layout-opt {
+      display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 6px;
+      border-radius: 12px; border: 1.5px solid var(--purple-100); background: transparent;
+      font-family: inherit; color: var(--sage-dark); cursor: pointer; text-align: center; min-width: 0;
+    }
+    .layout-opt.on { border-color: var(--terracotta); background: var(--purple-50); color: var(--terracotta-dark); }
+    .layout-pv { width: 72px; height: 128px; border-radius: 8px; background: #2a2723; display: block; }
+    .layout-name { font-size: 0.84rem; font-weight: 700; line-height: 1.25; }
+    .layout-desc { font-size: 0.7rem; font-weight: 500; color: var(--muted); line-height: 1.35; }
+    #setupCard[data-mode="clips"] .opts-story, #setupCard[data-mode="story"] .opts-clips { display: none; }
+    #setupCard .cta { margin-top: 4px; }
+    /* Viral score explainer: a small dismissible card under the candidate. */
+    .score { cursor: pointer; border: 0; font-family: inherit; }
+    .score:focus-visible { outline: 2px solid var(--terracotta); outline-offset: 2px; }
+    .viral-card {
+      grid-column: 1 / -1; position: relative; background: var(--purple-50); border: 1px solid var(--purple-100);
+      border-radius: 12px; padding: 12px 14px 10px; font-size: 0.8rem; line-height: 1.55; color: var(--text);
+    }
+    .viral-card h4 { font-size: 0.86rem; font-weight: 700; color: var(--purple-800); margin-bottom: 6px; }
+    .viral-card ul { margin: 6px 0 0; padding-inline-start: 18px; }
+    .viral-card li { margin-bottom: 4px; }
+    .viral-card .v-how { color: var(--muted); font-size: 0.74rem; margin-top: 8px; }
+    .viral-card .v-close {
+      position: absolute; top: 6px; inset-inline-end: 8px; width: 26px; height: 26px; border-radius: 50%;
+      border: 0; background: transparent; color: var(--muted); font-size: 1.1rem; cursor: pointer; line-height: 1;
+    }
     .mode-btn {
       flex: 1; padding: 10px 12px; border-radius: 12px; border: 1.5px solid var(--purple-100);
       background: transparent; color: var(--sage-dark); font-family: inherit;
@@ -272,14 +301,17 @@
     .out .o-state.fail { color: var(--red); }
     .out a { color: var(--purple-700); font-weight: 700; font-size: 0.82rem; }
     /* ── Branding card: intro / outro / fade / watermark ── */
-    .brand-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .brand-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
     @media (max-width: 520px) { .brand-grid { grid-template-columns: 1fr; } }
     .brand-slot {
       border: 1.5px dashed var(--purple-100); border-radius: 12px; padding: 12px;
       display: flex; flex-direction: column; gap: 8px; align-items: center; text-align: center;
+      min-width: 0;   /* a grid item may shrink below a long file name */
     }
     .brand-slot .slot-title { font-size: 0.82rem; font-weight: 700; color: var(--purple-800); }
-    .brand-slot .slot-file { font-size: 0.78rem; color: var(--sage-dark); font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: ltr; }
+    /* A long file name WRAPS inside the slot (field screenshot 2026-09-24:
+       an outro name ran past the card edge). */
+    .brand-slot .slot-file { font-size: 0.78rem; color: var(--sage-dark); font-weight: 600; max-width: 100%; overflow-wrap: anywhere; word-break: break-word; white-space: normal; direction: ltr; text-align: center; }
     .brand-slot .slot-file:empty { display: none; }
     .brand-slot .slot-remove { display: none; }
     .brand-slot.has .slot-remove { display: inline; }
@@ -339,14 +371,45 @@
     <div class="err" id="err"></div>
   </div>
 
-  <div class="card" id="brandCard" style="display:none">
-    <h2>2 · פורמט ומיתוג (רשות)</h2>
-    <div class="mode-row" role="tablist" id="frameRow" style="margin-bottom:6px">
-      <button type="button" class="mode-btn on" id="frameOrig" role="tab" aria-selected="true">כמו המקור<small>ללא שינוי</small></button>
-      <button type="button" class="mode-btn" id="frameFit" role="tab" aria-selected="false">אנכי 9:16 - הפריים המלא<small>כל התמונה נשמרת, רקע מטושטש ממלא</small></button>
-      <button type="button" class="mode-btn" id="frameVert" role="tab" aria-selected="false">אנכי 9:16 - חכם<small>דובר אחד: חיתוך שעוקב אחריו · שני דוברים (זום): מסך מפוצל, אחד מעל השני</small></button>
+  <div class="card" id="setupCard" style="display:none" data-mode="story">
+    <h2>2 · פורמט ואפשרויות</h2>
+    <div class="layout-grid" role="radiogroup" aria-label="פורמט" id="frameRow">
+      <button type="button" class="layout-opt on" id="frameVert" role="radio" aria-checked="true">
+        <canvas class="layout-pv" id="pvVert" width="144" height="256"></canvas>
+        <span class="layout-name">אנכי חכם</span>
+        <span class="layout-desc">עוקב אחרי הדובר, ובזום עם שניים: מסך מפוצל</span>
+      </button>
+      <button type="button" class="layout-opt" id="frameFit" role="radio" aria-checked="false">
+        <canvas class="layout-pv" id="pvFit" width="144" height="256"></canvas>
+        <span class="layout-name">אנכי - הפריים המלא</span>
+        <span class="layout-desc">כל התמונה נשמרת, רקע מטושטש ממלא</span>
+      </button>
+      <button type="button" class="layout-opt" id="frameOrig" role="radio" aria-checked="false">
+        <canvas class="layout-pv" id="pvOrig" width="144" height="256"></canvas>
+        <span class="layout-name">כמו המקור</span>
+        <span class="layout-desc">ללא שינוי פורמט</span>
+      </button>
     </div>
-    <p class="brand-hint" id="frameHint" style="margin:0 0 14px">מקורות שכבר אנכיים לא משתנים.</p>
+    <p class="brand-hint" id="frameHint" style="margin:0 0 12px">מקורות שכבר אנכיים לא משתנים.</p>
+    <div class="opts opts-clips">
+      <label class="cap-row"><input type="checkbox" id="clipCapToggle" checked />כתוביות מסונכרנות</label>
+      <label class="cap-row"><input type="checkbox" id="clipTightenToggle" checked />חיתוך שתיקות בתוך הקליפ</label>
+      <label class="cap-row"><input type="checkbox" id="clipHookToggle" checked />שורת הוק על המסך</label>
+    </div>
+    <label class="style-row opts-clips">סגנון כתוביות <select id="clipCapStyle" class="cap-style-sel" aria-label="סגנון כתוביות"></select></label>
+    <div class="opts opts-story">
+      <label class="cap-row"><input type="checkbox" id="capToggle" checked />כתוביות מסונכרנות על הסרטון</label>
+    </div>
+    <label class="style-row opts-story">סגנון כתוביות <select id="capStyle" class="cap-style-sel" aria-label="סגנון כתוביות"></select></label>
+    <p class="style-note" id="settingsNote" style="display:none">ההגדרות השתנו - לחצו על "רענון הקליפים" כדי ליצור אותם מחדש.</p>
+    <button class="cta" id="processBtn" disabled>עיבוד</button>
+    <button class="cta" id="renderClipsBtn" style="display:none">רענון הקליפים</button>
+    <p class="stage" id="clipsStage" style="margin-top:10px"></p>
+    <div class="err" id="clipsErr"></div>
+  </div>
+
+  <div class="card" id="brandCard" style="display:none">
+    <h2>3 · מיתוג (רשות)</h2>
     <div class="brand-grid">
       <div class="brand-slot" id="introSlot">
         <span class="slot-title">פתיח (אינטרו)</span>
@@ -382,30 +445,21 @@
   </div>
 
   <div class="card" id="clipsCard" style="display:none">
-    <h2>3 · הקליפים המוצעים</h2>
+    <h2>4 · הקליפים המוצעים</h2>
     <p class="summary" id="clipsSummary"></p>
     <p class="hint" id="clipsIssues" style="display:none;text-align:start;margin:0 0 10px"></p>
-    <div class="board-sub">כל קליפ מגיע עם הערכת ויראליות מנומקת (הערכה עריכתית, לא נבואה). מסמנים אילו קליפים ליצור, מתקנים את שורת ההוק אם רוצים, ויוצרים את כולם בבת אחת.</div>
+    <div class="board-sub">כל קליפ מגיע עם הערכת ויראליות מנומקת (הערכה עריכתית, לא נבואה - לחיצה על הציון מסבירה איך לשפר). כל הקליפים המסומנים נוצרים אוטומטית; אפשר לתקן חיתוך ושורת הוק, ואז "רענון הקליפים" למעלה.</div>
     <div id="cands"></div>
-    <div class="opts">
-      <label class="cap-row"><input type="checkbox" id="clipCapToggle" checked />כתוביות מסונכרנות</label>
-      <label class="cap-row"><input type="checkbox" id="clipTightenToggle" checked />חיתוך שתיקות בתוך הקליפ</label>
-      <label class="cap-row"><input type="checkbox" id="clipHookToggle" checked />שורת הוק על המסך</label>
-    </div>
-    <label class="style-row">סגנון כתוביות <select id="clipCapStyle" class="cap-style-sel" aria-label="סגנון כתוביות"></select></label>
-    <button class="cta" id="renderClipsBtn">יצירת הקליפים</button>
-    <p class="stage" id="clipsStage" style="margin-top:10px"></p>
-    <div class="err" id="clipsErr"></div>
   </div>
 
   <div class="card" id="clipsOut" style="display:none">
-    <h2>4 · הקליפים שלכם</h2>
+    <h2>5 · הקליפים שלכם</h2>
     <div class="outs" id="outs"></div>
     <p class="hint">כל קליפ נשמר גם בהיסטוריה <a href="/">באפליקציה</a> - משם אפשר לתזמן פרסום.</p>
   </div>
 
   <div class="card story-card" id="storyCard" style="display:none">
-    <h2>3 · הסיפור, כפי שה-AI הבין אותו</h2>
+    <h2>4 · הסיפור, כפי שה-AI הבין אותו</h2>
     <p class="story-text" id="storyText"></p>
     <button class="copy-btn" id="copyStory" type="button">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
@@ -414,13 +468,11 @@
   </div>
 
   <div class="card board" id="board">
-    <h2>4 · הסטוריבורד המוצע</h2>
+    <h2>5 · הסטוריבורד המוצע</h2>
     <div class="board-title" id="boardTitle"></div>
     <div class="board-sub">אפשר להוריד רגעים, להחזיר אותם ולשנות סדר - הסרטון ירונדר לפי הסדר שכאן.</div>
     <div id="moments"></div>
     <div class="total" id="total"></div>
-    <label class="cap-row"><input type="checkbox" id="capToggle" checked />כתוביות מסונכרנות על הסרטון</label>
-    <label class="style-row">סגנון כתוביות <select id="capStyle" class="cap-style-sel" aria-label="סגנון כתוביות"></select></label>
     <button class="cta" id="renderBtn">יצירת הסרטון</button>
     <p class="stage" id="renderStage" style="margin-top:10px"></p>
     <p class="style-note" id="storyStyleNote" style="display:none"></p>
@@ -428,7 +480,7 @@
   </div>
 
   <div class="card" id="voCard" style="display:none">
-    <h2>5 · קריינות (רשות)</h2>
+    <h2>6 · קריינות (רשות)</h2>
     <p class="vo-hint">מקליטים קריינות על בסיס הסיפור מכרטיס 3, או מעלים קובץ שמע. הקול המקורי בסרטון יונמך אוטומטית מתחת לקריינות.</p>
     <div class="vo-actions">
       <button class="vo-btn" id="voRecordBtn" type="button">
@@ -449,7 +501,7 @@
   </div>
 
   <div class="card result" id="result">
-    <h2>6 · הסרטון שלכם</h2>
+    <h2>7 · הסרטון שלכם</h2>
     <video id="outVideo" controls playsinline></video>
     <p><a id="dlLink" href="#" download>הורדת הסרטון</a> · <a id="editLink" href="/" target="_blank" rel="noopener">עריכה בפייפליין</a> · הסרטון נשמר גם בהיסטוריה <a href="/">באפליקציה</a></p>
   </div>
@@ -542,6 +594,7 @@
     $('dropText').textContent = MODE_COPY[m].drop;
     $('hintText').textContent = MODE_COPY[m].hint;
     $('file').multiple = MODE_COPY[m].maxFiles > 1;
+    $('setupCard').dataset.mode = m;
   }
   $('modeStory').addEventListener('click', () => setMode('story'));
   $('modeClips').addEventListener('click', () => setMode('clips'));
@@ -574,6 +627,12 @@
     if (files.some((f) => f.size > lim.maxBytes)) { showErr($('err'), 'קובץ גדול מדי (עד ' + (lim.maxBytes / (1024 * 1024 * 1024)) + 'GB לקליפ)'); return; }
     ['brandCard', 'clipsCard', 'clipsOut', 'storyCard', 'board', 'voCard', 'result'].forEach((id) => { $(id).style.display = 'none'; });
     _probeDims(files[0]);   // aspect for the watermark stage (best effort)
+    // Choose the layout + options BEFORE processing (user 2026-09-24): the
+    // upload runs in the background meanwhile (it is not processing - and it
+    // is the slow part), the analysis waits for the "עיבוד" click.
+    uploaded = false; processRequested = false;
+    showSetup('pre');
+    layoutsFromFile(files[0]);
     clips = files.map((f) => ({ key: uuid(), name: f.name }));
     cands = []; moments = [];
     clearSession();
@@ -604,9 +663,15 @@
         }
       }
       busy.upload = false;
-      await analyze();
+      uploaded = true;
+      session.phase = 'uploaded';
+      saveSessionNow();
+      if (processRequested) await analyze();
+      else $('stage').textContent = 'ההעלאה הסתיימה - בחרו פורמט ואפשרויות ולחצו על "עיבוד".';
     } catch (e) {
       busy.upload = false;
+      processRequested = false;
+      showSetup('hidden');
       clearSession();
       if (e.message === 'auth') { $('authGate').style.display = ''; $('uploadCard').style.display = 'none'; return; }
       showErr($('err'), 'ההעלאה נכשלה - נסו שוב. (' + e.message + ')');
@@ -755,6 +820,40 @@
     await Promise.all([lane(), lane(), lane(), lane()]);
   }
 
+  // ── Setup card: layout + options, "עיבוד" before, "רענון הקליפים" after ──
+  let uploaded = false, processRequested = false;
+  function showSetup(state) {
+    const card = $('setupCard');
+    if (state === 'hidden') { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    card.dataset.mode = mode;
+    const post = state === 'post';
+    $('processBtn').style.display = post ? 'none' : '';
+    $('processBtn').disabled = post || processRequested;
+    $('processBtn').textContent = processRequested ? 'מעבדים...' : 'עיבוד';
+    // After processing, clips mode refreshes its clips here; story mode
+    // renders from its storyboard below.
+    $('renderClipsBtn').style.display = post && mode === 'clips' ? '' : 'none';
+    $('settingsNote').style.display = 'none';
+    if (post) updateCta();
+  }
+  $('processBtn').addEventListener('click', async () => {
+    if (processRequested) return;
+    processRequested = true;
+    showSetup('pre');
+    if (uploaded) { await analyze(); return; }
+    $('stage').innerHTML = '<span class="spinner"></span>ממשיכים להעלות - העיבוד יתחיל מיד כשההעלאה תסתיים...';
+  });
+  // A setting changed after clips exist: say that a refresh applies it.
+  function markSettingsChanged() {
+    if ($('renderClipsBtn').style.display === 'none') return;
+    if (!cands.some((c) => c.render)) return;
+    $('settingsNote').style.display = 'block';
+  }
+  ['clipCapToggle', 'clipTightenToggle', 'clipHookToggle', 'capToggle'].forEach((id) =>
+    $(id).addEventListener('change', () => { _saveBrand(); markSettingsChanged(); }));
+  $('clipCapStyle').addEventListener('change', markSettingsChanged);
+
   // ── Analyze: transcribe + pick golden moments ──
   async function analyze() {
     $('stage').innerHTML = '<span class="spinner"></span>' + (mode === 'clips'
@@ -796,6 +895,8 @@
     busy.analyze = false;
     if (!result || result.error) {
       clearSession();
+      processRequested = false;
+      showSetup('hidden');
       const msgs = { too_short: 'הסרטון קצר מדי לסיפור (מתחת ל-20 שניות).',
                      too_long: mode === 'clips' ? 'ההקלטה ארוכה מדי (עד 90 דקות).' : 'יותר מדי חומר גלם (עד 40 דקות בסך הכל).',
                      no_speech: 'לא זוהה מספיק דיבור בסרטונים.',
@@ -809,8 +910,13 @@
     }
     $('stage').textContent = '';
     session.phase = 'ready'; session.analyzeCall = ''; session.result = result;
-    if (result.mode === 'clips' || mode === 'clips') renderCands(result); else renderBoard(result);
+    const clipsResult = result.mode === 'clips' || mode === 'clips';
+    if (clipsResult) renderCands(result); else renderBoard(result);
+    showSetup('post');
     saveSessionNow();
+    // Processing = analysis + the clips: every suggested (picked) clip is
+    // rendered right away with the layout / options chosen before the click.
+    if (clipsResult) renderClips();
   }
 
   // ── Branding: intro / outro clips, fades, draggable watermark ──
@@ -820,7 +926,7 @@
   // width as fractions of the frame) - the stage below is just a scaled
   // preview of the output canvas, so drag positions survive any resolution.
   const BRAND_LS = 'hebpipe_asm_brand';
-  const brand = { intro: null, outro: null, wmFile: null, wmDataUrl: '', wm: { x: 0.03, y: 0.03, w: 0.18, opacity: 0.85 }, keys: new Map(), reframe: '' };
+  const brand = { intro: null, outro: null, wmFile: null, wmDataUrl: '', wm: { x: 0.03, y: 0.03, w: 0.18, opacity: 0.85 }, keys: new Map(), reframe: '9:16', reframeChosen: false };
   let srcDims = null;   // {w, h} of the first uploaded source
   function _probeDims(file) {
     srcDims = null;
@@ -842,14 +948,84 @@
     brand.reframe = (v === '9:16' || v === 'fit') ? v : '';
     [['frameOrig', ''], ['frameFit', 'fit'], ['frameVert', '9:16']].forEach(([id, val]) => {
       $(id).classList.toggle('on', brand.reframe === val);
-      $(id).setAttribute('aria-selected', String(brand.reframe === val));
+      $(id).setAttribute('aria-checked', String(brand.reframe === val));
     });
     _applyStageAspect();
     _applyPreviewFormat();
   }
-  $('frameOrig').addEventListener('click', () => { setFrame(''); _saveBrand(); });
-  $('frameFit').addEventListener('click', () => { setFrame('fit'); _saveBrand(); });
-  $('frameVert').addEventListener('click', () => { setFrame('9:16'); _saveBrand(); });
+  const pickFrame = (v) => { setFrame(v); brand.reframeChosen = true; _saveBrand(); markSettingsChanged(); };
+  $('frameOrig').addEventListener('click', () => pickFrame(''));
+  $('frameFit').addEventListener('click', () => pickFrame('fit'));
+  $('frameVert').addEventListener('click', () => pickFrame('9:16'));
+
+  // ── Layout previews: each choice drawn on a frame of the user's OWN video
+  // (a thumbnail after analysis / restore), a schematic when neither decodes.
+  function _drawLayouts(src) {
+    const cvs = { vert: $('pvVert'), fit: $('pvFit'), orig: $('pvOrig') };
+    Object.values(cvs).forEach((c) => {
+      const g = c.getContext('2d');
+      g.fillStyle = '#2a2723'; g.fillRect(0, 0, c.width, c.height);
+    });
+    if (!src) { _drawLayoutSchematics(cvs); return; }
+    const sw = src.videoWidth || src.naturalWidth || src.width, sh = src.videoHeight || src.naturalHeight || src.height;
+    if (!sw || !sh) { _drawLayoutSchematics(cvs); return; }
+    const W = cvs.vert.width, H = cvs.vert.height;
+    try {
+      // Smart vertical: a 9:16 window out of the frame (the render tracks
+      // the speaker - the preview shows the center).
+      const cropW = Math.min(sw, sh * W / H), cropH = cropW * H / W;
+      cvs.vert.getContext('2d').drawImage(src, (sw - cropW) / 2, (sh - cropH) / 2, cropW, cropH, 0, 0, W, H);
+      // Full frame: fitted to the width over a blurred, zoomed copy.
+      const gf = cvs.fit.getContext('2d');
+      gf.filter = 'blur(6px) brightness(0.8)';
+      const cover = Math.max(W / sw, H / sh);
+      gf.drawImage(src, (W - sw * cover) / 2, (H - sh * cover) / 2, sw * cover, sh * cover);
+      gf.filter = 'none';
+      const fh = sh * W / sw;
+      gf.drawImage(src, 0, (H - fh) / 2, W, fh);
+      // As source: the whole frame, letterboxed in the same tile.
+      const go = cvs.orig.getContext('2d');
+      const k = Math.min(W / sw, H / sh);
+      go.drawImage(src, (W - sw * k) / 2, (H - sh * k) / 2, sw * k, sh * k);
+    } catch (_) { _drawLayoutSchematics(cvs); }
+  }
+  function _drawLayoutSchematics(cvs) {
+    const W = cvs.vert.width, H = cvs.vert.height;
+    const person = (g, x, y, r) => {
+      g.fillStyle = '#E6DCCB';
+      g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.ellipse(x, y + r * 2.6, r * 1.7, r * 1.4, 0, Math.PI, 0); g.fill();
+    };
+    const gv = cvs.vert.getContext('2d');
+    gv.fillStyle = '#7E8E6A'; gv.fillRect(0, 0, W, H / 2 - 1); gv.fillStyle = '#6E7F5C'; gv.fillRect(0, H / 2 + 1, W, H / 2);
+    person(gv, W / 2, H * 0.2, W * 0.12); person(gv, W / 2, H * 0.7, W * 0.12);
+    const gf = cvs.fit.getContext('2d');
+    gf.fillStyle = '#55563F'; gf.fillRect(0, 0, W, H);
+    gf.fillStyle = '#7E8E6A'; gf.fillRect(0, H / 2 - W * 0.28, W, W * 0.56);
+    person(gf, W * 0.32, H / 2 - W * 0.12, W * 0.06); person(gf, W * 0.68, H / 2 - W * 0.12, W * 0.06);
+    const go = cvs.orig.getContext('2d');
+    go.fillStyle = '#7E8E6A'; go.fillRect(0, H / 2 - W * 0.28, W, W * 0.56);
+    person(go, W * 0.32, H / 2 - W * 0.12, W * 0.06); person(go, W * 0.68, H / 2 - W * 0.12, W * 0.06);
+  }
+  function layoutsFromFile(file) {
+    if (!file || !/^video\//.test(file.type || '')) { _drawLayouts(null); return; }
+    try {
+      const v = document.createElement('video');
+      const url = URL.createObjectURL(file);
+      v.muted = true; v.preload = 'auto'; v.playsInline = true;
+      const done = () => { URL.revokeObjectURL(url); };
+      v.onloadedmetadata = () => { try { v.currentTime = Math.min(5, (v.duration || 10) * 0.2); } catch (_) { _drawLayouts(null); done(); } };
+      v.onseeked = () => { _drawLayouts(v); done(); };
+      v.onerror = () => { _drawLayouts(null); done(); };
+      v.src = url;
+    } catch (_) { _drawLayouts(null); }
+  }
+  function layoutsFromThumb(b64) {
+    if (!b64) return;
+    const img = new Image();
+    img.onload = () => _drawLayouts(img);
+    img.src = 'data:image/jpeg;base64,' + b64;
+  }
   function _applyStageAspect() {
     const st = $('wmStage');
     const srcLandscape = srcDims && srcDims.w > srcDims.h;
@@ -871,8 +1047,15 @@
       if (saved.wmDataUrl) { brand.wmDataUrl = saved.wmDataUrl; brand.wmName = saved.wmName || 'logo'; }
       if (saved.fadeOn) $('fadeToggle').checked = true;
       if (saved.fadeDur) $('fadeDur').value = String(saved.fadeDur);
-      if (saved.reframe === '9:16' || saved.reframe === 'fit') setFrame(saved.reframe);
+      // Default layout = smart vertical (user 2026-09-24); an explicit pick
+      // (reframeChosen) is remembered, "as source" included.
+      // (recorded only - the tiles sync once at the end of the script,
+      // when everything setFrame touches is initialized)
+      if (saved.reframeChosen) { brand.reframe = (saved.reframe === '9:16' || saved.reframe === 'fit') ? saved.reframe : ''; brand.reframeChosen = true; }
       if (typeof saved.capStyle === 'string') capStyle.choice = saved.capStyle;
+      const t = saved.toggles || {};
+      [['clipCapToggle', t.cap], ['clipTightenToggle', t.tighten], ['clipHookToggle', t.hook], ['capToggle', t.storyCap]]
+        .forEach(([id, v]) => { if (typeof v === 'boolean') $(id).checked = v; });
     } catch (_) {}
   }
   function _saveBrand() {
@@ -880,8 +1063,10 @@
       localStorage.setItem(BRAND_LS, JSON.stringify({
         wm: brand.wm, wmDataUrl: brand.wmDataUrl.length < 400000 ? brand.wmDataUrl : '', wmName: brand.wmName || '',
         fadeOn: $('fadeToggle').checked, fadeDur: parseFloat($('fadeDur').value),
-        reframe: brand.reframe || '',
+        reframe: brand.reframe || '', reframeChosen: !!brand.reframeChosen,
         capStyle: capStyle.choice || 'default',
+        toggles: { cap: $('clipCapToggle').checked, tighten: $('clipTightenToggle').checked,
+                   hook: $('clipHookToggle').checked, storyCap: $('capToggle').checked },
       }));
     } catch (_) {}
   }
@@ -1153,6 +1338,7 @@
     $('clipsIssues').style.display = unscored ? 'block' : 'none';
     $('clipsIssues').textContent = unscored ? (unscored + ' קליפים לא קיבלו ציון בסבב הזה (החיתוך שלהם תקין). אפשר להריץ שוב לניתוח מלא.') : '';
     showBrand((cands[0] && cands[0].thumb) || '');
+    layoutsFromThumb(cands[0] && cands[0].thumb);
     $('clipsCard').style.display = 'block';
     drawCands();
     $('clipsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1165,11 +1351,14 @@
       row.className = 'cand' + (c.pick ? '' : ' off');
       const side = document.createElement('div');
       side.className = 'c-side';
-      const sc = document.createElement('div');
+      const sc = document.createElement('button');
+      sc.type = 'button';
       const scored = typeof c.score === 'number';
       sc.className = 'score ' + (scored ? scoreTier(c.score) : 'none');
-      sc.title = scored ? 'הערכת ויראליות (1-99)' : 'לא דורג בסבב הזה';
+      sc.title = (scored ? 'הערכת ויראליות (1-99)' : 'לא דורג בסבב הזה') + ' - לחצו להסבר איך לשפר';
+      sc.setAttribute('aria-expanded', 'false');
       sc.innerHTML = (scored ? String(c.score) : '-') + '<small>ויראליות</small>';
+      sc.onclick = (e) => { e.stopPropagation(); toggleViralCard(c, row, sc); };
       const pick = document.createElement('label');
       pick.className = 'c-pick';
       const cb = document.createElement('input');
@@ -1270,10 +1459,63 @@
     });
     updateCta();
   }
+  // ── Viral score explainer (user 2026-09-24: "clicking the score opens a
+  // small dismissable card explaining how to improve virality") ──
+  // Grounded in the real scoring (_virality_score in assembler_fns): 50% the
+  // model's holistic call + 50% the weighted rubric (hook .30, retention .25,
+  // emotion / clarity / shareability .15 each) with a duration prior.
+  const RUBRIC_ADVICE = {
+    hook: 'פתחו במשפט הכי חזק בקליפ: שאלה, מספר או טענה מפתיעה בשלוש השניות הראשונות. אפשר לקצר את ההתחלה עם "לפני −".',
+    retention: 'קליפ מהודק מחזיק יותר: חתכו הקדמות והסברים צדדיים, והשאירו את "חיתוך שתיקות" פעיל.',
+    emotion: 'רגע אישי, הומור או הפתעה מגדילים צפייה ושיתוף. אם יש סיפור קרוב, הרחיבו אליו עם "אחרי +".',
+    clarity: 'הקליפ צריך לעמוד בפני עצמו: ודאו שמבינים על מה מדובר בלי הקשר, ושהכתוביות פעילות.',
+    shareability: 'סיימו במשפט שכדאי לשלוח לחבר: תובנה, טיפ או משפט מחץ. שורת הוק ברורה על המסך עוזרת.',
+  };
+  function closeViralCards() {
+    document.querySelectorAll('.viral-card').forEach((el) => el.remove());
+    document.querySelectorAll('.score[aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+  }
+  function toggleViralCard(c, row, btn) {
+    const open = row.querySelector('.viral-card');
+    closeViralCards();
+    if (open) return;
+    const v = c.virality || {};
+    const card = document.createElement('div');
+    card.className = 'viral-card';
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-label', 'איך לשפר את הוויראליות');
+    card.onclick = (e) => e.stopPropagation();
+    const close = document.createElement('button');
+    close.type = 'button'; close.className = 'v-close'; close.textContent = '×'; close.setAttribute('aria-label', 'סגירה');
+    close.onclick = closeViralCards;
+    const h = document.createElement('h4');
+    h.textContent = typeof c.score === 'number' ? ('איך לשפר את הציון (' + c.score + ')') : 'איך לשפר את הוויראליות';
+    const ul = document.createElement('ul');
+    const add = (txt) => { const li = document.createElement('li'); li.textContent = txt; ul.appendChild(li); };
+    // The two weakest rubric dimensions of THIS clip first.
+    const dims = RUBRIC.filter(([k]) => typeof v[k] === 'number').sort((a, b) => v[a[0]] - v[b[0]]).slice(0, 2);
+    dims.forEach(([k, label]) => add(label + ' (' + v[k] + '/10): ' + RUBRIC_ADVICE[k]));
+    if (!dims.length) ['hook', 'retention', 'shareability'].forEach((k) => add(RUBRIC_ADVICE[k]));
+    if (v.tip) add('הטיפ לקליפ הזה: ' + v.tip);
+    const len = (c.end || 0) - (c.start || 0);
+    if (len > 60) add('הקליפ ' + Math.round(len) + ' שניות - מעל 60 שניות הציון יורד. נסו לקצר עם "אחרי −".');
+    else if (len > 0 && len < 12) add('הקליפ ' + Math.round(len) + ' שניות - קצר מדי. הרחיבו מעט עם "לפני +" או "אחרי +".');
+    const how = document.createElement('p');
+    how.className = 'v-how';
+    how.textContent = 'איך מחושב: חצי הערכה כוללת של המודל, חצי מדדים משוקללים (הוק 30%, החזקה 25%, רגש, בהירות ושיתוף 15% כל אחד), ועונש קל לקליפ ארוך מ-60 או קצר מ-12 שניות. הערכה עריכתית, לא נבואה.';
+    card.append(close, h, ul, how);
+    row.appendChild(card);
+    btn.setAttribute('aria-expanded', 'true');
+  }
+  document.addEventListener('click', closeViralCards);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeViralCards(); });
+
   function updateCta() {
     const n = cands.filter((c) => c.pick).length;
-    $('renderClipsBtn').textContent = n ? ('יצירת ' + n + ' קליפים') : 'בחרו לפחות קליפ אחד';
-    $('renderClipsBtn').disabled = n === 0;
+    const made = cands.some((c) => c.render);
+    $('renderClipsBtn').textContent = !n ? 'בחרו לפחות קליפ אחד'
+      : (made ? 'רענון הקליפים (' + n + ')' : 'יצירת ' + n + ' קליפים');
+    $('renderClipsBtn').disabled = n === 0 || busy.renders > 0;
   }
 
   // ── In-place preview: stream the SOURCE from /media (range-capable) and
@@ -1538,8 +1780,10 @@
     }
   }
 
-  $('renderClipsBtn').addEventListener('click', async () => {
+  $('renderClipsBtn').addEventListener('click', () => renderClips());
+  async function renderClips() {
     $('clipsErr').style.display = 'none';
+    $('settingsNote').style.display = 'none';
     const picked = cands.filter((c) => c.pick);
     if (!picked.length) return;
     $('renderClipsBtn').disabled = true;
@@ -1605,7 +1849,8 @@
     busy.renders--;
     $('clipsStage').textContent = failed ? (done - failed) + ' קליפים מוכנים, ' + failed + ' נכשלו - אפשר לנסות שוב.' : 'כל ' + done + ' הקליפים מוכנים.';
     $('renderClipsBtn').disabled = false;
-  });
+    updateCta();
+  }
 
   // maxTicks x 3s = how long we wait. Renders are quick (default 10 min);
   // a clips-mode analysis of a 60-90 min recording legitimately runs
@@ -1641,6 +1886,7 @@
       $('storyCard').style.display = 'block';
     }
     showBrand((moments[0] && moments[0].thumb) || '');
+    layoutsFromThumb(moments[0] && moments[0].thumb);
     $('board').style.display = 'block';
     $('voCard').style.display = 'block';
     drawMoments();
@@ -1865,7 +2111,19 @@
       showErr($('err'), 'הרענון קטע את ההעלאה - בחרו את הקובץ שוב.');
       return;
     }
+    if (saved.phase === 'uploaded') {
+      // Upload landed, "עיבוד" not pressed yet: back to the choice.
+      session.phase = 'uploaded';
+      uploaded = true;
+      showSetup('pre');
+      _drawLayouts(null);
+      $('stage').textContent = 'ההעלאה הסתיימה - בחרו פורמט ואפשרויות ולחצו על "עיבוד".';
+      return;
+    }
     if (saved.phase === 'analyzing' && saved.analyzeCall) {
+      uploaded = true; processRequested = true;
+      showSetup('pre');
+      _drawLayouts(null);
       session.phase = 'analyzing';
       session.analyzeCall = saved.analyzeCall;
       session.analyzeStart = saved.analyzeStart || Date.now();
@@ -1873,6 +2131,7 @@
       return;
     }
     if (saved.phase !== 'ready' || !saved.result) { clearSession(); return; }
+    uploaded = true; processRequested = true;
     session.phase = 'ready';
     session.result = saved.result;
     if (saved.mode === 'clips') {
@@ -1900,6 +2159,7 @@
           else fillTileFail(tile, c.render.err || '');
         });
       }
+      showSetup('post');
     } else {
       renderBoard(saved.result);
       const byId = new Map(moments.map((m) => [m.id, m]));
@@ -1918,9 +2178,11 @@
       } else if (sr && sr.status === 'pending') {
         awaitStoryRender(sr.call).catch((e) => showErr($('renderErr'), 'הרינדור נכשל - נסו שוב. (' + e.message + ')'));
       }
+      showSetup('post');
     }
     saveSessionNow();
   }
+  setFrame(brand.reframe);   // sync the layout tiles / stage / preview once everything exists
   restoreSession();
 </script>
 </body>

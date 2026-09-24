@@ -79,6 +79,7 @@ test('clips flow: upload -> scored candidates -> curate -> batch render', async 
   await page.locator('#modeClips').click();
   await page.locator('#guidance').fill('  רק קטעים על   גיוס כספים ');
   await page.setInputFiles('#file', { name: 'podcast.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(2 * 1024 * 1024) });
+  await page.locator('#processBtn').click();   // analysis waits for the explicit click (2026-09-24)
   await expect.poll(() => analyzePosts.length).toBe(1);
   expect(analyzePosts[0].mode).toBe('clips');
   expect(analyzePosts[0].guidance).toBe('רק קטעים על   גיוס כספים');   // trimmed; server collapses inner spaces
@@ -136,19 +137,24 @@ test('clips flow: upload -> scored candidates -> curate -> batch render', async 
   // Hook input prefilled from the model, editable.
   await expect(rows.nth(0).locator('.hook-input')).toHaveValue('הטעות שעלתה לי מיליון שקל');
   await rows.nth(0).locator('.hook-input').fill('המיליון שאיבדתי בגלל סעיף אחד');
-  await expect(page.locator('#renderClipsBtn')).toHaveText('יצירת 4 קליפים');
+  // Processing already rendered every suggested clip (2026-09-24) - the
+  // button now refreshes them with the current edits / options.
+  await expect.poll(() => renderPosts.length).toBe(4);
+  await page.clock.fastForward(3100);
+  await expect(page.locator('#renderClipsBtn')).toHaveText('רענון הקליפים (4)');
 
   // Unpick the third and fourth clips.
   await rows.nth(2).locator('.pick-box').uncheck();
   await rows.nth(3).locator('.pick-box').uncheck();
   await expect(rows.nth(2)).toHaveClass(/off/);
-  await expect(page.locator('#renderClipsBtn')).toHaveText('יצירת 2 קליפים');
+  await expect(page.locator('#renderClipsBtn')).toHaveText('רענון הקליפים (2)');
 
-  // Batch render: one POST per picked clip.
+  // Refresh: one POST per picked clip, with the edits and the options.
   await page.locator('#clipTightenToggle').uncheck();
+  await expect(page.locator('#settingsNote')).toBeVisible();
   await page.locator('#renderClipsBtn').click();
-  await expect.poll(() => renderPosts.length).toBe(2);
-  const byTitle = Object.fromEntries(renderPosts.map(p => [p.filename, p]));
+  await expect.poll(() => renderPosts.length).toBe(6);
+  const byTitle = Object.fromEntries(renderPosts.slice(4).map(p => [p.filename, p]));
   const p1 = byTitle['הטעות שעלתה לי מיליון.mp4'], p2 = byTitle['למה משקיעים אומרים לא.mp4'];
   expect(p1).toBeTruthy(); expect(p2).toBeTruthy();
   expect(p1.segments).toEqual([[0, 610.3, 653.9]]);   // the stepper-adjusted window
@@ -178,10 +184,12 @@ test('hook toggle off sends an empty hook_text', async ({ page }) => {
   await boot(page, { renderPosts });
   await page.locator('#modeClips').click();
   await page.setInputFiles('#file', { name: 'podcast.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(1024 * 1024) });
-  await expect(page.locator('#clipsCard')).toBeVisible({ timeout: 10000 });
+  // Options are available BEFORE processing (2026-09-24).
+  await expect(page.locator('#setupCard')).toBeVisible();
   await page.locator('#clipHookToggle').uncheck();
-  await page.locator('#renderClipsBtn').click();
-  await expect.poll(() => renderPosts.length).toBe(4);
+  await page.locator('#processBtn').click();
+  await expect(page.locator('#clipsCard')).toBeVisible({ timeout: 10000 });
+  await expect.poll(() => renderPosts.length).toBe(4);   // the automatic batch carries it
   expect(renderPosts.every(p => p.hook_text === '')).toBe(true);
   expect(renderPosts.every(p => p.tighten === true)).toBe(true);
 });
@@ -194,6 +202,7 @@ test('clips analysis keeps polling well past the old 10-minute cap and shows ela
     r.fulfill({ status: 202, contentType: 'application/json', body: '{"status":"running"}' }));
   await page.locator('#modeClips').click();
   await page.setInputFiles('#file', { name: 'podcast.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(1024 * 1024) });
+  await page.locator('#processBtn').click();   // analysis waits for the explicit click (2026-09-24)
   await expect.poll(() => analyzePosts.length).toBe(1);
   // Drive the clock until 250 ticks (12.5 min) have been counted - past the
   // old 200-tick cap. Each tick's poll fetch is async, so advance one tick
@@ -243,6 +252,7 @@ test('R2 direct upload: parts PUT to presigned URLs, complete, then analyze', as
 
   await page.locator('#modeClips').click();
   await page.setInputFiles('#file', { name: 'podcast.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(2 * 1024 * 1024) });
+  await page.locator('#processBtn').click();   // analysis waits for the explicit click (2026-09-24)
   await expect.poll(() => analyzePosts.length).toBe(1);
   expect(puts).toHaveLength(2);
   expect(puts.map(p => p.len).sort()).toEqual([1024 * 1024, 1024 * 1024]);
@@ -269,6 +279,7 @@ test('R2 part without a readable ETag falls back to the chunk path with the same
   });
   await page.locator('#modeClips').click();
   await page.setInputFiles('#file', { name: 'podcast.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(1024 * 1024) });
+  await page.locator('#processBtn').click();   // analysis waits for the explicit click (2026-09-24)
   await expect.poll(() => analyzePosts.length).toBe(1);
   expect(chunkKeys.length).toBeGreaterThan(0);
   expect(new Set(chunkKeys)).toEqual(new Set([analyzePosts[0].upload_keys[0]]));

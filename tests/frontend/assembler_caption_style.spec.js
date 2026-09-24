@@ -56,9 +56,15 @@ async function boot(page, { renderPosts = [], profiles = PROFILES, saved = null,
   await page.goto('/assembler.html');
 }
 
-async function toClips(page) {
+// The style is chosen BEFORE "עיבוד" (setup card, 2026-09-24): `before`
+// runs once the file is picked; processing then renders every suggested
+// clip with it automatically.
+async function toClips(page, before = null) {
   await page.locator('#modeClips').click();
   await page.setInputFiles('#file', { name: 'podcast.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(1024 * 1024) });
+  await expect(page.locator('#setupCard')).toBeVisible();
+  if (before) await before();
+  await page.locator('#processBtn').click();
   await page.clock.fastForward(3100);
   await expect(page.locator('.cand')).toHaveCount(1);
 }
@@ -79,13 +85,13 @@ test('options: saved profiles, then presets, then default (default selected)', a
 test('a saved profile rides the render: style minus editor effects + hook design', async ({ page }) => {
   const renderPosts = [];
   await boot(page, { renderPosts });
-  await toClips(page);
-  await page.locator('#clipCapStyle').selectOption('profile:יוגאלינה');
-  // Both modes' selects stay in step, and the pick is persisted with the brand settings.
-  await expect(page.locator('#capStyle')).toHaveValue('profile:יוגאלינה');
-  expect((await brandSaved(page)).capStyle).toBe('profile:יוגאלינה');
-  await page.locator('#renderClipsBtn').click();
-  await expect.poll(() => renderPosts.length).toBe(1);
+  await toClips(page, async () => {
+    await page.locator('#clipCapStyle').selectOption('profile:יוגאלינה');
+    // Both modes' selects stay in step, and the pick is persisted with the brand settings.
+    await expect(page.locator('#capStyle')).toHaveValue('profile:יוגאלינה');
+    expect((await brandSaved(page)).capStyle).toBe('profile:יוגאלינה');
+  });
+  await expect.poll(() => renderPosts.length).toBe(1);   // the automatic render carries it
   const p = renderPosts[0];
   expect(p.font).toBe('Rubik');
   expect(p.font_size).toBe(56);
@@ -99,9 +105,7 @@ test('a saved profile rides the render: style minus editor effects + hook design
 test('a preset sends only its font + style; default sends nothing', async ({ page }) => {
   const renderPosts = [];
   await boot(page, { renderPosts });
-  await toClips(page);
-  await page.locator('#clipCapStyle').selectOption('preset:karaoke');
-  await page.locator('#renderClipsBtn').click();
+  await toClips(page, () => page.locator('#clipCapStyle').selectOption('preset:karaoke'));
   await expect.poll(() => renderPosts.length).toBe(1);
   expect(renderPosts[0].font).toBe('Heebo');
   expect(renderPosts[0].caption_style.mode).toBe('karaoke');
@@ -109,7 +113,8 @@ test('a preset sends only its font + style; default sends nothing', async ({ pag
   expect(renderPosts[0].hook_style).toBeUndefined();
   await page.clock.fastForward(3100);
   await page.locator('#clipCapStyle').selectOption('default');
-  await page.locator('#renderClipsBtn').click();
+  await expect(page.locator('#settingsNote')).toBeVisible();
+  await page.locator('#renderClipsBtn').click();   // "רענון הקליפים" applies the change
   await expect.poll(() => renderPosts.length).toBe(2);
   for (const k of ['font', 'font_size', 'margin_v', 'caption_style', 'hook_style']) expect(renderPosts[1][k]).toBeUndefined();
 });
@@ -117,11 +122,11 @@ test('a preset sends only its font + style; default sends nothing', async ({ pag
 test('captions off disables the picker and sends no style', async ({ page }) => {
   const renderPosts = [];
   await boot(page, { renderPosts, saved: { capStyle: 'preset:viral' } });
-  await toClips(page);
-  await expect(page.locator('#clipCapStyle')).toHaveValue('preset:viral');   // restored from the brand settings
-  await page.locator('#clipCapToggle').uncheck();
-  await expect(page.locator('#clipCapStyle')).toBeDisabled();
-  await page.locator('#renderClipsBtn').click();
+  await toClips(page, async () => {
+    await expect(page.locator('#clipCapStyle')).toHaveValue('preset:viral');   // restored from the brand settings
+    await page.locator('#clipCapToggle').uncheck();
+    await expect(page.locator('#clipCapStyle')).toBeDisabled();
+  });
   await expect.poll(() => renderPosts.length).toBe(1);
   expect(renderPosts[0].captions).toBe(false);
   expect(renderPosts[0].caption_style).toBeUndefined();
@@ -133,16 +138,13 @@ test('a saved profile that was deleted falls back to the default quietly', async
   await expect(page.locator('#clipCapStyle')).toHaveValue('default');
   await expect.poll(async () => (await brandSaved(page)).capStyle).toBe('default');
   await toClips(page);
-  await page.locator('#renderClipsBtn').click();
   await expect.poll(() => renderPosts.length).toBe(1);
   expect(renderPosts[0].caption_style).toBeUndefined();
 });
 
 test('server style warnings show as a soft note on the tile', async ({ page }) => {
   await boot(page, { warnings: [{ field: 'caption_style.font_color', value: 'red', fallback: '#FFFFFF' }] });
-  await toClips(page);
-  await page.locator('#clipCapStyle').selectOption('profile:נקי ופשוט');
-  await page.locator('#renderClipsBtn').click();
+  await toClips(page, () => page.locator('#clipCapStyle').selectOption('profile:נקי ופשוט'));
   await page.clock.fastForward(3100);
   await expect(page.locator('.out .style-note')).toContainText('caption_style.font_color');
 });
@@ -151,6 +153,7 @@ test('story mode renders with the same pick', async ({ page }) => {
   const renderPosts = [];
   await boot(page, { renderPosts, mode: 'story', saved: { capStyle: 'preset:news' } });
   await page.setInputFiles('#file', { name: 'a.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(1024 * 1024) });
+  await page.locator('#processBtn').click();   // analysis waits for the explicit click (2026-09-24)
   await page.clock.fastForward(3100);
   await expect(page.locator('.moment')).toHaveCount(3);
   await expect(page.locator('#capStyle')).toHaveValue('preset:news');

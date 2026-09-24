@@ -37,9 +37,15 @@ async function boot(page, { renderPosts = [], chunkKeys = [] } = {}) {
   await page.goto('/assembler.html');
   await page.locator('#modeClips').click();
   await page.setInputFiles('#file', { name: 'p.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(1024 * 1024) });
+  await page.locator('#processBtn').click();   // analysis waits for the explicit click (2026-09-24)
   await page.clock.fastForward(3100);
   await expect(page.locator('#clipsCard')).toBeVisible();
   await expect(page.locator('#brandCard')).toBeVisible();
+  // Processing renders every suggested clip right away (2026-09-24); let that
+  // first batch land before a test changes branding and refreshes.
+  await expect.poll(() => renderPosts.length).toBe(2);
+  await page.clock.fastForward(3100);
+  await expect(page.locator('#renderClipsBtn')).toBeEnabled();
 }
 
 test('intro + outro + fade + dragged watermark ride every clip render; assets upload once', async ({ page }) => {
@@ -88,10 +94,12 @@ test('intro + outro + fade + dragged watermark ride every clip render; assets up
   expect(clamped.x + clamped.width).toBeLessThanOrEqual(stage.x + stage.width + 1);
   expect(clamped.y + clamped.height).toBeLessThanOrEqual(stage.y + stage.height + 1);
 
-  // Render both clips.
+  // The automatic first batch ran before any branding existed...
+  expect(renderPosts.slice(0, 2).every((q) => !q.intro_key && !q.wm_key)).toBe(true);
+  // ...the refresh carries it on both clips.
   await page.locator('#renderClipsBtn').click();
-  await expect.poll(() => renderPosts.length).toBe(2);
-  const p = renderPosts[0];
+  await expect.poll(() => renderPosts.length).toBe(4);
+  const p = renderPosts[2];
   expect(p.intro_key).toMatch(/^[0-9a-f]{32}$/);
   expect(p.outro_key).toMatch(/^[0-9a-f]{32}$/);
   expect(p.wm_key).toMatch(/^[0-9a-f]{32}$/);
@@ -103,8 +111,8 @@ test('intro + outro + fade + dragged watermark ride every clip render; assets up
   expect(p.wm.x).toBeCloseTo(0.70, 1);
   expect(p.wm.y).toBeGreaterThan(0.5);
   // Same asset keys on the second clip - uploaded once, not per clip.
-  expect(renderPosts[1].intro_key).toBe(p.intro_key);
-  expect(renderPosts[1].wm_key).toBe(p.wm_key);
+  expect(renderPosts[3].intro_key).toBe(p.intro_key);
+  expect(renderPosts[3].wm_key).toBe(p.wm_key);
   const brandKeys = chunkKeys.filter(k => !sourceKeys.has(k));
   expect(new Set(brandKeys).size).toBe(3);
 
@@ -112,6 +120,7 @@ test('intro + outro + fade + dragged watermark ride every clip render; assets up
   await page.reload();
   await page.locator('#modeClips').click();
   await page.setInputFiles('#file', { name: 'p.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(1024 * 1024) });
+  await page.locator('#processBtn').click();   // analysis waits for the explicit click (2026-09-24)
   await page.clock.fastForward(3100);
   await expect(page.locator('#brandCard')).toBeVisible();
   await expect(page.locator('#wmStage')).toBeVisible();
@@ -123,9 +132,8 @@ test('intro + outro + fade + dragged watermark ride every clip render; assets up
 
 test('no branding -> the render payload carries none of the branding fields', async ({ page }) => {
   const renderPosts = [];
-  await boot(page, { renderPosts });
-  await page.locator('#renderClipsBtn').click();
-  await expect.poll(() => renderPosts.length).toBe(2);
+  await boot(page, { renderPosts });   // the automatic first batch
+  expect(renderPosts).toHaveLength(2);
   for (const p of renderPosts) {
     expect(p.intro_key).toBeUndefined();
     expect(p.outro_key).toBeUndefined();
@@ -143,51 +151,58 @@ test('removing the watermark drops it from the payload; fade alone still rides',
   await expect(page.locator('#wmStage')).toBeHidden();
   await page.locator('#fadeToggle').check();
   await page.locator('#renderClipsBtn').click();
-  await expect.poll(() => renderPosts.length).toBe(2);
-  expect(renderPosts[0].wm_key).toBeUndefined();
-  expect(renderPosts[0].fade).toBe(0.5);
+  await expect.poll(() => renderPosts.length).toBe(4);
+  expect(renderPosts[2].wm_key).toBeUndefined();
+  expect(renderPosts[2].fade).toBe(0.5);
 });
 
-test('output format 9:16 rides the payload, is remembered, and the watermark stage goes vertical', async ({ page }) => {
+test('layout: smart vertical by default, a refresh applies a new pick, the pick is remembered', async ({ page }) => {
   const renderPosts = [];
   await boot(page, { renderPosts });
-  await expect(page.locator('#frameOrig')).toHaveClass(/on/);
-  // Three-way: as source / full frame ("fit") / tracked crop ("9:16").
+  // Default (user 2026-09-24): smart vertical - the automatic batch used it.
+  await expect(page.locator('#frameVert')).toHaveClass(/on/);
+  await expect(page.locator('#frameVert')).toHaveAttribute('aria-checked', 'true');
+  expect(renderPosts.slice(0, 2).every((p) => p.reframe === '9:16')).toBe(true);
+  // Three-way: smart ("9:16") / full frame ("fit") / as source.
   await page.locator('#frameFit').click();
   await expect(page.locator('#frameFit')).toHaveClass(/on/);
-  await page.locator('#frameVert').click();
-  await expect(page.locator('#frameVert')).toHaveClass(/on/);
-  await expect(page.locator('#frameFit')).not.toHaveClass(/on/);
+  await expect(page.locator('#frameVert')).not.toHaveClass(/on/);
+  await expect(page.locator('#settingsNote')).toBeVisible();          // clips exist: a refresh applies it
   await page.setInputFiles('#wmFile', { name: 'logo.png', mimeType: 'image/png', buffer: PNG });
   await expect(page.locator('#wmStage')).toBeVisible();
-  // No source dims are known in the stubbed flow (1MB zero buffer): the
-  // stage keeps its default portrait aspect either way; the payload is the contract.
   await page.locator('#renderClipsBtn').click();
-  await expect.poll(() => renderPosts.length).toBe(2);
-  expect(renderPosts.every(p => p.reframe === '9:16')).toBe(true);
+  await expect(page.locator('#settingsNote')).toBeHidden();
+  await expect.poll(() => renderPosts.length).toBe(4);
+  expect(renderPosts.slice(2).every((p) => p.reframe === 'fit')).toBe(true);
+  // Next session: the pick is remembered, and a choice made BEFORE "עיבוד"
+  // rides the automatic batch.
   await page.reload();
-  await page.locator('#modeClips').click();
-  await page.setInputFiles('#file', { name: 'p.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(1024 * 1024) });
-  await page.clock.fastForward(3100);
-  await expect(page.locator('#brandCard')).toBeVisible();
-  await expect(page.locator('#frameVert')).toHaveClass(/on/);
-  await page.locator('#frameOrig').click();
   const posts2 = [];
   await page.route(/\/assembler\/render\/$/, async (route, request) => {
     posts2.push(request.postDataJSON());
     await route.fulfill({ status: 202, contentType: 'application/json', body: '{"call_id":"fc-x"}' });
   });
-  await page.locator('#renderClipsBtn').click();
+  await page.locator('#modeClips').click();
+  await page.setInputFiles('#file', { name: 'p.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(1024 * 1024) });
+  await expect(page.locator('#setupCard')).toBeVisible();
+  await expect(page.locator('#frameFit')).toHaveClass(/on/);
+  await page.locator('#frameOrig').click();
+  await page.locator('#processBtn').click();
+  await page.clock.fastForward(3100);
   await expect.poll(() => posts2.length).toBe(2);
-  expect(posts2.every(p => p.reframe === undefined)).toBe(true);
+  expect(posts2.every((p) => p.reframe === undefined)).toBe(true);
 });
 
 test('preview mirrors the output format: full-frame shows a blurred copy, crop shows a cover box, as-source is plain', async ({ page }) => {
   await boot(page);
   const row = page.locator('.cand').first();
   await row.locator('.c-trim .prev').click();
-  await expect(row.locator('.c-preview video')).toHaveCount(1);          // plain
-  await expect(row.locator('.c-preview')).not.toHaveClass(/vert/);
+  // Default layout = smart vertical: a 9:16 cover box.
+  await expect(row.locator('.c-preview')).toHaveClass(/crop/);
+  await expect(row.locator('.c-preview .pv-box video')).toHaveCount(1);
+  await page.locator('#frameOrig').click();
+  await expect(row.locator('.c-preview')).not.toHaveClass(/vert/);         // plain
+  await expect(row.locator('.c-preview video')).toHaveCount(1);
   await page.locator('#frameFit').click();                                // rebuilds the open preview
   await expect(row.locator('.c-preview')).toHaveClass(/vert/);
   await expect(row.locator('.c-preview .pv-box video')).toHaveCount(2);   // main + blurred bg

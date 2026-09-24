@@ -60,6 +60,7 @@ async function boot(page, { mode = 'clips', gates = {}, posts = { analyze: [], r
 async function upload(page, { clipsMode = true } = {}) {
   if (clipsMode) await page.locator('#modeClips').click();
   await page.setInputFiles('#file', { name: 'podcast.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(1024 * 1024) });
+  await page.locator('#processBtn').click();   // analysis waits for the explicit click (2026-09-24)
 }
 
 const stored = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('hebpipe_asm_session') || 'null'));
@@ -71,6 +72,10 @@ test('clips: analysis, edits, a finished render and its social caption survive a
   await page.clock.fastForward(3100);
   const rows = page.locator('.cand');
   await expect(rows).toHaveCount(2);
+  // Processing rendered both suggested clips automatically (2026-09-24).
+  await expect.poll(() => posts.render.length).toBe(2);
+  await page.clock.fastForward(3100);
+  await expect(page.locator('#renderClipsBtn')).toBeEnabled();
   // Edits: trim clip 1 two seconds earlier, rewrite its hook, unpick clip 2.
   const steps = rows.nth(0).locator('.c-trim .step');
   await steps.nth(0).locator('button').nth(1).click();
@@ -93,14 +98,16 @@ test('clips: analysis, edits, a finished render and its social caption survive a
   await expect(rows.nth(0).locator('.c-trim .step').nth(0).locator('.val')).toHaveText('+2 שנ\'');
   await expect(rows.nth(1).locator('.pick-box')).not.toBeChecked();
   await expect(page.locator('#clipsOut')).toBeVisible();
-  await expect(page.locator('.out video')).toHaveAttribute('src', /u1__k_c0_out\.mp4/);
-  await expect(page.locator('.out .edit-link')).toHaveAttribute('href', '/?edit=u1__k_c0_out.mp4');
+  await expect(page.locator('.out video')).toHaveAttribute('src', /u1__k_c2_out\.mp4/);   // the refresh's render
+  await expect(page.locator('.out .edit-link')).toHaveAttribute('href', '/?edit=u1__k_c2_out.mp4');
   await expect(page.locator('.out textarea.o-cap')).toHaveValue('כיתוב ערוך');
-  // A render after the restore still carries the restored edits.
+  await expect(page.locator('#setupCard')).toBeVisible();
+  await expect(page.locator('#renderClipsBtn')).toHaveText('רענון הקליפים (1)');
+  // A refresh after the restore still carries the restored edits.
   await page.locator('#renderClipsBtn').click();
-  await expect.poll(() => posts.render.length).toBe(2);
-  expect(posts.render[1].segments).toEqual([[0, 610.3, 654.9]]);
-  expect(posts.render[1].hook_text).toBe('הוק חדש');
+  await expect.poll(() => posts.render.length).toBe(4);
+  expect(posts.render[3].segments).toEqual([[0, 610.3, 654.9]]);
+  expect(posts.render[3].hook_text).toBe('הוק חדש');
 });
 
 test('a running analysis resumes polling after a refresh', async ({ page }) => {
@@ -110,7 +117,8 @@ test('a running analysis resumes polling after a refresh', async ({ page }) => {
   await expect.poll(() => posts.analyze.length).toBe(1);
   await page.clock.fastForward(3100);                     // one "running" tick
   await expect(page.locator('#stage')).toContainText('מתמללים');
-  expect((await stored(page)).phase).toBe('analyzing');
+  // (the label shows before the analyze response lands - wait for the save)
+  await expect.poll(async () => (await stored(page))?.phase).toBe('analyzing');
   // Leaving now warns (work in flight).
   expect(await page.evaluate(() => {
     const e = new Event('beforeunload', { cancelable: true });
@@ -125,6 +133,10 @@ test('a running analysis resumes polling after a refresh', async ({ page }) => {
   await expect(page.locator('.cand')).toHaveCount(2);
   expect(posts.analyze.length).toBe(1);                   // resumed - never re-spawned
   expect((await stored(page)).phase).toBe('ready');
+  // ...and processing went on to render the suggested clips.
+  await expect.poll(() => posts.render.length).toBe(2);
+  await page.clock.fastForward(3100);
+  await expect(page.locator('.out video')).toHaveCount(2);
   // Nothing in flight any more: leaving does not warn.
   expect(await page.evaluate(() => {
     const e = new Event('beforeunload', { cancelable: true });
@@ -139,16 +151,17 @@ test('a render still running at refresh finishes into its tile', async ({ page }
   await upload(page);
   await expect.poll(() => posts.analyze.length).toBe(1);
   await page.clock.fastForward(3100);
-  await page.locator('.cand').nth(1).locator('.pick-box').uncheck();
-  await page.locator('#renderClipsBtn').click();
-  await expect.poll(async () => (await stored(page))?.cands?.[0]?.render?.status).toBe('pending');
+  // The automatic batch is running (render polls held at "running").
+  await expect.poll(() => posts.render.length).toBe(2);
+  await expect.poll(async () => (await stored(page))?.cands?.[1]?.render?.status).toBe('pending');
 
   await page.reload();
-  await expect(page.locator('.out .o-state .spinner')).toHaveCount(1);
+  await expect(page.locator('.out .o-state .spinner')).toHaveCount(2);
   gates.render.open = true;
   await page.clock.fastForward(3100);
-  await expect(page.locator('.out video')).toHaveAttribute('src', /u1__k_c0_out\.mp4/);
-  expect(posts.render.length).toBe(1);                    // polled, never re-rendered
+  await expect(page.locator('.out video')).toHaveCount(2);
+  await expect(page.locator('.out video').first()).toHaveAttribute('src', /u1__k_c0_out\.mp4/);
+  expect(posts.render.length).toBe(2);                    // polled, never re-rendered
   expect((await stored(page)).cands[0].render.status).toBe('done');
 });
 

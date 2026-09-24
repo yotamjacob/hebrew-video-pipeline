@@ -68,6 +68,7 @@ test('multi-clip flow: two uploads -> cross-clip storyboard -> curate -> render'
     { name: 'interview.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(3 * 1024 * 1024) },
     { name: 'tour.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(2 * 1024 * 1024) },
   ]);
+  await page.locator('#processBtn').click();   // analysis waits for the explicit click (2026-09-24)
   // The upload chain is real network (the clock only freezes timers) - wait
   // for the analyze POST to exist before advancing the poll timer.
   await expect.poll(() => analyzePosts.length).toBe(1);
@@ -118,6 +119,7 @@ test('single clip: no clip badges, bare flow still works', async ({ page }) => {
   await page.setInputFiles('#file', {
     name: 'winery.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(1024 * 1024),
   });
+  await page.locator('#processBtn').click();   // analysis waits for the explicit click (2026-09-24)
   await expect.poll(() => analyzePosts.length).toBe(1);
   await page.clock.fastForward(3100);
   expect(analyzePosts[0].upload_keys).toHaveLength(1);
@@ -145,6 +147,7 @@ test('voice-over via audio-file upload rides the render payload', async ({ page 
   await page.setInputFiles('#file', {
     name: 'winery.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(1024 * 1024),
   });
+  await page.locator('#processBtn').click();   // analysis waits for the explicit click (2026-09-24)
   await expect(page.locator('#board')).toBeVisible({ timeout: 10000 });
   await expect(page.locator('#voCard')).toBeVisible();
 

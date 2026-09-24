@@ -57,12 +57,21 @@ async function boot(page, { socialPosts = [], socialResult = SOCIAL, analyzePost
   await page.goto('/assembler.html');
 }
 
-async function toTiles(page, analyzePosts) {
+// Processing = analysis + an automatic render of every suggested clip
+// (2026-09-24). `settle` lets that first batch land (tiles with videos).
+async function toTiles(page, analyzePosts, { settle = true } = {}) {
   await page.locator('#modeClips').click();
   await page.setInputFiles('#file', { name: 'podcast.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(1024 * 1024) });
+  await page.locator('#processBtn').click();
   await expect.poll(() => analyzePosts.length).toBe(1);
   await page.clock.fastForward(3100);
   await expect(page.locator('.cand')).toHaveCount(2);
+  await expect(page.locator('.out')).toHaveCount(2);
+  if (settle) {
+    await page.clock.fastForward(3100);
+    await expect(page.locator('.out video')).toHaveCount(2);
+    await expect(page.locator('#renderClipsBtn')).toBeEnabled();
+  }
 }
 
 test('social caption: trimmed range + rendered key -> editable caption, hashtags, copy', async ({ page }) => {
@@ -87,7 +96,7 @@ test('social caption: trimmed range + rendered key -> editable caption, hashtags
   expect(p.upload_key).toBe(analyzePosts[0].upload_keys[0]);
   expect(p.start).toBeCloseTo(610.3, 5);
   expect(p.end).toBeCloseTo(653.9, 5);
-  expect(p.video_key).toBe('u1234__abc_c0_out.mp4');
+  expect(p.video_key).toBe('u1234__abc_c2_out.mp4');   // the refresh's render (the automatic batch took 0 and 1)
   expect(p.title).toBe('נשימה אחת שמשנה הכל');
   expect(p.hook).toBe('נשימה אחת שמשנה הכל');
   expect(Object.keys(p).sort()).toEqual(['end', 'hook', 'start', 'title', 'upload_key', 'video_key']);
@@ -115,8 +124,7 @@ test('social caption: trimmed range + rendered key -> editable caption, hashtags
 test('social caption before the render finishes sends no video key', async ({ page }) => {
   const socialPosts = [], analyzePosts = [];
   await boot(page, { socialPosts, analyzePosts });
-  await toTiles(page, analyzePosts);
-  await page.locator('#renderClipsBtn').click();
+  await toTiles(page, analyzePosts, { settle: false });
   // The tiles exist (queued / cutting) before the render poll resolves.
   await page.locator('.out').nth(1).locator('.o-soc-btn').click();
   await expect.poll(() => socialPosts.length).toBe(1);
@@ -129,8 +137,6 @@ test('an expired transcript shows a specific soft message', async ({ page }) => 
   const analyzePosts = [];
   await boot(page, { analyzePosts, socialResult: { error: 'no_transcript' } });
   await toTiles(page, analyzePosts);
-  await page.locator('#renderClipsBtn').click();
-  await page.clock.fastForward(3100);
   const tile = page.locator('.out').nth(0);
   await tile.locator('.o-soc-btn').click();
   await page.clock.fastForward(3100);

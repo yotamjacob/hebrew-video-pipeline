@@ -370,6 +370,24 @@ Tests: `tests/backend/test_assembler_social.py`, `tests/backend/test_assembler_c
 `tests/frontend/assembler_social.spec.js`, `tests/frontend/assembler_caption_style.spec.js`
 (every assembler spec now stubs `/profiles` - a new boot call).
 
+## Setup card: layout + options before processing, refresh after (2026-09-24)
+
+User request (5 items): choose the layout before processing (smart vertical
+by default, with an example of each), never start processing without the
+"עיבוד" click, switch layouts after processing with a refresh that recreates
+every suggested clip, the clip options available before and after, and a
+viral-score explainer.
+
+| Piece | Contract |
+|---|---|
+| `#setupCard` "2 · פורמט ואפשרויות" | Shown as soon as files are picked (both modes; `data-mode` hides the other mode's options). Layout = three `.layout-opt` radio tiles, still `#frameVert` / `#frameFit` / `#frameOrig` (`setFrame` unchanged, `aria-checked`): smart vertical FIRST and the DEFAULT (`brand.reframe = '9:16'`; an explicit pick is remembered via `reframeChosen` in `hebpipe_asm_brand` - "as source" included). Each tile previews its layout on a frame of the user's OWN video (`layoutsFromFile`: a muted `<video>` seeked to min(5 s, 20%) drawn into 144x256 canvases - center 9:16 window / width-fit over a blurred cover / letterboxed), re-drawn from the first thumbnail after analysis (`layoutsFromThumb`), a schematic when nothing decodes. Clips options (`#clipCapToggle` / `#clipTightenToggle` / `#clipHookToggle` / `#clipCapStyle`) and the story options (`#capToggle` / `#capStyle`) moved here (same ids) and persist in the brand record (`toggles`). |
+| Process gate | Picking files starts the UPLOAD in the background (it is not processing and is the slow part); `#processBtn` "עיבוד" starts the analysis - immediately if the upload landed, else it is queued ("העיבוד יתחיל מיד כשההעלאה תסתיים"). Session phase `uploaded` (upload landed, not processed yet) restores to the choice with "עיבוד" enabled. |
+| Processing = analysis + clips | In clips mode the analysis result is followed by `renderClips()` for every picked candidate (all by default) with the chosen layout / options / style. Afterwards `#processBtn` hides and `#renderClipsBtn` (moved into the card) reads "רענון הקליפים (N)" ("יצירת N קליפים" before any render exists); any layout / option / style change after renders exist shows `#settingsNote`. Story mode renders from its storyboard as before. Cards renumbered (setup 2, branding 3, clips / story 4, ...). |
+| Viral score explainer | The `.score` badge is a button (`aria-expanded`) opening ONE `.viral-card` under the candidate: the clip's two weakest rubric dimensions with concrete advice (`RUBRIC_ADVICE`), the model's own tip, a length note outside 12-60 s, and how the score is computed (50% model holistic + 50% weighted rubric: hook 30%, retention 25%, emotion / clarity / shareability 15% each, duration prior - mirrors `_virality_score`). Closes on ×, Escape or any outside click. |
+| Branding file names | `.brand-slot` is `min-width: 0` in a `minmax(0, 1fr)` grid and `.slot-file` wraps (`overflow-wrap: anywhere`) - a long outro name ran past the card edge. |
+
+Tests: `tests/frontend/assembler_setup.spec.js` (layout default + previews painted, no analysis before the click, the queued click, refresh with a new layout, remembered options, the `uploaded` restore, the wrapped outro name, the viral card); every assembler spec now clicks "עיבוד" and expects the automatic first batch.
+
 ## Refresh-proof session + leave warning (2026-09-24)
 
 User: "while processing a video - add a warning if leaving the page or
