@@ -229,6 +229,16 @@
     .c-pick input { accent-color: var(--terracotta); width: 15px; height: 15px; }
     .c-title { font-size: 0.95rem; font-weight: 700; line-height: 1.35; }
     .c-time { font-size: 0.72rem; color: var(--sage-dark); margin-top: 2px; font-weight: 600; }
+    /* Lively-conversation badge (2026-09-24): a real back-and-forth between
+       the speakers - measured speaker turns AND the model agree. */
+    .c-lively { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 6px; margin-top: 6px; font-size: 0.76rem; line-height: 1.45; color: var(--text); }
+    .c-lively .txt { flex: 1 1 180px; min-width: 0; }   /* wraps under the chip on a phone */
+    .c-lively .chip {
+      display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; padding: 2px 9px; border-radius: 999px;
+      background: var(--terracotta); color: var(--white); font-size: 0.7rem; font-weight: 700; white-space: nowrap;
+    }
+    .c-lively .chip svg { width: 12px; height: 12px; }
+    .c-lively .when { font-weight: 700; color: var(--terracotta-dark); unicode-bidi: isolate; }
     /* Trim steppers: extend / shrink a candidate by whole seconds. */
     .c-trim { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 8px; font-size: 0.74rem; font-weight: 700; color: var(--muted); }
     .c-trim .step { display: inline-flex; align-items: center; gap: 4px; }
@@ -1475,12 +1485,35 @@
         why.append(tip);
       }
       head.append(title, time);
+      if (c.lively) head.append(livelyBadge(c));
       meta.append(trim, prevBox, out, hookRow, quote, bars, why);
       row.append(side, img, head, meta);
       box.appendChild(row);
       renderOut(c);
     });
     updateCta();
+  }
+
+  // "שיחה ערה" + "1:30 - 2:30 · who is talking about what" - the range the
+  // analysis measured as a back-and-forth (the time line above follows trims).
+  function livelyBadge(c) {
+    const wrap = document.createElement('div');
+    wrap.className = 'c-lively';
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.title = 'קטע הלוך ושוב בין הדוברים - לא מונולוג';
+    chip.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M2 3.5h7v4.5H5.5L3 10V8H2z"/><path d="M11 6h3v4.5h-1V12l-2.2-1.5H7.5V9.5"/></svg>';
+    chip.append(document.createTextNode('שיחה ערה'));
+    const text = document.createElement('span');
+    text.className = 'txt';
+    const when = document.createElement('span');
+    when.className = 'when';
+    when.dir = 'rtl';   // isolated: the same visual order as the time line above
+    when.textContent = fmt(c.start0) + ' - ' + fmt(c.end0);
+    text.append(when, document.createTextNode(' · ' + (c.lively_line || 'שיחה הלוך ושוב בין הדוברים')));
+    wrap.append(chip, text);
+    return wrap;
   }
 
   // ── The clip's result, in its own card (2026-09-24: section 5 merged

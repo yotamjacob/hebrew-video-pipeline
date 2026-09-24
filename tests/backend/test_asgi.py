@@ -703,7 +703,7 @@ class TestAssemblerRoutes:
 
     def test_analyze_persists_the_word_transcript(self):
         i = MODAL_SRC.index("def analyze_story")
-        block = MODAL_SRC[i:i + 5000]
+        block = MODAL_SRC[i:MODAL_SRC.index("\ndef ", i)]
         assert "_asm_words_path(key).write_text" in block
         assert "word_timestamps=True" in block
 

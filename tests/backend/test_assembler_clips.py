@@ -127,7 +127,7 @@ class TestClampEnd:
 class TestClipsContracts:
     def _pick(self):
         i = MODAL_SRC.index("def _pick_clips")
-        return MODAL_SRC[i:i + 12000]
+        return MODAL_SRC[i:MODAL_SRC.index("\ndef _visual_segments", i)]
 
     def test_two_pass_selection_snaps_to_segments_then_words(self):
         block = self._pick()

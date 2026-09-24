@@ -381,6 +381,202 @@ def _clamp_end(segs, a, b, max_len):
     return round(best if best is not None else a + max_len, 2)
 
 
+# ── Who speaks when - speaker turns without diarization (2026-09-24) ──
+# User: "focus more on parts where the conversation is lively - ping pong,
+# less monologue - and badge them". Whisper gives no speaker, so every
+# transcript segment gets a VOICE FINGERPRINT (_voice_features: the mean
+# log-mel spectrum folded to 12 MFCC-style coefficients - timbre plus the
+# speaker's own mic / room, which is exactly what separates the two sides of
+# a remote interview) and the fingerprints are split into two voices
+# (_speaker_labels). Validated on the real 72-min two-pane podcast against
+# hand-labelled stretches: host 95% / guest 100% pure, separation 1.77 (the
+# first variant - raw mean+std log-mel seeded by extreme points - split off
+# a 7% outlier cluster instead of a speaker).
+
+def _no_dash(t):
+    """Em / en dashes -> a plain dash (user-facing copy rule). Pure."""
+    return str(t or "").replace("—", "-").replace("–", "-")
+
+
+def _speaker_labels(feats, durs, min_fit=2.0, min_sep=1.3, min_share=0.05, iters=25):
+    """Two-voice split of per-segment fingerprints (None = too short to
+    fingerprint). Fitted on segments >= `min_fit` s: z-normalized, seeded by
+    the sign of the first principal component (NOT extreme points - they
+    seed an outlier cluster), 2-means; every fingerprinted segment is then
+    assigned to its nearest centroid. Rejected (all None) unless the voices
+    separate (centroid distance / mean within-cluster distance >= `min_sep`)
+    and the minority voice holds >= `min_share` of the talk time - a solo
+    lecture must not invent a second speaker. "A" = the voice of the first
+    labelled segment. Returns (labels, meta). Pure."""
+    import math
+    idx = [i for i, f in enumerate(feats) if f and durs[i] >= min_fit]
+    meta = {"ok": False, "separation": None, "share_b": None}
+    if len(idx) < 8:
+        return [None] * len(feats), meta
+    dim = len(feats[idx[0]])
+    X = [feats[i] for i in idx]
+    mu = [sum(x[j] for x in X) / len(X) for j in range(dim)]
+    sd = [max(1e-6, math.sqrt(sum((x[j] - mu[j]) ** 2 for x in X) / len(X))) for j in range(dim)]
+
+    def nz(x):
+        return [(x[j] - mu[j]) / sd[j] for j in range(dim)]
+
+    def dist(a, b):
+        return math.sqrt(sum((p - q) ** 2 for p, q in zip(a, b)))
+    Z = [nz(x) for x in X]
+    v = [1.0 / math.sqrt(dim)] * dim
+    for _ in range(40):                       # power iteration -> first PC
+        w = [0.0] * dim
+        for z in Z:
+            pz = sum(a * b for a, b in zip(z, v))
+            for j in range(dim):
+                w[j] += pz * z[j]
+        n = math.sqrt(sum(x * x for x in w)) or 1.0
+        v = [x / n for x in w]
+    side = [sum(a * b for a, b in zip(z, v)) > 0 for z in Z]
+    C = []
+    for flag in (True, False):
+        g = [z for z, f in zip(Z, side) if f == flag] or Z
+        C.append([sum(z[j] for z in g) / len(g) for j in range(dim)])
+    lab = [0] * len(Z)
+    for _ in range(iters):
+        lab = [0 if dist(z, C[0]) <= dist(z, C[1]) else 1 for z in Z]
+        for k in (0, 1):
+            g = [z for z, l in zip(Z, lab) if l == k]
+            if g:
+                C[k] = [sum(z[j] for z in g) / len(g) for j in range(dim)]
+    within = sum(dist(z, C[l]) for z, l in zip(Z, lab)) / len(Z)
+    sep = dist(C[0], C[1]) / max(1e-6, within)
+    raw = [None if not f else (0 if dist(nz(f), C[0]) <= dist(nz(f), C[1]) else 1) for f in feats]
+    t = [0.0, 0.0]
+    for i, l in enumerate(raw):
+        if l is not None:
+            t[l] += durs[i]
+    share = min(t) / max(1e-6, sum(t))
+    meta["separation"] = round(sep, 2)
+    if sep < min_sep or share < min_share:
+        return [None] * len(feats), meta
+    first = next(l for l in raw if l is not None)
+    labels = [None if l is None else ("A" if l == first else "B") for l in raw]
+    meta.update(ok=True, share_b=round(t[1 - first] / max(1e-6, sum(t)), 3))
+    return labels, meta
+
+
+def _turn_stats(segs, start, end, min_run=1.0):
+    """How two-sided the exchange in [start, end] is. Consecutive
+    same-speaker segments merge into RUNS; runs shorter than `min_run` s are
+    dropped (one mislabelled short segment is noise, not two turns); turns =
+    speaker changes between the remaining runs. Returns {turns,
+    turns_per_min, balance = the quieter speaker's share of the talk time,
+    labelled = any segment in range carries a speaker}. Pure."""
+    ss = [(max(float(s["start"]), start), min(float(s["end"]), end), s.get("spk"))
+          for s in segs if float(s["end"]) > start and float(s["start"]) < end]
+    lab = [x for x in ss if x[2]]
+    out = {"turns": 0, "turns_per_min": 0.0, "balance": 0.0, "labelled": bool(lab)}
+    if not lab:
+        return out
+    runs = []
+    for a, b, k in lab:
+        if runs and runs[-1][0] == k:
+            runs[-1][1] += b - a
+        else:
+            runs.append([k, b - a])
+    kept = []
+    for k, d in runs:
+        if d < min_run:
+            continue
+        if kept and kept[-1][0] == k:
+            kept[-1][1] += d
+        else:
+            kept.append([k, d])
+    turns = max(0, len(kept) - 1)
+    ta = sum(d for k, d in kept if k == "A")
+    tb = sum(d for k, d in kept if k == "B")
+    out.update(turns=turns, turns_per_min=round(turns * 60.0 / max(1e-6, end - start), 2),
+               balance=round(min(ta, tb) / max(1e-6, ta + tb), 3))
+    return out
+
+
+def _lively_badge(model_lively, stats, min_turns=2, min_tpm=1.5, min_balance=0.15):
+    """The "שיחה ערה" badge: the model must read the text as a two-sided
+    exchange AND, when speaker turns were measured, the audio must agree:
+    at least an A-B-A (`min_turns`), >= `min_tpm` turns / minute, the
+    quieter side >= `min_balance` of the talk. Tuned on the real 72-min
+    podcast (long answers, short questions): the stricter 3 / min + 0.2
+    first draft passed 4 of 143 minute windows and missed the "יוגה לדת"
+    exchange at 46:00; this passes ~10% - the real exchanges plus the
+    intro / thanks / course promo, which the model's flag (and the pass-1
+    "no admin" rule) rejects. Without labels (inseparable voices) the
+    model's reading decides. Pure."""
+    if not model_lively:
+        return False
+    if not stats.get("labelled"):
+        return True
+    return (stats.get("turns", 0) >= min_turns and stats.get("turns_per_min", 0) >= min_tpm
+            and stats.get("balance", 0) >= min_balance)
+
+
+def _lively_windows(segs, win=60.0, step=15.0):
+    """The measured back-and-forth stretches of one clip, for the pass-1
+    prompt: slide a `win`-s window by `step`, keep windows the audio half of
+    _lively_badge passes, merge overlapping ones -> [(start, end)]. Handing
+    the model these ranges is what makes it FOCUS on exchanges - the prompt
+    preference alone still picked mostly monologue on the real podcast (1
+    lively of 7; the 46:00 exchange skipped). Pure."""
+    if not segs or not any(s.get("spk") for s in segs):
+        return []
+    end_t = float(segs[-1]["end"])
+    hits, t = [], float(segs[0]["start"])
+    while t < end_t:
+        b = min(end_t, t + win)
+        if b - t >= win / 2 and _lively_badge(True, _turn_stats(segs, t, b)):
+            if hits and t <= hits[-1][1]:
+                hits[-1][1] = b
+            else:
+                hits.append([t, b])
+        t += step
+    return [(round(a, 1), round(b, 1)) for a, b in hits]
+
+
+def _voice_features(wav_path, segs):
+    """Per-segment voice fingerprint for _speaker_labels, from the 16 kHz
+    mono transcription WAV: 25 ms Hann frames / 10 ms hop, 40 mel bands
+    (60 Hz..Nyquist), log energies, the loudest 60% of frames averaged, DCT
+    -> coefficients 1..12 (0 = loudness, dropped). None for a segment under
+    0.8 s. numpy only."""
+    import wave
+    import numpy as np
+    with wave.open(str(wav_path), "rb") as wf:
+        sr = wf.getframerate()
+        x = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16).astype(np.float32) / 32768.0
+    n_fft, hop, win, n_mels = 512, int(sr * 0.01), int(sr * 0.025), 40
+    mel = lambda f: 2595 * np.log10(1 + f / 700.0)
+    inv = lambda m: 700 * (10 ** (m / 2595.0) - 1)
+    bins = np.floor((n_fft + 1) * inv(np.linspace(mel(60), mel(sr / 2), n_mels + 2)) / sr).astype(int)
+    fb = np.zeros((n_mels, n_fft // 2 + 1))
+    for i in range(1, n_mels + 1):
+        l, c, r = bins[i - 1], bins[i], bins[i + 1]
+        for k in range(l, c):
+            fb[i - 1, k] = (k - l) / max(1, c - l)
+        for k in range(c, r):
+            fb[i - 1, k] = (r - k) / max(1, r - c)
+    window = np.hanning(win)
+    dct = np.cos(np.pi * np.arange(1, 13)[:, None] * (np.arange(n_mels)[None, :] + 0.5) / n_mels)
+    out = []
+    for s in segs:
+        seg = x[int(float(s["start"]) * sr):int(float(s["end"]) * sr)]
+        if len(seg) < int(0.8 * sr):
+            out.append(None)
+            continue
+        nfr = 1 + (len(seg) - win) // hop
+        frames = seg[np.arange(win)[None, :] + hop * np.arange(nfr)[:, None]] * window
+        m = np.log((np.abs(np.fft.rfft(frames, n_fft)) ** 2) @ fb.T + 1e-9)
+        e = m.mean(1)
+        m = m[e >= np.percentile(e, 40)]
+        out.append([float(v) for v in dct @ m.mean(0)])
+    return out
+
+
 def _pick_clips(clips, total_duration, guidance=""):
     """Long -> shorts. Two Sonnet passes:
       1. the FULL segment-level transcript -> 6-12 self-contained candidate
@@ -399,10 +595,14 @@ def _pick_clips(clips, total_duration, guidance=""):
     for ci, clip in enumerate(clips):
         lines = "\n".join(
             f"[{ci}:{i}] {s['start']:.1f}-{s['end']:.1f}: "
+            f"{('(' + s['spk'] + ') ') if s.get('spk') else ''}"
             f"{'[ויזואלי] ' if s.get('visual') else ''}{s['text']}"
             for i, s in enumerate(clip["segs"]))
+        lw = _lively_windows(clip["segs"])
+        hint = ("זוהו לפי חילופי הקול קטעי הלוך ושוב (שניות): "
+                + ", ".join(f"{a:.0f}-{b:.0f}" for a, b in lw) + "\n") if lw else ""
         blocks.append(f'### קליפ {ci} - "{clip["name"]}" ({clip["duration"]:.0f} שניות)\n'
-                      + (lines or "(אין דיבור בקליפ הזה)"))
+                      + hint + (lines or "(אין דיבור בקליפ הזה)"))
     # Short recordings (a 1-3 minute clip) can't yield 3-12 distinct shorts -
     # scale the ask so the model returns 1-2 real candidates instead of
     # padding with junk or nothing.
@@ -412,10 +612,12 @@ def _pick_clips(clips, total_duration, guidance=""):
 
 מה הופך קטע לחזק: הוא נפתח בשורה שעוצרת גלילה תוך 3 שניות (טענה חדה, שאלה, סיפור, מספר מפתיע, "הטעות ש..."), הוא מובן לגמרי גם למי שלא צפה בשאר, יש בו מתח ותשלום (payoff) - תובנה, פאנץ', רגע רגשי, טיפ ישים - והוא נגמר במשפט חזק, לא באמצע מחשבה. חפש גיוון: לא שמונה גרסאות של אותו רעיון. אל תבחר קטעי מעבר, פרסומות, הצגות עצמיות ארוכות, דיבור טכני/מנהלי או "אז על מה נדבר היום".
 
-כל שורה היא מקטע: [קליפ:מספר] התחלה-סוף: טקסט. קטע = טווח מקטעים רצוף בתוך קליפ אחד (from_seg עד to_seg, כולל). עדיף שהקטעים לא יחפפו זה את זה.
+שיחה ערה קודמת למונולוג: כשמדברים בהקלטה יותר מאדם אחד, בדוק קודם את קטעי ההלוך ושוב שזוהו (מופיעים בראש כל קליפ, אם יש), והעדף קטעים של פינג-פונג אמיתי בין הדוברים - שאלה ותשובה חדה, ויכוח, תגובות מהירות, צחוק משותף - על פני אדם אחד שמדבר לבד זמן רב. כשיש בהקלטה קטעים כאלה, לפחות חצי מהקטעים שתבחר צריכים להיות שיחה כזו (אבל אף פעם לא על חשבון קטע חלש). סמן כל קטע: lively = true רק אם הוא באמת הלוך ושוב בין שני אנשים לפחות, ואז כתוב lively_line: שורה אחת בעברית (עד 14 מילים) מי מדבר ועל מה, בנוסח "אלינה ודריה בוויכוח ער על מקורות היוגה". שמות רק אם הם מופיעים בתמלול; אחרת "שני הדוברים".
+
+כל שורה היא מקטע: [קליפ:מספר] התחלה-סוף: (דובר) טקסט. (A)/(B) הם זיהוי קולי משוער של הדובר - לא תמיד מדויק במקטעים קצרים, שפוט גם לפי התוכן; כשאין סימון, לא זוהו שני קולות. קטע = טווח מקטעים רצוף בתוך קליפ אחד (from_seg עד to_seg, כולל). עדיף שהקטעים לא יחפפו זה את זה.
 {_guidance_block(guidance)}
 החזר JSON בלבד:
-{{"summary": "משפט-שניים: על מה ההקלטה ומי מדבר", "candidates": [{{"clip": 0, "from_seg": 12, "to_seg": 19, "title": "כותרת קצרה", "angle": "למה הקטע הזה עומד בפני עצמו ומה התשלום שלו"}}]}}
+{{"summary": "משפט-שניים: על מה ההקלטה ומי מדבר", "candidates": [{{"clip": 0, "from_seg": 12, "to_seg": 19, "title": "כותרת קצרה", "angle": "למה הקטע הזה עומד בפני עצמו ומה התשלום שלו", "lively": true, "lively_line": "אלינה ודריה בוויכוח ער על מקורות היוגה"}}]}}
 
 התמלול:
 {chr(10).join(blocks)}"""
@@ -446,13 +648,22 @@ def _pick_clips(clips, total_duration, guidance=""):
         lo_i, hi_i = max(0, a - 1), min(len(segs) - 1, b + 1)
         lo, hi = float(segs[lo_i]["start"]), float(segs[hi_i]["end"])
         words = [w for s in segs[lo_i:hi_i + 1] for w in (s.get("words") or [])]
+        # Speaker changes inside the range, keyed by the segment's first
+        # word start - pass 2 shows "(B)" there so its trim keeps the exchange.
+        spk_marks, prev = {}, None
+        for s in segs[lo_i:hi_i + 1]:
+            if s.get("spk") and s["spk"] != prev and s.get("words"):
+                spk_marks[round(float(s["words"][0][0]), 2)] = s["spk"]
+            prev = s.get("spk") or prev
         cands.append({
             "clip": ci, "from_seg": a, "to_seg": b,
             "start": float(segs[a]["start"]), "end": float(segs[b]["end"]),
-            "lo": lo, "hi": hi, "words": words,
+            "lo": lo, "hi": hi, "words": words, "spk_marks": spk_marks,
             "title": str(c.get("title") or "")[:80],
             "angle": str(c.get("angle") or "")[:300],
             "visual": bool(segs[a].get("visual")),
+            "lively": c.get("lively") is True,
+            "lively_line": _no_dash(str(c.get("lively_line") or ""))[:140],
         })
     if not cands:
         # Same 3-tuple shape as the success path (a 2-tuple here crashed
@@ -495,6 +706,9 @@ def _pick_clips(clips, total_duration, guidance=""):
         b = _clamp_end(segs, a, b, CLIP_MAX_SECONDS + 10)
         v = r.get("virality") if isinstance(r.get("virality"), dict) else {}
         dur = b - a
+        # Measured on the FINAL trim - a lively window must still be one.
+        stats = _turn_stats(segs, a, b)
+        lively = _lively_badge(c["lively"], stats)
         out.append({
             "clip": c["clip"], "start": a, "end": b, "duration": round(dur, 1),
             "title": str(r.get("title") or c["title"] or "")[:80],
@@ -510,6 +724,10 @@ def _pick_clips(clips, total_duration, guidance=""):
                 "reasoning": str(v.get("reasoning") or "")[:600],
                 "tip": str(v.get("tip") or "")[:300],
             },
+            "lively": lively,
+            "lively_line": (c["lively_line"] or "שיחה הלוך ושוב בין הדוברים") if lively else "",
+            "turns": {"count": stats["turns"], "per_min": stats["turns_per_min"], "balance": stats["balance"],
+                      "measured": stats["labelled"]},
         })
     # Scored first (best first), unscored after in pass-1 order.
     out.sort(key=lambda c: (-(c["score"] or 0), c["start"]))
@@ -529,11 +747,16 @@ def _refine_batch(client, cands, idxs):
             mark = ""
             if abs(s - c["start"]) < 0.01:
                 mark = "<<< "
+            who = (c.get("spk_marks") or {}).get(round(s, 2))
+            if who:
+                mark += f"({who}) "
             toks.append(f"{mark}[{s:.2f}]{w[2]}")
         body = " ".join(toks) if toks else "(קטע ויזואלי ללא דיבור)"
         parts.append(
             f'### קטע {i} · "{c["title"]}" · טווח מותר {c["lo"]:.2f}-{c["hi"]:.2f} · '
-            f'הצעה ראשונית {c["start"]:.2f}-{c["end"]:.2f}\n{c["angle"]}\n{body} >>>')
+            f'הצעה ראשונית {c["start"]:.2f}-{c["end"]:.2f}\n{c["angle"]}\n'
+            + ('(שיחה הלוך ושוב - החיתוך צריך לשמור על חילופי הדוברים, לא להשאיר רק תשובה אחת)\n' if c.get("lively") else '')
+            + f'{body} >>>')
     prompt2 = f"""לפניך {len(idxs)} קטעים מועמדים מתוך הקלטה ארוכה, כל אחד עם התמלול שלו ברמת מילה בפורמט [שנייה]מילה. כל קטע מגיע עם מעט הקשר לפני ואחרי ההצעה הראשונית (ההצעה מתחילה ב-<<< ונגמרת ב->>>). מותר להזיז את גבולות החיתוך רק בתוך "הטווח המותר".
 
 לכל קטע החזר:
@@ -554,6 +777,8 @@ def _refine_batch(client, cands, idxs):
 החזר JSON בלבד, בלי טקסט לפני או אחרי ובלי גדרות קוד:
 {{"clips": [{{"id": {idxs[0]}, "start": 12.34, "end": 45.67, "title": "...", "hook": "...", "quote": "...", "virality": {{"hook": 7, "retention": 6, "emotion": 5, "clarity": 8, "shareability": 6, "score": 58, "reasoning": "...", "tip": "..."}}}}]}}
 שדה id חייב להיות מספר הקטע כפי שמופיע בכותרת שלו.
+
+(A)/(B) בתוך התמלול מסמנים החלפת דובר משוערת (זיהוי קולי).
 
 הקטעים:
 {chr(10).join(parts)}"""
@@ -984,6 +1209,19 @@ def analyze_story(upload_keys, filenames=None, mode: str = "story", guidance: st
                         segs.append({"start": float(s.start), "end": float(s.end),
                                      "text": text, "words": words})
                 segs = _glued_segments(segs)   # the pipeline's geresh repair
+                if clips_mode and len(segs) >= 8:
+                    # Who speaks when (voice fingerprints) - drives the
+                    # lively-conversation preference + badge. Best-effort.
+                    try:
+                        labels, spk_meta = _speaker_labels(
+                            _voice_features(wav, segs),
+                            [float(sg["end"]) - float(sg["start"]) for sg in segs])
+                        for sg, lb in zip(segs, labels):
+                            if lb:
+                                sg["spk"] = lb
+                        print(f"[assembler] speakers {name!r}: {spk_meta}")
+                    except Exception as exc:
+                        print(f"[assembler] speaker labels skipped for {name!r}: {exc!r}")
             except Exception as exc:
                 print(f"[assembler] no transcribable audio in {name!r}: {exc!r}")
             # (Near-)speechless clip: the footage itself is the story material.

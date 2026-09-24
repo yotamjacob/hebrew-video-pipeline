@@ -114,7 +114,7 @@ a 60-min transcript) - price it before linking the page.
 Tests: `tests/backend/test_assembler_clips.py` (pure helpers executed +
 contracts), `tests/frontend/assembler_clips.spec.js`.
 
-Not built (by decision): reframe 16:9->9:16, speaker diarization, URL
+Not built (by decision): reframe 16:9->9:16 (later built, see below), general speaker diarization (a two-voice split for the lively badge was added 2026-09-24), URL
 import, brand kit, teams/API. Natural next steps: keyword highlight in the
 clip captions, per-clip Metricool scheduling from the results tiles,
 pricing + linking the page.
@@ -420,6 +420,35 @@ poll, any clip batch (branding uploads included) or the story render (voice-over
 / branding uploads included) is in flight - and saves the session first.
 Not persisted (by nature): an upload mid-flight, the intro/outro/logo FILES and
 a recorded voice-over blob. Tests: `tests/frontend/assembler_session.spec.js`.
+
+## Lively conversation focus + "שיחה ערה" badge (2026-09-24)
+
+User: "focus more on parts where the conversation is lively - ping pong,
+less monologue - and badge them, e.g. 1:30 - 2:30: Alina and Daria are
+having a heated back and forth about the origins of yoga". This is a
+lightweight TWO-voice split, not general diarization. The 2026-08-16 "no
+diarization" directive is superseded only this far, on the user's request.
+
+| Piece | Contract |
+|---|---|
+| `_voice_features(wav, segs)` (analyze, clips mode, >= 8 segments, best-effort `try`) | Per transcript segment, from the 16 kHz transcription WAV (stdlib `wave` + numpy): 25 ms Hann frames / 10 ms hop, 40 mel bands 60 Hz..Nyquist, log energies, the loudest 60% of frames averaged, DCT -> coefficients 1..12. `None` under 0.8 s. About 3 s for 72 min. |
+| `_speaker_labels(feats, durs)` (pure) | Fit on segments >= 2 s: z-score, seed by the **sign of the first principal component** (power iteration), 2-means, then nearest-centroid for every fingerprinted segment. Rejected (all `None`) unless separation (centroid distance / mean within distance) >= 1.3 AND the minority voice holds >= 5% of the talk, so a solo lecture never gets a second speaker. "A" = the first labelled voice. The labels go into `seg["spk"]` and are persisted in `_asm_words.json`. |
+| `_turn_stats(segs, a, b)` (pure) | Same-speaker segments merge into runs; runs under 1 s are dropped (noise, not two turns); turns = changes between the remaining runs. Returns `turns`, `turns_per_min`, `balance` (the quieter side's share of the talk time) and `labelled`. |
+| `_lively_badge(model_lively, stats)` (pure) | Badge = the model's `lively` flag (strict `is True`) AND, when turns were measured, turns >= 2, >= 1.5 / min and balance >= 0.15. Without labels, the model's flag decides. |
+| `_lively_windows(segs)` (pure) | 60 s windows, 15 s step, audio gate only, merged. They are listed at the top of each clip's pass-1 block ("זוהו לפי חילופי הקול קטעי הלוך ושוב"). |
+| Pass 1 | Transcript lines carry `(A)`/`(B)`. The prompt prefers real back-and-forth over monologue (at least half of the picks when such stretches exist, never at the cost of a weak clip) and asks per candidate for `lively` + `lively_line` (<= 14 words: who + topic, names only if they are in the transcript, else "שני הדוברים"). |
+| Pass 2 | `(A)`/`(B)` marks in the word stream where the voice changes (`spk_marks`, keyed by the segment's first word start). Lively candidates get a "keep the exchange, don't leave a single answer" note. |
+| Candidate | `lively` (bool), `lively_line` (dash-cleaned; a generic fallback line when the model left it empty; `""` without the badge), `turns` = `{count, per_min, balance, measured}`, all measured on the FINAL trim. The score formula is unchanged: liveliness steers selection, not the virality estimate. |
+| Page | `livelyBadge(c)` in the card head: a terracotta "שיחה ערה" chip + `fmt(start0) - fmt(end0) · lively_line`. It shows the ANALYSED range, so it doesn't follow trims. The range is an RTL isolate so it reads in the same visual order as `.c-time` (a test measures the glyph positions). The text wraps under the chip on a phone (screenshot-verified). |
+
+**Tuned on the real 72-min two-pane podcast (Alina/Daria):**
+- Labels: host 95% / guest 100% pure against hand-labelled stretches, separation 1.77, guest share 0.86. The first variant (raw mean+std log-mel, extreme-point seeding) split off a 7% outlier cluster instead of a speaker.
+- Audio gate: 3 turns/min + balance 0.2 passed 4 of 143 minute windows and missed the "יוגה לדת" exchange at 46:00. The shipped gate passes about 10%: the real exchanges plus the intro, the thanks and the course promo, which the model's flag rejects.
+- With the prompt preference alone: 1 lively clip of 7, and the 46:00 exchange was skipped. With `_lively_windows` in pass 1 plus the pass-2 marks: the 46:00 stretch is picked, the 5:12 question-and-answer keeps both turns, and 2 of 8 clips are badged (5:12-5:52 "אלינה שואלת מה נותן הצ'יקונג שהיוגה לא נותנת, דריה עונה בפאנץ' מפתיע"; 7:22-8:26). Monologues the model tried to call lively are vetoed by the measured turns.
+
+Tests: `tests/backend/test_assembler_lively.py` (pure helpers executed,
+synthetic two-voice WAV, `_pick_clips` end-to-end on a fake Anthropic
+client) and `tests/frontend/assembler_lively.spec.js`.
 
 ## Prompt-steered selection (2026-08-16)
 
