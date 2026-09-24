@@ -816,9 +816,24 @@ def analyze_story(upload_keys, filenames=None, mode: str = "story", guidance: st
 
 INTRO_OUTRO_MAX_SECONDS = 20.0
 
-# ── Auto-reframe 16:9 -> 9:16 (2026-08-16) ───────────────────────────────────
-REFRAME_SAMPLE_FPS = 3
+# ── Auto-reframe 16:9 -> 9:16 (2026-08-16; shot-aware v2 2026-09-24) ─────────
+REFRAME_SAMPLE_FPS = 6          # face-branch sample rate (a _reframe_samples param; 3 still works)
 REFRAME_MAX_KEYFRAMES = 30
+REFRAME_CANVAS = (1080, 1920)   # "9:16" output is ALWAYS this canvas
+REFRAME_SCENE_THR = 0.30        # ffmpeg scene score that counts as a camera cut
+REFRAME_MIN_SHOT = 0.5          # s - cuts closer than this are one event (flash / dissolve)
+REFRAME_ZOOM_K = 3.8            # crop height = face height x k -> the face is ~26% of the output
+REFRAME_FACE_TOP = 0.40         # face center 40% of the crop height from the top
+REFRAME_HOLD = 1.5              # s - minimum hold before a re-aim / speaker switch
+REFRAME_SPEAKER_HYST = 0.15     # a challenger must lead the CURRENT speaker by this normalized margin
+REFRAME_EXCURSION = 3.0         # s - an A->B->A speaker span shorter than this is merged back into A
+REFRAME_DRIFT_SECONDS = 3.0     # s of steady drift before the crop may pan (ease)
+REFRAME_MIN_CONFIDENCE = 0.45   # a window below this renders as "fit"
+REFRAME_MAX_SEGMENTS = 40       # per window (split=N sub-graph size)
+REFRAME_DIM_LISTENER = True     # split tiles: dim the tile of whoever is NOT speaking
+REFRAME_PANE_TOL = 5.0          # max per-channel std of a dark "chrome" line (pane edge / bar / divider)
+REFRAME_PANE_DARK = 16.0        # max mean luma of a dark chrome line
+REFRAME_PANE_WIDTH = 320        # analysis width of the pane-finder frames
 
 
 def _reframe_plan(samples, crop_frac, dead=0.05, max_speed=0.30, hold=6.0, tau=0.8):
@@ -944,12 +959,14 @@ def _crop_x_expr(keyframes, src_w, crop_w):
 def _split_plan(samples, crop_frac, min_presence=0.4):
     """Two-speaker detector for the stacked split-screen. Clusters every
     detected face center into a LEFT and a RIGHT group (2-means on x, seeded
-    at 0.3 / 0.7); returns {"left": (cx, cy), "right": (cx, cy)} medians
+    at 0.3 / 0.7); returns {"left": (cx, cy), "right": (cx, cy), "left_fh",
+    "right_fh", "left_fw", "right_fw"} medians (face height / width
+    fractions: fh sizes the tile zoom, fw bounds the pane finder's scan)
     when BOTH groups are present in >= `min_presence` of the samples and
     are too far apart to share one tracked crop (separation > 0.9 x
     crop_frac - when they fit, the tracked crop's group-center framing is
     the better picture). Otherwise None (-> tracked crop). Pure."""
-    pts = [(f[0], f[1]) for _t, faces in samples for f in faces]
+    pts = [(f[0], f[1], f[3], f[2]) for _t, faces in samples for f in faces]
     if len(samples) < 3 or len(pts) < 4:
         return None
     c1, c2 = 0.3, 0.7
@@ -974,38 +991,777 @@ def _split_plan(samples, crop_frac, min_presence=0.4):
         v = sorted(vals)
         return v[len(v) // 2]
     return {"left": (_median([p[0] for p in left]), _median([p[1] for p in left])),
-            "right": (_median([p[0] for p in right]), _median([p[1] for p in right]))}
+            "right": (_median([p[0] for p in right]), _median([p[1] for p in right])),
+            "left_fh": _median([p[2] for p in left]),
+            "right_fh": _median([p[2] for p in right]),
+            "left_fw": _median([p[3] for p in left]),
+            "right_fw": _median([p[3] for p in right])}
 
 
-def _split_chain(plan, sw, sh, cw, ch):
-    """filter fragment (chainable) that stacks two speaker crops: the LEFT
-    speaker on top, the RIGHT below. Each tile is (cw x ch/2) - 9:8 on a
-    9:16 canvas; the source crop for a tile is half the source width (a
-    Zoom participant's pane) at the matching 9:8 height, positioned around
-    the speaker's median face (a little above center), clamped inside the
-    frame. Pure."""
-    tile_h = ch // 2
-    tile_h -= tile_h % 2
-    crop_w = sw // 2
-    crop_w -= crop_w % 2
-    crop_h = int(round(crop_w * tile_h / float(cw)))
-    if crop_h > sh:
-        crop_h = sh - sh % 2
-        crop_w = int(round(crop_h * cw / float(tile_h)))
-        crop_w -= crop_w % 2
-    crop_h -= crop_h % 2
+def _rf_median(vals):
+    """Upper median (same convention as the planners above). Pure."""
+    v = sorted(vals)
+    return v[len(v) // 2]
 
-    def _xy(c):
-        cx, cy = c
-        x = int(round(min(max(0.0, cx * sw - crop_w / 2.0), sw - crop_w)))
-        y = int(round(min(max(0.0, cy * sh - crop_h * 0.45), sh - crop_h)))
-        return x, y
-    xl, yl = _xy(plan["left"])
-    xr, yr = _xy(plan["right"])
-    return (f"split=2[sl][sr];"
-            f"[sl]crop={crop_w}:{crop_h}:{xl}:{yl},scale={cw}:{tile_h}[tl];"
-            f"[sr]crop={crop_w}:{crop_h}:{xr}:{yr},scale={cw}:{tile_h}[tr];"
-            f"[tl][tr]vstack")
+
+def _rf_floor(sh):
+    """Crop-height floor (fraction of source height) for a tracked / group
+    crop. Upscale guard: a source under 1080 lines is already upscaled onto
+    the 1920-tall canvas, so the zoom may not go as deep. Pure."""
+    return 0.60 if sh < 1080 else 0.45
+
+
+def _zoom_box(face_h, cx, cy, sw, sh, k=REFRAME_ZOOM_K, floor=0.45, cap=1.0,
+              aspect=9 / 16.0, top=REFRAME_FACE_TOP):
+    """Crop rectangle (x, y, w, h) in source pixels sized so a face of height
+    `face_h` (fraction of the source height) fills ~1/k of it: h = clamp(
+    face_h * k, floor, cap) x sh, w = h x aspect (never wider than the
+    source), the face center `top` of the way down, clamped inside the
+    frame, even w/h. Pure."""
+    h = max(floor, min(cap, float(face_h) * k)) * sh
+    h = min(h, float(sh))
+    if h * aspect > sw:
+        h = sw / aspect
+    h = int(round(h))
+    h = max(2, h - h % 2)
+    w = int(round(h * aspect))
+    w = max(2, min(w - w % 2, sw - sw % 2))
+    x = int(round(min(max(0.0, cx * sw - w / 2.0), sw - w)))
+    y = int(round(min(max(0.0, cy * sh - top * h), sh - h)))
+    return (x, y, w, h)
+
+
+def _group_box(bbox, sw, sh, floor=0.45, margin=0.25, top=REFRAME_FACE_TOP):
+    """9:16 crop around a face GROUP: `bbox` = (left, top, right, bottom)
+    fractions of the union of the face boxes, grown by `margin` of its own
+    size on each side; the crop is the smallest 9:16 box that holds it
+    (height floor `floor` x sh), group center `top` of the way down. Pure."""
+    l, t, r, b = bbox
+    bw, bh = r - l, b - t
+    l, r = l - margin * bw, r + margin * bw
+    t, b = t - margin * bh, b + margin * bh
+    need_h = max((b - t) * sh, (r - l) * sw * 16 / 9.0)
+    return _zoom_box(need_h / float(sh), (l + r) / 2.0, (t + b) / 2.0, sw, sh,
+                     k=1.0, floor=floor, top=top)
+
+
+def _center_spec(sw, sh):
+    """Full-height centered 9:16 crop (no faces / sampling failure). Pure."""
+    h = sh - sh % 2
+    w = int(round(h * 9 / 16.0))
+    w -= w % 2
+    return {"kind": "crop", "role": "center", "box": ((sw - w) // 2, 0, w, h)}
+
+
+def _shot_cuts(scores, length, thr=REFRAME_SCENE_THR, min_shot=REFRAME_MIN_SHOT):
+    """Camera-cut times from per-frame ffmpeg scene scores [(t, score)] (t =
+    pts of the FIRST frame of the new shot, part-relative). A score >= thr
+    is a cut; cuts closer than `min_shot` to each other or to either end of
+    the window collapse to the strongest (a flash / a dissolve is one
+    event). The returned times are the exact frame pts. Pure."""
+    kept = []
+    for t, s in sorted((float(t), float(s)) for t, s in scores):
+        if s < thr or t < min_shot or t > length - min_shot:
+            continue
+        if kept and t - kept[-1][0] < min_shot:
+            if s > kept[-1][1]:
+                kept[-1] = (t, s)
+            continue
+        kept.append((t, s))
+    return [t for t, _s in kept]
+
+
+def _face_tracks(samples, gate=0.08, forget=2.0):
+    """Stable ids for faces across the samples of ONE shot: greedy
+    nearest-center matching (gate = max(`gate`, 0.6 x face width)); a track
+    unseen for `forget` s is retired. Returns (ids, n_tracks) with
+    ids[i][j] = the track of face j in sample i. Pure."""
+    tracks = []                     # [cx, cy, w, last_t]
+    ids = []
+    for t, faces in samples:
+        row = [None] * len(faces)
+        pairs = []
+        for j, f in enumerate(faces):
+            for k, tr in enumerate(tracks):
+                if t - tr[3] > forget:
+                    continue
+                d = ((f[0] - tr[0]) ** 2 + (f[1] - tr[1]) ** 2) ** 0.5
+                if d <= max(gate, 0.6 * max(f[2], tr[2])):
+                    pairs.append((d, j, k))
+        used_j, used_k = set(), set()
+        for _d, j, k in sorted(pairs):
+            if j in used_j or k in used_k:
+                continue
+            row[j] = k
+            used_j.add(j)
+            used_k.add(k)
+        for j, f in enumerate(faces):
+            if row[j] is None:
+                tracks.append([f[0], f[1], f[2], t])
+                row[j] = len(tracks) - 1
+            else:
+                tracks[row[j]][:] = [f[0], f[1], f[2], t]
+        ids.append(row)
+    return ids, len(tracks)
+
+
+def _mouth_score(face):
+    """Mouth motion of one detected face = its lower-third change (face[4],
+    contrast-normalized and shift-registered by the sampler). The upper
+    third (face[5]) is recorded for diagnostics but NOT subtracted: on the
+    first real podcast (2026-09-24, hand-labeled filmstrips) blinks and
+    glasses glints made "lower - upper" pick the wrong speaker, while the
+    lower third alone was right 89-98% of seconds. None when unknown. Pure."""
+    if len(face) < 5 or face[4] is None:
+        return None
+    return max(0.0, float(face[4]))
+
+
+def _speaker_timeline(samples, ids, cands, length, win=1.0, hold=REFRAME_HOLD,
+                      confirm=0.3, min_act=0.15, hyst=REFRAME_SPEAKER_HYST,
+                      excursion=REFRAME_EXCURSION):
+    """Active speaker among the candidate tracks of ONE shot, no diarization:
+    per track, the mouth score averaged over a centered `win` s window.
+    The first speaker is the first track to reach `min_act` (0.15 on the
+    sampler's normalized scale: a still listener sits ~0.10, a talker
+    ~0.14-0.28 - calibrated on the 2026-09-24 podcast). A challenger then
+    needs HYSTERESIS: its 1 s score must beat the CURRENT speaker's by a
+    normalized lead (c - cur) / (c + cur) >= `hyst` and reach `min_act`,
+    hold that for `confirm` s, and switches are >= `hold` s apart (a switch
+    wanted sooner lands at last + hold if the lead lasts). A lead that
+    fades first - a backchannel "mm", a laugh - is counted in `suppressed`
+    and never flips the tile. Offline look-ahead: an A -> B -> A span of B
+    shorter than `excursion` s (a laugh / interjection over ongoing speech
+    - the 2026-09-24 podcast had a 2 s one at a 0.24 lead) is merged back
+    into A and also counted in `suppressed`. Returns {"spans": [(t0, t1, track)],
+    "switches", "margin" (mean normalized lead (top - 2nd) / (top + 2nd)
+    over multi-face samples, None if none), "suppressed"}. Pure."""
+    times = [float(t) for t, _f in samples]
+    n = len(times)
+    cands = list(cands)
+    score = {k: [None] * n for k in cands}
+    for i, (_t, faces) in enumerate(samples):
+        for j, f in enumerate(faces):
+            k = ids[i][j]
+            if k in score:
+                m = _mouth_score(f)
+                if m is not None:
+                    score[k][i] = m if score[k][i] is None else max(score[k][i], m)
+    avg = {k: [] for k in cands}
+    for k in cands:
+        for i in range(n):
+            vals = [score[k][m] for m in range(n)
+                    if score[k][m] is not None and abs(times[m] - times[i]) <= win / 2.0 + 1e-9]
+            avg[k].append(sum(vals) / len(vals) if vals else None)
+    margins = []
+    for i in range(n):
+        ranked = sorted((avg[k][i] for k in cands if avg[k][i] is not None), reverse=True)
+        if len(ranked) > 1:
+            margins.append((ranked[0] - ranked[1]) / (ranked[0] + ranked[1] + 1e-6))
+    cur = None
+    for i in range(n):
+        vals = {k: avg[k][i] for k in cands if avg[k][i] is not None}
+        if vals and max(vals.values()) >= min_act:
+            cur = max(vals, key=vals.get)
+            break
+    if cur is None and cands:
+        cur = max(cands, key=lambda k: sum(v for v in score[k] if v is not None))
+    starts = [(0.0, cur)]
+    last = 0.0
+    pending = None
+    suppressed = 0
+    for i, t in enumerate(times):
+        vals = {k: avg[k][i] for k in cands if avg[k][i] is not None}
+        if not vals:
+            continue
+        kt = max(vals, key=vals.get)
+        top, c = vals[kt], vals.get(cur, 0.0)
+        wins = (kt != cur and top >= min_act
+                and (top - c) / (top + c + 1e-6) >= hyst - 1e-9)
+        if not wins:
+            if pending is not None:
+                suppressed += 1
+            pending = None
+            continue
+        if pending is None or pending[0] != kt:
+            if pending is not None:
+                suppressed += 1
+            pending = (kt, t)
+        at = max(pending[1], last + hold)
+        if t - pending[1] >= confirm - 1e-9 and t >= at - 1e-9 and at < length:
+            starts.append((at, kt))
+            cur, last, pending = kt, at, None
+    if pending is not None:
+        suppressed += 1
+    spans = [(s, e, k) for (s, k), e in zip(starts, [x[0] for x in starts[1:]] + [float(length)])]
+    merged = True
+    while merged and len(spans) >= 3:
+        merged = False
+        for j in range(1, len(spans) - 1):
+            a0, _a1, ka = spans[j - 1]
+            b0, b1, _kb = spans[j]
+            if spans[j + 1][2] == ka and b1 - b0 < excursion:
+                spans[j - 1:j + 2] = [(a0, spans[j + 1][1], ka)]
+                suppressed += 1
+                merged = True
+                break
+    return {"spans": spans, "switches": len(spans) - 1,
+            "margin": round(sum(margins) / len(margins), 3) if margins else None,
+            "suppressed": suppressed}
+
+
+def _drift_runs(times, xs, tol, min_len=REFRAME_DRIFT_SECONDS, min_speed=0.006):
+    """Spans where the target moves STEADILY one way (a walking / swaying
+    subject - the yoga case) for >= `min_len` s with a net displacement >=
+    `tol`: median-3 smoothed, a step counts as motion at >= `min_speed`
+    W/s, a reversal or a > 1 s pause ends the run, and >= 60% of the run's
+    steps must be motion. [(t0, t1)]. Pure."""
+    n = len(xs)
+    if n < 3:
+        return []
+    sm = [_rf_median(xs[max(0, i - 1):i + 2]) for i in range(n)]
+    runs = []
+
+    def _close(a, b, moving):
+        if (b > a and times[b] - times[a] >= min_len - 1e-9
+                and abs(sm[b] - sm[a]) >= tol and moving >= 0.6 * (b - a)):
+            runs.append((times[a], times[b]))
+    s = e = None
+    direction = moving = 0
+    for i in range(1, n):
+        v = (sm[i] - sm[i - 1]) / max(1e-3, times[i] - times[i - 1])
+        sg = 0 if abs(v) < min_speed else (1 if v > 0 else -1)
+        if sg == 0:
+            if s is not None and times[i] - times[e] > 1.0:
+                _close(s, e, moving)
+                s = e = None
+                direction = moving = 0
+            continue
+        if s is None or sg != direction:
+            if s is not None:
+                _close(s, e, moving)
+            s, e, direction, moving = i - 1, i, sg, 1
+        else:
+            e, moving = i, moving + 1
+    if s is not None:
+        _close(s, e, moving)
+    return runs
+
+
+def _hold_runs(pts, tol, hold=REFRAME_HOLD):
+    """Static framing inside a shot: pts [(t, cx, ...)] are split into runs
+    that each hold ONE crop position. The anchor is the median of the first
+    `hold` s; a run ends only when the target stays outside `tol` of the
+    anchor for MORE than `hold` s - then the next run (a hard re-aim, no
+    pan) starts where it left the band. Returns [[pts]]. Pure."""
+    if not pts:
+        return []
+    runs, cur, out = [], [], []
+    anchor = _rf_median([p[1] for p in pts if p[0] < pts[0][0] + hold])
+    for p in pts:
+        if abs(p[1] - anchor) <= tol:
+            cur.extend(out)
+            out = []
+            cur.append(p)
+            continue
+        out.append(p)
+        if out[-1][0] - out[0][0] > hold:
+            if cur:
+                runs.append(cur)
+            cur, out = out, []
+            anchor = _rf_median([q[1] for q in cur])
+    cur.extend(out)
+    if cur:
+        runs.append(cur)
+    return runs
+
+
+def _track_pieces(pts, start, sw, sh, role, hold=REFRAME_HOLD):
+    """Pieces [(t, spec)] framing ONE followed face (pts [(t, cx, cy, fh,
+    fw)], shot-relative) from `start`: static zoomed crops (_hold_runs,
+    hard re-aims) except steady-drift spans (_drift_runs), which ease with
+    the original _reframe_plan at a fixed zoom. Pure."""
+    if not pts:
+        return []
+    floor = _rf_floor(sh)
+    box0 = _zoom_box(_rf_median([p[3] for p in pts]), 0.5, 0.5, sw, sh, floor=floor)
+    tol = 0.2 * box0[2] / float(sw)
+    runs = _drift_runs([p[0] for p in pts], [p[1] for p in pts], tol)
+
+    def _label(p):
+        return next((ri for ri, (r0, r1) in enumerate(runs) if r0 <= p[0] <= r1), None)
+    groups = []
+    for p in pts:
+        lab = _label(p)
+        if groups and groups[-1][0] == lab:
+            groups[-1][1].append(p)
+        else:
+            groups.append((lab, [p]))
+    pieces = []
+    for lab, g in groups:
+        at = start if not pieces else g[0][0]
+        if lab is None:
+            for ri, run in enumerate(_hold_runs(g, tol, hold)):
+                box = _zoom_box(_rf_median([p[3] for p in run]), _rf_median([p[1] for p in run]),
+                                _rf_median([p[2] for p in run]), sw, sh, floor=floor)
+                pieces.append((at if ri == 0 else run[0][0], {"kind": "crop", "role": role, "box": box}))
+        else:
+            box = _zoom_box(_rf_median([p[3] for p in g]), _rf_median([p[1] for p in g]),
+                            _rf_median([p[2] for p in g]), sw, sh, floor=floor)
+            kf = _reframe_plan([(p[0] - at, [(p[1], p[2], p[4], p[3])]) for p in g],
+                               box[2] / float(sw))
+            if kf and kf[0][0] > 0:
+                kf = [(0.0, kf[0][1])] + kf
+            pieces.append((at, {"kind": "ease", "role": role, "box": box, "kf": kf}))
+    return pieces
+
+
+def _plan_shot(samples, length, sw, sh, hold=REFRAME_HOLD, min_presence=0.4):
+    """Plan ONE camera shot. samples [(t, faces)] are shot-relative; nothing
+    here ever looks across a cut. Returns (pieces [(t, spec)] with t=0 first,
+    info {kind, speaker, switches, margin, suppressed}).
+      1. two persistent faces too far apart for one crop -> "split": two 9:8
+         tiles zoomed on each face, speaker timeline for the tile emphasis;
+      2. every face fits in 90% of a full-height crop -> ONE zoomed "group"
+         crop (union box + 25% margin);
+      3. else a static zoomed crop on the ACTIVE speaker (mouth motion) or
+         the only / largest face - hard re-aims, easing only for drift.
+    No face at all -> full-height centered crop. Pure."""
+    info = {"kind": "center", "speaker": False, "switches": 0, "margin": None, "suppressed": 0}
+    if not any(faces for _t, faces in samples):
+        return [(0.0, _center_spec(sw, sh))], info
+    full_frac = (sh * 9 / 16.0) / sw
+    ids, n_tr = _face_tracks(samples)
+    pres = [0] * n_tr
+    for row in ids:
+        for k in set(row):
+            pres[k] += 1
+    persistent = [k for k in range(n_tr) if pres[k] / float(len(samples)) >= min_presence]
+
+    def _faces_of(k):
+        return [(t, f) for (t, faces), row in zip(samples, ids) for f, kk in zip(faces, row) if kk == k]
+
+    def _pts(k, a=0.0, b=None):
+        return [(t, f[0], f[1], f[3], f[2]) for t, f in _faces_of(k)
+                if a <= t and (b is None or t < b)]
+    if len(persistent) >= 2:
+        psamples = [(t, [f for f, kk in zip(faces, row) if kk in persistent])
+                    for (t, faces), row in zip(samples, ids)]
+        sp = _split_plan(psamples, full_frac, min_presence)
+        if sp:
+            mid = (sp["left"][0] + sp["right"][0]) / 2.0
+            side_of = {k: (0 if _rf_median([f[0] for _t, f in _faces_of(k)]) < mid else 1)
+                       for k in persistent}
+            tl = _speaker_timeline(samples, ids, persistent, length, hold=hold)
+            speak = []
+            for a, b, k in tl["spans"]:
+                if k is None:
+                    continue
+                if speak and speak[-1][2] == side_of[k]:
+                    speak[-1] = (speak[-1][0], b, side_of[k])
+                else:
+                    speak.append((a, b, side_of[k]))
+            # A coin-flip speaker verdict must not dim anyone.
+            if tl["margin"] is not None and tl["margin"] < 0.1:
+                speak = []
+            tile_floor = 0.5 if sh < 1080 else 0.35
+            tiles = [_zoom_box(sp[s + "_fh"], sp[s][0], sp[s][1], sw, sh,
+                               floor=tile_floor, cap=0.5, aspect=9 / 8.0)
+                     for s in ("left", "right")]
+            info.update(kind="split", switches=max(0, len(speak) - 1),
+                        margin=tl["margin"], suppressed=tl["suppressed"])
+            faces = [(sp[s][0], sp[s][1], sp[s + "_fw"], sp[s + "_fh"]) for s in ("left", "right")]
+            return [(0.0, {"kind": "split", "role": "split", "tiles": tiles, "speak": speak,
+                           "faces": faces, "panes": [None, None], "fill": [False, False]})], info
+        boxes = [(min(f[0] - f[2] / 2.0 for f in fs), min(f[1] - f[3] / 2.0 for f in fs),
+                  max(f[0] + f[2] / 2.0 for f in fs), max(f[1] + f[3] / 2.0 for f in fs))
+                 for _t, fs in psamples if len(fs) >= 2]
+        if boxes and _rf_median([b[2] - b[0] for b in boxes]) <= 0.9 * full_frac:
+            bbox = tuple(_rf_median([b[i] for b in boxes]) for i in range(4))
+            info["kind"] = "group"
+            return [(0.0, {"kind": "crop", "role": "group",
+                           "box": _group_box(bbox, sw, sh, _rf_floor(sh))})], info
+        tl = _speaker_timeline(samples, ids, persistent, length, hold=hold)
+        pieces = []
+        for a, b, k in tl["spans"]:
+            got = _track_pieces(_pts(k, a, b), a, sw, sh, "speaker", hold)
+            if not got:
+                got = [(a, dict(pieces[-1][1]) if pieces else _center_spec(sw, sh))]
+                if got[0][1].get("kind") == "ease":
+                    got = [(a, {"kind": "crop", "role": "speaker", "box": got[0][1]["box"]})]
+            pieces += got
+        info.update(kind="speaker", speaker=True, switches=tl["switches"],
+                    margin=tl["margin"], suppressed=tl["suppressed"])
+        return pieces, info
+    # One (or no) persistent face: follow it where it is detected and the
+    # LARGEST face elsewhere - a subject that jumps position becomes a new
+    # track, and the old one must not frame empty space for the rest of it.
+    pts = []
+    for (t, faces), row in zip(samples, ids):
+        if not faces:
+            continue
+        mine = [f for f, kk in zip(faces, row) if kk in persistent]
+        f = max(mine or faces, key=lambda f: f[2] * f[3])
+        pts.append((t, f[0], f[1], f[3], f[2]))
+    info["kind"] = "track"
+    return _track_pieces(pts, 0.0, sw, sh, "track", hold) or [(0.0, _center_spec(sw, sh))], info
+
+
+def _speaker_stability(margin, suppressed):
+    """Stability term of a speaker-TRACKED shot, in [0.7, 1]: 0.7 + 0.3 x
+    quality, quality = min(1, margin / 0.3) x (1 - min(0.5, 0.1 x
+    suppressed)). Floored at 0.7 on purpose (2026-09-24): an uncertain
+    speaker verdict costs a wrong switch, not a broken frame - it must never
+    push a window with good coverage and shot length into "fit" on its own
+    (the first version, 0.4 + margin, did at margin 0). Pure."""
+    q = min(1.0, max(0.0, (margin or 0.0) / 0.3)) * (1.0 - min(0.5, 0.1 * max(0, suppressed)))
+    return round(0.7 + 0.3 * q, 3)
+
+
+def _reframe_confidence(coverage, n_shots, length, stability=1.0):
+    """Per-window confidence in [0, 1] = face coverage x shot-rate term
+    (average shot >= 2 s = full marks, shorter shots = a frantic edit or
+    detector noise, down to 0.5) x speaker stability. Pure."""
+    avg = float(length) / max(1, n_shots)
+    shot_term = min(1.0, avg / 2.0)
+    c = max(0.0, min(1.0, coverage)) * (0.5 + 0.5 * shot_term) * max(0.0, min(1.0, stability))
+    return round(c, 3)
+
+
+def _seg_upscale(seg, sw, sh, cw, ch):
+    """Canvas-pixels per source-pixel for one segment (1.0 = native). Pure."""
+    if seg["kind"] == "fit":
+        return round(cw / float(sw), 2)
+    if seg["kind"] == "split":
+        return round(max((ch // 2) / float(t[3]) for t in seg["tiles"]), 2)
+    return round(ch / float(seg["box"][3]), 2)
+
+
+def _merge_segments(segs, cuts, cap=REFRAME_MAX_SEGMENTS, min_len=0.2):
+    """Absorb segments shorter than `min_len` (and, while over `cap`, the
+    shortest) into a neighbour of the SAME shot - a boundary that is a
+    camera cut is never removed. The kept neighbour's framing wins; an
+    ease/split that grows at its front has its relative times shifted.
+    Pure (returns a new list)."""
+    segs = [dict(s) for s in segs]
+    cutset = set(cuts)
+    while len(segs) > 1:
+        cand = []
+        for j, s in enumerate(segs):
+            d = s["t1"] - s["t0"]
+            if d >= min_len and len(segs) <= cap:
+                continue
+            if j > 0 and s["t0"] not in cutset:
+                cand.append((d, j, j - 1))
+            if j + 1 < len(segs) and s["t1"] not in cutset:
+                cand.append((d, j, j + 1))
+        if not cand:
+            break
+        _d, j, n = min(cand)
+        s, keep = segs[j], dict(segs[n])
+        if n < j:
+            keep["t1"] = s["t1"]
+        else:
+            shift = keep["t0"] - s["t0"]
+            keep["t0"], keep["cut"] = s["t0"], s.get("cut", False)
+            if keep["kind"] == "ease":
+                keep["kf"] = [(0.0, keep["kf"][0][1])] + [(t + shift, c) for t, c in keep["kf"]]
+            elif keep["kind"] == "split":
+                sp = [(a + shift, b + shift, sd) for a, b, sd in keep.get("speak") or []]
+                if sp:
+                    sp[0] = (0.0, sp[0][1], sp[0][2])
+                keep["speak"] = sp
+        lo, hi = min(j, n), max(j, n)
+        segs[lo:hi + 1] = [keep]
+    return segs
+
+
+def _plan_window(samples, cuts, length, sw, sh, cw=REFRAME_CANVAS[0], ch=REFRAME_CANVAS[1],
+                 hold=REFRAME_HOLD, min_conf=REFRAME_MIN_CONFIDENCE, guard=0.05):
+    """Whole-window plan: shots = [0, cuts..., length]; each shot planned on
+    its OWN samples (those within `guard` s of a cut are dropped - the fps
+    grid may straddle the cut; the first sample of a shot loses its mouth
+    diff, which compared against the previous camera) and stitched with
+    EXACT shared boundaries. Low confidence -> one "fit" segment. Returns
+    (segments, report); a segment is {t0, t1, kind, role, cut, geometry}.
+    Pure."""
+    length = float(length)
+    cuts = [c for c in cuts if 0.0 < c < length]
+    bounds = [0.0] + cuts + [length]
+    segs, infos = [], []
+    for s0, s1 in zip(bounds, bounds[1:]):
+        lo = s0 + guard if s0 > 0 else s0
+        hi = s1 - guard if s1 < length else s1 + 1e-9
+        shot = [(t - s0, list(faces)) for t, faces in samples if lo <= t < hi]
+        if shot and s0 > 0:
+            shot[0] = (shot[0][0], [tuple(f[:4]) for f in shot[0][1]])
+        pieces, info = _plan_shot(shot, s1 - s0, sw, sh, hold=hold)
+        infos.append((s1 - s0, info))
+        starts = [s0] + [s0 + p[0] for p in pieces[1:]]
+        ends = starts[1:] + [s1]
+        for i, (st, en, (_r, spec)) in enumerate(zip(starts, ends, pieces)):
+            seg = dict(spec)
+            seg.update(t0=st, t1=en, cut=(i == 0 and s0 > 0))
+            segs.append(seg)
+    segs = _merge_segments(segs, cuts)
+    coverage = sum(1 for _t, f in samples if f) / float(max(1, len(samples)))
+    stab, dur = 0.0, 0.0
+    for d, info in infos:
+        p = _speaker_stability(info["margin"], info["suppressed"]) if info["speaker"] else 1.0
+        stab += p * d
+        dur += d
+    stability = stab / dur if dur else 1.0
+    conf = _reframe_confidence(coverage, len(bounds) - 1, length, stability)
+    margins = [info["margin"] for _d, info in infos if info["margin"] is not None]
+    report = {"shots": len(bounds) - 1,
+              "speaker_switches": sum(info["switches"] for _d, info in infos),
+              "suppressed": sum(info["suppressed"] for _d, info in infos),
+              "margin": round(sum(margins) / len(margins), 3) if margins else None,
+              "stability": round(stability, 3),
+              "coverage": round(coverage, 3), "confidence": conf}
+    if conf < min_conf or len(segs) > REFRAME_MAX_SEGMENTS:
+        report["reason"] = "low_confidence" if conf < min_conf else "too_many_segments"
+        segs = [{"kind": "fit", "role": "fit", "t0": 0.0, "t1": length, "cut": False}]
+    roles = {s["role"] for s in segs}
+    report["mode"] = roles.pop() if len(roles) == 1 else "mixed"
+    report["segments"] = _report_segments(segs, sw, sh, cw, ch)
+    return segs, report
+
+
+def _report_segments(segs, sw, sh, cw, ch):
+    """reframe_report rows: t0/t1/kind/role/upscale_factor, plus per-tile
+    pane_bounds ([l, t, r, b] fractions or None) and tile_fill for splits.
+    Pure."""
+    out = []
+    for s in segs:
+        row = {"t0": round(s["t0"], 3), "t1": round(s["t1"], 3), "kind": s["kind"],
+               "role": s["role"], "upscale_factor": _seg_upscale(s, sw, sh, cw, ch)}
+        if s["kind"] == "split":
+            row["pane_bounds"] = [None if pb is None else [round(v, 4) for v in pb]
+                                  for pb in (s.get("panes") or [None, None])]
+            row["tile_fill"] = list(s.get("fill") or [False, False])
+        out.append(row)
+    return out
+
+
+def _reframe_summary(reports, lengths, canvas):
+    """The render result's `reframe_report`: per-window reports + a clip
+    summary (duration-weighted confidence, the dominant mode, totals, the
+    worst upscale). Pure."""
+    total = float(sum(lengths)) or 1.0
+    by_mode = {}
+    for r, d in zip(reports, lengths):
+        by_mode[r["mode"]] = by_mode.get(r["mode"], 0.0) + d
+    margins = [r["margin"] for r in reports if r.get("margin") is not None]
+    ups = [s["upscale_factor"] for r in reports for s in r.get("segments") or []]
+    return {"canvas": list(canvas), "windows": reports, "summary": {
+        "mode": (max(by_mode, key=by_mode.get) if len(by_mode) == 1 else "mixed") if by_mode else None,
+        "shots": sum(r["shots"] for r in reports),
+        "speaker_switches": sum(r["speaker_switches"] for r in reports),
+        "margin": round(sum(margins) / len(margins), 3) if margins else None,
+        "confidence": round(sum(r["confidence"] * d for r, d in zip(reports, lengths)) / total, 3),
+        "min_confidence": min((r["confidence"] for r in reports), default=None),
+        "max_upscale": max(ups, default=None)}}
+
+
+def _chrome_line(px, tol=REFRAME_PANE_TOL):
+    """True when a line of (r, g, b) pixels is frame CHROME - a pane edge,
+    a name / title bar, a gallery divider: flat (max per-channel std <=
+    `tol`, compression noise allowed) AND near-black (luma <=
+    REFRAME_PANE_DARK), or flat to synthetic precision (std <= 2.5) in any
+    colour short of near-white (a blown-out window is content). Calibrated
+    on the first real podcast (2026-09-24): its bars measure luma 0-10,
+    std 0-4; a black stove pipe running the full pane height measured luma
+    27-30, std 7-8 and must NOT read as a pane edge. Pure."""
+    n = len(px)
+    if n < 4:
+        return False
+    means = [sum(p[c] for p in px) / float(n) for c in range(3)]
+    sd = max((sum((p[c] - means[c]) ** 2 for p in px) / float(n)) ** 0.5 for c in range(3))
+    luma = 0.299 * means[0] + 0.587 * means[1] + 0.114 * means[2]
+    return (sd <= tol and luma <= REFRAME_PANE_DARK) or (sd <= 2.5 and luma <= 235)
+
+
+def _find_pane(buf, W, H, face, min_run=2, tol=REFRAME_PANE_TOL):
+    """The video pane holding `face` ((cx, cy, w, h) fractions) in an RGB24
+    frame `buf` (W x H bytes): scan outward from the face box for the first
+    run of >= `min_run` chrome lines - rows over +-2 face widths (up, then
+    down), then columns over the whole found pane height (left, right). A
+    side with no chrome runs to the frame edge. Returns (l, t, r, b)
+    fractions (r, b exclusive) or None when the result cannot hold the
+    face (detection failure -> the caller keeps the frame-bounded crop).
+    Pure."""
+    def px(x, y):
+        i = (y * W + x) * 3
+        return (buf[i], buf[i + 1], buf[i + 2])
+    cx, cy, fw, fh = face[0] * W, face[1] * H, face[2] * W, face[3] * H
+    fx0, fx1 = max(0, int(cx - fw / 2)), min(W - 1, int(cx + fw / 2))
+    fy0, fy1 = max(0, int(cy - fh / 2)), min(H - 1, int(cy + fh / 2))
+    rx0, rx1 = max(0, int(cx - 2 * fw)), min(W, int(cx + 2 * fw))
+
+    def row(y):
+        return _chrome_line([px(x, y) for x in range(rx0, rx1)], tol)
+
+    def scan(coords, test):
+        run = 0
+        for i, c in enumerate(coords):
+            if test(c):
+                run += 1
+                if run >= min_run:
+                    return coords[i - run + 1]
+            else:
+                run = 0
+        return None
+    up = scan(list(range(fy0 - 1, -1, -1)), row)
+    top = up + 1 if up is not None else 0
+    dn = scan(list(range(fy1 + 1, H)), row)
+    bottom = dn if dn is not None else H
+
+    def col(x):
+        return _chrome_line([px(x, y) for y in range(top, bottom, 2)], tol)
+    lf = scan(list(range(fx0 - 1, -1, -1)), col)
+    left = lf + 1 if lf is not None else 0
+    rt = scan(list(range(fx1 + 1, W)), col)
+    right = rt if rt is not None else W
+    if bottom - top < 1.5 * fh or right - left < 1.5 * fw or not (top <= cy < bottom and left <= cx < right):
+        return None
+    return (left / float(W), top / float(H), right / float(W), bottom / float(H))
+
+
+def _fit_tile_in_pane(tile, pane, face, sw, sh, top=REFRAME_FACE_TOP):
+    """Constrain a split tile's source crop (x, y, w, h px) to the speaker's
+    pane ((l, t, r, b) fractions): re-centered on the face (`top` of the
+    way down), clamped inside the pane; a pane smaller than the 9:8 crop
+    SHRINKS the crop to it and flags `fill` (the tile's remainder becomes a
+    blurred, darkened copy of the crop - never black). None pane -> the
+    tile unchanged. Returns ((x, y, w, h), fill). Pure."""
+    if pane is None:
+        return tuple(tile), False
+    x, y, w, h = tile
+    l, t = int(round(pane[0] * sw)), int(round(pane[1] * sh))
+    r, b = int(round(pane[2] * sw)), int(round(pane[3] * sh))
+    fill = False
+    if h > b - t:
+        h = (b - t) - (b - t) % 2
+        fill = True
+    if w > r - l:
+        w = (r - l) - (r - l) % 2
+        fill = True
+    fx, fy = face[0] * sw, face[1] * sh
+    x = int(round(min(max(float(l), fx - w / 2.0), r - w)))
+    y = int(round(min(max(float(t), fy - top * h), b - h)))
+    return (x, y, w, h), fill
+
+
+def _rf_ts(t):
+    """trim boundary for a segment edge at frame pts `t`: 0.1 ms EARLIER,
+    4 dp - trim keeps start <= pts < end, so the frame AT a cut opens the
+    next segment and the previous frame closes this one. Pure."""
+    return f"{max(0.0, t - 1e-4):.4f}"
+
+
+def _fit_graph(cw, ch, p=""):
+    """"fit" sub-graph: the WHOLE frame fitted to the canvas width, centered
+    over a blurred, zoomed-to-cover copy of itself. Blur at 1/8 scale then
+    upscale - the same look as a full-res gblur at a fraction of the CPU.
+    `p` prefixes the labels so several can live in one graph. Pure."""
+    bw, bh = max(2, (cw // 8) - (cw // 8) % 2), max(2, (ch // 8) - (ch // 8) % 2)
+    return (f"split=2[{p}bg][{p}fg];"
+            f"[{p}bg]scale={bw}:{bh}:force_original_aspect_ratio=increase,"
+            f"crop={bw}:{bh},gblur=sigma=4,eq=brightness=-0.06,scale={cw}:{ch}[{p}bgb];"
+            f"[{p}fg]scale={cw}:-2[{p}fgs];"
+            f"[{p}bgb][{p}fgs]overlay=(W-w)/2:(H-h)/2")
+
+
+def _seg_filter(seg, sw, cw, ch, p, dim):
+    """Chainable filter for ONE segment, output exactly cw x ch. Split tiles:
+    LEFT speaker on top; with `dim`, the tile of whoever is NOT speaking
+    gets -6% brightness / 85% saturation over the speaker spans (segment-
+    relative t). Pure."""
+    kind = seg["kind"]
+    if kind == "fit":
+        return _fit_graph(cw, ch, p) + ",setsar=1"
+    if kind == "split":
+        th = ch // 2
+        th -= th % 2
+        parts = []
+        for side, (x, y, w, h) in enumerate(seg["tiles"]):
+            eqf = ""
+            other = [(a, b) for a, b, sd in (seg.get("speak") or []) if sd != side]
+            if dim and other:
+                cond = "+".join(f"between(t\\,{a:.3f}\\,{b:.3f})" for a, b in other)
+                eqf = (f",eq=eval=frame:brightness='if({cond}\\,-0.06\\,0)'"
+                       f":saturation='if({cond}\\,0.85\\,1)'")
+            ab = "ab"[side]
+            if (seg.get("fill") or [False, False])[side]:
+                # Pane smaller than the tile: the crop fitted inside the tile
+                # over a blurred, darkened copy of itself (the "fit" look).
+                q = f"{p}{ab}"
+                bw, bh = max(2, (cw // 8) - (cw // 8) % 2), max(2, (th // 8) - (th // 8) % 2)
+                parts.append(f"[{q}]crop={w}:{h}:{x}:{y},split=2[{q}b][{q}f];"
+                             f"[{q}b]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},"
+                             f"gblur=sigma=4,eq=brightness=-0.06,scale={cw}:{th}[{q}bb];"
+                             f"[{q}f]scale={cw}:{th}:force_original_aspect_ratio=decrease:force_divisible_by=2[{q}fs];"
+                             f"[{q}bb][{q}fs]overlay=(W-w)/2:(H-h)/2{eqf}[{p}t{ab}]")
+            else:
+                parts.append(f"[{p}{ab}]crop={w}:{h}:{x}:{y},scale={cw}:{th}{eqf}[{p}t{ab}]")
+        return f"split=2[{p}a][{p}b];" + ";".join(parts) + f";[{p}ta][{p}tb]vstack,setsar=1"
+    x, y, w, h = seg["box"]
+    if kind == "ease":
+        return f"crop={w}:{h}:x='{_crop_x_expr(seg['kf'], sw, w)}':y={y},scale={cw}:{ch},setsar=1"
+    return f"crop={w}:{h}:{x}:{y},scale={cw}:{ch},setsar=1"
+
+
+def _segments_chain(segs, sw, sh, cw, ch, length, cuts=(), dim=REFRAME_DIM_LISTENER):
+    """The reframe `pre` sub-graph of one body part: every segment trimmed
+    out of the part (split=N -> trim -> setpts -> its framing -> cw x ch)
+    and concatenated back, so every boundary is a HARD cut (no easing
+    across it) and each segment may have its own zoom. Integrity is
+    enforced, not assumed: segments must be contiguous (t1 == next t0),
+    non-empty, cover [0, length], and every in-window camera cut must BE a
+    boundary (-> _rf_ts puts it on the cut's own frame) unless it falls
+    inside a framing-free "fit" segment. Raises ValueError otherwise. Pure."""
+    if not segs:
+        raise ValueError("reframe: no segments")
+    if abs(segs[0]["t0"]) > 1e-9 or abs(segs[-1]["t1"] - float(length)) > 1e-6:
+        raise ValueError("reframe: segments do not cover the window")
+    for s, nx in zip(segs, segs[1:]):
+        if s["t1"] != nx["t0"]:
+            raise ValueError(f"reframe: gap/overlap at {s['t1']} vs {nx['t0']}")
+    for s in segs:
+        if not s["t1"] > s["t0"]:
+            raise ValueError(f"reframe: empty segment at {s['t0']}")
+    bounds = {s["t0"] for s in segs[1:]}
+    for c in cuts:
+        # A cut inside a "fit" segment is framing-free (the whole frame is
+        # shown either way) - every other cut must BE a boundary.
+        if (0.0 < c < float(length) and c not in bounds
+                and not any(s["kind"] == "fit" and s["t0"] < c < s["t1"] for s in segs)):
+            raise ValueError(f"reframe: cut {c} is not a segment boundary")
+    n = len(segs)
+    # Always end in concat + clone-pad + trim to the exact part length: on
+    # the image's ffmpeg 5.1 a vstack/overlay (split / fit) last frame
+    # carries no duration and the canvas `fps=30` dropped it (119/120 at 30
+    # fps, 299/300 at 24/25 fps - measured 2026-09-24; `fps eof_action=pass`
+    # only fixed 30 fps sources). tpad clones the last frame, trim cuts the
+    # stream at `length`, so every segment kind at every source rate keeps
+    # its frame count.
+    tail = (f"concat=n={n}:v=1:a=0,tpad=stop_mode=clone:stop_duration=0.5,"
+            f"trim=duration={float(length):.4f}")
+    if n == 1:
+        return _seg_filter(segs[0], sw, cw, ch, "s0", dim) + "[g0];[g0]" + tail
+    chains = []
+    for i, s in enumerate(segs):
+        if i == 0:
+            tr = f"trim=end={_rf_ts(s['t1'])}"
+        elif i == n - 1:
+            tr = f"trim=start={_rf_ts(s['t0'])}"
+        else:
+            tr = f"trim=start={_rf_ts(s['t0'])}:end={_rf_ts(s['t1'])}"
+        chains.append(f"[r{i}]{tr},setpts=PTS-STARTPTS,{_seg_filter(s, sw, cw, ch, f's{i}', dim)}[g{i}]")
+    return (f"split={n}" + "".join(f"[r{i}]" for i in range(n)) + ";"
+            + ";".join(chains) + ";"
+            + "".join(f"[g{i}]" for i in range(n)) + tail)
 
 
 def _faces_in_image(img_path, det_cache):
@@ -1038,29 +1794,158 @@ def _faces_in_image(img_path, det_cache):
         return []
 
 
-def _reframe_samples(src, a, b, workdir, tag):
-    """Sample [a, b] of src at REFRAME_SAMPLE_FPS (downscaled) and detect
-    faces per frame -> [(t_rel, faces)]. Best-effort: [] on failure."""
+def _reframe_samples(src, a, b, workdir, tag, fps=REFRAME_SAMPLE_FPS):
+    """Sample [a, b] of src for the reframe planner in ONE decode:
+    - faces: frames at `fps` (960 px wide - NOT 480: a podcast face ~15% of
+      the frame tall is ~40 px at 480 and gets missed when it turns) ->
+      YuNet -> per face (cx, cy, w, h, mouth_d, upper_d): the change of the
+      lower / upper third of the face box vs the nearest face of the
+      previous sample (None when there is none) - each patch 48x24 gray,
+      z-normalized (a bright, sharp face must not out-score a dim one) and
+      compared at the best of +-2 px shifts (detector box jitter is not
+      mouth motion). mouth_d is the active-speaker signal.
+    - scene: ffmpeg's scene score of EVERY source frame (192 px branch) ->
+      [(pts_time, score)], part-relative like the samples, so a camera cut
+      lands on its exact frame instead of the 1/fps grid.
+    Returns (samples, scene); ([], []) on failure (-> centered crop)."""
     try:
-        pat = workdir / f"rf_{tag}_%04d.jpg"
+        import re as _re
+        import cv2
+        import numpy as np
+        fps = max(1, int(fps))
+        pat = workdir / f"rf_{tag}_%05d.jpg"
+        scene_txt = workdir / f"rf_{tag}_scene.txt"
         _run(["ffmpeg", "-y", "-ss", f"{a:.2f}", "-to", f"{b:.2f}", "-i", str(src),
-              # 960 wide (not 480): a podcast face 15% of the frame tall is
-              # ~40px at 480 and gets missed when it turns; ~80px detects
-              # reliably. YuNet at 960x540 is still ~40ms/frame.
-              "-vf", f"fps={REFRAME_SAMPLE_FPS},scale=960:-2", "-q:v", "5", str(pat)])
+              "-filter_complex",
+              f"[0:v]split=2[fa][fb];[fa]fps={fps},scale=960:-2[fs];"
+              f"[fb]scale=192:-2,select='gte(scene\\,0)',metadata=print:file={scene_txt}[fn]",
+              "-map", "[fs]", "-q:v", "5", str(pat),
+              "-map", "[fn]", "-f", "null", "-"])
+        scene, t_cur = [], None
+        for line in scene_txt.read_text(errors="ignore").splitlines():
+            if line.startswith("frame:"):
+                m = _re.search(r"pts_time:([-\d.]+)", line)
+                t_cur = float(m.group(1)) if m else None
+            elif line.startswith("lavfi.scene_score=") and t_cur is not None:
+                scene.append((t_cur, float(line.split("=", 1)[1])))
+
+        def _patches(gray, f):
+            H, W = gray.shape[:2]
+            cx, cy, w, h = f[0] * W, f[1] * H, f[2] * W, f[3] * H
+            xa, xb = max(0, int(cx - w / 3)), min(W, int(cx + w / 3))
+
+            def _p(ya, yb):
+                ya, yb = max(0, int(ya)), min(H, int(yb))
+                if yb - ya < 4 or xb - xa < 4:
+                    return None
+                p = cv2.resize(gray[ya:yb, xa:xb], (48, 24),
+                               interpolation=cv2.INTER_AREA).astype(np.float32)
+                return (p - p.mean()) / (p.std() + 4.0)
+            return _p(cy + h / 6, cy + h / 2), _p(cy - h / 2, cy - h / 6)
+
+        def _reg_diff(p, q, r=2):
+            core = q[r:q.shape[0] - r, r:q.shape[1] - r]
+            return min(float(np.mean(np.abs(p[r + dy:p.shape[0] - r + dy, r + dx:p.shape[1] - r + dx] - core)))
+                       for dy in range(-r, r + 1) for dx in range(-r, r + 1))
         frames = sorted(workdir.glob(f"rf_{tag}_*.jpg"))
         cache = {}
-        out = []
+        samples, prev = [], []
         for i, fp in enumerate(frames):
-            out.append((i / float(REFRAME_SAMPLE_FPS), _faces_in_image(fp, cache)))
+            faces = _faces_in_image(fp, cache)
+            gray = cv2.imread(str(fp), cv2.IMREAD_GRAYSCALE) if faces else None
+            cur, row = [], []
+            for f in faces:
+                lo, up = _patches(gray, f) if gray is not None else (None, None)
+                md = ud = None
+                if lo is not None and up is not None and prev:
+                    q = min(prev, key=lambda p: (p[0][0] - f[0]) ** 2 + (p[0][1] - f[1]) ** 2)
+                    if (q[1] is not None and q[2] is not None
+                            and abs(q[0][0] - f[0]) <= 0.5 * max(f[2], q[0][2])
+                            and abs(q[0][1] - f[1]) <= 0.5 * max(f[3], q[0][3])):
+                        md = _reg_diff(lo, q[1])
+                        ud = _reg_diff(up, q[2])
+                cur.append((f, lo, up))
+                row.append((f[0], f[1], f[2], f[3], md, ud))
+            prev = cur
+            samples.append((i / float(fps), row))
             try:
                 fp.unlink()
             except Exception:
                 pass
-        return out
+        return samples, scene
     except Exception as exc:
         print(f"[assembler] reframe sampling failed for {tag}: {exc!r}")
-        return []
+        return [], []
+
+
+def _refine_split_panes(src, a, segs, sw, sh):
+    """Pane-bound every split tile (the black-strip fix, 2026-09-24: a tile
+    crop clamped only to the FRAME ran into a branded layout's name bar):
+    3 frames per split segment (25 / 50 / 75%) at REFRAME_PANE_WIDTH as raw
+    RGB, _find_pane per tile face, per-bound median when >= 2 frames agree,
+    then _fit_tile_in_pane. Any failure leaves that tile frame-bounded.
+    Mutates the split segments in place."""
+    W = REFRAME_PANE_WIDTH
+    H = int(round(W * sh / float(sw)))
+    H -= H % 2
+    for seg in segs:
+        if seg["kind"] != "split" or not seg.get("faces"):
+            continue
+        found = [[], []]
+        for q in (0.25, 0.5, 0.75):
+            t = a + seg["t0"] + q * (seg["t1"] - seg["t0"])
+            try:
+                buf = _run(["ffmpeg", "-v", "error", "-ss", f"{t:.3f}", "-i", str(src), "-frames:v", "1",
+                            "-vf", f"scale={W}:{H}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]).stdout
+            except Exception as exc:
+                print(f"[assembler] pane frame at {t:.2f}s failed: {exc!r}")
+                continue
+            if len(buf) < W * H * 3:
+                continue
+            for side, face in enumerate(seg["faces"]):
+                pb = _find_pane(buf, W, H, face)
+                if pb:
+                    found[side].append(pb)
+        panes, tiles, fill = [], [], []
+        for side in (0, 1):
+            fs = found[side]
+            pb = tuple(_rf_median([f[i] for f in fs]) for i in range(4)) if len(fs) >= 2 else None
+            tile, fl = _fit_tile_in_pane(seg["tiles"][side], pb, seg["faces"][side], sw, sh)
+            panes.append(pb)
+            tiles.append(tile)
+            fill.append(fl)
+        seg["panes"], seg["tiles"], seg["fill"] = panes, tiles, fill
+
+
+def _reframe_window(src, a, b, sw, sh, workdir, tag, cw=REFRAME_CANVAS[0], ch=REFRAME_CANVAS[1],
+                    fps=REFRAME_SAMPLE_FPS, thr=REFRAME_SCENE_THR):
+    """Sample + plan one body window (render_story and
+    scripts/reframe_preview.py share this). The plan is validated through
+    _segments_chain; any failure -> a full-height centered crop, reported
+    as mode "center", confidence 0 - never a failed render. Returns
+    {segs, cuts, report, samples, scene}."""
+    length = b - a
+    samples, scene = _reframe_samples(src, a, b, workdir, tag, fps=fps)
+    try:
+        if not samples:
+            raise ValueError("no samples")
+        cuts = _shot_cuts(scene, length, thr=thr)
+        segs, report = _plan_window(samples, cuts, length, sw, sh, cw, ch)
+        if any(sg["kind"] == "split" for sg in segs):
+            _refine_split_panes(src, a, segs, sw, sh)
+            report["segments"] = _report_segments(segs, sw, sh, cw, ch)
+        _segments_chain(segs, sw, sh, cw, ch, length, cuts)
+    except Exception as exc:
+        print(f"[assembler] reframe plan failed for {tag} - centered crop: {exc!r}")
+        cuts = []
+        segs = [dict(_center_spec(sw, sh), t0=0.0, t1=length, cut=False)]
+        report = {"mode": "center", "shots": 1, "speaker_switches": 0, "suppressed": 0,
+                  "margin": None, "stability": None, "coverage": 0.0, "confidence": 0.0,
+                  "reason": repr(exc)[:160],
+                  "segments": [{"t0": 0.0, "t1": round(length, 3), "kind": "crop", "role": "center",
+                                "upscale_factor": _seg_upscale(segs[0], sw, sh, cw, ch)}]}
+    report["fps"] = fps
+    return {"segs": segs, "cuts": cuts, "report": report, "samples": samples, "scene": scene}
 
 
 def _fade_filters(length, fade_in=0.0, fade_out=0.0):
@@ -1144,13 +2029,15 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
     user's own branding and stay untouched), in the same encode pass as
     the captions. Every branding input degrades to "skipped" on failure -
     the cut always ships.
-    `reframe="9:16"` (2026-08-16): landscape sources are cropped to a
-    full-height vertical window that FOLLOWS THE SPEAKER - faces sampled at
-    3 fps (YuNet), planned by _reframe_plan (group-center / largest face /
-    hold / dead zone / rate limit), applied as a piecewise-linear `crop` x
-    expression inside each body-part encode; the canvas becomes 9:16 so
-    intro/outro/watermark/captions follow. Portrait sources are untouched.
-    Sampling failure -> a centered static crop, never a failed render."""
+    `reframe="9:16"` (2026-08-16, shot-aware v2 2026-09-24): the canvas is
+    ALWAYS 1080x1920; each landscape body window is split at its camera
+    cuts and every shot is framed on its own (_plan_window: split-screen /
+    zoomed group / static zoomed crop on the active speaker, hard re-aims,
+    easing only for drifting subjects, "fit" below the confidence floor),
+    rendered by _segments_chain inside the part encode. The result carries
+    `reframe_report` (per window: mode, shots, speaker switches, margin,
+    confidence, per-segment upscale). Sampling failure -> a centered
+    full-height crop, never a failed render."""
     from pipeline_fns import _record_job
     # "9:16" = speaker-tracked full-height CROP; "fit" = the WHOLE landscape
     # frame kept, centered on a portrait canvas over a blurred, zoomed copy
@@ -1212,14 +2099,6 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
             sw, sh = dims
             return sw > int(round(sh * 9 / 16.0)) + 8
 
-        def _crop_dims(ci):
-            """(crop_w, crop_h) of a full-height 9:16 window for source ci,
-            or None when it is not wider than 9:16 (nothing to reframe)."""
-            sw, sh = src_dims[ci]
-            want = int(round(sh * 9 / 16.0))
-            want -= want % 2
-            return (want, sh) if reframe == "9:16" and _is_wide((sw, sh)) else None
-
         def _fit_dims(dims):
             """Portrait canvas for "fit": width = the source width capped at
             1080 (a 1920x1080 talk becomes 1080x1920, a 1280x720 one
@@ -1231,44 +2110,26 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
             h -= h % 2
             return (w, h)
 
-        # "9:16" is SMART (2026-08-17): two persistent speakers too far apart
-        # for one crop (a Zoom side-by-side) -> stacked split-screen on the
-        # 1080x1920 canvas; otherwise the speaker-tracked crop. Sampled once
-        # per body window (cached) - the FIRST window's decision picks the
-        # canvas, later windows follow it (a Zoom interview is consistently
-        # a two-shot; a lone different window is scaled onto the canvas).
+        # "9:16" (shot-aware v2, 2026-09-24): ALWAYS a 1080x1920 canvas; every
+        # landscape body window is sampled once (faces + per-frame scene
+        # score) and planned shot by shot (_reframe_window) - split-screen,
+        # zoomed group / speaker crops, hard cuts at camera cuts, "fit" when
+        # the window's confidence is low. Portrait windows are scaled onto
+        # the canvas by `norm`. "fit" mode keeps its source-width canvas.
         first_ci = windows[0][0]
-        rf_samples = {}
-        rf_split = {}
+        rf_plans = {}
         if reframe == "9:16":
+            cw, ch = REFRAME_CANVAS
             for i, (ci, a, b) in enumerate(windows):
                 if _is_wide(src_dims[ci]):
-                    smp = _reframe_samples(sources[ci], a, b, tmp, f"{i:02d}")
-                    rf_samples[i] = smp
-                    cwc, _chc = _crop_dims(ci) or (0, 0)
-                    rf_split[i] = _split_plan(smp, cwc / float(src_dims[ci][0])) if smp and cwc else None
-        split_mode = bool(rf_split.get(0))
-        if (reframe == "fit" or split_mode) and _is_wide(src_dims[first_ci]):
+                    sw, sh = src_dims[ci]
+                    rf_plans[i] = _reframe_window(sources[ci], a, b, sw, sh, tmp, f"{i:02d}", cw, ch)
+        elif reframe == "fit" and _is_wide(src_dims[first_ci]):
             cw, ch = _fit_dims(src_dims[first_ci])
         else:
-            cw, ch = _crop_dims(first_ci) or src_dims[first_ci]
+            cw, ch = src_dims[first_ci]
         norm = (f"scale={cw}:{ch}:force_original_aspect_ratio=decrease,"
                 f"pad={cw}:{ch}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30")
-
-        def _fit_chain():
-            """Filter fragment (ends with a comma-less overlay, ready to be
-            chained) that keeps the WHOLE frame: a blurred, zoomed-to-cover
-            copy fills the canvas, the untouched frame is fitted to the
-            canvas width and centered."""
-            # Blur at 1/8 scale then upscale: identical look to a full-res
-            # gblur at a fraction of the CPU (1080x1920 x 30fps x sigma 32
-            # would dominate the encode).
-            bw, bh = max(2, (cw // 8) - (cw // 8) % 2), max(2, (ch // 8) - (ch // 8) % 2)
-            return (f"split=2[bg][fg];"
-                    f"[bg]scale={bw}:{bh}:force_original_aspect_ratio=increase,"
-                    f"crop={bw}:{bh},gblur=sigma=4,eq=brightness=-0.06,scale={cw}:{ch}[bgb];"
-                    f"[fg]scale={cw}:-2[fgs];"
-                    f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2")
 
         def _pre_for(dims):
             """The reframe pre-filter for a source of `dims` in "fit" mode
@@ -1276,7 +2137,7 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
             output shares one look); crop mode is per-window (needs the
             face plan) and handled in the loop."""
             if reframe == "fit" and _is_wide(dims):
-                return _fit_chain()
+                return _fit_graph(cw, ch)
             return ""
 
         # A part from a silent clip must still carry an audio STREAM (silence),
@@ -1352,21 +2213,14 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
             if ci not in clip_has_audio:
                 clip_has_audio[ci] = _has_audio(sources[ci])
             pre = _pre_for(src_dims[ci])
-            cd = _crop_dims(ci)
-            if cd:
-                crop_w, crop_h = cd
+            if i in rf_plans:
                 sw, sh = src_dims[ci]
-                samples = rf_samples.get(i) or []
-                if split_mode and rf_split.get(i):
-                    pre = _split_chain(rf_split[i], sw, sh, cw, ch)
-                elif split_mode:
-                    # Canvas is the split canvas but this window has one
-                    # speaker: track them and let `norm` fit the crop onto it.
-                    plan = _reframe_plan(samples, crop_w / float(sw)) if samples else [(0.0, 0.5)]
-                    pre = f"crop={crop_w}:{crop_h}:x='{_crop_x_expr(plan, sw, crop_w)}':y=0"
-                else:
-                    plan = _reframe_plan(samples, crop_w / float(sw)) if samples else [(0.0, 0.5)]
-                    pre = f"crop={crop_w}:{crop_h}:x='{_crop_x_expr(plan, sw, crop_w)}':y=0"
+                pl = rf_plans[i]
+                try:
+                    pre = _segments_chain(pl["segs"], sw, sh, cw, ch, b - a, pl["cuts"])
+                except Exception as exc:
+                    print(f"[assembler] reframe chain rejected for window {i} - centered crop: {exc!r}")
+                    pre = _segments_chain([dict(_center_spec(sw, sh), t0=0.0, t1=b - a)], sw, sh, cw, ch, b - a)
             parts.append(_encode_part(sources[ci], tmp / f"part_{i:02d}.mp4", a, b,
                                       clip_has_audio[ci],
                                       fade if i == 0 else 0.0,
@@ -1474,8 +2328,18 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
             hook = {"text": hook_text, "start_seconds": round(intro_len + 0.2, 2),
                     "duration_seconds": max(1.5, min(4.5, body_len - 0.5))}
             # Split-screen: the default top-10% box lands on the upper
-            # speaker's face - park it on the seam between the two tiles.
-            if split_mode:
+            # speaker's face - park it on the seam between the two tiles
+            # when a split segment is on screen while the hook shows.
+            h0 = 0.2
+            h1 = h0 + hook["duration_seconds"]
+            off = 0.0
+            on_split = False
+            for i, (_ci, a, b) in enumerate(windows):
+                for sg in (rf_plans.get(i) or {}).get("segs") or []:
+                    if sg["kind"] == "split" and off + sg["t0"] < h1 and off + sg["t1"] > h0:
+                        on_split = True
+                off += b - a
+            if on_split:
                 hook["vertical_position"] = 46
         burned = False
         if events or hook:
@@ -1515,4 +2379,10 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
             "caption_style": {},
         })
         total = body_len
-        return {"video_key": out_key, "duration": round(total, 1)}
+        result = {"video_key": out_key, "duration": round(total, 1)}
+        if reframe == "9:16":
+            result["reframe_report"] = _reframe_summary(
+                [dict(rf_plans[i]["report"], window=i) for i in sorted(rf_plans)],
+                [b - a for i, (_ci, a, b) in enumerate(windows) if i in rf_plans], (cw, ch))
+            print(f"[assembler] reframe_report {out_key}: {json.dumps(result['reframe_report'])[:4000]}")
+        return result

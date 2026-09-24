@@ -176,9 +176,13 @@ Tests: `tests/backend/test_assembler_branding.py`, `tests/frontend/assembler_bra
 
 `render_story(..., reframe="9:16")` (route: only the literal "9:16" is
 accepted; page: the "פורמט" segmented control at the top of the branding
-card, persisted with the other brand choices, payload `reframe`). Portrait
-sources are untouched (`_crop_dims` returns None unless the source is
-wider than 9:16 by > 8 px).
+card, persisted with the other brand choices, payload `reframe`). Only
+sources wider than 9:16 by > 8 px are reframed (`_is_wide`).
+
+> **Superseded in part by "Shot-aware v2 (2026-09-24)" below** - the
+> original single-crop pan (steps 1-3 here) and the per-window split
+> decision are history; `_reframe_plan` survives only as the easing engine
+> for drifting subjects, and `_split_chain` / `_crop_dims` are gone.
 
 Pipeline per BODY window (intro/outro are never cropped - they are
 normalized/letterboxed onto the new canvas like before):
@@ -261,9 +265,63 @@ note that the render tracks the speaker. Trim steppers re-point the open
 preview at the new window (explicit seek after the src change - some
 browsers keep the old frame while paused).
 
-Not done: audio-based active-speaker switching (needs diarization), split-
-screen two-shots when the speakers are far apart (we follow the larger
-face).
+**Shot-aware v2 (2026-09-24, user: "9:16 produces bad output on real
+podcast recordings")** - four field causes on multi-cam podcasts (a wide
+shot cut with close-ups): the crop eased ACROSS camera cuts, panned where
+an editor holds, never zoomed (full height always), and followed the
+largest face instead of the speaker. The planner is now per SHOT and emits
+**segments** `{t0, t1, kind, role, cut, geometry}`; every segment boundary
+is a HARD cut.
+
+| Piece | Contract |
+|---|---|
+| Canvas | "9:16" is ALWAYS `REFRAME_CANVAS` 1080x1920 (the old 608x1080 / "canvas changes when the first window splits" rules are gone). Portrait windows are scaled onto it by `norm`; intro/outro letterboxed as before. |
+| `_reframe_samples(src, a, b, workdir, tag, fps=6)` | ONE decode, two branches: faces at `fps` (960 px, YuNet) with per-face `mouth_d` / `upper_d` = change of the lower / upper third of the face box vs the nearest face of the previous sample - each patch 48x24 gray, z-normalized, compared at the best of +-2 px shifts; and ffmpeg's `scene` score for EVERY source frame (192 px branch, `select='gte(scene,0)',metadata=print`). Returns `(samples, scene)`. `REFRAME_SAMPLE_FPS` = **6** (user decision 2026-09-24 after the 3-vs-6 comparison below; 3 still works through the parameter / the preview's `--fps 3`). |
+| `_shot_cuts` (pure) | score >= `REFRAME_SCENE_THR` 0.30 = a cut; cuts < `REFRAME_MIN_SHOT` 0.5 s apart (or from either end) collapse to the strongest. Times are the cut frame's own pts - frame-accurate, not the 1/fps grid. |
+| `_plan_window` (pure) | shots = [0, cuts, length]; each planned on ITS OWN samples (samples within 0.05 s of a cut dropped; the first sample of a shot loses its mouth diff - it compared against the other camera) and stitched with exact shared boundaries; `_merge_segments` absorbs < 0.2 s slivers / enforces `REFRAME_MAX_SEGMENTS` 40 but never removes a cut boundary. |
+| `_plan_shot` (pure) | (1) two persistent tracks (`_face_tracks`, presence >= 40%) too far apart for one crop (`_split_plan`) -> **split**: two 9:8 tiles, each `_zoom_box`ed on its face (height clamp(face_h x 3.8, 0.35 sh, sh/2); sh < 1080 -> floor = sh/2), LEFT on top, then PANE-BOUNDED (row below). (2) every face fits 90% of a full-height crop -> ONE zoomed **group** crop (`_group_box`: union box + 25% margin each side, 9:16, floor 0.45 sh). (3) else a static zoomed crop on the **active speaker** (or the only / largest face): `_zoom_box` = clamp(face_h x `REFRAME_ZOOM_K` 3.8, floor, sh) -> the face is ~26% of the output, face center 40% from the top. No face -> full-height center crop. |
+| Static framing | `_hold_runs`: hold the median; re-aim only when the target stays outside 0.2 x crop width for MORE than `REFRAME_HOLD` 1.5 s, and then as a hard cut placed where it LEFT the band. `_drift_runs` (steady one-way motion >= `REFRAME_DRIFT_SECONDS` 3 s, net >= the band) are the only spans that ease (`kind: "ease"`, the original `_reframe_plan` at a fixed zoom) - the yoga case. |
+| Split panes | `_refine_split_panes` (impure, in `_reframe_window`): 3 frames per split segment (25/50/75%) as 320 px raw RGB; `_find_pane` (pure) scans outward from each tile face for >= 2 **chrome** lines - rows over +-2 face widths (up, down), then columns over the found pane height (left, right); `_chrome_line` = near-black and flat (luma <= `REFRAME_PANE_DARK` 16, std <= `REFRAME_PANE_TOL` 5) or flat to synthetic precision (std <= 2.5) short of near-white. Per-bound median when >= 2 frames agree; `_fit_tile_in_pane` re-centers + clamps the tile inside the pane, and a pane smaller than the 9:8 crop SHRINKS it and sets `fill` (the tile's remainder = a blurred, darkened copy of the crop, the fit look - never black). No pane -> the old frame-bounded tile. Field (2026-09-24): the podcast's top tile ran into the black name bar; the first tolerance (luma 40 / std 8) also took a black stove pipe running the full pane height (luma 27-30, std 7-8) for a pane edge - the real bars measure luma 0-10, std 0-4. The pane finder does NOT see a boundary between two panes that touch with no divider (right edge = frame edge there); the tile then stays inside the frame as before. |
+| Active speaker | `_speaker_timeline`: `_mouth_score` = mouth_d (the LOWER third only - field 2026-09-24: "lower - upper" on raw pixel diffs crowned the brighter, sharper, smiling listener from box jitter and blinks, 35% correct on a hand-labeled stretch; the normalized + registered lower third alone was 89-98%), averaged over a centered 1 s window; the first speaker is the first to reach `min_act` 0.15; a challenger needs HYSTERESIS - its 1 s score must beat the CURRENT speaker's by a normalized lead >= `REFRAME_SPEAKER_HYST` 0.15 - for 0.3 s, and switches are >= 1.5 s apart (a wanted earlier switch lands at last + 1.5; a lead that fades first counts as `suppressed`). Offline look-ahead: an A -> B -> A span shorter than `REFRAME_EXCURSION` 3 s (a laugh / interjection over ongoing speech) merges back into A (also `suppressed`). `margin` = mean normalized lead. Tracked crops switch speakers with a hard cut; in a split the NON-speaker's tile is dimmed (`eq=eval=frame`, -6% brightness, 85% saturation) unless margin < 0.1 or `REFRAME_DIM_LISTENER` is off. |
+| Upscale guard | source height < 1080 -> tracked/group crop floor 0.60 sh (`_rf_floor`). `upscale_factor` (canvas px per source px) is reported per segment. |
+| Confidence | `_reframe_confidence` = coverage x (0.5 + 0.5 x min(1, avg shot / 2 s)) x speaker stability (duration-weighted; split / group / single-face shots 1.0; speaker-TRACKED shots `_speaker_stability` = 0.7 + 0.3 x min(1, margin / 0.3) x (1 - min(0.5, 0.1 x suppressed)) - floored at 0.7 so a low speaker margin alone can never push a window with good coverage and shot length into fit; the first version, 0.4 + margin, did at margin 0). Below `REFRAME_MIN_CONFIDENCE` 0.45 (or > 40 segments) the whole window is ONE "fit" segment (blurred background). |
+| `_segments_chain` (pure) | `split=N` -> per segment `trim` (`_rf_ts`: 0.1 ms before the boundary, so the cut frame opens the next segment) -> `setpts=PTS-STARTPTS` -> crop/ease/split/fit -> cw x ch -> `concat=n=N:v=1:a=0,tpad=stop_mode=clone:stop_duration=0.5,trim=duration=<length>`. It RAISES unless segments are contiguous (t1 == next t0), non-empty, cover [0, length], and every cut is a boundary (a cut inside a framing-free fit segment is allowed). The concat + clone-pad + exact-trim tail is always there, single segment included: on the image's ffmpeg 5.1 a split/fit last frame has no duration and the canvas `fps=30` dropped it (119/120 at 30 fps, 299/300 at 24/25 fps, measured; `fps eof_action=pass` only fixed 30 fps). With the tail: 300/300 for crop / split / fit at 24, 25 and 30 fps. |
+| `_reframe_window` | sample + plan + validate; any failure -> centered full-height crop, `mode: "center"`, confidence 0. Shared by render_story and the preview script. |
+| Report | render result `reframe_report` = `_reframe_summary`: `{canvas, windows: [{window, mode (track / speaker / group / split / fit / center / mixed), shots, speaker_switches, suppressed, margin, stability, coverage, confidence, fps, reason?, segments: [{t0, t1, kind, role, upscale_factor, pane_bounds? ([l, t, r, b] fractions or null per tile), tile_fill? (per tile)}]}], summary: {mode, shots, speaker_switches, margin, confidence (duration-weighted), min_confidence, max_upscale}}`, also logged as `[assembler] reframe_report`. Analyze does not carry it (the format is chosen at render time). The page does not show it yet (planned: a soft note). |
+| Hook | moves to the seam (`vertical_position` 46) only when a split segment is on screen during the hook. |
+
+Verified: frame-exact cut switching on the image's ffmpeg 5.1 (synthetic
+red|green -> yellow|blue cut: 57 red + 63 blue frames of 120, switch on the
+cut frame); mixed ease + split + fit chain 120/120 frames at 1080x1920.
+
+**First real podcast (2026-09-24, "Daria Eyal - between science and
+spirit", 72 min, 1280x720 25 fps, one camera, a branded two-pane Zoom
+layout with title + name bars, no camera cuts - max scene score 0.008):**
+all four 60 s windows (0:20 host talking, 10:00 / 30:00 / 55:00 guest
+talking) plan as one split, confidence 1.0, upscale 2.67 (720p source).
+Speaker switches per window, before -> after the fixes above: 12-23 ->
+0 / 0 / 0 / 0 at 6 fps (the 30:00 host laugh is `suppressed`). 3 vs 6 fps
+(before hysteresis): 2/5/2/2 vs 2/2/2/0 switches, margin 0.21-0.53 vs
+0.17-0.58 -> 6 fps is the default. Panes (0, 0.25, 1, 0.75) for both
+tiles - the black strip under the top tile is gone. Dimming never toggled
+faster than the 1.5 s hold (measured in the preview mp4s), so it stays on.
+Frame counts: 1800/1800 per 60 s preview. The 0.30 cut threshold is still
+unconfirmed on a real multi-camera source (pending a file from the user).
+
+**Preview tool:** `modal run scripts/reframe_preview.py --key <upload key>
+--start 120 --end 180 [--windows "a-b,c-d"] [--fps 6 (default) | 3] [--thr 0.3]
+[--no-dim] [--out DIR]` - ephemeral (nothing deployed), same
+`_reframe_window` as render: a contact sheet per window (one row per shot:
+mid-shot frame + face boxes with mouth scores + the crop / tiles + the
+detected pane (cyan) and pane bounds / fill per tile, the
+cropped result, the shot's segments with upscale) and a 360x640 mp4 of the
+crop plan only (audio kept, no captions / branding), plus the report and
+the top scene scores for tuning the threshold.
+
+Tests: `tests/backend/test_assembler_reframe.py` (pure planners executed
+from source: hard cut on the exact frame, static speaker = zero pan
+keyframes, alternating speakers + the 1.5 s hold, low confidence -> fit,
+zoom / group / tile sizing, segment integrity, contracts).
 
 **Selection answers are parsed defensively (2026-08-17)** - a 1-hour
 source failed with `Expecting ',' delimiter` (pass-1 answer truncated /
