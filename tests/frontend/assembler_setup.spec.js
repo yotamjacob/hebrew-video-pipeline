@@ -227,3 +227,47 @@ test('the viral score opens a dismissible card on how to improve it', async ({ p
   await rows.nth(1).locator('.score').click();
   await expect(page.locator('.viral-card')).toHaveCount(1);
 });
+
+test('the mode choice and the upload zone are locked while the video is processing', async ({ page }) => {
+  let release;
+  const holdUpload = { promise: new Promise((r) => { release = r; }) };
+  const posts = await boot(page, { holdUpload });
+  await page.locator('#modeClips').click();
+  const locked = async (yes) => {
+    for (const id of ['#modeStory', '#modeClips']) {
+      if (yes) await expect(page.locator(id)).toBeDisabled(); else await expect(page.locator(id)).toBeEnabled();
+    }
+    if (yes) await expect(page.locator('#drop')).toHaveClass(/locked/); else await expect(page.locator('#drop')).not.toHaveClass(/locked/);
+    expect(await page.locator('#file').isDisabled()).toBe(yes);
+    expect(await page.locator('#guidance').isDisabled()).toBe(yes);
+  };
+  await locked(false);
+  await pick(page);
+  await locked(true);                                          // uploading
+  await expect(page.locator('#dropText')).toContainText('מעבדים');
+  // A mode click or a dropped file does nothing mid-job (and never leaves the page).
+  await page.locator('#modeStory').click({ force: true });
+  await expect(page.locator('#modeClips')).toHaveClass(/on/);
+  const dropped = await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File(['x'], 'second.mp4', { type: 'video/mp4' }));
+    const e = new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true });
+    document.getElementById('drop').dispatchEvent(e);
+    return e.defaultPrevented;
+  });
+  expect(dropped).toBe(true);
+  release();
+  await expect(page.locator('#processBtn')).toBeEnabled();
+  await locked(false);                                         // uploaded, waiting for "עיבוד"
+  await page.locator('#processBtn').click();
+  await expect.poll(() => posts.analyze.length).toBe(1);
+  await locked(true);                                          // analyzing
+  await page.clock.fastForward(3100);
+  await expect.poll(() => posts.render.length).toBe(2);
+  await locked(true);                                          // rendering the clips
+  await page.clock.fastForward(3100);
+  await expect(page.locator('.out video')).toHaveCount(2);
+  await locked(false);                                         // all done - a new video can start
+  await expect(page.locator('#dropText')).toContainText('הקלטה ארוכה אחת');
+  expect(posts.analyze).toHaveLength(1);                       // the dropped second file never started anything
+});

@@ -192,6 +192,9 @@
     }
     .mode-btn small { display: block; font-weight: 500; font-size: 0.74rem; color: var(--muted); margin-top: 2px; }
     .mode-btn.on { border-color: var(--terracotta); color: var(--terracotta-dark); background: var(--purple-50); }
+    .mode-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .drop.locked { opacity: 0.5; cursor: not-allowed; border-style: solid; }
+    .drop.locked:hover { background: transparent; }
     /* ── Clip candidates ── */
     .summary { font-size: 0.88rem; color: var(--sage-dark); line-height: 1.6; margin-bottom: 12px; }
     /* Grid: row 1 = score | thumb | title+time; the body (hook, quote, rubric,
@@ -571,7 +574,30 @@
   // Leave / refresh warning while work is in flight: an upload can not be
   // resumed (the File is gone); analyses and renders DO resume from the
   // session, but the user should know the page is still working.
-  const busy = { upload: false, analyze: false, renders: 0, story: false };
+  // Every change to `busy` re-syncs the input lock (a Proxy, so no call site
+  // can forget it).
+  const busy = new Proxy({ upload: false, analyze: false, renders: 0, story: false }, {
+    set(t, k, v) { t[k] = v; syncInputLock(); return true; },
+  });
+  // While anything is in flight (upload, analysis, renders) the mode choice
+  // and the upload zone are locked (user 2026-09-24) - a second file or a
+  // mode switch mid-run would fight the running job. Unlocked again when it
+  // all finished, so a new video can start.
+  function inputLocked() { return busy.upload || busy.analyze || busy.renders > 0 || busy.story; }
+  function syncInputLock() {
+    const locked = inputLocked();
+    ['modeStory', 'modeClips'].forEach((id) => { const b = $(id); if (b) b.disabled = locked; });
+    const drop = $('drop'), file = $('file');
+    if (drop) {
+      drop.classList.toggle('locked', locked);
+      drop.setAttribute('aria-disabled', String(locked));
+      const txt = $('dropText');
+      if (txt) txt.textContent = locked ? 'מעבדים - אפשר להעלות סרטון חדש כשהעיבוד יסתיים' : MODE_COPY[mode].drop;
+    }
+    if (file) file.disabled = locked;
+    const g = $('guidance');
+    if (g) g.disabled = locked;   // the AI guidance only matters before the analysis starts
+  }
   window.addEventListener('beforeunload', (e) => {
     if (busy.upload || busy.analyze || busy.renders > 0 || busy.story) {
       saveSessionNow();
@@ -596,8 +622,8 @@
     $('file').multiple = MODE_COPY[m].maxFiles > 1;
     $('setupCard').dataset.mode = m;
   }
-  $('modeStory').addEventListener('click', () => setMode('story'));
-  $('modeClips').addEventListener('click', () => setMode('clips'));
+  $('modeStory').addEventListener('click', () => { if (!inputLocked()) setMode('story'); });
+  $('modeClips').addEventListener('click', () => { if (!inputLocked()) setMode('clips'); });
 
   function uuid() {
     const a = new Uint8Array(16);
@@ -615,10 +641,12 @@
   else { $('uploadCard').style.display = ''; }
 
   // ── Upload (chunked, same backend endpoints as the main app) ──
-  $('drop').addEventListener('click', () => $('file').click());
+  $('drop').addEventListener('click', () => { if (!inputLocked()) $('file').click(); });
+  // preventDefault even while locked: a dropped file must never make the
+  // browser open it and leave the page mid-job.
   $('drop').addEventListener('dragover', (e) => e.preventDefault());
-  $('drop').addEventListener('drop', (e) => { e.preventDefault(); if (e.dataTransfer.files.length) start([...e.dataTransfer.files]); });
-  $('file').addEventListener('change', () => { if ($('file').files.length) start([...$('file').files]); });
+  $('drop').addEventListener('drop', (e) => { e.preventDefault(); if (!inputLocked() && e.dataTransfer.files.length) start([...e.dataTransfer.files]); });
+  $('file').addEventListener('change', () => { if (!inputLocked() && $('file').files.length) start([...$('file').files]); });
 
   async function start(files) {
     $('err').style.display = 'none';
@@ -631,6 +659,7 @@
     // upload runs in the background meanwhile (it is not processing - and it
     // is the slow part), the analysis waits for the "עיבוד" click.
     uploaded = false; processRequested = false;
+    busy.upload = true;   // locks the mode choice + upload zone right away
     showSetup('pre');
     layoutsFromFile(files[0]);
     clips = files.map((f) => ({ key: uuid(), name: f.name }));
