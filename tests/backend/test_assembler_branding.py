@@ -50,7 +50,7 @@ class TestWatermarkFilter:
 class TestBrandingContracts:
     def _render(self):
         i = MODAL_SRC.index("def render_story")
-        return MODAL_SRC[i:i + 24000]
+        return MODAL_SRC[i:MODAL_SRC.index("\ndef ", i)]
 
     def test_body_parts_fade_only_at_the_edges(self):
         block = self._render()
@@ -89,13 +89,18 @@ class TestBrandingContracts:
         assert "_shutil.copy(composed, cut_path)" in block
         i = block.index("_record_job(out_key")
         rec = block[i:i + 900]
+        # The chosen caption style (2026-09-24) rides the edit state so the
+        # editor reopens the clip with it; nothing chosen = the old defaults.
         for k in ('"src_key":       cut_key', '"captions":      events', '"hook":          hook or {}',
-                  '"font":          "Heebo"', '"margin_v_pct":  0.08', '"caption_style": {}'):
+                  '"font":          font or "Heebo"',
+                  '"font_size":     48 if font_size is None else font_size',
+                  '"margin_v_pct":  0.08 if margin_v_pct is None else margin_v_pct',
+                  '"caption_style": caption_style or {}'):
             assert k in rec, k
 
     def test_route_validates_and_forwards_branding(self):
         i = MODAL_SRC.index('("/assembler/render"')
-        block = MODAL_SRC[i:i + 6000]
+        block = MODAL_SRC[i:MODAL_SRC.index('"/assembler/render-poll/"', i)]
         assert 'for fld in ("intro_key", "outro_key", "wm_key"):' in block
         assert "_SAFE_KEY_RE.match(v)" in block
         assert 'max(0.0, min(3.0, float(data.get("fade") or 0)))' in block

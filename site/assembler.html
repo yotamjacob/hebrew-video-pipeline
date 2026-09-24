@@ -247,6 +247,22 @@
     .c-why p { margin-top: 4px; }
     .c-why .tip { color: var(--sage-dark); font-weight: 600; }
     .opts { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; margin: 12px 0; }
+    /* Caption style picker (2026-09-24): pick a saved profile / preset - the
+       main editor is the styling tool, so this is one compact select. */
+    .style-row { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.85rem; font-weight: 600; color: var(--text); margin: 4px 0 12px; }
+    .style-row select { font-family: inherit; font-size: 0.85rem; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--white); color: var(--text); max-width: 230px; }
+    .style-row select:disabled { opacity: 0.5; }
+    .style-note { font-size: 0.74rem; color: var(--amber); text-align: center; margin-top: 6px; line-height: 1.4; }
+    /* Per-clip social caption + hashtags on the result tile. */
+    .o-social { margin-top: 8px; text-align: start; }
+    .o-social .o-soc-btn { display: block; margin: 0 auto; font-family: inherit; font-size: 0.78rem; font-weight: 700; color: var(--purple-700); background: var(--white); border: 1px solid var(--purple-100); border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+    .o-social .o-soc-btn:disabled { opacity: 0.6; cursor: default; }
+    .o-social textarea, .o-social input { width: 100%; margin-top: 6px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--white); font-family: inherit; font-size: 0.8rem; color: var(--text); line-height: 1.45; }
+    .o-social textarea { min-height: 72px; resize: vertical; overflow: hidden; }
+    .o-social .o-soc-row { display: flex; justify-content: center; gap: 8px; margin-top: 6px; }
+    .o-social .o-soc-row button { font-family: inherit; font-size: 0.76rem; font-weight: 700; border-radius: 999px; padding: 4px 12px; cursor: pointer; border: 1px solid var(--purple-100); background: var(--white); color: var(--purple-700); }
+    .o-social .o-soc-row .o-copy { background: var(--terracotta); border-color: var(--terracotta); color: var(--white); }
+    .o-social .o-soc-msg { font-size: 0.72rem; color: var(--muted); text-align: center; margin-top: 4px; }
     .opts .cap-row { margin-bottom: 0; }
     .outs { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
     .out { background: var(--purple-50); border: 1px solid var(--purple-100); border-radius: 12px; padding: 10px; text-align: center; }
@@ -376,6 +392,7 @@
       <label class="cap-row"><input type="checkbox" id="clipTightenToggle" checked />חיתוך שתיקות בתוך הקליפ</label>
       <label class="cap-row"><input type="checkbox" id="clipHookToggle" checked />שורת הוק על המסך</label>
     </div>
+    <label class="style-row">סגנון כתוביות <select id="clipCapStyle" class="cap-style-sel" aria-label="סגנון כתוביות"></select></label>
     <button class="cta" id="renderClipsBtn">יצירת הקליפים</button>
     <p class="stage" id="clipsStage" style="margin-top:10px"></p>
     <div class="err" id="clipsErr"></div>
@@ -403,8 +420,10 @@
     <div id="moments"></div>
     <div class="total" id="total"></div>
     <label class="cap-row"><input type="checkbox" id="capToggle" checked />כתוביות מסונכרנות על הסרטון</label>
+    <label class="style-row">סגנון כתוביות <select id="capStyle" class="cap-style-sel" aria-label="סגנון כתוביות"></select></label>
     <button class="cta" id="renderBtn">יצירת הסרטון</button>
     <p class="stage" id="renderStage" style="margin-top:10px"></p>
+    <p class="style-note" id="storyStyleNote" style="display:none"></p>
     <div class="err" id="renderErr"></div>
   </div>
 
@@ -770,6 +789,7 @@
       if (saved.fadeOn) $('fadeToggle').checked = true;
       if (saved.fadeDur) $('fadeDur').value = String(saved.fadeDur);
       if (saved.reframe === '9:16' || saved.reframe === 'fit') setFrame(saved.reframe);
+      if (typeof saved.capStyle === 'string') capStyle.choice = saved.capStyle;
     } catch (_) {}
   }
   function _saveBrand() {
@@ -778,6 +798,7 @@
         wm: brand.wm, wmDataUrl: brand.wmDataUrl.length < 400000 ? brand.wmDataUrl : '', wmName: brand.wmName || '',
         fadeOn: $('fadeToggle').checked, fadeDur: parseFloat($('fadeDur').value),
         reframe: brand.reframe || '',
+        capStyle: capStyle.choice || 'default',
       }));
     } catch (_) {}
   }
@@ -901,7 +922,137 @@
     }
     return out;
   }
+  // ── Caption style (2026-09-24): render with a saved profile or preset ──
+  // The main editor stays the styling tool - here the user only PICKS one of
+  // their saved profiles (/profiles, the same account storage app.js uses),
+  // a built-in preset, or "ברירת מחדל" (today's output). The editor keeps
+  // the last-used profile in memory only, so there is nothing to preselect
+  // from - the default is "ברירת מחדל" until the user picks.
+  // CAPTION_PRESETS is MIRRORED from site/app.js verbatim (a backend test
+  // compares the two array bodies) - edit both together.
+  const CAPTION_PRESETS = [
+    { id: 'clean',   nameKey: 'preset.clean',   font: 'Heebo',
+      style: { font_color: '#FFFFFF', border_color: '#000000', border_size: 2,
+               bg_color: '#000000', bg_opacity: 0, mode: 'classic', highlight_color: '#FFD400' } },
+    { id: 'karaoke', nameKey: 'preset.karaoke', font: 'Heebo',
+      style: { font_color: '#FFFFFF', border_color: '#000000', border_size: 2,
+               bg_color: '#000000', bg_opacity: 0, mode: 'karaoke', highlight_color: '#FFD400' } },
+    { id: 'wordpop', nameKey: 'preset.wordpop', font: 'Secular One',
+      style: { font_color: '#FFFFFF', border_color: '#000000', border_size: 4,
+               bg_color: '#000000', bg_opacity: 0, mode: 'word', highlight_color: '#FFD400' } },
+    { id: 'news',    nameKey: 'preset.news',    font: 'Frank Ruhl Libre',
+      style: { font_color: '#FFFFFF', border_color: '#000000', border_size: 0,
+               bg_color: '#000000', bg_opacity: 0.6, mode: 'classic', highlight_color: '#FFD400' } },
+    { id: 'viral',   nameKey: 'preset.viral',   font: 'Rubik',
+      style: { font_color: '#FFE45C', border_color: '#000000', border_size: 3,
+               bg_color: '#000000', bg_opacity: 0, mode: 'classic', highlight_color: '#FFFFFF' } },
+    { id: 'invert',  nameKey: 'preset.invert',  font: 'Assistant',
+      style: { font_color: '#1A1A1A', border_color: '#FFFFFF', border_size: 0,
+               bg_color: '#F4ECE0', bg_opacity: 0.85, mode: 'classic', highlight_color: '#C26D4B' } },
+  ];
+  // Hebrew labels = i18n.js preset.* (this page does not load i18n.js).
+  const PRESET_HE = { clean: 'נקי', karaoke: 'קריוקי', wordpop: 'מילה-מילה', news: 'כתבה', viral: 'צהוב ויראלי', invert: 'בהיר' };
+  // Effects a profile may carry that the assembler burn does not render -
+  // never sent (the server drops them too, so the editor shows what rendered).
+  const STYLE_EFFECTS = ['progress_bar', 'progress_color', 'auto_zoom', 'zoom_strength', 'zooms'];
+  const capStyle = { choice: 'default', profiles: [], loaded: false };
+  function _styleOptionsFor(sel) {
+    sel.innerHTML = '';
+    const add = (parent, value, label) => {
+      const o = document.createElement('option'); o.value = value; o.textContent = label; parent.appendChild(o);
+    };
+    if (capStyle.profiles.length) {
+      const g = document.createElement('optgroup'); g.label = 'הסגנונות שלי';
+      capStyle.profiles.forEach((p) => add(g, 'profile:' + p.name, p.name));
+      sel.appendChild(g);
+    } else if (!capStyle.loaded && capStyle.choice.startsWith('profile:')) {
+      // Profiles still loading: keep showing the saved pick.
+      add(sel, capStyle.choice, capStyle.choice.slice(8));
+    }
+    const g2 = document.createElement('optgroup'); g2.label = 'סגנונות מוכנים';
+    CAPTION_PRESETS.forEach((p) => add(g2, 'preset:' + p.id, PRESET_HE[p.id] || p.id));
+    sel.appendChild(g2);
+    add(sel, 'default', 'ברירת מחדל');
+    sel.value = capStyle.choice;
+    if (sel.value !== capStyle.choice) sel.value = 'default';
+  }
+  function renderStyleSelects() {
+    // A saved profile that no longer exists falls back to the default QUIETLY.
+    if (capStyle.loaded && capStyle.choice.startsWith('profile:')
+        && !capStyle.profiles.some((p) => 'profile:' + p.name === capStyle.choice)) {
+      capStyle.choice = 'default';
+      _saveBrand();
+    }
+    document.querySelectorAll('.cap-style-sel').forEach(_styleOptionsFor);
+  }
+  document.querySelectorAll('.cap-style-sel').forEach((sel) => sel.addEventListener('change', () => {
+    capStyle.choice = sel.value || 'default';
+    renderStyleSelects();   // keep both modes' selects in step
+    _saveBrand();
+  }));
+  function _syncStyleEnabled() {
+    $('clipCapStyle').disabled = !$('clipCapToggle').checked;
+    $('capStyle').disabled = !$('capToggle').checked;
+  }
+  $('clipCapToggle').addEventListener('change', _syncStyleEnabled);
+  $('capToggle').addEventListener('change', _syncStyleEnabled);
+  async function loadStyleProfiles() {
+    try {
+      const r = await fetch(API_BASE + '/profiles', { headers: { 'Authorization': 'Bearer ' + token } });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      capStyle.profiles = (Array.isArray(d.profiles) ? d.profiles : []).filter((p) => p && p.name && p.data);
+      capStyle.loaded = true;
+    } catch (_) {
+      // Unreachable: a saved profile pick can not be resolved this session -
+      // render with the default, but do not overwrite the stored choice.
+      capStyle.profiles = [];
+    }
+    renderStyleSelects();
+  }
+  // The render payload for the current choice ({} = "ברירת מחדל").
+  function styleExtra() {
+    const ch = capStyle.choice || 'default';
+    if (ch.startsWith('preset:')) {
+      const p = CAPTION_PRESETS.find((x) => 'preset:' + x.id === ch);
+      return p ? { font: p.font, caption_style: { ...p.style } } : {};
+    }
+    if (ch.startsWith('profile:')) {
+      const p = capStyle.profiles.find((x) => 'profile:' + x.name === ch);
+      if (!p) return {};
+      const d = p.data || {};
+      const out = {};
+      if (d.font) out.font = d.font;
+      if (d.font_size != null && isFinite(d.font_size)) out.font_size = +d.font_size;
+      if (d.margin_v != null && isFinite(d.margin_v)) out.margin_v = +d.margin_v;
+      if (d.caption_style && typeof d.caption_style === 'object') {
+        const cs = { ...d.caption_style };
+        STYLE_EFFECTS.forEach((k) => delete cs[k]);
+        out.caption_style = cs;
+      }
+      // The profile's hook design, in the shape the editor's hook payload
+      // uses (opacity 0-1, size as % of the base hook size).
+      const hk = d.hook || {};
+      const hs = {};
+      if (hk.font) hs.font = hk.font;
+      ['font_color', 'bg_color', 'border_color'].forEach((k) => { if (hk[k]) hs[k] = hk[k]; });
+      if (hk.bg_opacity != null && hk.bg_opacity !== '' && isFinite(hk.bg_opacity)) hs.bg_opacity = parseInt(hk.bg_opacity, 10) / 100;
+      if (hk.border_size != null && hk.border_size !== '' && isFinite(hk.border_size)) hs.border_size = parseInt(hk.border_size, 10);
+      if (hk.size != null && hk.size !== '' && isFinite(hk.size)) hs.font_size_pct = parseInt(hk.size, 10);
+      if (Object.keys(hs).length) out.hook_style = hs;
+      return out;
+    }
+    return {};
+  }
+  // Soft note when the server replaced an invalid style value.
+  function styleNoteText(ws) {
+    if (!Array.isArray(ws) || !ws.length) return '';
+    return 'חלק מהגדרות הסגנון לא היו תקינות והוחלפו בברירת מחדל (' + ws.map((w) => w.field).join(', ') + ').';
+  }
   _loadBrand();
+  renderStyleSelects();
+  _syncStyleEnabled();
+  loadStyleProfiles();
 
   // ── Clips mode: candidate shorts with virality estimates ──
   const RUBRIC = [['hook', 'הוק'], ['retention', 'החזקה'], ['emotion', 'רגש'], ['clarity', 'בהירות'], ['shareability', 'שיתוף']];
@@ -997,6 +1148,7 @@
       const hi = document.createElement('input');
       hi.type = 'text'; hi.value = c.hookText; hi.maxLength = 120; hi.className = 'hook-input';
       hi.placeholder = 'שורה שתופיע על המסך ב-4 השניות הראשונות';
+      guardGereshAutospace(hi);   // before oninput below
       hi.oninput = () => { c.hookText = hi.value; };
       hookRow.append(hl, hi);
       const quote = document.createElement('div');
@@ -1123,6 +1275,116 @@
     _openPreview = null;
   }
 
+  // ── Keyboard auto-space after a geresh (2026-09-24) ─────────────────────
+  // Some phone keyboards (Gboard / Samsung "auto-space after punctuation")
+  // treat a geresh or apostrophe as sentence punctuation and insert a space
+  // after it: typing ג׳ונסון came out "ג׳ ונסון" (field report). The editor
+  // itself never alters the text (Playwright-verified), so this guard only
+  // removes a space the KEYBOARD added right after a geresh / apostrophe
+  // that follows a Hebrew letter, at the moment the next Hebrew letter
+  // arrives - detected as ONE insertion carrying " <letter>" (the keyboard
+  // prepends the space) or a "<geresh> " insertion directly followed by a
+  // letter (it appends it). A space typed on its own is its own input event
+  // and is kept ("ה׳ באייר"). Composition input is never touched. Register
+  // it BEFORE the field's own input listeners so they see the fixed value.
+  // MIRRORED from site/app.js (guardGereshAutospace) - keep the two in sync.
+  function guardGereshAutospace(el) {
+    const isHeb = (ch) => !!ch && ch >= '\u05D0' && ch <= '\u05EA';
+    const isGeresh = (ch) => ch === '\u05F3' || ch === "'" || ch === '\u2019';
+    let autoAt = -1;   // index of a space the keyboard inserted WITH the punctuation
+    el.addEventListener('input', (e) => {
+      if (e.inputType !== 'insertText') { autoAt = -1; return; }
+      const data = e.data || '';
+      const v = el.value;
+      const caret = el.selectionStart == null ? v.length : el.selectionStart;
+      const at = caret - data.length;            // where this insertion starts
+      let sp = -1;
+      if (data.length >= 2 && data[0] === ' ' && isHeb(data[1])
+          && isGeresh(v[at - 1]) && isHeb(v[at - 2])) sp = at;
+      else if (autoAt >= 0 && isHeb(data[0]) && at === autoAt + 1 && v[autoAt] === ' ') sp = autoAt;
+      autoAt = (data.length >= 2 && data.endsWith(' ') && isGeresh(data[data.length - 2])
+                && isHeb(v[caret - 3])) ? caret - 1 : -1;
+      if (sp >= 0) {
+        el.value = v.slice(0, sp) + v.slice(sp + 1);
+        el.setSelectionRange(caret - 1, caret - 1);
+      }
+    });
+  }
+
+  // ── Per-clip social caption + hashtags (2026-09-24) ──
+  // The server slices the clip's words to its CURRENT start/end (after the
+  // trim steppers) and writes a Hebrew caption + 5 hashtags. The text lives
+  // on the candidate (`c.social`), next to the other per-clip edits, so a
+  // re-render (which rebuilds the tiles) never loses it.
+  const SOCIAL_ERR = {
+    no_transcript: 'התמלול של הקליפ כבר לא זמין (עברו 48 שעות) - נתחו את הקובץ שוב.',
+    no_words: 'אין דיבור בטווח של הקליפ.',
+  };
+  function socialBlock(c) {
+    const box = document.createElement('div');
+    box.className = 'o-social';
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'o-soc-btn';
+    const msg = document.createElement('p'); msg.className = 'o-soc-msg';
+    const ed = document.createElement('div'); ed.className = 'o-soc-ed';
+    box.append(btn, ed, msg);
+    const draw = () => {
+      btn.textContent = c.social ? 'כיתוב חדש' : 'כיתוב לרשתות';
+      ed.innerHTML = '';
+      if (!c.social) return;
+      const ta = document.createElement('textarea');
+      ta.className = 'o-cap'; ta.dir = 'rtl'; ta.value = c.social.caption;
+      ta.setAttribute('aria-label', 'כיתוב');
+      guardGereshAutospace(ta);
+      // Grow with the text: a 3-line caption wraps to 5-6 lines in a narrow
+      // tile and a fixed box cut it mid-line (screenshot 2026-09-24).
+      const fit = () => { ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 2) + 'px'; };
+      ta.addEventListener('input', () => { c.social.caption = ta.value; fit(); });
+      requestAnimationFrame(fit);
+      const tags = document.createElement('input');
+      tags.className = 'o-tags'; tags.dir = 'rtl'; tags.value = c.social.hashtags;
+      tags.setAttribute('aria-label', 'האשטגים');
+      guardGereshAutospace(tags);
+      tags.addEventListener('input', () => { c.social.hashtags = tags.value; });
+      const row = document.createElement('div'); row.className = 'o-soc-row';
+      const cp = document.createElement('button');
+      cp.type = 'button'; cp.className = 'o-copy'; cp.textContent = 'העתקה';
+      cp.addEventListener('click', async () => {
+        const text = c.social.caption.trim() + '\n\n' + c.social.hashtags.trim();
+        try { await navigator.clipboard.writeText(text); msg.textContent = 'הועתק.'; }
+        catch (_) { ta.select(); msg.textContent = 'לא הצלחנו להעתיק - סמנו והעתיקו ידנית.'; }
+      });
+      row.appendChild(cp);
+      ed.append(ta, tags, row);
+    };
+    btn.addEventListener('click', async () => {
+      btn.disabled = true; msg.innerHTML = '<span class="spinner"></span>כותבים כיתוב...';
+      try {
+        const clip = clips[c.clip || 0];
+        const r = await fetch(API_BASE + '/assembler/social-caption/', {
+          method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ upload_key: clip.key, start: c.start, end: c.end, video_key: c.videoKey || '',
+                                 title: c.title || '', hook: (c.hookText || '').trim() }),
+        });
+        if (!r.ok) throw new Error('social ' + r.status);
+        const { call_id } = await r.json();
+        const res = await poll('/assembler/social-caption-poll/' + call_id, 60);
+        if (!res || res.error) {
+          msg.textContent = SOCIAL_ERR[res && res.error] || ('לא הצלחנו לכתוב כיתוב - נסו שוב. (' + ((res && (res.detail || res.error)) || '') + ')');
+        } else {
+          c.social = { caption: res.caption || '', hashtags: (res.hashtags || []).join(' ') };
+          msg.textContent = '';
+          draw();
+        }
+      } catch (e) {
+        msg.textContent = 'לא הצלחנו לכתוב כיתוב - נסו שוב. (' + e.message + ')';
+      }
+      btn.disabled = false;
+    });
+    draw();
+    return box;
+  }
+
   // Batch render: every picked candidate is its own render_story call (one
   // window, tighten + captions + hook), 2 in flight, each landing in
   // History under its own `_{variant}_out.mp4` key.
@@ -1139,6 +1401,8 @@
       t.className = 'out';
       t.innerHTML = '<div class="o-title"></div><div class="o-state"><span class="spinner"></span>בתור...</div>';
       t.querySelector('.o-title').textContent = c.title || ('קליפ ' + (c.id + 1));
+      c.videoKey = '';
+      t.appendChild(socialBlock(c));
       $('outs').appendChild(t);
       tiles.set(c.id, t);
     });
@@ -1174,12 +1438,14 @@
               hook_text: useHook ? c.hookText.trim() : '',
               variant: 'c' + (c.id + 1) + '_' + batch,
               ...extra,
+              ...($('clipCapToggle').checked ? styleExtra() : {}),
             }),
           });
           if (!r.ok) throw new Error('render ' + r.status);
           const { call_id } = await r.json();
           const result = await poll('/assembler/render-poll/' + call_id);
           if (!result || result.error || !result.video_key) throw new Error((result && (result.detail || result.error)) || 'render');
+          c.videoKey = result.video_key;   // frames for the social caption
           await ensureMediaToken();
           const url = API_BASE + '/media/' + encodeURIComponent(result.video_key) + '?token=' + encodeURIComponent(mediaToken);
           const vid = document.createElement('video');
@@ -1200,6 +1466,8 @@
           ed.textContent = 'עריכה בפייפליין';
           acts.append(a, ed);
           st.appendChild(acts);
+          const note = styleNoteText(result.style_warnings);
+          if (note) { const n = document.createElement('p'); n.className = 'style-note'; n.textContent = note; st.appendChild(n); }
           st.classList.add('ok');
         } catch (e) {
           failed++;
@@ -1397,7 +1665,7 @@
       $('renderStage').innerHTML = '<span class="spinner"></span>חותכים ומרכיבים את הסיפור...';
       const r = await fetch(API_BASE + '/assembler/render/', {
         method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ upload_keys: clips.map((c) => c.key), filename: (clips[0] && clips[0].name) || 'story.mp4', segments: kept, captions: $('capToggle').checked, vo_key: voKey, ...extra }),
+        body: JSON.stringify({ upload_keys: clips.map((c) => c.key), filename: (clips[0] && clips[0].name) || 'story.mp4', segments: kept, captions: $('capToggle').checked, vo_key: voKey, ...extra, ...($('capToggle').checked ? styleExtra() : {}) }),
       });
       if (!r.ok) throw new Error('render ' + r.status);
       const { call_id } = await r.json();
@@ -1405,6 +1673,9 @@
       if (!result || result.error || !result.video_key) {
         throw new Error((result && (result.detail || result.error)) || 'render');
       }
+      const note = styleNoteText(result.style_warnings);
+      $('storyStyleNote').textContent = note;
+      $('storyStyleNote').style.display = note ? 'block' : 'none';
       await showResult(result.video_key);
     } catch (e) {
       showErr($('renderErr'), 'הרינדור נכשל - נסו שוב. (' + e.message + ')');

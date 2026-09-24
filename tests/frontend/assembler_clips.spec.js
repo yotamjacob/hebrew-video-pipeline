@@ -30,6 +30,8 @@ const CANDS = {
 
 async function boot(page, { analyzePosts = [], renderPosts = [] } = {}) {
   await page.route(/fonts\.(googleapis|gstatic)\.com/, r => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
+  // Caption-style picker boot call (2026-09-24): no saved profiles.
+  await page.route(/\/profiles\/?$/, r => r.fulfill({ status: 200, contentType: 'application/json', body: '{"profiles":[],"default":null}' }));
   await page.addInitScript(() => localStorage.setItem('hebpipe_token', 'test-token'));
   await page.route(new RegExp(`${API_BASE}/upload_chunk`.replace(/[/.]/g, '\\$&')), r =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));

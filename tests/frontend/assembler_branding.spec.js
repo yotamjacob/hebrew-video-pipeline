@@ -15,6 +15,8 @@ const CANDS = { mode: 'clips', duration: 600, summary: 's', clips: [{ name: 'p.m
 
 async function boot(page, { renderPosts = [], chunkKeys = [] } = {}) {
   await page.route(/fonts\.(googleapis|gstatic)\.com/, r => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
+  // Caption-style picker boot call (2026-09-24): no saved profiles.
+  await page.route(/\/profiles\/?$/, r => r.fulfill({ status: 200, contentType: 'application/json', body: '{"profiles":[],"default":null}' }));
   await page.addInitScript(() => localStorage.setItem('hebpipe_token', 'test-token'));
   await page.route(/\/upload_r2\/init\/$/, r => r.fulfill({ status: 503, contentType: 'application/json', body: '{"code":"r2_unavailable"}' }));
   await page.route(new RegExp(`${API_BASE}/upload_chunk`.replace(/[/.]/g, '\\$&')), (route, request) => {

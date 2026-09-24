@@ -428,7 +428,9 @@ class TestReframeContracts:
     def test_report_rides_the_render_result(self):
         block = self._render()
         assert 'result["reframe_report"] = _reframe_summary(' in block
-        assert 'hook["vertical_position"] = 46' in block and 'sg["kind"] == "split"' in block
+        # split: captions go ON the seam, the hook just above it (2026-09-24)
+        assert 'hook["vertical_position"] = 36 if events else 46' in block and 'sg["kind"] == "split"' in block
+        assert "margin_v_pct = _seam_margin_pct(cw, ch, font_size)" in block
 
     def test_fit_mode_keeps_the_whole_frame_over_a_blurred_fill(self):
         block = self._render()
@@ -455,9 +457,12 @@ class TestReframeContracts:
 
     def test_route_forwards_reframe(self):
         i = MODAL_SRC.index('("/assembler/render"')
-        block = MODAL_SRC[i:i + 7000]
+        block = MODAL_SRC[i:MODAL_SRC.index('"/assembler/render-poll/"', i)]
         assert 'reframe = data.get("reframe") if data.get("reframe") in ("9:16", "fit") else None' in block
-        assert "wm,\n                                          reframe)" in block
+        # reframe, then the caption style (2026-09-24) - positional, in
+        # render_story's parameter order
+        assert ("wm,\n                                          reframe, st_font, st_size, st_margin, st_cs, st_hs,"
+                "\n                                          st_warn)") in block
 
 
 # ── Pane finder / hysteresis / stability (2026-09-24, first real podcast) ──

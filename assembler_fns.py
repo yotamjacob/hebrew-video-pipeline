@@ -35,9 +35,10 @@ from pathlib import Path
 import modal
 
 from pipeline_core import (
-    app, image, burn_image, model_volume, MODEL_DIR,
+    app, image, burn_image, light_image, model_volume, MODEL_DIR,
     WHISPER_MODEL, WHISPER_INITIAL_PROMPT, tmp_vol, TMP_DIR,
     SONNET_MODEL, HAIKU_MODEL, costs_store, _record_ai_spend, _msg_text,
+    _fix_rtl_punct,
 )
 
 # Mirrors process_video's noise gates (kept local - importing them would mean
@@ -634,13 +635,62 @@ def _asm_words_path(upload_key: str) -> Path:
     return Path(TMP_DIR) / f"{upload_key}_asm_words.json"
 
 
-def _captions_for_windows(windows, clip_segments):
+def _glue_split_words(words):
+    """The main pipeline's geresh repair (`_glue_split_tokens` in
+    pipeline_fns) for the assembler's [[start, end, word]] lists: Whisper
+    splits loan words at the geresh ("ג" + "׳ונסון", "הצ" + "'יקונג" - 46
+    times in one 72-min podcast), so word-pop showed "׳ונסון" alone (user
+    review 2026-09-24). A token that STARTS with ׳ ' ’ and has more after
+    it joins the previous token when that one ends with a Hebrew letter;
+    the merged word spans both. Only the single-geresh family - gershayim
+    and double quotes can open a quotation. Idempotent. Pure."""
+    glue = ("\u05f3", "'", "\u2019")
+    out = []
+    for w in words or []:
+        t = str(w[2])
+        prev = out[-1][2] if out else ""
+        if out and len(t) > 1 and t.startswith(glue) and prev and "\u05d0" <= prev[-1] <= "\u05ea":
+            out[-1] = [out[-1][0], w[1], prev + t]
+        else:
+            out.append([w[0], w[1], t])
+    return out
+
+
+def _glued_segments(segments):
+    """Every segment's words through _glue_split_words; a segment whose
+    words changed gets its text rebuilt from them (Whisper's segment text
+    carries the same split). Covers transcripts persisted before the repair
+    existed. Pure (returns new dicts)."""
+    out = []
+    for seg in segments or []:
+        words = seg.get("words") or []
+        glued = _glue_split_words(words)
+        if len(glued) != len(words):
+            seg = dict(seg, words=glued, text=" ".join(w[2] for w in glued))
+        out.append(seg)
+    return out
+
+
+def _clean_caption_word(t):
+    """A caption word as the main pipeline shows it (generate_ass `_clean`):
+    commas, periods, dashes, colons and semicolons stripped from the edges;
+    ? ! and quotes kept. Pure."""
+    return str(t).strip().strip("\u060c,.-\u2013\u2014;:")
+
+
+def _captions_for_windows(windows, clip_segments, max_chars=32, min_sil=0.3):
     """Remap the per-clip word-level transcript onto the OUTPUT timeline of
-    the kept windows (in storyboard order). One caption event per source
-    segment slice inside a window; word timings shift with it, so the shared
-    ASS builder can render classic/word/karaoke modes unchanged.
-    windows: [(clip_idx, start, end)] - clip_segments: per clip, a list of
-    {"start","end","text","words":[[s,e,w],...]}."""
+    the kept windows (in storyboard order), building the caption cues with
+    the MAIN PIPELINE's rules (generate_ass, field-proven for Hebrew -
+    2026-09-24, user: "follow the rules like in the pipeline captions"):
+    every word cleaned (_clean_caption_word: no trailing commas / periods -
+    a karaoke color tag next to a trailing comma flipped it to the wrong
+    side of the RTL line), ONE line per cue of <= `max_chars` characters, a
+    new cue on every pause >= `min_sil` s, cues never span source segments,
+    _fix_rtl_punct per line, cue end = its last word's end. Word timings
+    ride each cue (one per token) so classic / word / karaoke render
+    unchanged. windows: [(clip_idx, start, end)] - clip_segments: per clip,
+    [{"start", "end", "text", "words": [[s, e, w], ...]}]. Pure."""
     events = []
     cum = 0.0
     for ci, a, b in windows:
@@ -648,19 +698,207 @@ def _captions_for_windows(windows, clip_segments):
         for seg in clip_segments[ci]:
             words = [w for w in (seg.get("words") or [])
                      if a - 0.05 <= float(w[0]) < b]
-            if not words:
-                continue
-            shifted = [[round(max(0.0, float(w[0]) - a) + cum, 3),
-                        round(min(float(w[1]), b) - a + cum, 3),
-                        str(w[2])] for w in words]
-            events.append({
-                "start": shifted[0][0],
-                "end": round(min(shifted[-1][1] + 0.2, cum + win_len), 3),
-                "text": " ".join(w[2] for w in shifted),
-                "words": shifted,
-            })
+            line, chars, prev_end = [], 0, None
+
+            def _flush(line=line, cum=cum, a=a, b=b):
+                if not line:
+                    return
+                shifted = [[round(max(0.0, float(w[0]) - a) + cum, 3),
+                            round(min(float(w[1]), b) - a + cum, 3), c] for w, c in line]
+                events.append({"start": shifted[0][0], "end": max(shifted[-1][1], shifted[0][0] + 0.05),
+                               "text": _fix_rtl_punct(" ".join(c for _w, c in line)),
+                               "words": shifted})
+                line.clear()
+            for w in words:
+                clean = _clean_caption_word(w[2])
+                if not clean:
+                    continue
+                raw_len = len(str(w[2]).strip())
+                if prev_end is not None and float(w[0]) - prev_end >= min_sil and line:
+                    _flush()
+                    chars = 0
+                prev_end = float(w[1])
+                if line and chars + raw_len + 1 > max_chars:
+                    _flush()
+                    chars = 0
+                line.append((w, clean))
+                chars += raw_len + (1 if len(line) > 1 else 0)
+            _flush()
         cum += win_len
     return events
+
+
+def _caption_max_chars(cw):
+    """Characters per caption cue for a canvas `cw` wide - generate_ass'
+    formula at its reference 48 px: (w - 2 x margin_h) / (48 x 0.60). The
+    chosen font size re-wraps later in build_caption_ass, exactly as a main
+    pipeline job does. Pure."""
+    return max(8, int((cw - 2 * max(25, cw // 14)) / (48 * 0.60)))
+
+
+def _rtl_karaoke_ass(ass_str):
+    """Karaoke burns of Hebrew lines (2026-09-24, user screenshot: "rtl is
+    not working correctly on the karaoke"): libass bidi-reorders each
+    override-tag-separated RUN on its own (VSFilter compatibility) unless
+    the style's Encoding is -1 - so the highlight's color tags split an RTL
+    line into runs laid out left to right, and a trailing comma flipped to
+    the line's start. Measured with libass: Encoding -1 makes every tagged
+    line match the untagged layout (word order and punctuation). Applied to
+    the Default (caption) style of the assembler's ASS only when karaoke is
+    the chosen mode - the shared build_caption_ass is untouched. Pure."""
+    out = []
+    for ln in ass_str.split("\n"):
+        if ln.startswith("Style: Default,"):
+            ln = ln.rpartition(",")[0] + ",-1"
+        out.append(ln)
+    return "\n".join(out)
+
+
+def _seam_margin_pct(cw, ch, font_size=None):
+    """Split-screen caption placement (2026-09-24, user: "subtitles are on
+    Alina's head, they should be on the split line"): the bottom margin
+    (fraction of height) that centers a one-line caption on the seam
+    between the two tiles - half the canvas height minus half a line of the
+    rendered size (reference px scaled like build_caption_ass). Pure."""
+    fs = 48 if font_size is None else int(font_size)
+    px = fs * max(0.25, min(4.0, min(cw, ch) / 1080.0))
+    return round((ch / 2.0 - 0.6 * px) / float(ch), 4)
+
+
+def _social_segments(segments, start, end):
+    """The clip's words for its social caption (2026-09-24): every word of
+    the persisted per-clip transcript whose start falls in the CURRENT
+    [start, end) (after the trim steppers; 50 ms grace like the caption
+    remap), regrouped into the {start, end, text} segments the caption
+    generator reads - one per source segment that still has words. Pure."""
+    out = []
+    start, end = float(start), float(end)
+    for seg in segments or []:
+        words = [w for w in (seg.get("words") or [])
+                 if start - 0.05 <= float(w[0]) < end]
+        if not words:
+            continue
+        out.append({"start": round(float(words[0][0]), 3),
+                    "end": round(min(float(words[-1][1]), end), 3),
+                    "text": " ".join(str(w[2]).strip() for w in words)})
+    return out
+
+
+# ── Caption style for the assembler render (2026-09-24) ─────────────────────
+# The main editor is the styling tool; the page only PICKS a saved profile or
+# a built-in preset and render_story applies it through the shared
+# build_caption_ass. Values are validated strictly (the /burn route does not
+# validate at all - the font name lands in the ASS Style line); an invalid
+# value falls back to its default and is reported in `style_warnings`.
+CAPTION_FONTS = ("Heebo", "Assistant", "Frank Ruhl Libre", "Secular One", "Rubik",
+                 "Suez One", "Karantina", "Playpen Sans Hebrew", "Miriam Libre")
+HOOK_FONTS = ("Heebo", "Assistant", "FrankRuhlLibre", "SecularOne")   # the editor's hook <select> values
+CAPTION_MODES = ("classic", "karaoke", "word")
+_STYLE_DEFAULTS = {"font": "Heebo", "font_size": 48, "margin_v_pct": 0.08}
+_CS_DEFAULTS = {"font_color": "#FFFFFF", "border_color": "#000000", "border_size": 2,
+                "bg_color": "#000000", "bg_opacity": 0.0, "mode": "classic",
+                "highlight_color": "#FFD400"}
+_HS_DEFAULTS = {"font": "Heebo", "font_color": "#FFFFFF", "bg_color": "#000000",
+                "bg_opacity": 0.6, "border_color": "#000000", "border_size": 0,
+                "font_size_pct": 100}
+# Editor-only EFFECTS a profile's caption_style may carry: the assembler burn
+# does not render them, so they are dropped from the render AND the recorded
+# edit state (the editor then shows exactly what was rendered).
+_CS_EFFECTS = ("progress_bar", "progress_color", "auto_zoom", "zoom_strength", "zooms")
+
+
+def _sanitize_caption_style(font=None, font_size=None, margin_v_pct=None,
+                            caption_style=None, hook_style=None):
+    """Validate the render's caption style. None anywhere = "not chosen"
+    and stays None (today's output, byte-identical). A chosen value that is
+    invalid falls back to its default and adds {"field", "value",
+    "fallback"} to the warnings. Rules: font in CAPTION_FONTS, size int
+    12-240 (build_caption_ass' own clamp), margin 0-0.8, colours #rrggbb,
+    border 0-20, opacity 0-1, mode in CAPTION_MODES; hook font in
+    HOOK_FONTS, hook size 50-200 %. Unknown keys are dropped; editor-only
+    effects (_CS_EFFECTS) are dropped silently. The margin range is the
+    main editor's own drag range (0.03-0.80 in app.js; 0 allowed): a real
+    saved profile sits at 0.33, so a tighter cap would silently move its
+    captions. Returns (font, font_size,
+    margin_v_pct, caption_style, hook_style, warnings). Pure."""
+    import re as _re3
+    hex_re = _re3.compile(r"^#[0-9a-fA-F]{6}$")
+    warnings = []
+
+    def _warn(field, value, fallback):
+        warnings.append({"field": field, "value": str(value)[:40], "fallback": fallback})
+        return fallback
+
+    def _num(field, value, lo, hi, fallback, cast):
+        try:
+            v = cast(value)
+            if v != v or not (lo <= v <= hi):      # NaN or out of range
+                raise ValueError
+            return v
+        except (TypeError, ValueError, OverflowError):
+            return _warn(field, value, fallback)
+
+    if font is not None and font not in CAPTION_FONTS:
+        font = _warn("font", font, _STYLE_DEFAULTS["font"])
+    if font_size is not None:
+        font_size = _num("font_size", font_size, 12, 240, _STYLE_DEFAULTS["font_size"],
+                         lambda v: int(float(v)))
+    if margin_v_pct is not None:
+        margin_v_pct = _num("margin_v_pct", margin_v_pct, 0.0, 0.8,
+                            _STYLE_DEFAULTS["margin_v_pct"], float)
+
+    def _style(raw, defaults, prefix, fonts=None):
+        if raw is None:
+            return None
+        if not isinstance(raw, dict):
+            _warn(prefix, type(raw).__name__, "default")
+            return None
+        out = {}
+        for k, v in raw.items():
+            if k in _CS_EFFECTS or k not in defaults:
+                continue
+            d = defaults[k]
+            f = f"{prefix}.{k}"
+            if k.endswith("_color"):
+                out[k] = v if isinstance(v, str) and hex_re.match(v) else _warn(f, v, d)
+            elif k == "border_size":
+                out[k] = _num(f, v, 0, 20, d, lambda x: int(float(x)))
+            elif k == "bg_opacity":
+                out[k] = _num(f, v, 0.0, 1.0, d, float)
+            elif k == "mode":
+                out[k] = v if v in CAPTION_MODES else _warn(f, v, d)
+            elif k == "font":
+                out[k] = v if v in (fonts or ()) else _warn(f, v, d)
+            elif k == "font_size_pct":
+                out[k] = _num(f, v, 50, 200, d, lambda x: int(float(x)))
+        return out
+    caption_style = _style(caption_style, _CS_DEFAULTS, "caption_style")
+    hook_style = _style(hook_style, _HS_DEFAULTS, "hook_style", HOOK_FONTS)
+    return font, font_size, margin_v_pct, caption_style, hook_style, warnings
+
+
+def _caption_ass_args(cw, ch, font=None, font_size=None, margin_v_pct=None):
+    """The (width, height, font, font_size, margin_h, margin_v) positional
+    args of the final build_caption_ass call. With nothing chosen it is
+    EXACTLY the historical call (Heebo, 48, max(25, cw // 14),
+    int(0.08 * ch)) - the byte-identical default. Pure."""
+    m = 0.08 if margin_v_pct is None else float(margin_v_pct)
+    return (cw, ch, font or "Heebo", 48 if font_size is None else int(font_size),
+            max(25, cw // 14), int(m * ch))
+
+
+def _apply_hook_style(hook, hook_style):
+    """The on-screen hook dict with the chosen profile's hook design (font,
+    colours, box, border, size %) laid over it - the same fields the main
+    editor's hook payload carries. Timing / position keys are never
+    overwritten. None / {} style = the hook unchanged. Pure."""
+    if not hook or not hook_style:
+        return hook
+    out = dict(hook)
+    for k in _HS_DEFAULTS:
+        if k in hook_style:
+            out[k] = hook_style[k]
+    return out
 
 
 def _thumb_b64(src: Path, at: float, workdir: Path, idx: int) -> str:
@@ -763,6 +1001,7 @@ def analyze_story(upload_keys, filenames=None, mode: str = "story", guidance: st
                                  for w in (s.words or []) if w.word.strip()]
                         segs.append({"start": float(s.start), "end": float(s.end),
                                      "text": text, "words": words})
+                segs = _glued_segments(segs)   # the pipeline's geresh repair
             except Exception as exc:
                 print(f"[assembler] no transcribable audio in {name!r}: {exc!r}")
             # (Near-)speechless clip: the footage itself is the story material.
@@ -812,6 +1051,40 @@ def analyze_story(upload_keys, filenames=None, mode: str = "story", guidance: st
         return {"duration": round(total, 1), "title": title, "story": story,
                 "moments": moments, "clips": clips_meta,
                 "sources": [f"{k}_src.mp4" for k in upload_keys]}
+
+
+@app.function(
+    image=light_image,
+    timeout=180,
+    max_containers=4,
+    volumes={TMP_DIR: tmp_vol},
+    secrets=[modal.Secret.from_name("anthropic-secret")],
+)
+def assembler_social_caption(upload_key: str, start: float, end: float,
+                             video_key: str = "", context: str = "") -> dict:
+    """Social caption + 5 hashtags for ONE clip (2026-09-24): the clip's
+    words from `{key}_asm_words.json`, sliced to the current [start, end]
+    by _social_segments, through the SHARED generate_caption_options with
+    flavor="assembler" (frames from `video_key` when a render exists;
+    spend `assembler_social`). Soft errors: no_transcript (expired
+    scratch) / no_words."""
+    from content_fns import generate_caption_options
+    try:
+        tmp_vol.reload()
+    except Exception:
+        pass
+    wp = _asm_words_path(upload_key)
+    if not wp.exists():
+        return {"error": "no_transcript"}
+    try:
+        segs = _glued_segments(json.loads(wp.read_text(encoding="utf-8")).get("segments", []))
+    except Exception:
+        return {"error": "no_transcript"}
+    sliced = _social_segments(segs, start, end)
+    if not sliced:
+        return {"error": "no_words"}
+    return generate_caption_options.local(json.dumps(sliced, ensure_ascii=False), video_key or "",
+                                          "instagram,tiktok", "assembler", str(context or "")[:400])
 
 
 INTRO_OUTRO_MAX_SECONDS = 20.0
@@ -2009,7 +2282,9 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
                  tighten: bool = False, hook_text: str = "",
                  variant: str = "", intro_key: str = None, outro_key: str = None,
                  fade: float = 0.0, wm_key: str = None, wm: dict = None,
-                 reframe: str = None) -> dict:
+                 reframe: str = None, font: str = None, font_size: int = None,
+                 margin_v_pct: float = None, caption_style: dict = None,
+                 hook_style: dict = None, style_warnings: list = None) -> dict:
     """Cut the kept moments (in the user's storyboard ORDER) from their
     respective clips, normalize every part onto a common canvas (mixed
     resolutions/orientations scale+pad; uniform fps + audio), and concat.
@@ -2034,7 +2309,14 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
     cuts and every shot is framed on its own (_plan_window: split-screen /
     zoomed group / static zoomed crop on the active speaker, hard re-aims,
     easing only for drifting subjects, "fit" below the confidence floor),
-    rendered by _segments_chain inside the part encode. The result carries
+    rendered by _segments_chain inside the part encode.
+    Caption style (2026-09-24): `font`, `font_size` (reference px),
+    `margin_v_pct`, `caption_style` and `hook_style` - positional AFTER
+    `reframe`, in this order (the route passes them positionally, then
+    `style_warnings` = the route's own sanitize report) - apply a saved
+    profile / preset in the final captions pass and on the hook box. All
+    None = today's output, byte-identical. Re-validated here
+    (_sanitize_caption_style); the result carries `style_warnings`. The result carries
     `reframe_report` (per window: mode, shots, speaker switches, margin,
     confidence, per-segment upscale). Sampling failure -> a centered
     full-height crop, never a failed render."""
@@ -2044,6 +2326,13 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
     # of itself (2026-08-17 - "convert it to portrait, not just cut the sides").
     reframe = reframe if reframe in ("9:16", "fit") else None
     fade = max(0.0, min(3.0, float(fade or 0)))
+    # Caption style: re-validated here (the route already sanitized - this
+    # is the worker's own guard); the route's report and ours ride the result.
+    font, font_size, margin_v_pct, caption_style, hook_style, _sw = _sanitize_caption_style(
+        font, font_size, margin_v_pct, caption_style, hook_style)
+    warnings_out = [w for w in (style_warnings or []) if isinstance(w, dict)][:20] + _sw
+    if warnings_out:
+        print(f"[assembler] style_warnings variant={variant!r}: {json.dumps(warnings_out, ensure_ascii=False)}")
     wm = wm if isinstance(wm, dict) else None
 
     if isinstance(upload_keys, str):
@@ -2079,9 +2368,9 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
         for k in upload_keys:
             try:
                 wp = _asm_words_path(k)
-                clip_segments.append(
+                clip_segments.append(_glued_segments(
                     json.loads(wp.read_text(encoding="utf-8")).get("segments", [])
-                    if wp.exists() else [])
+                    if wp.exists() else []))
             except Exception:
                 clip_segments.append([])
         if tighten:
@@ -2314,7 +2603,7 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
         hook_text = str(hook_text or "").strip()[:120]
         if captions:
             try:
-                events = _captions_for_windows(windows, clip_segments)
+                events = _captions_for_windows(windows, clip_segments, _caption_max_chars(cw))
             except Exception as exc:
                 print(f"[assembler] caption remap failed - shipping without: {exc!r}")
                 events = []
@@ -2327,6 +2616,7 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
         if hook_text:
             hook = {"text": hook_text, "start_seconds": round(intro_len + 0.2, 2),
                     "duration_seconds": max(1.5, min(4.5, body_len - 0.5))}
+            hook = _apply_hook_style(hook, hook_style)
             # Split-screen: the default top-10% box lands on the upper
             # speaker's face - park it on the seam between the two tiles
             # when a split segment is on screen while the hook shows.
@@ -2340,15 +2630,26 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
                         on_split = True
                 off += b - a
             if on_split:
-                hook["vertical_position"] = 46
+                # Captions sit ON the seam in a split (below) - the hook box
+                # then goes just above it, over the upper speaker's chest
+                # (center 36%: clear of the chin and of the caption line).
+                hook["vertical_position"] = 36 if events else 46
+        # Split-screen: the captions go on the seam between the two tiles
+        # (any split segment in the body) - the bottom default / a profile's
+        # margin would land on the lower speaker's face.
+        if events and any(sg["kind"] == "split" for pl in rf_plans.values() for sg in pl.get("segs") or []):
+            margin_v_pct = _seam_margin_pct(cw, ch, font_size)
         burned = False
         if events or hook:
             try:
                 from pipeline_fns import build_caption_ass
-                ass_str = build_caption_ass(
-                    cw, ch, "Heebo", 48,
-                    max(25, cw // 14), int(0.08 * ch),
-                    events, hook)
+                ass_args = _caption_ass_args(cw, ch, font, font_size, margin_v_pct)
+                if caption_style is None:
+                    ass_str = build_caption_ass(*ass_args, events, hook)
+                else:
+                    ass_str = build_caption_ass(*ass_args, events, hook, caption_style=caption_style)
+                    if caption_style.get("mode") == "karaoke":
+                        ass_str = _rtl_karaoke_ass(ass_str)
                 ass_path = tmp / "captions.ass"
                 ass_path.write_text(ass_str, encoding="utf-8")
                 esc = str(ass_path).replace(":", r"\:")
@@ -2373,13 +2674,14 @@ def render_story(upload_keys, segments: list, filename: str = "story.mp4",
             "captions":      events,
             "hook":          hook or {},
             "broll":         [],
-            "font":          "Heebo",
-            "font_size":     48,
-            "margin_v_pct":  0.08,
-            "caption_style": {},
+            "font":          font or "Heebo",
+            "font_size":     48 if font_size is None else font_size,
+            "margin_v_pct":  0.08 if margin_v_pct is None else margin_v_pct,
+            "caption_style": caption_style or {},
         })
         total = body_len
-        result = {"video_key": out_key, "duration": round(total, 1)}
+        result = {"video_key": out_key, "duration": round(total, 1),
+                  "style_warnings": warnings_out}
         if reframe == "9:16":
             result["reframe_report"] = _reframe_summary(
                 [dict(rf_plans[i]["report"], window=i) for i in sorted(rf_plans)],

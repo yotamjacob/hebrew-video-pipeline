@@ -210,7 +210,7 @@ class TestClipsContracts:
         assert 'mode = "clips" if data.get("mode") == "clips" else "story"' in ablock
         assert "names, mode, guidance)" in ablock
         j = MODAL_SRC.index('("/assembler/render"')
-        rblock = MODAL_SRC[j:j + 6000]
+        rblock = MODAL_SRC[j:MODAL_SRC.index('"/assembler/render-poll/"', j)]
         assert "_SAFE_VARIANT_RE.match(variant)" in rblock
         assert '[:120]' in rblock and 'bool(data.get("tighten", False))' in rblock
         assert "tighten, hook_text, variant," in rblock

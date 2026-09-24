@@ -251,7 +251,7 @@ def _code_email_html(code: str) -> str:
 from pipeline_fns import process_video, burn_captions_fn, backup_dicts, restore_dicts, build_caption_ass
 from broll_fns import analyze_stock_broll, search_stock_clips
 from content_fns import generate_hook_options, generate_caption_options
-from assembler_fns import analyze_story, render_story
+from assembler_fns import analyze_story, render_story, assembler_social_caption, _sanitize_caption_style
 from metricool_fns import (
     schedule_post_fn, oauth_store, _mc_refresh_access_token, _mcp_tool_call,
     _build_metricool_info,
@@ -3505,6 +3505,74 @@ def api():
                 await send_error(str(e))
             return
 
+        # Per-clip social caption + hashtags (2026-09-24): the clip's words
+        # are sliced SERVER-side from `{key}_asm_words.json` (the page never
+        # has word timings), then the shared generate_caption_options runs
+        # with flavor="assembler". Keys uid-scoped; the optional rendered
+        # clip (frames) must be the caller's own.
+        if path in ("/assembler/social-caption", "/assembler/social-caption/") and method == "POST":
+            if not _check_rate_limit(_get_client_ip(scope)):
+                await send_error("Rate limit exceeded. Try again in a minute.", 429, code="rate_limited")
+                return
+            try:
+                data = json.loads((await _read_body(receive)).decode("utf-8"))
+            except Exception:
+                data = None
+            if not isinstance(data, dict):     # a JSON list / string must be a 400, not a 500
+                await send_error("Invalid request body", 400)
+                return
+            key = str(data.get("upload_key") or "").strip()
+            if not key or not _SAFE_KEY_RE.match(key):
+                await send_error("Invalid or missing key", 400)
+                return
+            try:
+                start, end = float(data.get("start")), float(data.get("end"))
+            except (TypeError, ValueError):
+                await send_error("Invalid range", 400)
+                return
+            if not (0 <= start < end) or end - start > 600:
+                await send_error("Invalid range", 400)
+                return
+            vk = str(data.get("video_key") or "").strip()
+            if vk and not _owned_key(vk, uid):
+                await send_error("Forbidden", 403)
+                return
+            context = " | ".join(str(data.get(f) or "").strip()[:200] for f in ("title", "hook")
+                                 if str(data.get(f) or "").strip())
+            try:
+                call = assembler_social_caption.spawn(f"{uprefix}{key}", start, end, vk, context)
+                _record_call(call)
+                resp = json.dumps({"call_id": call.object_id}).encode()
+                await send({"type": "http.response.start", "status": 202,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": resp})
+            except Exception as e:
+                await send_error(str(e))
+            return
+
+        if path.startswith("/assembler/social-caption-poll/") and method == "GET":
+            call_id = path[len("/assembler/social-caption-poll/"):].rstrip("/")
+            if not _call_owned(call_id):
+                await send_error("Forbidden", 403)
+                return
+            try:
+                import modal as _modal
+                fn_call = _modal.functions.FunctionCall.from_id(call_id)
+                result, still_running = _poll_fn_call(fn_call)
+                if still_running:
+                    body = json.dumps({"status": "running"}).encode()
+                    await send({"type": "http.response.start", "status": 202,
+                                "headers": CORS + [(b"content-type", b"application/json")]})
+                    await send({"type": "http.response.body", "body": body})
+                    return
+                body = json.dumps(result).encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": body})
+            except Exception as e:
+                await send_error(str(e))
+            return
+
         if path in ("/assembler/render", "/assembler/render/") and method == "POST":
             if not _check_rate_limit(_get_client_ip(scope)):
                 await send_error("Rate limit exceeded. Try again in a minute.", 429, code="rate_limited")
@@ -3512,6 +3580,8 @@ def api():
             try:
                 data = json.loads((await _read_body(receive)).decode("utf-8"))
             except Exception:
+                data = None
+            if not isinstance(data, dict):     # a JSON list / string must be a 400, not a 500
                 await send_error("Invalid request body", 400)
                 return
             keys = data.get("upload_keys")
@@ -3589,6 +3659,17 @@ def api():
             # Auto-reframe (2026-08-16): only "9:16" is a valid value; the
             # worker ignores it for sources that are already vertical.
             reframe = data.get("reframe") if data.get("reframe") in ("9:16", "fit") else None
+            # Caption style (2026-09-24): a saved profile / preset picked on
+            # the page. Validated strictly here (/burn does not validate);
+            # an invalid value falls back to its default and is reported in
+            # the render result's `style_warnings`. Absent = today's output.
+            def _opt_dict(v):
+                return v if isinstance(v, dict) and len(json.dumps(v)) <= 4000 else (None if v is None else "invalid")
+            st_font, st_size, st_margin, st_cs, st_hs, st_warn = _sanitize_caption_style(
+                data.get("font"), data.get("font_size"), data.get("margin_v"),
+                _opt_dict(data.get("caption_style")), _opt_dict(data.get("hook_style")))
+            if st_warn:
+                print(f"[assembler/render] style_warnings uid={uid}: {json.dumps(st_warn, ensure_ascii=False)}")
             try:
                 await asyncio.to_thread(tmp_vol.commit)   # flush before the worker reads
                 call = render_story.spawn([f"{uprefix}{k}" for k in keys],
@@ -3599,7 +3680,8 @@ def api():
                                           tighten, hook_text, variant,
                                           brand_keys["intro_key"], brand_keys["outro_key"],
                                           fade, brand_keys["wm_key"] if wm else None, wm,
-                                          reframe)
+                                          reframe, st_font, st_size, st_margin, st_cs, st_hs,
+                                          st_warn)
                 _record_call(call)
                 resp = json.dumps({"call_id": call.object_id}).encode()
                 await send({"type": "http.response.start", "status": 202,

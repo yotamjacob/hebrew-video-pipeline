@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.55.11';
+  const APP_VERSION = '1.56.0';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -7991,6 +7991,7 @@
       ta.rows = 1;
       ta.title = t('hook.clickEdit');
       ta.setAttribute('aria-label', t('hook.clickEdit'));
+      guardGereshAutospace(ta);   // before the input handler below
       ta.addEventListener('input', () => {
         _autosizeHookText(ta);
         drawHookPreview();
@@ -8499,6 +8500,42 @@
     rows.forEach(r => { r.querySelector('.cap-btn-del').disabled = onlyOne; });
   }
 
+  // ── Keyboard auto-space after a geresh (2026-09-24) ─────────────────────
+  // Some phone keyboards (Gboard / Samsung "auto-space after punctuation")
+  // treat a geresh or apostrophe as sentence punctuation and insert a space
+  // after it: typing ג׳ונסון came out "ג׳ ונסון" (field report). The editor
+  // itself never alters the text (Playwright-verified), so this guard only
+  // removes a space the KEYBOARD added right after a geresh / apostrophe
+  // that follows a Hebrew letter, at the moment the next Hebrew letter
+  // arrives - detected as ONE insertion carrying " <letter>" (the keyboard
+  // prepends the space) or a "<geresh> " insertion directly followed by a
+  // letter (it appends it). A space typed on its own is its own input event
+  // and is kept ("ה׳ באייר"). Composition input is never touched. Register
+  // it BEFORE the field's own input listeners so they see the fixed value.
+  // MIRRORED in site/assembler.html - keep the two in sync.
+  function guardGereshAutospace(el) {
+    const isHeb = (ch) => !!ch && ch >= '\u05D0' && ch <= '\u05EA';
+    const isGeresh = (ch) => ch === '\u05F3' || ch === "'" || ch === '\u2019';
+    let autoAt = -1;   // index of a space the keyboard inserted WITH the punctuation
+    el.addEventListener('input', (e) => {
+      if (e.inputType !== 'insertText') { autoAt = -1; return; }
+      const data = e.data || '';
+      const v = el.value;
+      const caret = el.selectionStart == null ? v.length : el.selectionStart;
+      const at = caret - data.length;            // where this insertion starts
+      let sp = -1;
+      if (data.length >= 2 && data[0] === ' ' && isHeb(data[1])
+          && isGeresh(v[at - 1]) && isHeb(v[at - 2])) sp = at;
+      else if (autoAt >= 0 && isHeb(data[0]) && at === autoAt + 1 && v[autoAt] === ' ') sp = autoAt;
+      autoAt = (data.length >= 2 && data.endsWith(' ') && isGeresh(data[data.length - 2])
+                && isHeb(v[caret - 3])) ? caret - 1 : -1;
+      if (sp >= 0) {
+        el.value = v.slice(0, sp) + v.slice(sp + 1);
+        el.setSelectionRange(caret - 1, caret - 1);
+      }
+    });
+  }
+
   function _createCaptionRow(cap) {
     const row = document.createElement('div');
     row.className = 'caption-row';
@@ -8558,6 +8595,7 @@
     textInp.className = 'caption-input';
     textInp.value     = cap.text;
     textInp.dir       = 'rtl';
+    guardGereshAutospace(textInp);   // before the input handler below
     const _growText = () => { textInp.style.height = 'auto'; textInp.style.height = textInp.scrollHeight + 'px'; };
     setTimeout(_growText, 0);   // initial fit once it's in the DOM
     let _preTextEdit = null;

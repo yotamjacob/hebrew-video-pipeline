@@ -628,7 +628,7 @@ class TestAssemblerRoutes:
         # The whole function body: render_story is the file's last def, so
         # slice generously instead of chasing its growing size.
         i = MODAL_SRC.index("def render_story")
-        block = MODAL_SRC[i:i + 20000]
+        block = MODAL_SRC[i:MODAL_SRC.index("\ndef ", i)]
         assert '_out.mp4' in block
         assert "_record_job(out_key" in block
 
@@ -638,7 +638,7 @@ class TestAssemblerRoutes:
         # via the SAME build_caption_ass as the main pipeline. A missing
         # transcript degrades to a clean cut, never a failed render.
         i = MODAL_SRC.index("def render_story")
-        block = MODAL_SRC[i:i + 20000]
+        block = MODAL_SRC[i:MODAL_SRC.index("\ndef ", i)]
         assert "build_caption_ass" in block
         assert "subtitles='" in block
         assert "_captions_for_windows" in block
