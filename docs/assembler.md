@@ -336,13 +336,13 @@ scalar strings by regex, and log `stop_reason`; pass-1 `max_tokens` 8000
 ## Social caption per clip + render with a saved caption style (2026-09-24)
 
 Two additive features, both modes of the page (the social caption lives on
-the clips-mode result tiles; the style picker is in both render cards).
+the clip cards (see "Results in the clip cards"); the style picker is in the setup card).
 
-**A. "כיתוב לרשתות" on every clip tile**
+**A. "כיתוב לרשתות" on every clip card** (was a result tile until the section-5 merge, same day)
 
 | Piece | Where | Contract |
 |---|---|---|
-| Button + editor | `site/assembler.html` `socialBlock(c)` (`.o-social` on each `.out` tile) | Posts `{upload_key, start, end, video_key, title, hook}` - the clip's CURRENT range (after the trim steppers) and the rendered clip's key once its render landed (else `""`, frames are optional). Result: editable `textarea.o-cap` (caption), editable `input.o-tags` (hashtags, space-separated), `.o-copy` copies `caption + blank line + hashtags`. The text is stored on the candidate (`c.social`, next to `hookText`), so a re-render - which rebuilds the tiles - keeps it. Soft errors: `no_transcript` (the `_asm_words.json` scratch expired, 48 h) and `no_words` get specific Hebrew messages. |
+| Button + editor | `site/assembler.html` `socialBlock(c)` (`.o-social` in each candidate card's `.c-out`) | Posts `{upload_key, start, end, video_key, title, hook}` - the clip's CURRENT range (after the trim steppers) and the rendered clip's key once its render landed (else `""`, frames are optional). Result: editable `textarea.o-cap` (caption), editable `input.o-tags` (hashtags, space-separated), `.o-copy` copies `caption + blank line + hashtags`. The text is stored on the candidate (`c.social`, next to `hookText`), so a re-render - which rebuilds the tiles - keeps it. Soft errors: `no_transcript` (the `_asm_words.json` scratch expired, 48 h) and `no_words` get specific Hebrew messages. |
 | Routes | `app_modal.py` `POST /assembler/social-caption`, `GET /assembler/social-caption-poll/{id}` | `/generate-caption` could not be reused: its transcript comes from the CLIENT and this page never has word timings. The key is `_SAFE_KEY_RE`-validated and uid-prefixed, the optional `video_key` must pass `_owned_key`, range `0 <= start < end`, <= 600 s; poll enforces `_call_owned`. Title + hook go as `context`. |
 | Worker | `assembler_fns.assembler_social_caption` (light_image, Anthropic secret, max 4 containers) | Reloads the volume, reads `{key}_asm_words.json`, `_social_segments` (pure) keeps the words starting in `[start, end)` (50 ms grace) regrouped per source segment `{start, end, text}`, then calls the SHARED `generate_caption_options.local(..., flavor="assembler", context=...)`. |
 | Prompt + post-step | `content_fns._assembler_social_prompt`, `_clean_social` (pure) | 2-3 Hebrew lines, GENDER-NEUTRAL address (plural imperative / infinitive), no hashtags inside the caption, <= 2 emojis, exactly 5 relevant hashtags returned separately; title + hook are context only ("do NOT copy them"). `_clean_social` does not trust the prompt: em / en dashes -> "-", <= 3 caption lines, hashtag-only lines moved to the tags, tags normalized (`#`, spaces -> `_`, de-duplicated, max 5). Spend logged as `assembler_social`. The main editor's default flavor (prompt, `post_caption` spend, `{caption}` shape) is unchanged - tested. |
@@ -384,6 +384,7 @@ viral-score explainer.
 | Process gate | Picking files starts the UPLOAD in the background (it is not processing and is the slow part) while the user picks the layout / options. `#processBtn` stays DISABLED until the upload finished (user follow-up, same day - the first version queued an early click) and shows the upload's progress ("מעלים את הסרטון... 42%"); once it lands it reads "עיבוד" and only the click starts the analysis. Session phase `uploaded` (upload landed, not processed yet) restores to the choice with "עיבוד" enabled. |
 | Processing = analysis + clips | In clips mode the analysis result is followed by `renderClips()` for every picked candidate (all by default) with the chosen layout / options / style. Afterwards `#processBtn` hides and `#renderClipsBtn` (moved into the card) reads "רענון הקליפים (N)" ("יצירת N קליפים" before any render exists); any layout / option / style change after renders exist shows `#settingsNote`. Story mode renders from its storyboard as before. Cards renumbered (setup 2, branding 3, clips / story 4, ...). |
 | Input lock | While anything is in flight - upload, analysis, a clip batch or the story render - the mode choice (`#modeStory` / `#modeClips`), the upload zone (`#drop` gets `.locked` + `aria-disabled`, `#file` disabled, the zone reads "מעבדים - אפשר להעלות סרטון חדש כשהעיבוד יסתיים") and the AI guidance are disabled (user follow-up, same day). Driven by a Proxy on `busy`, so every busy change re-syncs it; unlocked when it all finished (and between the upload and "עיבוד"). A drop while locked is still `preventDefault`ed so the browser never opens the file and leaves the page. |
+| Results in the clip cards (follow-up, same day) | User: "there's no need for section 5 - there's already a preview in section 4 - just present it only after the video is ready". The separate "הקליפים שלכם" card (`#clipsOut` / `#outs` tiles) is gone. Each candidate card carries its own `.c-out` (`renderOut(c)`, driven by `c.render`: `queued` "בתור..." / `pending` "יוצרים את הקליפ..." / `fail` / `done` = download + "עריכה בפייפליין" links + style note) and the social-caption block (created once per candidate, re-attached). The card's "תצוגה מקדימה" button (trim row) is HIDDEN until that clip's render is done and then plays the RENDERED clip (`/media/<video_key>`, as-is - the old in-browser layout simulation of the SOURCE is removed); a refresh withdraws a picked clip's preview until its new video lands, an unpicked clip keeps its earlier render. Trims and hook edits after a render raise the settings note. |
 | Viral score explainer | The `.score` badge is a button (`aria-expanded`) opening ONE `.viral-card` under the candidate: the clip's two weakest rubric dimensions with concrete advice (`RUBRIC_ADVICE`), the model's own tip, a length note outside 12-60 s, and how the score is computed (50% model holistic + 50% weighted rubric: hook 30%, retention 25%, emotion / clarity / shareability 15% each, duration prior - mirrors `_virality_score`). Closes on ×, Escape or any outside click. |
 | Branding file names | `.brand-slot` is `min-width: 0` in a `minmax(0, 1fr)` grid and `.slot-file` wraps (`overflow-wrap: anywhere`) - a long outro name ran past the card edge. |
 
@@ -400,14 +401,14 @@ time, the analysis result, every candidate edit (`start/end/pick/hookText/
 social/render`), the story's moment order + kept flags, and each render
 (`{status: pending, call}` -> `{status: done, video_key, style_warnings}` /
 `fail`). Saved on every phase change and render transition, debounced on any
-`input`/`change`/`click` in the clip cards / storyboard / result tiles, and on
+`input`/`change`/`click` in the clip cards / storyboard, and on
 `pagehide`; on quota errors it retries without the thumbnails.
 
 Restore on load (`restoreSession`): `analyzing` -> `awaitAnalysis(call_id,
 elapsedTicks)` resumes the SAME job's polling (never re-spawned; the clock
 keeps counting); `ready` -> the cards are rebuilt from the saved result with
-the edits laid over them, finished renders come back as tiles
-(`makeTile` / `fillTileDone` - the same helpers a live batch uses), running
+the edits laid over them and each card's result area redrawn from its
+saved `render` (the same `renderOut` a live batch uses), running
 renders resume polling (`awaitClipRender` / `awaitStoryRender`), the story
 result card comes back; `uploading` -> the browser dropped the File, so the
 page says "הרענון קטע את ההעלאה - בחרו את הקובץ שוב" and starts clean. A new

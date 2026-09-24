@@ -66,10 +66,10 @@ async function toTiles(page, analyzePosts, { settle = true } = {}) {
   await expect.poll(() => analyzePosts.length).toBe(1);
   await page.clock.fastForward(3100);
   await expect(page.locator('.cand')).toHaveCount(2);
-  await expect(page.locator('.out')).toHaveCount(2);
+  await expect(page.locator('.cand .c-out .o-state')).toHaveCount(2);
   if (settle) {
     await page.clock.fastForward(3100);
-    await expect(page.locator('.out video')).toHaveCount(2);
+    await expect(page.locator('.cand .c-out .o-actions')).toHaveCount(2);
     await expect(page.locator('#renderClipsBtn')).toBeEnabled();
   }
 }
@@ -85,9 +85,9 @@ test('social caption: trimmed range + rendered key -> editable caption, hashtags
   await steps.nth(1).locator('button').nth(0).click();
   await page.locator('#renderClipsBtn').click();
   await page.clock.fastForward(3100);
-  await expect(page.locator('.out video')).toHaveCount(2);
+  await expect(page.locator('.cand .c-out .o-actions')).toHaveCount(2);
 
-  const tile = page.locator('.out').nth(0);
+  const tile = page.locator('.cand').nth(0);
   const btn = tile.locator('.o-soc-btn');
   await expect(btn).toHaveText('כיתוב לרשתות');
   await btn.click();
@@ -116,9 +116,9 @@ test('social caption: trimmed range + rendered key -> editable caption, hashtags
 
   // A re-render rebuilds the tiles - the edited text survives on the candidate.
   await page.locator('#renderClipsBtn').click();
-  await expect(page.locator('.out').nth(0).locator('textarea.o-cap')).toHaveValue('כיתוב ערוך');
-  await expect(page.locator('.out').nth(0).locator('input.o-tags')).toHaveValue('#אחד #שניים');
-  await expect(page.locator('.out').nth(1).locator('textarea.o-cap')).toHaveCount(0);
+  await expect(page.locator('.cand').nth(0).locator('textarea.o-cap')).toHaveValue('כיתוב ערוך');
+  await expect(page.locator('.cand').nth(0).locator('input.o-tags')).toHaveValue('#אחד #שניים');
+  await expect(page.locator('.cand').nth(1).locator('textarea.o-cap')).toHaveCount(0);
 });
 
 test('social caption before the render finishes sends no video key', async ({ page }) => {
@@ -126,7 +126,7 @@ test('social caption before the render finishes sends no video key', async ({ pa
   await boot(page, { socialPosts, analyzePosts });
   await toTiles(page, analyzePosts, { settle: false });
   // The tiles exist (queued / cutting) before the render poll resolves.
-  await page.locator('.out').nth(1).locator('.o-soc-btn').click();
+  await page.locator('.cand').nth(1).locator('.o-soc-btn').click();
   await expect.poll(() => socialPosts.length).toBe(1);
   expect(socialPosts[0].video_key).toBe('');
   expect(socialPosts[0].start).toBe(1502.0);
@@ -137,7 +137,7 @@ test('an expired transcript shows a specific soft message', async ({ page }) => 
   const analyzePosts = [];
   await boot(page, { analyzePosts, socialResult: { error: 'no_transcript' } });
   await toTiles(page, analyzePosts);
-  const tile = page.locator('.out').nth(0);
+  const tile = page.locator('.cand').nth(0);
   await tile.locator('.o-soc-btn').click();
   await page.clock.fastForward(3100);
   await expect(tile.locator('.o-soc-msg')).toContainText('48 שעות');

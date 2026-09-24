@@ -248,16 +248,21 @@
     .c-trim .prev.on { border-color: var(--terracotta); color: var(--terracotta-dark); }
     .c-preview { margin-top: 8px; display: none; }
     .c-preview.on { display: block; }
-    .c-preview video { width: 100%; max-height: 360px; border-radius: 10px; background: #000; display: block; }
+    /* The preview plays the RENDERED clip (already in the chosen format). */
+    .c-preview video { max-width: 100%; max-height: 460px; border-radius: 10px; background: #000; display: block; margin-inline: auto; }
+    .c-trim .prev[hidden] { display: none; }
+    /* The clip's result, inside its card (section 5 merged into 4). */
+    .c-out { margin-top: 8px; }
+    .c-out:empty { display: none; }
+    .c-out .o-state { font-size: 0.8rem; font-weight: 600; color: var(--sage-dark); text-align: start; }
+    .c-out .o-state.fail { color: var(--red); }
+    .c-out .o-actions { display: flex; gap: 14px; flex-wrap: wrap; justify-content: flex-start; margin-top: 2px; }
+    .c-out .o-actions a { font-size: 0.8rem; font-weight: 700; color: var(--terracotta-dark); }
+    .c-out .o-social .o-soc-btn { margin: 6px 0 0; }   /* start-aligned with the actions row */
+    .c-out .style-note { text-align: start; }
     /* Vertical previews mirror the output format: a 9:16 box; "fit" =
        whole frame contained over a blurred copy, "crop" = centered cover
        (the real render tracks the speaker - the preview approximates). */
-    .c-preview.vert { max-width: 250px; margin-inline: auto; }
-    .c-preview.vert .pv-box { position: relative; aspect-ratio: 9 / 16; background: #000; border-radius: 10px; overflow: hidden; }
-    .c-preview.vert .pv-box video { position: absolute; inset: 0; width: 100%; height: 100%; max-height: none; border-radius: 0; object-fit: contain; }
-    .c-preview.vert.crop .pv-box video.main { object-fit: cover; }
-    .c-preview.vert .pv-box video.bg { inset: -12%; width: 124%; height: 124%; object-fit: cover; filter: blur(14px) brightness(0.85); pointer-events: none; }
-    .c-preview .pv-note { font-size: 0.7rem; color: var(--muted); text-align: center; margin-top: 4px; }
     #frameRow .mode-btn { padding: 8px 8px; font-size: 0.8rem; }
     @media (max-width: 520px) { #frameRow { flex-direction: column; } }
     .out .o-actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
@@ -451,15 +456,11 @@
     <h2>4 · הקליפים המוצעים</h2>
     <p class="summary" id="clipsSummary"></p>
     <p class="hint" id="clipsIssues" style="display:none;text-align:start;margin:0 0 10px"></p>
-    <div class="board-sub">כל קליפ מגיע עם הערכת ויראליות מנומקת (הערכה עריכתית, לא נבואה - לחיצה על הציון מסבירה איך לשפר). כל הקליפים המסומנים נוצרים אוטומטית; אפשר לתקן חיתוך ושורת הוק, ואז "רענון הקליפים" למעלה.</div>
+    <div class="board-sub">כל קליפ מגיע עם הערכת ויראליות מנומקת (הערכה עריכתית, לא נבואה - לחיצה על הציון מסבירה איך לשפר). כל הקליפים המסומנים נוצרים אוטומטית, והתצוגה המקדימה, ההורדה והכיתוב לרשתות מופיעים בכרטיס של כל קליפ כשהוא מוכן. אפשר לתקן חיתוך ושורת הוק, ואז "רענון הקליפים" למעלה.</div>
     <div id="cands"></div>
+    <p class="hint">כל קליפ מוכן נשמר גם בהיסטוריה <a href="/">באפליקציה</a> - משם אפשר לתזמן פרסום.</p>
   </div>
 
-  <div class="card" id="clipsOut" style="display:none">
-    <h2>5 · הקליפים שלכם</h2>
-    <div class="outs" id="outs"></div>
-    <p class="hint">כל קליפ נשמר גם בהיסטוריה <a href="/">באפליקציה</a> - משם אפשר לתזמן פרסום.</p>
-  </div>
 
   <div class="card story-card" id="storyCard" style="display:none">
     <h2>4 · הסיפור, כפי שה-AI הבין אותו</h2>
@@ -653,7 +654,7 @@
     const lim = MODE_COPY[mode];
     files = files.slice(0, lim.maxFiles);
     if (files.some((f) => f.size > lim.maxBytes)) { showErr($('err'), 'קובץ גדול מדי (עד ' + (lim.maxBytes / (1024 * 1024 * 1024)) + 'GB לקליפ)'); return; }
-    ['brandCard', 'clipsCard', 'clipsOut', 'storyCard', 'board', 'voCard', 'result'].forEach((id) => { $(id).style.display = 'none'; });
+    ['brandCard', 'clipsCard', 'storyCard', 'board', 'voCard', 'result'].forEach((id) => { $(id).style.display = 'none'; });
     _probeDims(files[0]);   // aspect for the watermark stage (best effort)
     // Choose the layout + options BEFORE processing (user 2026-09-24): the
     // upload runs in the background meanwhile (it is not processing - and it
@@ -989,7 +990,6 @@
       $(id).setAttribute('aria-checked', String(brand.reframe === val));
     });
     _applyStageAspect();
-    _applyPreviewFormat();
   }
   const pickFrame = (v) => { setFrame(v); brand.reframeChosen = true; _saveBrand(); markSettingsChanged(); };
   $('frameOrig').addEventListener('click', () => pickFrame(''));
@@ -1434,8 +1434,8 @@
           else { plus.disabled = c.end >= srcLen; minus.disabled = c.end - c.start <= 3; }
           setTime();
         };
-        minus.onclick = () => { apply(-1); refresh(); _syncPreview(c); };
-        plus.onclick = () => { apply(+1); refresh(); _syncPreview(c); };
+        minus.onclick = () => { apply(-1); refresh(); markSettingsChanged(); };
+        plus.onclick = () => { apply(+1); refresh(); markSettingsChanged(); };
         wrap.append(document.createTextNode(label === 'before' ? 'לפני' : 'אחרי'), minus, val, plus);
         wrap._refresh = refresh; refresh();
         return wrap;
@@ -1447,10 +1447,14 @@
       prevBtn.type = 'button'; prevBtn.className = 'prev';
       prevBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>תצוגה מקדימה';
       prevBtn.onclick = () => togglePreview(c, prevBox, prevBtn);
+      prevBtn.hidden = true;   // only once this clip's video is READY (renderOut)
       trim.append(stepBefore, stepAfter, prevBtn);
       const prevBox = document.createElement('div');
       prevBox.className = 'c-preview';
-      c._ui = { prevBox, prevBtn, stepBefore, stepAfter };
+      const out = document.createElement('div');
+      out.className = 'c-out';
+      row.dataset.id = String(c.id);
+      c._ui = { prevBox, prevBtn, stepBefore, stepAfter, out };
       const hookRow = document.createElement('div');
       hookRow.className = 'c-hook';
       const hl = document.createElement('label');
@@ -1459,7 +1463,7 @@
       hi.type = 'text'; hi.value = c.hookText; hi.maxLength = 120; hi.className = 'hook-input';
       hi.placeholder = 'שורה שתופיע על המסך ב-4 השניות הראשונות';
       guardGereshAutospace(hi);   // before oninput below
-      hi.oninput = () => { c.hookText = hi.value; };
+      hi.oninput = () => { c.hookText = hi.value; markSettingsChanged(); };
       hookRow.append(hl, hi);
       const quote = document.createElement('div');
       quote.className = 'c-quote';
@@ -1491,11 +1495,63 @@
         why.append(tip);
       }
       head.append(title, time);
-      meta.append(trim, prevBox, hookRow, quote, bars, why);
+      meta.append(trim, prevBox, out, hookRow, quote, bars, why);
       row.append(side, img, head, meta);
       box.appendChild(row);
+      renderOut(c);
     });
     updateCta();
+  }
+
+  // ── The clip's result, in its own card (2026-09-24: section 5 merged
+  // into 4 - "there's already a preview in section 4, just present it only
+  // after the video is ready"). State lives on the candidate (`c.render`):
+  // queued / pending -> a status line; done -> the preview button opens the
+  // RENDERED clip + download / edit links (+ style note); fail -> the error.
+  // The social caption block is created once per candidate and re-attached.
+  async function renderOut(c) {
+    const ui = c._ui;
+    if (!ui || !ui.out) return;
+    const out = ui.out, r = c.render;
+    if (!r || r.status !== 'done') {
+      ui.prevBtn.hidden = true;
+      if (_openPreview && _openPreview.c === c) closePreview();
+    }
+    out.innerHTML = '';
+    if (!r && !c.social) return;
+    const st = document.createElement('div');
+    st.className = 'o-state';
+    if (r && (r.status === 'queued' || r.status === 'pending')) {
+      st.innerHTML = '<span class="spinner"></span>' + (r.status === 'queued' ? 'בתור...' : 'יוצרים את הקליפ...');
+    } else if (r && r.status === 'fail') {
+      st.textContent = 'נכשל (' + (r.err || '') + ')';
+      st.classList.add('fail');
+    }
+    out.appendChild(st);
+    if (r && r.status === 'done') {
+      c.videoKey = r.video_key;   // frames for the social caption
+      await ensureMediaToken();
+      if (c.render !== r) return;  // superseded while waiting for the token
+      st.classList.add('ok');
+      const acts = document.createElement('div');
+      acts.className = 'o-actions';
+      const a = document.createElement('a');
+      a.href = API_BASE + '/download/' + encodeURIComponent(r.video_key) + '?token=' + encodeURIComponent(mediaToken);
+      a.download = ''; a.textContent = 'הורדה';
+      // Every render is recorded as a re-editable History job: this opens
+      // the clip in the main editor (captions styles, zoom, B-roll, hooks).
+      const ed = document.createElement('a');
+      ed.href = '/?edit=' + encodeURIComponent(r.video_key);
+      ed.target = '_blank'; ed.rel = 'noopener'; ed.className = 'edit-link';
+      ed.textContent = 'עריכה בפייפליין';
+      acts.append(a, ed);
+      st.appendChild(acts);
+      const note = styleNoteText(r.style_warnings);
+      if (note) { const n = document.createElement('p'); n.className = 'style-note'; n.textContent = note; st.appendChild(n); }
+      ui.prevBtn.hidden = false;
+    }
+    if (!c._social) c._social = socialBlock(c);
+    out.appendChild(c._social);
   }
   // ── Viral score explainer (user 2026-09-24: "clicking the score opens a
   // small dismissable card explaining how to improve virality") ──
@@ -1556,84 +1612,29 @@
     $('renderClipsBtn').disabled = n === 0 || busy.renders > 0;
   }
 
-  // ── In-place preview: stream the SOURCE from /media (range-capable) and
-  // play just [start, end] - media fragments for the seek, plus a
-  // timeupdate guard so every browser stops at the end. One open at a time.
+  // ── In-place preview of the RENDERED clip (only once it is ready - the
+  // button is hidden until then). One open at a time. The render already
+  // carries the chosen layout, so it plays as-is.
   let _openPreview = null;
   async function togglePreview(c, box, btn) {
     if (box.classList.contains('on')) { closePreview(); return; }
     closePreview();
-    const srcKey = sourceKeys[c.clip || 0];
-    if (!srcKey) return;
+    const r = c.render;
+    if (!r || r.status !== 'done' || !r.video_key) return;
     await ensureMediaToken();
-    box.classList.add('on'); btn.classList.add('on');
-    _openPreview = { c, box, btn, v: null, bg: null };
-    _applyPreviewFormat();
-    _syncPreview(c, true);
-  }
-  // (Re)build the open preview's DOM for the current output format: plain
-  // video for "as source"; a 9:16 box for the vertical modes - "fit" =
-  // contained frame over a blurred copy of itself, "crop" = centered cover.
-  function _applyPreviewFormat() {
-    if (!_openPreview) return;
-    const { c, box } = _openPreview;
-    const wasTime = _openPreview.v ? _openPreview.v.currentTime : null;
-    const wasPlaying = !!(_openPreview.v && !_openPreview.v.paused);
-    const landscape = !srcDims || srcDims.w > srcDims.h;
-    const mode = (brand.reframe && landscape) ? brand.reframe : '';
-    box.innerHTML = '';
-    box.classList.toggle('vert', !!mode);
-    box.classList.toggle('crop', mode === '9:16');
     const v = document.createElement('video');
-    v.controls = true; v.playsInline = true; v.preload = 'metadata'; v.className = 'main';
-    let bg = null;
-    if (mode) {
-      const pv = document.createElement('div'); pv.className = 'pv-box';
-      if (mode === 'fit') {
-        bg = document.createElement('video');
-        bg.muted = true; bg.playsInline = true; bg.preload = 'metadata'; bg.className = 'bg';
-        pv.appendChild(bg);
-      }
-      pv.appendChild(v);
-      box.appendChild(pv);
-      const note = document.createElement('div'); note.className = 'pv-note';
-      note.textContent = mode === 'fit' ? 'תצוגה מקדימה: הפריים המלא על רקע מטושטש' : 'תצוגה מקדימה משוערת - בסרטון הסופי החיתוך עוקב אחרי הדובר, ושני דוברים מפוצלים אחד מעל השני';
-      box.appendChild(note);
-    } else {
-      box.appendChild(v);
-    }
-    _openPreview.v = v; _openPreview.bg = bg;
-    if (bg) {
-      // Keep the blurred copy in step with the main video.
-      v.addEventListener('play', () => bg.play().catch(() => {}));
-      v.addEventListener('pause', () => bg.pause());
-      v.addEventListener('seeked', () => { bg.currentTime = v.currentTime; });
-      v.addEventListener('timeupdate', () => { if (Math.abs(bg.currentTime - v.currentTime) > 0.4) bg.currentTime = v.currentTime; });
-    }
-    _syncPreview(c, wasPlaying, wasTime);
-  }
-  function _syncPreview(c, play, resumeAt) {
-    if (!_openPreview || _openPreview.c !== c) return;
-    const { v, bg } = _openPreview;
-    const srcKey = sourceKeys[c.clip || 0];
-    const base = API_BASE + '/media/' + encodeURIComponent(srcKey) + '?token=' + encodeURIComponent(mediaToken);
-    const startAt = (typeof resumeAt === 'number' && resumeAt >= c.start && resumeAt < c.end) ? resumeAt : c.start;
-    const url = base + '#t=' + startAt.toFixed(2) + ',' + c.end.toFixed(2);
-    v.src = url;
-    if (bg) bg.src = url;
-    v.ontimeupdate = () => { if (v.currentTime >= c.end - 0.05) { v.pause(); } };
-    // Some browsers keep the old frame after a src change while paused:
-    // seek explicitly once metadata is in so the new start shows.
-    v.onloadedmetadata = () => { if (Math.abs(v.currentTime - startAt) > 0.3) v.currentTime = startAt; };
-    if (play) v.play().catch(() => {});
+    v.controls = true; v.playsInline = true; v.preload = 'metadata'; v.className = 'rendered';
+    v.src = API_BASE + '/media/' + encodeURIComponent(r.video_key) + '?token=' + encodeURIComponent(mediaToken);
+    box.innerHTML = '';
+    box.appendChild(v);
+    box.classList.add('on'); btn.classList.add('on');
+    _openPreview = { c, box, btn, v };
+    v.play().catch(() => {});
   }
   function closePreview() {
     if (!_openPreview) return;
-    for (const el of [_openPreview.v, _openPreview.bg]) {
-      if (!el) continue;
-      try { el.pause(); el.removeAttribute('src'); el.load(); } catch (_) {}
-    }
-    _openPreview.box.classList.remove('on', 'vert', 'crop'); _openPreview.box.innerHTML = '';
+    try { _openPreview.v.pause(); _openPreview.v.removeAttribute('src'); _openPreview.v.load(); } catch (_) {}
+    _openPreview.box.classList.remove('on'); _openPreview.box.innerHTML = '';
     _openPreview.btn.classList.remove('on');
     _openPreview = null;
   }
@@ -1751,67 +1752,24 @@
   // Batch render: every picked candidate is its own render_story call (one
   // window, tighten + captions + hook), 2 in flight, each landing in
   // History under its own `_{variant}_out.mp4` key.
-  // One result tile per clip. Shared by a live batch render and by the
-  // refresh-restore (a render that finished / is still running before the
-  // reload), so both draw exactly the same tile.
-  function makeTile(c) {
-    const t = document.createElement('div');
-    t.className = 'out';
-    t.innerHTML = '<div class="o-title"></div><div class="o-state"><span class="spinner"></span>בתור...</div>';
-    t.querySelector('.o-title').textContent = c.title || ('קליפ ' + (c.id + 1));
-    t.appendChild(socialBlock(c));
-    $('outs').appendChild(t);
-    return t;
-  }
-  async function fillTileDone(tile, c, result) {
-    const st = tile.querySelector('.o-state');
-    c.videoKey = result.video_key;   // frames for the social caption
-    await ensureMediaToken();
-    const url = API_BASE + '/media/' + encodeURIComponent(result.video_key) + '?token=' + encodeURIComponent(mediaToken);
-    const vid = document.createElement('video');
-    vid.controls = true; vid.playsInline = true; vid.src = url;
-    tile.insertBefore(vid, st);
-    st.innerHTML = '';
-    const acts = document.createElement('div');
-    acts.className = 'o-actions';
-    const a = document.createElement('a');
-    a.href = API_BASE + '/download/' + encodeURIComponent(result.video_key) + '?token=' + encodeURIComponent(mediaToken);
-    a.download = ''; a.textContent = 'הורדה';
-    // Every render is recorded as a re-editable History job: this opens
-    // the clip in the main editor (captions styles, zoom, B-roll,
-    // hooks) - "export to the pipeline".
-    const ed = document.createElement('a');
-    ed.href = '/?edit=' + encodeURIComponent(result.video_key);
-    ed.target = '_blank'; ed.rel = 'noopener'; ed.className = 'edit-link';
-    ed.textContent = 'עריכה בפייפליין';
-    acts.append(a, ed);
-    st.appendChild(acts);
-    const note = styleNoteText(result.style_warnings);
-    if (note) { const n = document.createElement('p'); n.className = 'style-note'; n.textContent = note; st.appendChild(n); }
-    st.classList.add('ok');
-  }
-  function fillTileFail(tile, msg) {
-    const st = tile.querySelector('.o-state');
-    st.textContent = 'נכשל (' + msg + ')';
-    st.classList.add('fail');
-  }
-  // Poll one clip render to its tile; the call id rides the session first so
-  // a refresh mid-render resumes here instead of losing the clip.
-  async function awaitClipRender(c, tile, call_id) {
+  // Poll one clip render into its card; the call id rides the session first
+  // so a refresh mid-render resumes here instead of losing the clip.
+  async function awaitClipRender(c, call_id) {
     c.render = { status: 'pending', call: call_id };
     saveSessionNow();
+    renderOut(c);
     busy.renders++;
     try {
       const result = await poll('/assembler/render-poll/' + call_id);
       if (!result || result.error || !result.video_key) throw new Error((result && (result.detail || result.error)) || 'render');
       c.render = { status: 'done', video_key: result.video_key, style_warnings: result.style_warnings || [] };
       saveSessionNow();
-      await fillTileDone(tile, c, result);
+      renderOut(c);
       return true;
     } catch (e) {
       c.render = { status: 'fail', err: e.message };
       saveSessionNow();
-      fillTileFail(tile, e.message);
+      renderOut(c);
       return false;
     } finally {
       busy.renders--;
@@ -1826,15 +1784,13 @@
     if (!picked.length) return;
     $('renderClipsBtn').disabled = true;
     busy.renders++;   // the whole batch (branding uploads included) counts as work in flight
-    $('clipsOut').style.display = 'block';
-    $('outs').innerHTML = '';
-    cands.forEach((c) => { c.render = null; });
-    const tiles = new Map();
+    // Each picked clip's card shows its own progress; its old video (if any)
+    // is withdrawn until the new one is ready.
     picked.forEach((c) => {
       c.videoKey = '';
-      tiles.set(c.id, makeTile(c));
+      c.render = { status: 'queued' };
+      renderOut(c);
     });
-    $('clipsOut').scrollIntoView({ behavior: 'smooth', block: 'start' });
     let done = 0, failed = 0;
     const batch = uuid().slice(0, 6);
     const stage = () => { $('clipsStage').innerHTML = '<span class="spinner"></span>יוצרים קליפים... ' + done + '/' + picked.length + (failed ? ' (' + failed + ' נכשלו)' : ''); };
@@ -1844,6 +1800,7 @@
     } catch (e) {
       showErr($('clipsErr'), 'העלאת המיתוג נכשלה - נסו שוב. (' + e.message + ')');
       busy.renders--;
+      picked.forEach((c) => { c.render = null; renderOut(c); });
       $('renderClipsBtn').disabled = false; $('clipsStage').textContent = ''; return;
     }
     stage();
@@ -1851,9 +1808,8 @@
     async function worker() {
       while (queue.length) {
         const c = queue.shift();
-        const tile = tiles.get(c.id);
-        const st = tile.querySelector('.o-state');
-        st.innerHTML = '<span class="spinner"></span>חותכים...';
+        c.render = { status: 'pending' };
+        renderOut(c);
         try {
           const useHook = $('clipHookToggle').checked && c.hookText.trim();
           const r = await fetch(API_BASE + '/assembler/render/', {
@@ -1872,12 +1828,12 @@
           });
           if (!r.ok) throw new Error('render ' + r.status);
           const { call_id } = await r.json();
-          if (!(await awaitClipRender(c, tile, call_id))) failed++;
+          if (!(await awaitClipRender(c, call_id))) failed++;
         } catch (e) {
           failed++;
           c.render = { status: 'fail', err: e.message };
           saveSessionNow();
-          fillTileFail(tile, e.message);
+          renderOut(c);
         }
         done++;
         stage();
@@ -2132,7 +2088,7 @@
   // ── Refresh-restore: bring the session back exactly where it was ──
   // Any edit on the cards / storyboard / result tiles schedules a save (the
   // state itself lives in `cands` / `moments`; the save reads them).
-  ['clipsCard', 'board', 'clipsOut', 'storyCard'].forEach((id) => {
+  ['clipsCard', 'board', 'storyCard'].forEach((id) => {
     const el = $(id);
     if (el) ['input', 'change', 'click'].forEach((ev) => el.addEventListener(ev, saveSession));
   });
@@ -2185,18 +2141,13 @@
         if (e.social) c.social = e.social;
         c.render = e.render || null;
       });
+      // A render queued / started but without a call id never reached the
+      // server - nothing to resume.
+      cands.forEach((c) => {
+        if (c.render && (c.render.status === 'queued' || (c.render.status === 'pending' && !c.render.call))) c.render = null;
+      });
       drawCands();
-      const rendered = cands.filter((c) => c.render);
-      if (rendered.length) {
-        $('clipsOut').style.display = 'block';
-        $('outs').innerHTML = '';
-        rendered.forEach((c) => {
-          const tile = makeTile(c);
-          if (c.render.status === 'done') fillTileDone(tile, c, c.render);
-          else if (c.render.status === 'pending') awaitClipRender(c, tile, c.render.call);
-          else fillTileFail(tile, c.render.err || '');
-        });
-      }
+      cands.filter((c) => c.render && c.render.status === 'pending').forEach((c) => awaitClipRender(c, c.render.call));
       showSetup('post');
     } else {
       renderBoard(saved.result);

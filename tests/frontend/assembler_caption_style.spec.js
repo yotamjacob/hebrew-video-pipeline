@@ -146,7 +146,7 @@ test('server style warnings show as a soft note on the tile', async ({ page }) =
   await boot(page, { warnings: [{ field: 'caption_style.font_color', value: 'red', fallback: '#FFFFFF' }] });
   await toClips(page, () => page.locator('#clipCapStyle').selectOption('profile:נקי ופשוט'));
   await page.clock.fastForward(3100);
-  await expect(page.locator('.out .style-note')).toContainText('caption_style.font_color');
+  await expect(page.locator('.cand .c-out .style-note')).toContainText('caption_style.font_color');
 });
 
 test('story mode renders with the same pick', async ({ page }) => {

@@ -123,7 +123,7 @@ test('after processing: switch the layout, see the note, refresh recreates every
   await page.clock.fastForward(3100);
   await expect.poll(() => posts.render.length).toBe(2);
   await page.clock.fastForward(3100);
-  await expect(page.locator('.out video')).toHaveCount(2);
+  await expect(page.locator('.cand .c-out .o-actions')).toHaveCount(2);
   await expect(page.locator('#renderClipsBtn')).toHaveText('רענון הקליפים (2)');
   expect(posts.render.slice(0, 2).every((p) => p.reframe === '9:16')).toBe(true);   // the default
   await expect(page.locator('#settingsNote')).toBeHidden();
@@ -137,7 +137,7 @@ test('after processing: switch the layout, see the note, refresh recreates every
   expect(refreshed.map((p) => p.filename).sort()).toEqual(['קליפ א.mp4', 'קליפ ב.mp4']);
   expect(refreshed.every((p) => p.reframe === undefined && p.hook_text === '')).toBe(true);
   await page.clock.fastForward(3100);
-  await expect(page.locator('.out video').first()).toHaveAttribute('src', /u1__k_c[23]_out\.mp4/);
+  await expect(page.locator('.cand .edit-link').first()).toHaveAttribute('href', /u1__k_c[23]_out\.mp4/);
 });
 
 test('the options and the layout are remembered for the next session', async ({ page }) => {
@@ -266,7 +266,7 @@ test('the mode choice and the upload zone are locked while the video is processi
   await expect.poll(() => posts.render.length).toBe(2);
   await locked(true);                                          // rendering the clips
   await page.clock.fastForward(3100);
-  await expect(page.locator('.out video')).toHaveCount(2);
+  await expect(page.locator('.cand .c-out .o-actions')).toHaveCount(2);
   await locked(false);                                         // all done - a new video can start
   await expect(page.locator('#dropText')).toContainText('הקלטה ארוכה אחת');
   expect(posts.analyze).toHaveLength(1);                       // the dropped second file never started anything

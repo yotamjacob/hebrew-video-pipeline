@@ -84,10 +84,10 @@ test('clips: analysis, edits, a finished render and its social caption survive a
   await rows.nth(1).locator('.pick-box').uncheck();
   await page.locator('#renderClipsBtn').click();
   await page.clock.fastForward(3100);
-  await expect(page.locator('.out video')).toHaveCount(1);
-  await page.locator('.out .o-soc-btn').click();
+  await expect(page.locator('.cand').nth(0).locator('.c-out .o-actions')).toBeVisible();
+  await page.locator('.cand').nth(0).locator('.o-soc-btn').click();
   await page.clock.fastForward(3100);
-  await page.locator('.out textarea.o-cap').fill('כיתוב ערוך');
+  await page.locator('.cand').nth(0).locator('textarea.o-cap').fill('כיתוב ערוך');
   await expect.poll(async () => (await stored(page))?.cands?.[0]?.social?.caption).toBe('כיתוב ערוך');
 
   await page.reload();
@@ -97,10 +97,11 @@ test('clips: analysis, edits, a finished render and its social caption survive a
   await expect(rows.nth(0).locator('.hook-input')).toHaveValue('הוק חדש');
   await expect(rows.nth(0).locator('.c-trim .step').nth(0).locator('.val')).toHaveText('+2 שנ\'');
   await expect(rows.nth(1).locator('.pick-box')).not.toBeChecked();
-  await expect(page.locator('#clipsOut')).toBeVisible();
-  await expect(page.locator('.out video')).toHaveAttribute('src', /u1__k_c2_out\.mp4/);   // the refresh's render
-  await expect(page.locator('.out .edit-link')).toHaveAttribute('href', '/?edit=u1__k_c2_out.mp4');
-  await expect(page.locator('.out textarea.o-cap')).toHaveValue('כיתוב ערוך');
+  await expect(page.locator('.cand').nth(0).locator('.c-trim .prev')).toBeVisible();   // its ready preview came back
+  await expect(page.locator('.cand').nth(0).locator('.edit-link')).toHaveAttribute('href', /u1__k_c2_out\.mp4/);   // the refresh's render
+  await expect(page.locator('.cand').nth(0).locator('.edit-link')).toHaveAttribute('href', '/?edit=u1__k_c2_out.mp4');
+  await expect(page.locator('.cand').nth(1).locator('.edit-link')).toHaveAttribute('href', '/?edit=u1__k_c1_out.mp4');   // unpicked: keeps its first render
+  await expect(page.locator('.cand textarea.o-cap')).toHaveValue('כיתוב ערוך');
   await expect(page.locator('#setupCard')).toBeVisible();
   await expect(page.locator('#renderClipsBtn')).toHaveText('רענון הקליפים (1)');
   // A refresh after the restore still carries the restored edits.
@@ -136,7 +137,7 @@ test('a running analysis resumes polling after a refresh', async ({ page }) => {
   // ...and processing went on to render the suggested clips.
   await expect.poll(() => posts.render.length).toBe(2);
   await page.clock.fastForward(3100);
-  await expect(page.locator('.out video')).toHaveCount(2);
+  await expect(page.locator('.cand .c-out .o-actions')).toHaveCount(2);
   // Nothing in flight any more: leaving does not warn.
   expect(await page.evaluate(() => {
     const e = new Event('beforeunload', { cancelable: true });
@@ -156,11 +157,11 @@ test('a render still running at refresh finishes into its tile', async ({ page }
   await expect.poll(async () => (await stored(page))?.cands?.[1]?.render?.status).toBe('pending');
 
   await page.reload();
-  await expect(page.locator('.out .o-state .spinner')).toHaveCount(2);
+  await expect(page.locator('.cand .c-out .o-state .spinner')).toHaveCount(2);
   gates.render.open = true;
   await page.clock.fastForward(3100);
-  await expect(page.locator('.out video')).toHaveCount(2);
-  await expect(page.locator('.out video').first()).toHaveAttribute('src', /u1__k_c0_out\.mp4/);
+  await expect(page.locator('.cand .c-out .o-actions')).toHaveCount(2);
+  await expect(page.locator('.cand').nth(0).locator('.edit-link')).toHaveAttribute('href', /u1__k_c0_out\.mp4/);
   expect(posts.render.length).toBe(2);                    // polled, never re-rendered
   expect((await stored(page)).cands[0].render.status).toBe('done');
 });

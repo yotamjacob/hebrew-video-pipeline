@@ -193,28 +193,18 @@ test('layout: smart vertical by default, a refresh applies a new pick, the pick 
   expect(posts2.every((p) => p.reframe === undefined)).toBe(true);
 });
 
-test('preview mirrors the output format: full-frame shows a blurred copy, crop shows a cover box, as-source is plain', async ({ page }) => {
-  await boot(page);
+test('the card preview plays the ready render; a layout switch asks for a refresh instead of faking it', async ({ page }) => {
+  const renderPosts = [];
+  await boot(page, { renderPosts });            // the automatic batch has landed
   const row = page.locator('.cand').first();
   await row.locator('.c-trim .prev').click();
-  // Default layout = smart vertical: a 9:16 cover box.
-  await expect(row.locator('.c-preview')).toHaveClass(/crop/);
-  await expect(row.locator('.c-preview .pv-box video')).toHaveCount(1);
-  await page.locator('#frameOrig').click();
-  await expect(row.locator('.c-preview')).not.toHaveClass(/vert/);         // plain
+  await expect(row.locator('.c-preview video')).toHaveAttribute('src', /\/media\/u1__k_c1_out\.mp4/);
+  // The render already carries its layout: switching it does not rebuild the
+  // preview - the settings note points to the refresh.
+  await page.locator('#frameFit').click();
   await expect(row.locator('.c-preview video')).toHaveCount(1);
-  await page.locator('#frameFit').click();                                // rebuilds the open preview
-  await expect(row.locator('.c-preview')).toHaveClass(/vert/);
-  await expect(row.locator('.c-preview .pv-box video')).toHaveCount(2);   // main + blurred bg
-  await expect(row.locator('.c-preview .pv-box video.bg')).toHaveCount(1);
-  await expect(row.locator('.c-preview .pv-note')).toContainText('הפריים המלא');
-  await page.locator('#frameVert').click();
-  await expect(row.locator('.c-preview')).toHaveClass(/crop/);
-  await expect(row.locator('.c-preview .pv-box video')).toHaveCount(1);   // cover, no bg
-  await page.locator('#frameOrig').click();
-  await expect(row.locator('.c-preview')).not.toHaveClass(/vert/);
-  await expect(row.locator('.c-preview video')).toHaveCount(1);
-  // The trim steppers re-point the open preview at the new window.
-  await row.locator('.c-trim .step').nth(0).locator('button').nth(1).click();   // before +1
-  await expect(row.locator('.c-preview video')).toHaveAttribute('src', /#t=9\.00,40\.00$/);
+  await expect(page.locator('#settingsNote')).toBeVisible();
+  // A trim after the render is a change too.
+  await row.locator('.c-trim .step').nth(0).locator('button').nth(1).click();
+  await expect(page.locator('#settingsNote')).toBeVisible();
 });
