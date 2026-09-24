@@ -49,7 +49,7 @@ async function boot(page, { mode = 'clips', gates = {}, posts = { analyze: [], r
   });
   await page.route(/\/assembler\/social-caption\/$/, (r) => r.fulfill({ status: 202, contentType: 'application/json', body: '{"call_id":"fc-s"}' }));
   await page.route(/\/assembler\/social-caption-poll\//, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ caption: 'כיתוב', hashtags: ['#א', '#ב'] }) }));
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ caption: 'כיתוב' }) }));
   await page.route(/\/auth\/media-token/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"token":"m"}' }));
   await page.route(/\/media\//, (r) => r.fulfill({ status: 200, contentType: 'video/mp4', body: Buffer.alloc(64) }));
   await page.clock.install();

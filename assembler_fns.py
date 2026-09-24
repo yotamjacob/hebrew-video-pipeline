@@ -1282,7 +1282,7 @@ def analyze_story(upload_keys, filenames=None, mode: str = "story", guidance: st
 )
 def assembler_social_caption(upload_key: str, start: float, end: float,
                              video_key: str = "", context: str = "") -> dict:
-    """Social caption + 5 hashtags for ONE clip (2026-09-24): the clip's
+    """Social caption (no hashtags) for ONE clip (2026-09-24): the clip's
     words from `{key}_asm_words.json`, sliced to the current [start, end]
     by _social_segments, through the SHARED generate_caption_options with
     flavor="assembler" (frames from `video_key` when a render exists;

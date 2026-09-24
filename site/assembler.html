@@ -300,7 +300,7 @@
     .style-row select { font-family: inherit; font-size: 0.85rem; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--white); color: var(--text); max-width: 230px; }
     .style-row select:disabled { opacity: 0.5; }
     .style-note { font-size: 0.74rem; color: var(--amber); text-align: center; margin-top: 6px; line-height: 1.4; }
-    /* Per-clip social caption + hashtags on the result tile. */
+    /* Per-clip social caption on the result tile (no hashtags, 2026-09-24). */
     .o-social { margin-top: 8px; text-align: start; }
     .o-social .o-soc-btn { display: block; margin: 0 auto; font-family: inherit; font-size: 0.78rem; font-weight: 700; color: var(--purple-700); background: var(--white); border: 1px solid var(--purple-100); border-radius: 999px; padding: 4px 12px; cursor: pointer; }
     .o-social .o-soc-btn:disabled { opacity: 0.6; cursor: default; }
@@ -1686,9 +1686,10 @@
     });
   }
 
-  // ── Per-clip social caption + hashtags (2026-09-24) ──
+  // ── Per-clip social caption (2026-09-24) ──
   // The server slices the clip's words to its CURRENT start/end (after the
-  // trim steppers) and writes a Hebrew caption + 5 hashtags. The text lives
+  // trim steppers) and writes a Hebrew caption - no hashtags ("no need for
+  // hashtag generation anywhere", user 2026-09-24). The text lives
   // on the candidate (`c.social`), next to the other per-clip edits, so a
   // re-render (which rebuilds the tiles) never loses it.
   const SOCIAL_ERR = {
@@ -1716,21 +1717,16 @@
       const fit = () => { ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 2) + 'px'; };
       ta.addEventListener('input', () => { c.social.caption = ta.value; fit(); });
       requestAnimationFrame(fit);
-      const tags = document.createElement('input');
-      tags.className = 'o-tags'; tags.dir = 'rtl'; tags.value = c.social.hashtags;
-      tags.setAttribute('aria-label', 'האשטגים');
-      guardGereshAutospace(tags);
-      tags.addEventListener('input', () => { c.social.hashtags = tags.value; });
       const row = document.createElement('div'); row.className = 'o-soc-row';
       const cp = document.createElement('button');
       cp.type = 'button'; cp.className = 'o-copy'; cp.textContent = 'העתקה';
       cp.addEventListener('click', async () => {
-        const text = c.social.caption.trim() + '\n\n' + c.social.hashtags.trim();
+        const text = c.social.caption.trim();
         try { await navigator.clipboard.writeText(text); msg.textContent = 'הועתק.'; }
         catch (_) { ta.select(); msg.textContent = 'לא הצלחנו להעתיק - סמנו והעתיקו ידנית.'; }
       });
       row.appendChild(cp);
-      ed.append(ta, tags, row);
+      ed.append(ta, row);
     };
     btn.addEventListener('click', async () => {
       btn.disabled = true; msg.innerHTML = '<span class="spinner"></span>כותבים כיתוב...';
@@ -1747,7 +1743,7 @@
         if (!res || res.error) {
           msg.textContent = SOCIAL_ERR[res && res.error] || ('לא הצלחנו לכתוב כיתוב - נסו שוב. (' + ((res && (res.detail || res.error)) || '') + ')');
         } else {
-          c.social = { caption: res.caption || '', hashtags: (res.hashtags || []).join(' ') };
+          c.social = { caption: res.caption || '' };
           msg.textContent = '';
           draw();
         }

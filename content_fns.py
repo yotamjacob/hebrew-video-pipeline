@@ -93,7 +93,8 @@ def generate_hook_options(captions_json: str, video_key: str = "") -> dict:
 def _assembler_social_prompt(transcript, context, platforms, has_frames):
     """The Story Assembler's per-clip social caption prompt (flavor
     "assembler", 2026-09-24): 2-3 Hebrew lines, gender-neutral address, no
-    dashes, the hashtags as a SEPARATE list of exactly 5. `context` (the
+    dashes, NO hashtags (user directive 2026-09-24: "no need for hashtag
+    generation anywhere"). `context` (the
     clip's title + on-screen hook) steers the model and must not be copied
     into the output. Pure."""
     plat_note = f" It will be posted on: {platforms}." if platforms else ""
@@ -112,47 +113,38 @@ def _assembler_social_prompt(transcript, context, platforms, has_frames):
         "- Address the audience in a GENDER-NEUTRAL way: plural imperative or "
         "infinitive (e.g. \"שמרו\", \"תייגו מישהו ש...\", \"לשמור לפעם הבאה\"), never "
         "a masculine or feminine singular form.\n"
-        "- No hashtags inside the caption, at most 2 emojis, and never use em or en "
-        "dashes - use a plain hyphen (-) if you need one.\n"
-        "- hashtags: exactly 5, each directly about THIS clip's topic (Hebrew, plus "
-        "English only where natural), each starting with #, no spaces inside a tag.\n\n"
+        "- No hashtags at all, at most 2 emojis, and never use em or en "
+        "dashes - use a plain hyphen (-) if you need one.\n\n"
         "Return JSON only, no markdown, no explanation:\n"
-        "{\"caption\": \"line 1\\nline 2\", \"hashtags\": [\"#...\", \"#...\", \"#...\", \"#...\", \"#...\"]}"
+        "{\"caption\": \"line 1\\nline 2\"}"
     )
+
+
+def _strip_hashtags(text):
+    """Remove every #tag token (the prompts say "no hashtags", the model is
+    not trusted to obey - user directive 2026-09-24: "no need for hashtag
+    generation anywhere"). Lines left empty are dropped; other lines keep
+    their words, single-spaced. Pure."""
+    import re as _re2
+    out = []
+    for ln in str(text or "").splitlines():
+        had = "#" in ln
+        ln = _re2.sub(r"(?<!\S)#[^\s#]+", "", ln)
+        if had:
+            ln = _re2.sub(r"[ \t]+", " ", ln).strip()
+        if ln.strip() or not had:
+            out.append(ln)
+    return "\n".join(out).strip()
 
 
 def _clean_social(result):
     """Post-step for the assembler caption (the prompt is not trusted to
-    obey): em / en dashes -> "-", at most 3 non-empty caption lines, any
-    hashtag lines the model left in the caption moved to the tag list,
-    tags normalized to one "#word" token each (spaces -> "_"), de-duplicated,
-    at most 5. Returns {"caption": str, "hashtags": [str]}. Pure."""
-    import re as _re2
-
-    def _dash(t):
-        return str(t or "").replace("\u2014", "-").replace("\u2013", "-")
-    raw_tags = result.get("hashtags") if isinstance(result, dict) else None
-    if isinstance(raw_tags, str):
-        raw_tags = raw_tags.split()
-    tags = [str(t) for t in (raw_tags or []) if str(t).strip()]
-    lines = []
-    for ln in _dash(result.get("caption") if isinstance(result, dict) else result).splitlines():
-        ln = ln.strip()
-        if not ln:
-            continue
-        words = ln.split()
-        if words and all(w.startswith("#") for w in words):
-            tags.extend(words)
-            continue
-        lines.append(ln)
-    out_tags, seen = [], set()
-    for t in tags:
-        t = _dash(t).strip()
-        t = "#" + _re2.sub(r"\s+", "_", t.lstrip("#").strip()).strip("_")
-        if len(t) > 1 and t.lower() not in seen:
-            seen.add(t.lower())
-            out_tags.append(t)
-    return {"caption": "\n".join(lines[:3]), "hashtags": out_tags[:5]}
+    obey): em / en dashes -> "-", hashtags stripped, at most 3 non-empty
+    caption lines. Returns {"caption": str}. Pure."""
+    raw = result.get("caption") if isinstance(result, dict) else result
+    text = _strip_hashtags(str(raw or "").replace("\u2014", "-").replace("\u2013", "-"))
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    return {"caption": "\n".join(lines[:3])}
 
 
 @app.function(
@@ -168,7 +160,8 @@ def generate_caption_options(captions_json: str, video_key: str = "", platforms:
     button (prompt, `post_caption` spend and return shape unchanged).
     flavor="assembler" (Story Assembler clip tiles, 2026-09-24): the
     _assembler_social_prompt, spend under `assembler_social`, returns
-    {"caption", "hashtags"} through _clean_social."""
+    {"caption"} through _clean_social. Neither flavor generates hashtags
+    (2026-09-24) - both outputs pass _strip_hashtags."""
     import json, base64 as _b64
     from pathlib import Path
 
@@ -176,7 +169,7 @@ def generate_caption_options(captions_json: str, video_key: str = "", platforms:
     captions = json.loads(captions_json)
     transcript = " ".join(c.get("text", "") for c in captions).strip()
     if not transcript:
-        return {"caption": "", "hashtags": []} if flavor == "assembler" else {"caption": ""}
+        return {"caption": ""}
 
     frames = []
     if video_key:
@@ -228,10 +221,7 @@ def generate_caption_options(captions_json: str, video_key: str = "", platforms:
         "- Is 2-4 short sentences\n"
         "- Ends with a call to action (save / follow / comment) that fits the content\n"
         "- Uses a few tasteful emojis, not many\n"
-        "- Ends with 4-6 hashtags on the final line, every one directly relevant to "
-        "THIS video's actual topic (Hebrew, plus a couple of English if natural). "
-        "Do NOT include generic, unrelated, or niche hashtags that the transcript "
-        "does not support.\n\n"
+        "- Has NO hashtags at all\n\n"
         "Return JSON only — no markdown, no explanation:\n"
         "{\"caption\": \"...\"}"
     )})
@@ -251,7 +241,7 @@ def generate_caption_options(captions_json: str, video_key: str = "", platforms:
     try:
         result = json.loads(raw)
     except json.JSONDecodeError:
-        return {"caption": raw}  # fallback: hand back the raw text
-    return {"caption": result.get("caption", "")}
+        return {"caption": _strip_hashtags(raw)}  # fallback: hand back the raw text
+    return {"caption": _strip_hashtags(result.get("caption", "") if isinstance(result, dict) else result)}
 
 

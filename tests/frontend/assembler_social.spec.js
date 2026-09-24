@@ -1,10 +1,10 @@
 const { test, expect } = require('@playwright/test');
 const { API_BASE } = require('./helpers');
 
-// Per-clip social caption + hashtags on the clips-mode result tiles
-// (2026-09-24): the button posts the clip's CURRENT range (after the trim
-// steppers) + the rendered clip key; the result is an editable caption, an
-// editable hashtag line and a copy button; the text lives on the candidate,
+// Per-clip social caption on the clips-mode result tiles (2026-09-24): the
+// button posts the clip's CURRENT range (after the trim steppers) + the
+// rendered clip key; the result is an editable caption and a copy button -
+// no hashtags anywhere (user 2026-09-24); the text lives on the candidate,
 // so a re-render (which rebuilds the tiles) keeps it.
 const THUMB = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/APvSiigD/9k=';
 const V = { hook: 8, retention: 7, emotion: 6, clarity: 8, shareability: 7, reasoning: 'x', tip: '' };
@@ -16,7 +16,7 @@ const CANDS = {
   ],
   issues: [], clips: [{ name: 'podcast.mp4', duration: 3600 }], sources: ['u1234__srckey_src.mp4'],
 };
-const SOCIAL = { caption: 'נשימה אחת יכולה לשנות את היום\nשמרו לפעם הבאה שהלחץ עולה', hashtags: ['#נשימה', '#יוגה', '#רוגע', '#מיינדפולנס', '#breathwork'] };
+const SOCIAL = { caption: 'נשימה אחת יכולה לשנות את היום\nשמרו לפעם הבאה שהלחץ עולה' };
 
 async function boot(page, { socialPosts = [], socialResult = SOCIAL, analyzePosts = [] } = {}) {
   await page.route(/fonts\.(googleapis|gstatic)\.com/, r => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
@@ -74,7 +74,7 @@ async function toTiles(page, analyzePosts, { settle = true } = {}) {
   }
 }
 
-test('social caption: trimmed range + rendered key -> editable caption, hashtags, copy', async ({ page }) => {
+test('social caption: trimmed range + rendered key -> editable caption, copy, no hashtags', async ({ page }) => {
   const socialPosts = [], analyzePosts = [];
   await boot(page, { socialPosts, analyzePosts });
   await toTiles(page, analyzePosts);
@@ -104,20 +104,18 @@ test('social caption: trimmed range + rendered key -> editable caption, hashtags
   await page.clock.fastForward(3100);
   const cap = tile.locator('textarea.o-cap');
   await expect(cap).toHaveValue(SOCIAL.caption);
-  await expect(tile.locator('input.o-tags')).toHaveValue(SOCIAL.hashtags.join(' '));
+  await expect(tile.locator('input.o-tags')).toHaveCount(0);
   await expect(btn).toHaveText('כיתוב חדש');
 
-  // Edit both, copy -> caption + blank line + hashtags.
+  // Edit, copy -> exactly the caption.
   await cap.fill('כיתוב ערוך');
-  await tile.locator('input.o-tags').fill('#אחד #שניים');
   await tile.locator('.o-copy').click();
-  await expect.poll(() => page.evaluate(() => window.__copied)).toEqual(['כיתוב ערוך\n\n#אחד #שניים']);
+  await expect.poll(() => page.evaluate(() => window.__copied)).toEqual(['כיתוב ערוך']);
   await expect(tile.locator('.o-soc-msg')).toHaveText('הועתק.');
 
   // A re-render rebuilds the tiles - the edited text survives on the candidate.
   await page.locator('#renderClipsBtn').click();
   await expect(page.locator('.cand').nth(0).locator('textarea.o-cap')).toHaveValue('כיתוב ערוך');
-  await expect(page.locator('.cand').nth(0).locator('input.o-tags')).toHaveValue('#אחד #שניים');
   await expect(page.locator('.cand').nth(1).locator('textarea.o-cap')).toHaveCount(0);
 });
 

@@ -3505,7 +3505,7 @@ def api():
                 await send_error(str(e))
             return
 
-        # Per-clip social caption + hashtags (2026-09-24): the clip's words
+        # Per-clip social caption, no hashtags (2026-09-24): the clip's words
         # are sliced SERVER-side from `{key}_asm_words.json` (the page never
         # has word timings), then the shared generate_caption_options runs
         # with flavor="assembler". Keys uid-scoped; the optional rendered

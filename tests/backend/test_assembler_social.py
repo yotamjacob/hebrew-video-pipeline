@@ -1,9 +1,9 @@
-"""Story Assembler per-clip social caption + hashtags (2026-09-24).
+"""Story Assembler per-clip social caption (2026-09-24; no hashtags anywhere).
 
 The clip's words are sliced server-side from the persisted transcript to the
 clip's CURRENT range (after the trim steppers), regrouped into the segment
 shape the shared generate_caption_options reads, and the model's answer is
-cleaned by a post-step (dashes, line count, exactly-5 hashtags). Pure
+cleaned by a post-step (dashes, line count, hashtags stripped). Pure
 helpers executed from source + route / function contracts."""
 
 import json
@@ -11,14 +11,20 @@ import json
 from tests.backend.conftest import MODAL_SRC
 
 
-def _fn(name):
+def _fn(name, ns=None):
     """Exec one top-level function from source; the slice stops at the next
     top-level def OR decorator (a Modal function may follow directly)."""
     i = MODAL_SRC.index(f"\ndef {name}(") + 1
     j = min(k for k in (MODAL_SRC.find("\ndef ", i), MODAL_SRC.find("\n@", i)) if k != -1)
-    ns = {}
+    ns = {} if ns is None else ns
     exec(MODAL_SRC[i:j], ns)
     return ns[name]
+
+
+def _clean():
+    ns = {}
+    _fn("_strip_hashtags", ns)
+    return _fn("_clean_social", ns)
 
 
 SEGS = [
@@ -59,19 +65,22 @@ class TestWordSlicing:
 
 
 class TestCleanSocial:
-    def test_dashes_lines_and_hashtags(self):
-        clean = _fn("_clean_social")({
-            "caption": "שורה ראשונה — חזקה\nשורה שנייה – עוד\nשורה שלישית\nשורה רביעית\n#יוגה #נשימה",
-            "hashtags": ["#יוגה", "מדיטציה", "#Yoga Life", "#נשימה", "#רוגע", "#שקט", "#עוד"],
+    def test_dashes_lines_and_no_hashtags(self):
+        clean = _clean()({
+            "caption": "שורה ראשונה — חזקה #יוגה\nשורה שנייה – עוד\n#יוגה #נשימה\nשורה שלישית\nשורה רביעית",
+            "hashtags": ["#יוגה", "#נשימה"],
         })
-        assert "—" not in clean["caption"] and "–" not in clean["caption"]
-        assert clean["caption"] == "שורה ראשונה - חזקה\nשורה שנייה - עוד\nשורה שלישית"
-        assert clean["hashtags"] == ["#יוגה", "#מדיטציה", "#Yoga_Life", "#נשימה", "#רוגע"]
+        assert clean == {"caption": "שורה ראשונה - חזקה\nשורה שנייה - עוד\nשורה שלישית"}
+        assert _clean()("סתם טקסט") == {"caption": "סתם טקסט"}
 
-    def test_hashtags_as_a_string_or_only_inside_the_caption(self):
-        c = _fn("_clean_social")({"caption": "טקסט\n#אחד #שניים", "hashtags": "#שלוש"})
-        assert c == {"caption": "טקסט", "hashtags": ["#שלוש", "#אחד", "#שניים"]}
-        assert _fn("_clean_social")("סתם טקסט") == {"caption": "סתם טקסט", "hashtags": []}
+
+class TestStripHashtags:
+    def test_removes_tag_lines_and_inline_tags_only(self):
+        f = _fn("_strip_hashtags")
+        assert f("פתיח חזק\n\nשמרו לפעם הבאה 🙏\n#יוגה #נשימה #Yoga_Life") == "פתיח חזק\n\nשמרו לפעם הבאה 🙏"
+        assert f("טקסט עם #תג באמצע") == "טקסט עם באמצע"
+        assert f("בלי תגיות בכלל\n\nשורה") == "בלי תגיות בכלל\n\nשורה"   # paragraphs untouched
+        assert f("") == "" and f(None) == ""
 
 
 class TestPromptAndGenerator:
@@ -81,19 +90,22 @@ class TestPromptAndGenerator:
 
     def test_assembler_prompt_contract(self):
         p = _fn("_assembler_social_prompt")("טקסט", "כותרת | הוק", "instagram,tiktok", True)
-        assert "GENDER-NEUTRAL" in p and "exactly 5" in p and "2-3 short lines" in p
+        assert "GENDER-NEUTRAL" in p and "2-3 short lines" in p
+        assert "No hashtags at all" in p and '"hashtags"' not in p
         assert "do NOT copy them into the caption" in p and "כותרת | הוק" in p
         assert "never use em or en dashes" in p and "instagram,tiktok" in p
         assert "CONTEXT" not in _fn("_assembler_social_prompt")("טקסט", "", "", False)
 
-    def test_main_editor_default_is_unchanged(self):
+    def test_main_editor_default_has_no_hashtags(self):
         block = self._gen()
         assert ('def generate_caption_options(captions_json: str, video_key: str = "", platforms: str = "",\n'
                 '                             flavor: str = "", context: str = "") -> dict:') in block
-        # the default path keeps its prompt, spend tag and return shape
-        assert "- Ends with 4-6 hashtags on the final line" in block
+        # the default path keeps its spend tag and return shape; no hashtags
+        # (user 2026-09-24: "no need for hashtag generation anywhere")
+        assert "hashtags on the final line" not in block and "- Has NO hashtags at all" in block
+        assert 'return {"caption": _strip_hashtags(raw)}' in block
         assert '_record_ai_spend(costs_store, "post_caption", SONNET_MODEL, resp.usage)' in block
-        assert 'return {"caption": result.get("caption", "")}' in block
+        assert 'return {"caption": _strip_hashtags(result.get("caption", "") if isinstance(result, dict) else result)}' in block
 
     def test_assembler_flavor_spend_and_post_step(self):
         block = self._gen()
