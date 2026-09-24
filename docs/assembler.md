@@ -306,7 +306,9 @@ Speaker switches per window, before -> after the fixes above: 12-23 ->
 tiles - the black strip under the top tile is gone. Dimming never toggled
 faster than the 1.5 s hold (measured in the preview mp4s), so it stays on.
 Frame counts: 1800/1800 per 60 s preview. The 0.30 cut threshold is still
-unconfirmed on a real multi-camera source (pending a file from the user).
+unconfirmed on a real multi-camera source - validation deferred by the
+user (2026-09-24: "don't need to cover that case for now"); check the
+`shots` counts in the first real multi-cam render's reframe_report.
 
 **Preview tool:** `modal run scripts/reframe_preview.py --key <upload key>
 --start 120 --end 180 [--windows "a-b,c-d"] [--fps 6 (default) | 3] [--thr 0.3]
