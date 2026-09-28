@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.60.2';
+  const APP_VERSION = '1.60.3';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -1380,7 +1380,6 @@
     const job = loadSavedJob();
     document.getElementById('reconnectBanner').style.display = 'none';
     if (!job) return;
-    document.getElementById('startOverBtn').style.display = '';
 
     if (job.type === 'pending') {
       // Registered before the upload; the call id may exist by now (server
@@ -2039,7 +2038,6 @@
     applyAudioMode(isAudioInput);
     fileName.textContent = desc.name;
     _revealFileInfo();
-    document.getElementById('startOverBtn').style.display = '';
     clearNotices();
     resetStatus();
     if (isAudioInput && noticeAudio) noticeAudio.classList.add('visible');
@@ -3002,7 +3000,6 @@
     applyAudioMode(isAudioInput);
     fileName.textContent = file.name;
     _revealFileInfo();
-    document.getElementById('startOverBtn').style.display = '';
     clearNotices();
     resetStatus();
 
@@ -4473,6 +4470,9 @@
     });
   }
   // Shared by the bottom "Start over" button AND the file card's X - both
+  // (the button is always visible - user directive 2026-09-28: it used to appear
+  // only after a file pick / job resume, so a refresh-restored or History
+  // re-edit session had no way out)
   // mean "drop everything and reset", so both confirm with the same modal
   // and run the same cleanup + reload.
   async function startOverFlow() {
