@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.60.1';
+  const APP_VERSION = '1.60.2';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -1090,6 +1090,7 @@
   let _previewBlobPromise    = null;
   let _previewBlobKey        = null;   // remembered so a failed prefetch can be retried
   let _previewGraceSpentFor  = null;   // key whose checklist grace wait already ran (player skips its own)
+  let _previewStepGen        = 0;      // bumps on every checklist reset / player setup - stale finishers no-op
   let _previewStreamGate     = null;   // while set, the blob prefetch yields the downlink to the streaming player
   let _srcErrors             = 0;      // consecutive <video> source failures for the CURRENT player setup
   function _prefetchPreviewBlob(key) {
@@ -1150,20 +1151,33 @@
   }
 
   // "Loading preview" completes when the PLAYER can play through the first
-  // frames. Bounded so a dead source can't spin the row forever (the player
-  // has its own error recovery UI).
+  // frames - and ONLY then (2026-09-28). The old 20s cap painted the row
+  // green while a long video was still buffering (field report: "it says
+  // it's ready but the preview takes minutes", 500 MB source), and its timer
+  // plus the never-fired `canplay` listener outlived the editor: a new run
+  // within that window got a green "Loading preview" during its UPLOAD.
+  // Now every finisher carries a generation stamp (bumped by _resetChecklist
+  // and by each player setup) and a stale one is a no-op. A source that
+  // fails for good hides the row (_previewStepGiveUp, from the player's
+  // retry-tap state) instead of ticking it; a long backstop does the same.
   function _finishPreviewStepWhenPlayable(vid) {
     if (!stepTimers.finalize) return;   // step never ran (audio / cut-only)
-    let settled = false;
+    const gen = ++_previewStepGen;
+    const live = () => gen === _previewStepGen && !!stepTimers.finalize;
     const finish = () => {
-      if (settled) return;
-      settled = true;
+      if (!live()) return;
       clearTimeout(cap);
       _stepDone('finalize');
     };
-    const cap = setTimeout(finish, 20000);
+    const capMs = (window.__PREVIEW_STEP_CAP_MS != null) ? window.__PREVIEW_STEP_CAP_MS : 10 * 60_000;   // test seam
+    const cap = setTimeout(() => { if (live()) _stepSkip('finalize'); }, capMs);
     if (vid.readyState >= 3) { finish(); return; }
     vid.addEventListener('canplay', finish, { once: true });
+  }
+  // The player gave up on its source (tap-to-retry overlay): a spinning
+  // "Loading preview" row would contradict it, a green one would lie.
+  function _previewStepGiveUp() {
+    if (stepTimers.finalize) _stepSkip('finalize');
   }
   // Hot-swap the STREAMING player onto the downloaded blob once the background
   // prefetch lands - streaming starts in seconds but seeks pay a network
@@ -1259,6 +1273,10 @@
   }
   function saveEditorDraftNow() {
     clearTimeout(_draftTimer);
+    // Start over / logout / account deletion clear the draft and then reload;
+    // the reload fires pagehide, which used to write the draft straight back
+    // (field report 2026-09-28: "start over just reloads the same video").
+    if (_intentionalNav) return;
     if (typeof videoKey === 'undefined' || !videoKey || !_editorVisible()) return;
     try {
       localStorage.setItem(EDITOR_DRAFT_KEY, JSON.stringify({
@@ -5836,6 +5854,7 @@
 
   function _resetChecklist() {
     checklistEl.classList.remove('finished');
+    _previewStepGen++;   // a previous player's "Loading preview" finisher must not tick this run's row
     Object.keys(checkItems).forEach(name => {
       if (stepTimers[name]) { clearInterval(stepTimers[name].id); stepTimers[name] = null; }
       const item = checkItems[name];
@@ -6808,6 +6827,7 @@
           }, RETRY_DELAYS_MS[n - 1]);
           return;
         }
+        _previewStepGiveUp();
         if (loadingEl) {
           loadingEl.style.display = 'flex';
           loadingEl.textContent = t('capedit.previewFailed');

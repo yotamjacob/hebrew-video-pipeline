@@ -89,3 +89,17 @@ test('a refresh keeps the same session\'s zoom; a NEW video after it starts with
   const i = src.indexOf('clearEditorDraft();   // a new job replaces the previous editing session');
   expect(src.slice(i, i + 400)).toContain("z.checked = false");
 });
+
+test('Start over wipes the draft for good - the reload it triggers must not re-save it', async ({ page }) => {
+  // Field report (2026-09-28): "start over just reloads the same video". The
+  // reload fires pagehide, whose autosave wrote the draft back AFTER Start
+  // over had cleared it, so boot restored the editor the user just left.
+  await runFullUpload(page);
+  await expect.poll(async () => (await draft(page))?.src_key).toBeTruthy();
+  await page.click('#startOverBtn');
+  await page.click('#confirmOk');
+  await page.waitForLoadState('load');
+  await page.waitForTimeout(600);   // past boot's deferred draft restore
+  expect(await draft(page)).toBeNull();
+  await expect(page.locator('#captionEditorCard')).toBeHidden();
+});

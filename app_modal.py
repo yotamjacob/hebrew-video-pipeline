@@ -289,6 +289,14 @@ def _spawn_pending_job_impl(full_key, expect_uid=None, fallback_uprefix=None):
         except Exception:
             pass
         return None
+    # A previous run of the same file (same signature-derived key) that was
+    # cancelled or failed never popped its live-progress entry; /process_poll
+    # would serve those stale "done" steps for this run until the worker's
+    # first stage write. Clear it before the spawn.
+    try:
+        progress_store.pop(full_key)
+    except Exception:
+        pass
     try:
         tmp_vol.commit()           # flush chunks before the worker reads
         call = process_video.spawn(
@@ -2442,6 +2450,16 @@ def api():
                     pending_store.pop("done:" + uprefix + upload_key)
                 except Exception:
                     pass
+                # Same story for the previous run's live-progress entry: it is
+                # popped only when a run COMPLETES, so a cancelled / failed run
+                # leaves one behind, and /process_poll served it to the next
+                # run of the same file until the new worker's first stage write
+                # (a cold start away) - green checks the moment processing
+                # started, "ready" while the job still had minutes to go.
+                try:
+                    progress_store.pop(uprefix + upload_key)
+                except Exception:
+                    pass
                 pending_store[uprefix + upload_key] = {
                     "params": {
                         "filename": filename, "cut_silences": cut_silences,
@@ -2478,6 +2496,10 @@ def api():
                         pass
                     try:
                         pending_store.pop("done:" + uprefix + upload_key)
+                    except Exception:
+                        pass
+                    try:
+                        progress_store.pop(uprefix + upload_key)   # stale live progress (see the defer branch)
                     except Exception:
                         pass
                     # Flush all chunks to persistent storage before spawning the worker

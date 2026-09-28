@@ -260,6 +260,38 @@ class TestDoneMarkerInvalidation:
         assert first_pop < reg_write
 
 
+class TestStaleProgressInvalidation:
+    """process_video pops its live-progress entry only on COMPLETION, and the
+    upload key is derived from the file signature - so a cancelled or failed
+    run leaves an entry that /process_poll serves to the NEXT run of the same
+    file until the new worker's first stage write (a cold start away): green
+    checks the moment processing starts, "ready" with minutes still to go
+    (field report 2026-09-28, 500 MB source). Every spawn path must clear it
+    first. Route bodies are closures inside api(); this guards the source."""
+
+    POP = "progress_store.pop(uprefix + upload_key)"
+
+    def test_progress_popped_at_registration_and_direct_spawn(self):
+        assert MODAL_SRC.count(self.POP) >= 2, (
+            "both the defer registration and the direct /process spawn must "
+            "pop the previous run's live-progress entry")
+
+    def test_registration_pop_precedes_registration_write(self):
+        first_pop = MODAL_SRC.index(self.POP)
+        reg_write = MODAL_SRC.index("pending_store[uprefix + upload_key] = {")
+        assert first_pop < reg_write
+
+    def test_deferred_spawn_pops_before_spawning(self):
+        start = MODAL_SRC.index("def _spawn_pending_job_impl(")
+        end = MODAL_SRC.index("def ", start + 10)
+        body = MODAL_SRC[start:end]
+        pop = body.index("progress_store.pop(full_key)")
+        assert pop < body.index("process_video.spawn(")
+        # After the claim (the pop of the registration) - a non-registrant
+        # request must not be able to wipe another user's live progress.
+        assert body.index("rec = pending_store.pop(full_key)") < pop
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # _alert_admins — admin selection for error-alert pushes
 # ─────────────────────────────────────────────────────────────────────────────

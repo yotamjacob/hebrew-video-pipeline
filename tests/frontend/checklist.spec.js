@@ -206,3 +206,58 @@ test('attach completes even when video metadata never loads (iOS silent-hang gua
   // Size-only detail line (no duration) - the null-meta presentation.
   await expect(page.locator('#fileDetail')).toContainText('MB');
 });
+
+// ── "Loading preview" ticks only when the player can play (2026-09-28) ─────
+// Field report on a 500 MB source: the row went green on a 20 s timer while
+// the preview kept buffering for minutes, and a new run started inside that
+// window inherited the old timer / canplay listener - a green "Loading
+// preview" during its UPLOAD. The download route is held open here so the
+// player can never reach canplay by itself.
+async function openEditorWithHeldPreview(page) {
+  await page.addInitScript(() => { window.__PREVIEW_READY_WAIT_MS = 200; window.__PREVIEW_BLOB_WAIT_MS = 0; });
+  await page.reload();
+  await mockAllApis(page);
+  const held = [];
+  await page.route(`${API_BASE}/download/**`, r => { held.push(r); });   // never answers
+  await page.evaluate(() => {
+    const el = document.getElementById('autoHook');   // pre-lists the finalize row
+    if (el && !el.checked) { el.checked = true; el.dispatchEvent(new Event('change', { bubbles: true })); }
+  });
+  await selectFile(page);
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await page.click('#runBtn');
+  await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 10_000 });
+  return held;
+}
+
+test('"Loading preview" stays active until the player reports canplay - never on a timer', async ({ page }) => {
+  await openEditorWithHeldPreview(page);
+  const row = page.locator('#checkFinalize');
+  await expect(row).toHaveClass(/active/);
+  await page.waitForTimeout(1500);
+  await expect(row).toHaveClass(/active/);          // still buffering = still active
+  await page.evaluate(() => document.getElementById('cutVideo').dispatchEvent(new Event('canplay')));
+  await expect(row).toHaveClass(/done/);
+});
+
+test('the backstop hides "Loading preview" instead of painting it green', async ({ page }) => {
+  await page.addInitScript(() => { window.__PREVIEW_STEP_CAP_MS = 800; });
+  await openEditorWithHeldPreview(page);
+  const row = page.locator('#checkFinalize');
+  await expect(row).toBeHidden({ timeout: 5_000 });
+  await expect(row).not.toHaveClass(/done/);
+});
+
+test('a previous run\'s preview finisher cannot tick the next run\'s row', async ({ page }) => {
+  await openEditorWithHeldPreview(page);
+  await expect(page.locator('#checkFinalize')).toHaveClass(/active/);
+  // Pick a new file: the checklist resets for the coming run while the old
+  // player element (and its pending canplay listener) is still around.
+  await selectFile(page, { name: 'second.mp4' });
+  await page.waitForSelector('#runBtn:not([disabled])');
+  await expect(page.locator('#checkFinalize')).toHaveClass(/pending/);
+  await page.evaluate(() => document.getElementById('cutVideo').dispatchEvent(new Event('canplay')));
+  await page.waitForTimeout(300);
+  await expect(page.locator('#checkFinalize')).toHaveClass(/pending/);
+  await expect(page.locator('#checkFinalize')).not.toHaveClass(/done/);
+});
