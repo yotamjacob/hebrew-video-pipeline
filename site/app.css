@@ -1765,6 +1765,9 @@
        must receive taps (the base rule is pointer-events:none so the spinner
        never blocks the player). */
     .player-loading.retry { pointer-events: auto; cursor: pointer; }
+    /* Hold state: the frame is hidden until the preview is fully in memory,
+       so the overlay also swallows taps (no playing the network stream). */
+    .player-loading.hold  { pointer-events: auto; cursor: progress; background: rgba(20,16,12,0.96); }
     .player-spinner {
       width: 30px; height: 30px; border-radius: 50%;
       border: 2.5px solid rgba(255,255,255,0.25);

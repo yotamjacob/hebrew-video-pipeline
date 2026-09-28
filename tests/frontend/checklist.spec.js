@@ -271,12 +271,28 @@ const streaming = (page) => page.waitForFunction(() => {
 test('"Loading preview" turns green only once the player is on the fully downloaded copy', async ({ page }) => {
   await openEditorStreaming(page, rangeServer({ delay: 600 }));
   const row = page.locator('#checkFinalize');
-  await streaming(page);                       // the stream plays, the download is still going
+  await streaming(page);                       // the stream loads underneath, the download is still going
   await expect(row).toHaveClass(/active/);
   await expect(page.locator('#previewBarRow')).toBeVisible();
+  // No frame before 100%: the player is held behind its spinner, with the
+  // percentage, and cannot be played (user directive 2026-09-28).
+  const overlay = page.locator('#playerLoading');
+  await expect(overlay).toBeVisible();
+  await expect(overlay).toHaveClass(/hold/);
+  await expect(overlay).toContainText(/\d+%/);
+  await expect(page.locator('#playerBigPlay')).toHaveCSS('opacity', '0');
+  const playedWhileHeld = await page.evaluate(async () => {
+    const v = document.getElementById('cutVideo');
+    document.getElementById('playerPlayBtn').click();
+    await new Promise(r => setTimeout(r, 300));
+    return !v.paused;
+  });
+  expect(playedWhileHeld).toBe(false);
   await expect(row).toHaveClass(/done/, { timeout: 20_000 });
   const srcAtDone = await page.evaluate(() => window.__srcAtDone);
   expect(srcAtDone).toMatch(/^blob:/);          // green = in-memory copy, not the network
+  await expect(overlay).toBeHidden();           // the frame appears with the green check
+  await expect(overlay).not.toHaveClass(/hold/);
   expect(await page.evaluate(() => document.getElementById('cutVideo').readyState)).toBeGreaterThanOrEqual(3);
   const pcts = await page.evaluate(() => window.__pcts);
   expect(pcts.length).toBeGreaterThan(1);       // the bar moved
@@ -300,6 +316,7 @@ test('a failed preview download hides the row - the player streams, nothing goes
   await streaming(page);
   await expect(row).toBeHidden({ timeout: 10_000 });
   await expect(row).not.toHaveClass(/done/);
+  await expect(page.locator('#playerLoading')).toBeHidden();   // the hold is released to the stream
 });
 
 test('the backstop hides "Loading preview" instead of painting it green', async ({ page }) => {

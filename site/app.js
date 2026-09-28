@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.60.4';
+  const APP_VERSION = '1.60.5';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -1091,6 +1091,8 @@
   let _previewBlobKey        = null;   // remembered so a failed prefetch can be retried
   let _previewGraceSpentFor  = null;   // key whose checklist grace wait already ran (player skips its own)
   let _previewStepGen        = 0;      // bumps on every checklist reset / player setup - stale finishers no-op
+  let _previewHold           = null;   // { vid, loadingEl, bigPlay } while the player hides the stream until the blob is in
+  let _previewHoldWatchdog   = null;
   let _previewStreamGate     = null;   // while set, the blob prefetch yields the downlink to the streaming player
   let _srcErrors             = 0;      // consecutive <video> source failures for the CURRENT player setup
   function _prefetchPreviewBlob(key) {
@@ -1111,7 +1113,21 @@
       if (!blob) {
         const resp = await apiFetch(_withToken(`${API_BASE}/download/${key}`));
         if (!resp.ok) throw new Error('download ' + resp.status);
-        blob = await resp.blob();
+        const total = parseInt(resp.headers.get('Content-Length') || '0', 10);
+        if (resp.body && total) {
+          // Stream-read so the row's bar and the held player keep moving.
+          const reader = resp.body.getReader();
+          const parts = []; let loaded = 0;
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            parts.push(value); loaded += value.byteLength;
+            _setPreviewProgress(loaded, total);
+          }
+          blob = new Blob(parts, { type: 'video/mp4' });
+        } else {
+          blob = await resp.blob();
+        }
       }
       if (!blob || blob.size < 1024) throw new Error('preview blob truncated (' + (blob ? blob.size : 0) + ' bytes)');
       return URL.createObjectURL(blob);
@@ -1187,15 +1203,69 @@
   }
   function _previewStepGiveUp() {
     _hidePreviewProgress();
+    _releasePreviewHold();   // nothing better is coming - show the stream
     if (stepTimers.finalize) _stepSkip('finalize');
   }
-  // Byte progress of the preview download, shown as the row's bar (the same
-  // component as the upload step's). Only while the row is active.
+  // ── Player hold: no frame until 100% (2026-09-28, user directive: "only
+  // show the preview when it reaches 100%"). While the blob prefetch runs
+  // the player stays behind its spinner (with the percentage) and cannot be
+  // played; the frame appears the instant the in-memory copy can play - the
+  // same moment the checklist row turns green. The stream still loads
+  // underneath (metadata → orientation, hook sizing). A prefetch that stalls
+  // (no bytes for __PREVIEW_HOLD_STALL_MS, 45s) or fails releases the hold
+  // to the streaming player and hides the row - a hold must never strand
+  // the editor behind a spinner.
+  function _holdPreviewUntilBlob(vid, loadingEl, bigPlay) {
+    _previewHold = { vid, loadingEl, bigPlay };
+    if (loadingEl) { loadingEl.classList.add('hold'); _previewHoldOverlay(null); }
+    if (bigPlay) bigPlay.style.opacity = '0';
+    _kickPreviewHoldWatchdog();
+  }
+  function _previewHoldOverlay(pct) {
+    const el = _previewHold && _previewHold.loadingEl;
+    if (!el || el.classList.contains('retry')) return;
+    el.innerHTML = '<span class="player-spinner" aria-hidden="true"></span><span>' +
+                   _escapeHtml(t('capedit.previewLoading')) + (pct == null ? '' : ' ' + pct + '%') + '</span>';
+    el.style.display = 'flex';
+  }
+  function _releasePreviewHold() {
+    clearTimeout(_previewHoldWatchdog); _previewHoldWatchdog = null;
+    const h = _previewHold;
+    _previewHold = null;
+    if (!h) return;
+    const { vid, loadingEl, bigPlay } = h;
+    if (loadingEl) {
+      loadingEl.classList.remove('hold');
+      if (!loadingEl.classList.contains('retry')) loadingEl.style.display = 'none';
+    }
+    if (bigPlay && vid && vid.paused) bigPlay.style.opacity = '1';
+  }
+  function _kickPreviewHoldWatchdog() {
+    clearTimeout(_previewHoldWatchdog);
+    if (!_previewHold) return;
+    const ms = (window.__PREVIEW_HOLD_STALL_MS != null) ? window.__PREVIEW_HOLD_STALL_MS : 45_000;   // test seam
+    _previewHoldWatchdog = setTimeout(() => {
+      if (!_previewHold) return;
+      console.warn('preview download stalled - showing the stream');
+      _previewStepGiveUp();
+    }, ms);
+  }
+  // Byte progress of the preview download: the row's bar (the same component
+  // as the upload step's) and the held player's overlay text.
+  let _previewPctShown = -1, _previewKickAt = 0;
   function _setPreviewProgress(loaded, total) {
-    if (!stepTimers.finalize || !total) return;
+    if (!total) return;
+    const pct = Math.max(0, Math.min(100, Math.round(loaded / total * 100)));
+    if (_previewHold) {
+      const now = Date.now();
+      if (now - _previewKickAt > 500) { _previewKickAt = now; _kickPreviewHoldWatchdog(); }
+    }
+    if (pct === _previewPctShown) return;   // byte-level progress: only touch the DOM when the number changes
+    _previewPctShown = pct;
+    if (_previewHold) _previewHoldOverlay(pct);
+    if (!stepTimers.finalize) return;
     const row = document.getElementById('previewBarRow');
     if (!row) return;
-    const pct = Math.max(0, Math.min(100, Math.round(loaded / total * 100)));
     row.style.display = 'flex';
     const fill = document.getElementById('previewBarFill');
     const txt  = document.getElementById('previewBarPct');
@@ -1203,6 +1273,7 @@
     if (txt)  txt.textContent = pct + '%';
   }
   function _hidePreviewProgress() {
+    _previewPctShown = -1;
     const row = document.getElementById('previewBarRow');
     if (row) row.style.display = 'none';
     const fill = document.getElementById('previewBarFill');
@@ -2628,6 +2699,23 @@
   function _rangeTimeoutSig() {
     try { return AbortSignal.timeout(60_000); } catch (_) { return undefined; }
   }
+  // Read a response body with BYTE-level progress (onBytes per network
+  // chunk) - per-8MB-chunk progress made a slow link look stalled to the
+  // preview hold's watchdog (2026-09-28).
+  async function _readBody(resp, onBytes) {
+    if (!resp.body || !onBytes) return await resp.arrayBuffer();
+    const reader = resp.body.getReader();
+    const chunks = []; let n = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value); n += value.byteLength;
+      try { onBytes(value.byteLength); } catch (_) {}
+    }
+    const out = new Uint8Array(n); let off = 0;
+    for (const c of chunks) { out.set(c, off); off += c.byteLength; }
+    return out.buffer;
+  }
   async function _rangeFetchBlob(url, { maxBytes = Infinity, yieldTo = null, onProgress = null } = {}) {
     const tokUrl = _withToken(url);
     const CHUNK = _rangeChunkBytes();
@@ -2639,10 +2727,11 @@
     const m = /\/(\d+)\s*$/.exec(first.headers.get('Content-Range') || '');
     const total = m ? parseInt(m[1], 10) : NaN;
     if (total > maxBytes) throw new Error('file too large for in-memory download');
-    const firstBuf = await first.arrayBuffer();
-    let loaded = firstBuf.byteLength;
+    let loaded = 0;
     const report = () => { if (onProgress && total) { try { onProgress(loaded, total); } catch (_) {} } };
-    report();
+    const onBytes = onProgress ? (b) => { loaded += b; report(); } : null;
+    const firstBuf = await _readBody(first, onBytes);
+    if (!onBytes) loaded = firstBuf.byteLength;
     if (!total || firstBuf.byteLength >= total) return new Blob([firstBuf], { type: 'video/mp4' });
     const parts = [firstBuf];
     const jobs = [];
@@ -2658,9 +2747,7 @@
         const j = jobs[next++];
         const r = await fetch(tokUrl, { headers: { 'Range': `bytes=${j.start}-${j.end}` }, signal: _rangeTimeoutSig() });
         if (r.status !== 206) throw new Error('range fetch ' + r.status);
-        parts[j.idx] = await r.arrayBuffer();
-        loaded += parts[j.idx].byteLength;
-        report();
+        parts[j.idx] = await _readBody(r, onBytes);
       }
     }
     await Promise.all(Array.from({ length: Math.min(_RANGE_CONC, jobs.length) }, worker));
@@ -6376,6 +6463,7 @@
     if (_vid) { _vid.pause(); _vid.removeAttribute('src'); _vid.load(); }
     if (_previewObjURL) { try { URL.revokeObjectURL(_previewObjURL); } catch (_) {} _previewObjURL = null; }
     _playerSetupDone = false;
+    _releasePreviewHold();
     _previewGraceSpentFor = null;
     _previewStreamGate = null;
     _playerDispW = 0;
@@ -6737,6 +6825,7 @@
   }
 
   function _safePlay(vid) {
+    if (_previewHold) return;   // no playback until the preview is fully in memory
     const p = vid.play();
     if (p) p.catch(e => { if (e.name !== 'AbortError') console.error(e); });
   }
@@ -6785,9 +6874,14 @@
     // blob src and the streaming fallback). bigPlay is re-shown by the 'pause'
     // handler's normal opacity toggle on first render.
     vid.addEventListener('loadeddata', () => {
+      if (_previewHold) return;   // the stream's first frame stays hidden until 100%
       if (loadingEl) loadingEl.style.display = 'none';
       if (bigPlay && vid.paused) bigPlay.style.opacity = '1';
     }, { once: true });
+    // Held player: the frame appears when the IN-MEMORY copy can play.
+    vid.addEventListener('canplay', () => {
+      if (_previewHold && _previewHold.vid === vid && _previewOnBlob(vid)) _releasePreviewHold();
+    });
     (async () => {
       // STREAM-FIRST (2026-07-16). Waiting for the whole cut video to download
       // into a blob kept the spinner up for MINUTES on long videos; the server
@@ -6822,6 +6916,7 @@
         });
         _setStreamSrc(vid);
         _armPreviewBlobUpgrade(vid);
+        if (_previewBlobPromise) _holdPreviewUntilBlob(vid, loadingEl, bigPlay);
       }
       _finishPreviewStepWhenPlayable(vid);
     })();
@@ -6838,7 +6933,7 @@
         if (!_playerSetupDone || !loadingEl || loadingEl.classList.contains('retry')) return;
         loadingEl.style.display = 'flex';
       };
-      const _hideBuf = () => { if (loadingEl && !loadingEl.classList.contains('retry')) loadingEl.style.display = 'none'; };
+      const _hideBuf = () => { if (loadingEl && !_previewHold && !loadingEl.classList.contains('retry')) loadingEl.style.display = 'none'; };
       vid.addEventListener('waiting', _showBuf);
       vid.addEventListener('stalled', () => { if (!vid.paused) _showBuf(); });
       ['playing', 'seeked', 'loadeddata'].forEach(ev => vid.addEventListener(ev, _hideBuf));

@@ -17,7 +17,10 @@ const { API_BASE, mockAllApis, selectFile, bootApp } = require('./helpers');
 const MP4 = path.join(__dirname, 'fixtures/portrait_1080x1920.mp4');
 
 test('stalled preview prefetch falls back to streaming (spinner clears)', async ({ page }) => {
-  await page.addInitScript(() => { window.__PREVIEW_BLOB_WAIT_MS = 1500; window.__PREVIEW_READY_WAIT_MS = 1500; });
+  // The player is HELD behind its spinner until the download completes
+  // (2026-09-28); a prefetch that moves no bytes for the stall window
+  // releases it to the stream so the editor is never stranded.
+  await page.addInitScript(() => { window.__PREVIEW_BLOB_WAIT_MS = 1500; window.__PREVIEW_READY_WAIT_MS = 1500; window.__PREVIEW_HOLD_STALL_MS = 1500; });
   await bootApp(page);
   await mockAllApis(page);
   // First download request (the prefetch) stalls FOREVER; later requests (the
@@ -72,17 +75,21 @@ test('long video: player streams within seconds, then upgrades to the blob', asy
   await page.waitForSelector('#runBtn:not([disabled])', { timeout: 10_000 });
   await page.click('#runBtn');
   await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 15_000 });
-  // Phase 1: streaming source, spinner cleared, metadata decoded.
+  // Phase 1: streaming source loads underneath (metadata decoded) while the
+  // player stays HELD behind its spinner - no frame before 100% (2026-09-28).
   await page.waitForFunction(() => {
     const v = document.getElementById('cutVideo');
     return v && v.src && !v.src.startsWith('blob:') && v.videoHeight > 0;
   }, { timeout: 15_000 });
-  await expect(page.locator('#playerLoading')).toBeHidden({ timeout: 15_000 });
-  // Phase 2: the background prefetch lands → the paused player upgrades.
+  await expect(page.locator('#playerLoading')).toBeVisible();
+  await expect(page.locator('#playerLoading')).toHaveClass(/hold/);
+  // Phase 2: the background prefetch lands → the paused player upgrades and
+  // the frame is revealed.
   await page.waitForFunction(() => {
     const v = document.getElementById('cutVideo');
     return v && v.src.startsWith('blob:');
   }, { timeout: 20_000 });
+  await expect(page.locator('#playerLoading')).toBeHidden({ timeout: 15_000 });
 });
 
 test('a source that keeps failing shows a tappable retry, not an eternal spinner', async ({ page }) => {
@@ -116,8 +123,10 @@ test('a transient source failure heals on its own (spaced retries, no tap needed
   // A cold api() container / a 5xx on the first stream request used to spend
   // both attempts of the old ladder within the same instant and dead-end on
   // the retry overlay. The ladder now spaces its retries, so a source that
-  // recovers within seconds plays without any user action.
-  await page.addInitScript(() => { window.__PREVIEW_BLOB_WAIT_MS = 300; window.__PREVIEW_READY_WAIT_MS = 300; });
+  // recovers within seconds plays without any user action. (The prefetch is
+  // stalled here, so the player hold releases to the stream after the stall
+  // window - 2026-09-28.)
+  await page.addInitScript(() => { window.__PREVIEW_BLOB_WAIT_MS = 300; window.__PREVIEW_READY_WAIT_MS = 300; window.__PREVIEW_HOLD_STALL_MS = 1500; });
   await bootApp(page);
   await mockAllApis(page);
   const buf = fs.readFileSync(MP4);
