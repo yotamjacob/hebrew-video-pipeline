@@ -207,49 +207,111 @@ test('attach completes even when video metadata never loads (iOS silent-hang gua
   await expect(page.locator('#fileDetail')).toContainText('MB');
 });
 
-// ── "Loading preview" ticks only when the player can play (2026-09-28) ─────
-// Field report on a 500 MB source: the row went green on a 20 s timer while
-// the preview kept buffering for minutes, and a new run started inside that
-// window inherited the old timer / canplay listener - a green "Loading
-// preview" during its UPLOAD. The download route is held open here so the
-// player can never reach canplay by itself.
-async function openEditorWithHeldPreview(page) {
-  await page.addInitScript(() => { window.__PREVIEW_READY_WAIT_MS = 200; window.__PREVIEW_BLOB_WAIT_MS = 0; });
+// ── "Loading preview" is green only when the preview is FULLY BUFFERED ────
+// (2026-09-28, user directive after a 50 MB test: "green check, but play
+// keeps buffering"). The whole file must be in memory, the player must be on
+// that copy, and that copy must be playable. A streaming source that can
+// play never ticks it. Real H.264 fixture; the download route below speaks
+// byte ranges like the backend (206 + Content-Range).
+const fs = require('fs');
+const path = require('path');
+const MP4 = fs.readFileSync(path.join(__dirname, 'fixtures/portrait_1080x1920.mp4'));
+
+// mode: 'serve' (bounded JS ranges delayed `delay` ms), 'hold' (only the
+// media element's open-ended range is answered; the JS prefetch + its
+// single-stream fallback hang forever), 'fail' (those get a 500 instead).
+function rangeServer({ mode = 'serve', delay = 0 } = {}) {
+  return async (route, request) => {
+    const range = request.headers()['range'] || '';
+    const media = range === 'bytes=0-';
+    if (!media && mode === 'hold') return;
+    if (!media && mode === 'fail') return route.fulfill({ status: 500, body: 'nope' });
+    if (!media && delay) await new Promise(r => setTimeout(r, delay));
+    const m = /^bytes=(\d+)-(\d*)$/.exec(range);
+    // The backend exposes these across origins - without it the app's
+    // range downloader cannot read the total and treats the reply as truncated.
+    const hdr = { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes',
+                  'Access-Control-Expose-Headers': 'content-range, content-length, accept-ranges' };
+    if (!m) return route.fulfill({ status: 200, headers: { ...hdr, 'Content-Length': String(MP4.length) }, body: MP4 });
+    const start = +m[1], end = m[2] === '' ? MP4.length - 1 : Math.min(+m[2], MP4.length - 1);
+    return route.fulfill({ status: 206,
+      headers: { ...hdr, 'Content-Range': `bytes ${start}-${end}/${MP4.length}`, 'Content-Length': String(end - start + 1) },
+      body: MP4.subarray(start, end + 1) });
+  };
+}
+
+async function openEditorStreaming(page, server) {
+  // Tiny grace + 512-byte ranges: the prefetch is several requests, the
+  // editor opens on the STREAM first and the blob lands afterwards.
+  await page.addInitScript(() => { window.__PREVIEW_READY_WAIT_MS = 100; window.__PREVIEW_BLOB_WAIT_MS = 0; window.__RANGE_CHUNK = 512; });
   await page.reload();
   await mockAllApis(page);
-  const held = [];
-  await page.route(`${API_BASE}/download/**`, r => { held.push(r); });   // never answers
+  await page.route(`${API_BASE}/download/**`, server);
   await page.evaluate(() => {
-    const el = document.getElementById('autoHook');   // pre-lists the finalize row
-    if (el && !el.checked) { el.checked = true; el.dispatchEvent(new Event('change', { bubbles: true })); }
+    // Record what the player was on the instant the row turned green, and
+    // every percentage the download bar showed.
+    window.__srcAtDone = null; window.__pcts = [];
+    const row = document.getElementById('checkFinalize'), vid = document.getElementById('cutVideo');
+    new MutationObserver(() => {
+      if (row.classList.contains('done') && window.__srcAtDone === null) window.__srcAtDone = vid.src;
+    }).observe(row, { attributes: true, attributeFilter: ['class'] });
+    const pct = document.getElementById('previewBarPct');
+    new MutationObserver(() => { window.__pcts.push(pct.textContent); }).observe(pct, { childList: true, characterData: true, subtree: true });
   });
   await selectFile(page);
   await page.waitForSelector('#runBtn:not([disabled])');
   await page.click('#runBtn');
   await page.waitForSelector('#captionEditorCard', { state: 'visible', timeout: 10_000 });
-  return held;
 }
+const streaming = (page) => page.waitForFunction(() => {
+  const v = document.getElementById('cutVideo');
+  return v && v.src && !v.src.startsWith('blob:') && v.videoHeight > 0;
+}, { timeout: 15_000 });
 
-test('"Loading preview" stays active until the player reports canplay - never on a timer', async ({ page }) => {
-  await openEditorWithHeldPreview(page);
+test('"Loading preview" turns green only once the player is on the fully downloaded copy', async ({ page }) => {
+  await openEditorStreaming(page, rangeServer({ delay: 600 }));
   const row = page.locator('#checkFinalize');
+  await streaming(page);                       // the stream plays, the download is still going
   await expect(row).toHaveClass(/active/);
-  await page.waitForTimeout(1500);
-  await expect(row).toHaveClass(/active/);          // still buffering = still active
+  await expect(page.locator('#previewBarRow')).toBeVisible();
+  await expect(row).toHaveClass(/done/, { timeout: 20_000 });
+  const srcAtDone = await page.evaluate(() => window.__srcAtDone);
+  expect(srcAtDone).toMatch(/^blob:/);          // green = in-memory copy, not the network
+  expect(await page.evaluate(() => document.getElementById('cutVideo').readyState)).toBeGreaterThanOrEqual(3);
+  const pcts = await page.evaluate(() => window.__pcts);
+  expect(pcts.length).toBeGreaterThan(1);       // the bar moved
+  expect(pcts.some(p => parseInt(p, 10) < 100)).toBe(true);
+  await expect(page.locator('#previewBarRow')).toBeHidden();
+});
+
+test('a streaming source that can play does not tick "Loading preview"', async ({ page }) => {
+  await openEditorStreaming(page, rangeServer({ mode: 'hold' }));
+  const row = page.locator('#checkFinalize');
+  await streaming(page);
   await page.evaluate(() => document.getElementById('cutVideo').dispatchEvent(new Event('canplay')));
-  await expect(row).toHaveClass(/done/);
+  await page.waitForTimeout(1500);
+  await expect(row).toHaveClass(/active/);
+  await expect(row).not.toHaveClass(/done/);
+});
+
+test('a failed preview download hides the row - the player streams, nothing goes green', async ({ page }) => {
+  await openEditorStreaming(page, rangeServer({ mode: 'fail' }));
+  const row = page.locator('#checkFinalize');
+  await streaming(page);
+  await expect(row).toBeHidden({ timeout: 10_000 });
+  await expect(row).not.toHaveClass(/done/);
 });
 
 test('the backstop hides "Loading preview" instead of painting it green', async ({ page }) => {
   await page.addInitScript(() => { window.__PREVIEW_STEP_CAP_MS = 800; });
-  await openEditorWithHeldPreview(page);
+  await openEditorStreaming(page, rangeServer({ mode: 'hold' }));
   const row = page.locator('#checkFinalize');
   await expect(row).toBeHidden({ timeout: 5_000 });
   await expect(row).not.toHaveClass(/done/);
 });
 
 test('a previous run\'s preview finisher cannot tick the next run\'s row', async ({ page }) => {
-  await openEditorWithHeldPreview(page);
+  await openEditorStreaming(page, rangeServer({ mode: 'hold' }));
   await expect(page.locator('#checkFinalize')).toHaveClass(/active/);
   // Pick a new file: the checklist resets for the coming run while the old
   // player element (and its pending canplay listener) is still around.

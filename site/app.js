@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.60.3';
+  const APP_VERSION = '1.60.4';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -1105,7 +1105,8 @@
       // workers pause at their next chunk until the stream can play (or 8s) -
       // otherwise the prefetch hogged the phone's downlink and the "instant"
       // stream buffered behind it (2026-09-09).
-      try { blob = await _rangeFetchBlob(`${API_BASE}/download/${key}`, { yieldTo: () => _previewStreamGate }); }
+      try { blob = await _rangeFetchBlob(`${API_BASE}/download/${key}`,
+                                         { yieldTo: () => _previewStreamGate, onProgress: _setPreviewProgress }); }
       catch (_) { /* range hiccup - single stream below */ }
       if (!blob) {
         const resp = await apiFetch(_withToken(`${API_BASE}/download/${key}`));
@@ -1150,34 +1151,62 @@
     // "preview wasn't actually ready when the step finished").
   }
 
-  // "Loading preview" completes when the PLAYER can play through the first
-  // frames - and ONLY then (2026-09-28). The old 20s cap painted the row
-  // green while a long video was still buffering (field report: "it says
-  // it's ready but the preview takes minutes", 500 MB source), and its timer
-  // plus the never-fired `canplay` listener outlived the editor: a new run
-  // within that window got a green "Loading preview" during its UPLOAD.
-  // Now every finisher carries a generation stamp (bumped by _resetChecklist
-  // and by each player setup) and a stale one is a no-op. A source that
-  // fails for good hides the row (_previewStepGiveUp, from the player's
-  // retry-tap state) instead of ticking it; a long backstop does the same.
+  // "Loading preview" is green ONLY when the preview is FULLY BUFFERED
+  // (2026-09-28, user directive after a 50 MB test: "green check, but play
+  // keeps buffering"): the whole cut file has landed in memory (the blob
+  // prefetch, whose byte progress fills the row's bar) AND the player has
+  // switched to that in-memory copy AND that copy can play. A streaming
+  // source that merely reached `canplay` never ticks it - that was the old
+  // meaning, and the network kept feeding the player after the check.
+  // Every finisher carries a generation stamp (bumped by _resetChecklist and
+  // by each player setup) so one from a previous run / player is a no-op
+  // (the old 20s timer + never-fired listener once painted a NEW run's row
+  // green during its upload). A prefetch that fails, a source the player
+  // gives up on, or the backstop HIDE the row (_previewStepGiveUp) - never
+  // a green check for something that is not fully loaded.
+  function _previewOnBlob(vid) { return (vid.src || '').startsWith('blob:'); }
   function _finishPreviewStepWhenPlayable(vid) {
     if (!stepTimers.finalize) return;   // step never ran (audio / cut-only)
     const gen = ++_previewStepGen;
     const live = () => gen === _previewStepGen && !!stepTimers.finalize;
-    const finish = () => {
-      if (!live()) return;
+    const capMs = (window.__PREVIEW_STEP_CAP_MS != null) ? window.__PREVIEW_STEP_CAP_MS : 15 * 60_000;   // test seam
+    const cap = setTimeout(() => { if (live()) _previewStepGiveUp(); }, capMs);
+    const tryFinish = () => {
+      if (!live()) { vid.removeEventListener('canplay', tryFinish); return; }
+      if (!_previewOnBlob(vid)) return;   // still the network stream - keep waiting for the swap
+      vid.removeEventListener('canplay', tryFinish);
       clearTimeout(cap);
+      _hidePreviewProgress();
       _stepDone('finalize');
     };
-    const capMs = (window.__PREVIEW_STEP_CAP_MS != null) ? window.__PREVIEW_STEP_CAP_MS : 10 * 60_000;   // test seam
-    const cap = setTimeout(() => { if (live()) _stepSkip('finalize'); }, capMs);
-    if (vid.readyState >= 3) { finish(); return; }
-    vid.addEventListener('canplay', finish, { once: true });
+    // `canplay` fires again after the hot-swap loads the blob (a new src
+    // resets readyState), so a persistent listener sees the in-memory copy
+    // become playable no matter when the download lands.
+    vid.addEventListener('canplay', tryFinish);
+    if (_previewOnBlob(vid) && vid.readyState >= 3) tryFinish();
   }
-  // The player gave up on its source (tap-to-retry overlay): a spinning
-  // "Loading preview" row would contradict it, a green one would lie.
   function _previewStepGiveUp() {
+    _hidePreviewProgress();
     if (stepTimers.finalize) _stepSkip('finalize');
+  }
+  // Byte progress of the preview download, shown as the row's bar (the same
+  // component as the upload step's). Only while the row is active.
+  function _setPreviewProgress(loaded, total) {
+    if (!stepTimers.finalize || !total) return;
+    const row = document.getElementById('previewBarRow');
+    if (!row) return;
+    const pct = Math.max(0, Math.min(100, Math.round(loaded / total * 100)));
+    row.style.display = 'flex';
+    const fill = document.getElementById('previewBarFill');
+    const txt  = document.getElementById('previewBarPct');
+    if (fill) fill.style.width = pct + '%';
+    if (txt)  txt.textContent = pct + '%';
+  }
+  function _hidePreviewProgress() {
+    const row = document.getElementById('previewBarRow');
+    if (row) row.style.display = 'none';
+    const fill = document.getElementById('previewBarFill');
+    if (fill) fill.style.width = '0%';
   }
   // Hot-swap the STREAMING player onto the downloaded blob once the background
   // prefetch lands - streaming starts in seconds but seeks pay a network
@@ -1190,9 +1219,14 @@
     const keyAtArm = videoKey;
     if (!promise) return;
     promise.then(async (url) => {
-      if (!url) return;
-      if (!_playerSetupDone || videoKey !== keyAtArm || (vid.src || '').startsWith('blob:')) return;
-      if (!(await _probeVideoURL(url))) { console.warn('preview blob failed validation - staying on stream'); return; }
+      if (!_playerSetupDone || videoKey !== keyAtArm) return;
+      if (!url) { _previewStepGiveUp(); return; }   // prefetch failed: streaming only, no "fully loaded" check
+      if ((vid.src || '').startsWith('blob:')) return;
+      if (!(await _probeVideoURL(url))) {
+        console.warn('preview blob failed validation - staying on stream');
+        _previewStepGiveUp();
+        return;
+      }
       const doSwap = () => {
         if (!_playerSetupDone || videoKey !== keyAtArm || (vid.src || '').startsWith('blob:')) return;
         const at = vid.currentTime || 0;
@@ -2594,7 +2628,7 @@
   function _rangeTimeoutSig() {
     try { return AbortSignal.timeout(60_000); } catch (_) { return undefined; }
   }
-  async function _rangeFetchBlob(url, { maxBytes = Infinity, yieldTo = null } = {}) {
+  async function _rangeFetchBlob(url, { maxBytes = Infinity, yieldTo = null, onProgress = null } = {}) {
     const tokUrl = _withToken(url);
     const CHUNK = _rangeChunkBytes();
     const first = await fetch(tokUrl, { headers: { 'Range': `bytes=0-${CHUNK - 1}` }, signal: _rangeTimeoutSig() });
@@ -2606,6 +2640,9 @@
     const total = m ? parseInt(m[1], 10) : NaN;
     if (total > maxBytes) throw new Error('file too large for in-memory download');
     const firstBuf = await first.arrayBuffer();
+    let loaded = firstBuf.byteLength;
+    const report = () => { if (onProgress && total) { try { onProgress(loaded, total); } catch (_) {} } };
+    report();
     if (!total || firstBuf.byteLength >= total) return new Blob([firstBuf], { type: 'video/mp4' });
     const parts = [firstBuf];
     const jobs = [];
@@ -2622,6 +2659,8 @@
         const r = await fetch(tokUrl, { headers: { 'Range': `bytes=${j.start}-${j.end}` }, signal: _rangeTimeoutSig() });
         if (r.status !== 206) throw new Error('range fetch ' + r.status);
         parts[j.idx] = await r.arrayBuffer();
+        loaded += parts[j.idx].byteLength;
+        report();
       }
     }
     await Promise.all(Array.from({ length: Math.min(_RANGE_CONC, jobs.length) }, worker));
@@ -5855,6 +5894,7 @@
   function _resetChecklist() {
     checklistEl.classList.remove('finished');
     _previewStepGen++;   // a previous player's "Loading preview" finisher must not tick this run's row
+    _hidePreviewProgress();
     Object.keys(checkItems).forEach(name => {
       if (stepTimers[name]) { clearInterval(stepTimers[name].id); stepTimers[name] = null; }
       const item = checkItems[name];
