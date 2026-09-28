@@ -103,3 +103,36 @@ test('Start over wipes the draft for good - the reload it triggers must not re-s
   expect(await draft(page)).toBeNull();
   await expect(page.locator('#captionEditorCard')).toBeHidden();
 });
+
+test('a fresh launch does not reopen the last video; History offers it as an unfinished edit', async ({ page }) => {
+  // User directive 2026-09-28: reopening the app must start clean. Only an
+  // in-page refresh restores the draft; a launch (navigate) leaves it in
+  // History, where it can be continued or discarded.
+  await runFullUpload(page);
+  await page.locator('.caption-input').first().fill('טיוטה מההפעלה הקודמת');
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  expect((await draft(page)).captions[0].text).toBe('טיוטה מההפעלה הקודמת');
+  await page.route(/\/jobs\/?(\?.*)?$/, r => r.fulfill({ status: 200, contentType: 'application/json', body: '{"jobs":[]}' }));
+
+  await page.goto('/');                       // a launch, not a reload
+  await page.waitForTimeout(700);             // past boot's deferred restore window
+  await expect(page.locator('#captionEditorCard')).toBeHidden();
+  expect((await draft(page)).src_key).toBeTruthy();   // kept, not dropped
+
+  await page.click('#tabHistory');
+  const row = page.locator('#historyDraft .history-draft');
+  await expect(row).toBeVisible();
+  await expect(row.locator('.history-name')).toHaveText('test.mp4');
+  await expect(page.locator('#historyEmpty')).toBeHidden();
+
+  await row.locator('.history-btn').first().click();      // continue editing
+  await expect(page.locator('#captionEditorCard')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('.caption-input').first()).toHaveValue('טיוטה מההפעלה הקודמת');
+
+  await page.click('#tabHistory');
+  await page.locator('#historyDraft .history-btn-danger').click();   // discard
+  await page.click('#confirmOk');
+  await expect(page.locator('#historyDraft .history-draft')).toHaveCount(0);
+  expect(await draft(page)).toBeNull();
+  await expect(page.locator('#historyEmpty')).toBeVisible();
+});

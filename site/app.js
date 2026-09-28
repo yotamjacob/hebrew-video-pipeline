@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.60.5';
+  const APP_VERSION = '1.60.6';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -342,8 +342,12 @@
       setTimeout(() => { resumeSavedJob().catch(e => console.warn('auto-resume failed', e)); }, 50);
       return;
     }
-    // Nothing running: reopen an unsaved editing session from before a refresh.
-    if (!window.__draftRestored) {
+    // Nothing running: an unsaved editing session is reopened ONLY on an
+    // in-page refresh (F5 / pull-to-refresh). A fresh launch starts clean
+    // (user directive 2026-09-28: "every time I reopen the app it loads the
+    // last video - make it stop"); the draft waits in History as an
+    // "unfinished edit" row until it is continued, discarded or expires.
+    if (!window.__draftRestored && _isPageReload()) {
       const d = loadEditorDraft();
       if (d) {
         window.__draftRestored = true;
@@ -1400,6 +1404,14 @@
   function clearEditorDraft() {
     clearTimeout(_draftTimer);
     try { localStorage.removeItem(EDITOR_DRAFT_KEY); } catch (_) {}
+  }
+  // True for a browser refresh of this page (F5, pull-to-refresh, in-app
+  // location.reload); false for a launch, a typed URL or a restored tab.
+  function _isPageReload() {
+    try {
+      const e = performance.getEntriesByType('navigation')[0];
+      return !!e && e.type === 'reload';
+    } catch (_) { return false; }
   }
   function loadEditorDraft() {
     try {
@@ -9822,11 +9834,84 @@
   // A rebuild refetches every thumbnail (the media token rotates, so the URLs
   // never browser-cache) and resets scroll - skipping it is the whole point.
   let _historySig = null;
+  // "Unfinished edit" row (2026-09-28): a processed video that was never
+  // exported lives only in the editor draft (History proper records exports
+  // and cut-only runs). Since a fresh launch no longer reopens it, History
+  // is where the user finds it - continue or discard. Local, no request.
+  function _renderHistoryDraft() {
+    const box = document.getElementById('historyDraft');
+    if (!box) return false;
+    box.innerHTML = '';
+    const d = loadEditorDraft();
+    if (!d || d.burned) return false;
+    const card = document.createElement('div');
+    card.className = 'history-card history-draft';
+    let thumb;
+    if (d.is_audio) {
+      thumb = document.createElement('div');
+      thumb.className = 'history-thumb history-thumb-audio';
+      thumb.innerHTML = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>';
+    } else {
+      thumb = document.createElement('img');
+      thumb.className = 'history-thumb';
+      thumb.loading = 'lazy'; thumb.alt = '';
+      thumb.src = _withToken(`${API_BASE}/thumbnail/${d.src_key}/`);
+      thumb.onerror = () => { thumb.style.visibility = 'hidden'; };
+    }
+    const info = document.createElement('div');
+    info.className = 'history-info';
+    const name = document.createElement('div');
+    name.className = 'history-name';
+    name.textContent = d.name || t('hist.videoFallback');
+    const meta = document.createElement('div');
+    meta.className = 'history-meta';
+    // .history-meta is forced LTR (numeric metadata); the Hebrew label and
+    // the date each get their own bidi isolate so neither scrambles the other.
+    { const lbl = document.createElement('bdi'); lbl.textContent = t('hist.draftMeta');
+      const when = document.createElement('bdi'); when.textContent = _fmtJobDate(Math.round((d.ts || 0) / 1000));
+      meta.append(when, document.createTextNode(' \u00B7 '), lbl); }
+    info.append(name, meta);
+    const actions = document.createElement('div');
+    actions.className = 'history-actions';
+    const cont = document.createElement('button');
+    cont.className = 'history-btn';
+    cont.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3.5l3.5 3.5L8 19.5 4 20l.5-4z"/></svg>';
+    cont.title = t('hist.draftContinue');
+    cont.onclick = async () => {
+      if (isUploading || pollController) { celebrateToast(t('hist.draftBusy'), { kind: 'error' }); return; }
+      // Already open in the editor (same session): just go back to it.
+      if (videoKey === d.src_key && _editorVisible()) { switchTab('pipeline'); return; }
+      _btnBusy(cont, true);
+      try { await _rehydrateEditor(d, { history: false }); }
+      catch (e) { console.warn('draft continue failed:', e && e.message); celebrateToast(t('hist.editFailed'), { kind: 'error' }); }
+      finally { if (cont.isConnected) _btnBusy(cont, false); }
+    };
+    const del = document.createElement('button');
+    del.className = 'history-btn history-btn-danger';
+    del.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 12.5h9l1-12.5"/></svg>';
+    del.title = t('hist.draftDiscard');
+    del.onclick = async () => {
+      const ok = await showConfirmModal(t('hist.draftDiscardTitle'),
+        t('hist.draftDiscardBody', { name: d.name || t('hist.videoFallback') }), t('confirm.delete'));
+      if (!ok) return;
+      clearEditorDraft();
+      card.remove();
+      const list = document.getElementById('historyList');
+      const empty = document.getElementById('historyEmpty');
+      if (list && !list.children.length && empty) { empty.textContent = t('hist.empty'); empty.style.display = ''; }
+    };
+    actions.append(cont, del);
+    card.append(thumb, info, actions);
+    box.appendChild(card);
+    return true;
+  }
+
   async function loadHistory(opts) {
     const force   = !!(opts && opts.force);
     const list    = document.getElementById('historyList');
     const empty   = document.getElementById('historyEmpty');
     const loading = document.getElementById('historyLoading');
+    const hasDraft = _renderHistoryDraft();
     if (_historySig === null) {
       loading.style.display = '';
       empty.style.display   = 'none';
@@ -9841,7 +9926,10 @@
       _historySig = sig;
       loading.style.display = 'none';
       list.innerHTML = '';
-      if (!jobs || !jobs.length) { empty.textContent = t('hist.empty'); empty.style.display = ''; return; }
+      if (!jobs || !jobs.length) {
+        if (hasDraft) { empty.style.display = 'none'; return; }   // the unfinished edit IS the list
+        empty.textContent = t('hist.empty'); empty.style.display = ''; return;
+      }
       empty.style.display = 'none';
       jobs.forEach(job => list.appendChild(_historyCard(job)));
     } catch (e) {

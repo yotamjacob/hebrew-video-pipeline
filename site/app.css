@@ -2219,6 +2219,9 @@
 .history-btn svg { display: block; }
 .history-btn:hover { background: var(--purple-50); }
 .history-btn-danger { color: var(--terracotta); }
+/* Unfinished edit (local draft, not exported yet): dashed so it reads as
+   provisional next to the finished exports. */
+.history-card.history-draft { border-style: dashed; border-color: var(--sage-100, #DDE3D0); }
 .history-btn-danger:hover { background: #F5E7DC; border-color: #E3C2A8; }
 
 /* Cards greyed out while another operation is in flight */
