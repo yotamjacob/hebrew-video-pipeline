@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.60.6';
+  const APP_VERSION = '1.60.7';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -975,6 +975,13 @@
   function _setStage(s) { flowStage = s; _crumb('stage', s); }
   // Browsers word network-layer TypeErrors differently: Chrome "Failed to fetch",
   // Safari/iOS "Load failed", Firefox "NetworkError when attempting to fetch".
+  // A boot-time resume (resumeSavedJob) older than this epoch belongs to a
+  // job the user has since replaced (new run / new pick): it must go silent -
+  // never paint an error over, or clear the saved record of, the newer job
+  // (Alina, 2026-09-28: a stale "pending upload" resume declared the dead
+  // upload stalled and erased a job that finished 20 s later).
+  let _resumeEpoch = 0;
+  const PROCESS_POLL_MS = (window.__PROCESS_POLL_MS != null) ? window.__PROCESS_POLL_MS : 60 * 60_000;   // > the worker's own timeout; upscale runs took 26 min
   function _isNetErr(e) {
     return /failed to fetch|load failed|networkerror|network error|network request failed/i.test(e && e.message || '');
   }
@@ -1463,40 +1470,90 @@
   // landed bytes grow), processing was spawned while we were away (call id
   // arrives on the first poll), or the upload died with the app (bytes frozen
   // → give up and tell the user to re-pick; their chunks resume).
-  async function _awaitPendingResume(key, timeoutMs = 10 * 60_000) {
+  // native: the Android foreground service uploads straight to R2, so the
+  // volume byte probe (/upload_check) reads 0 for the WHOLE transfer - the
+  // old "no new bytes for 20 polls = stalled" rule failed every native
+  // resume of a big file after ~1-3 min, told the user to pick the file
+  // again, and the abandoned service upload then spawned a second paid job
+  // (Alina, 2026-09-28). A native resume instead: asks the server to
+  // complete from R2 each round (succeeds exactly when the object is fully
+  // there, and spawns), listens to the service's persisted terminal events
+  // for the active upload id (failed / cancelled = give up now), and waits
+  // up to 45 min otherwise (a 278 MB upload took 66 min on 4G once; the
+  // user can always Start over). Web resumes keep the byte-stall rule: a
+  // reload killed their upload, frozen bytes ARE the signal.
+  // superseded(): the caller started something else - stop silently.
+  async function _awaitPendingResume(key, { native = false, superseded = null, timeoutMs = null } = {}) {
     const t0 = Date.now();
+    const deadline = timeoutMs != null ? timeoutMs : (native ? 45 * 60_000 : 10 * 60_000);
+    const sleepMs = (window.__PENDING_RESUME_POLL_MS != null) ? window.__PENDING_RESUME_POLL_MS : 3000;   // test seam
     let lastBytes = -1, stale = 0, notFound = 0;
-    while (Date.now() - t0 < timeoutMs) {
-      let resp = null;
-      try { resp = await apiFetch(`${API_BASE}/process_pending/?key=${encodeURIComponent(key)}`); } catch (_) {}
-      if (resp && resp.ok) {
-        notFound = 0;
-        const d = await resp.json().catch(() => ({}));
-        if (d.call_id) return d.call_id;
-      } else if (resp && resp.status === 404) {
-        // Transient by design: the spawn pops the registration before the
-        // done-marker exists (see _awaitPendingSpawn) - only persistent
-        // absence means the job is really gone.
-        if (++notFound >= 3) throw new Error('pending job gone');
-      }
+    let nativeEnded = null, evHandle = null;
+    if (native && activeNativeUploadId) {
       try {
-        const c = await apiFetch(`${API_BASE}/upload_check/?key=${encodeURIComponent(key)}`);
-        if (c.ok) {
-          const { bytes } = await c.json();
-          stale = bytes > lastBytes ? 0 : stale + 1;
-          lastBytes = Math.max(lastBytes, bytes);
+        const P = _capPlugin(activeNativeUploadPlugin || 'Uploader');
+        if (P && P.addListener) {
+          Promise.resolve(P.addListener('events', (ev) => {
+            if (!ev || ev.id !== activeNativeUploadId) return;
+            if (ev.name === 'failed' || ev.name === 'cancelled') nativeEnded = ev.name;
+            if ((ev.name === 'failed' || ev.name === 'cancelled' || ev.name === 'completed') && ev.eventId && P.acknowledgeEvent) {
+              Promise.resolve(P.acknowledgeEvent({ eventId: ev.eventId })).catch(() => {});
+            }
+          })).then(h => { evHandle = h; }).catch(() => {});
         }
       } catch (_) {}
-      if (stale >= 20) throw new Error('upload stalled');   // ~60s with no new bytes
-      await new Promise(r => setTimeout(r, 3000));
     }
-    throw new Error('pending resume timeout');
+    const bail = (msg) => { const e = new Error(msg); e.superseded = msg === 'superseded'; return e; };
+    try {
+      while (Date.now() - t0 < deadline) {
+        if (superseded && superseded()) throw bail('superseded');
+        if (nativeEnded) throw bail('native upload ' + nativeEnded);
+        let resp = null;
+        try { resp = await apiFetch(`${API_BASE}/process_pending/?key=${encodeURIComponent(key)}`); } catch (_) {}
+        if (resp && resp.ok) {
+          notFound = 0;
+          const d = await resp.json().catch(() => ({}));
+          if (d.call_id) return d.call_id;
+        } else if (resp && resp.status === 404) {
+          // Transient by design: the spawn pops the registration before the
+          // done-marker exists (see _awaitPendingSpawn) - only persistent
+          // absence means the job is really gone.
+          if (++notFound >= 3) throw bail('pending job gone');
+        }
+        if (native) {
+          // Lands + spawns the moment the object is complete in R2; a 502
+          // just means "not there yet".
+          try {
+            const c = await apiFetch(`${API_BASE}/upload_r2/complete/`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ key, single: true }) });
+            if (c.ok) { const d = await c.json().catch(() => ({})); if (d.call_id) return d.call_id; }
+          } catch (_) {}
+        } else {
+          try {
+            const c = await apiFetch(`${API_BASE}/upload_check/?key=${encodeURIComponent(key)}`);
+            if (c.ok) {
+              const { bytes } = await c.json();
+              stale = bytes > lastBytes ? 0 : stale + 1;
+              lastBytes = Math.max(lastBytes, bytes);
+            }
+          } catch (_) {}
+          if (stale >= 20) throw bail('upload stalled');   // ~60s with no new bytes
+        }
+        await new Promise(r => setTimeout(r, sleepMs));
+      }
+      throw bail('pending resume timeout');
+    } finally {
+      try { evHandle && evHandle.remove && evHandle.remove(); } catch (_) {}
+    }
   }
 
   async function resumeSavedJob() {
     const job = loadSavedJob();
     document.getElementById('reconnectBanner').style.display = 'none';
     if (!job) return;
+    const epoch = _resumeEpoch;
+    const superseded = () => epoch !== _resumeEpoch;   // the user started something else meanwhile
 
     if (job.type === 'pending') {
       // Registered before the upload; the call id may exist by now (server
@@ -1510,10 +1567,13 @@
       _resetChecklist();
       _stepActivate('upload');
       try {
-        job.callId = await _awaitPendingResume(job.key);
+        job.callId = await _awaitPendingResume(job.key,
+          { native: (job.native != null) ? !!job.native : _isNative(), superseded });
+        if (superseded()) return;
         saveJob('process', job.callId, { filename: job.filename, key: job.key });
         job.type = 'process';
       } catch (e) {
+        if (superseded() || (e && e.superseded)) return;   // a newer job owns the UI and the saved record
         console.warn('pending resume failed:', e && e.message);
         clearSavedJob();
         showError(t('resume.uploadIncomplete'));
@@ -1536,7 +1596,8 @@
       try {
         _setStage('processing');
         const keyQs = job.key ? `?key=${encodeURIComponent(job.key)}` : '';
-        const result = await pollForJSON(`${API_BASE}/process_poll/${job.callId}/${keyQs}`, 900_000, job.callId, _applyProgress);
+        const result = await pollForJSON(`${API_BASE}/process_poll/${job.callId}/${keyQs}`, PROCESS_POLL_MS, job.callId, _applyProgress);
+        if (superseded()) return;
         _stepsDoneProcessing(result.step_times);
         clearSavedJob();
         captionsData = result.captions || [];
@@ -1553,9 +1614,11 @@
           await _finalizeAndDownload(`${API_BASE}/download/${videoKey}/?filename=${encodeURIComponent(cutFilename)}`, cutFilename);
         }
       } catch (err) {
-        if (!_isNetErr(err)) clearSavedJob();
-        if (err.name !== 'AbortError')
-          showError(_isNetErr(err) ? err.message : t('err.reconnect'));
+        if (err.name === 'AbortError' || superseded()) return;
+        // A network drop or a poll deadline does not kill the server-side
+        // job - keep the record so the next open reconnects.
+        if (!_isNetErr(err) && !err.isTimeout) clearSavedJob();
+        showError(_isNetErr(err) || err.isTimeout ? err.message : t('err.reconnect'));
       }
 
     } else if (job.type === 'burn') {
@@ -1602,9 +1665,9 @@
         _maybeShowShare();
         celebrateExport();
       } catch (err) {
-        if (!_isNetErr(err)) clearSavedJob();
-        if (err.name !== 'AbortError')
-          showError(_isNetErr(err) ? err.message : t('err.reconnect'));
+        if (err.name === 'AbortError' || superseded()) return;
+        if (!_isNetErr(err) && !err.isTimeout) clearSavedJob();
+        showError(_isNetErr(err) || err.isTimeout ? err.message : t('err.reconnect'));
       } finally {
         unlockPipelineActions();
         runBtn.disabled = false;
@@ -3555,6 +3618,7 @@
       return;
     }
     if (!(await _confirmQuotaUse())) return;
+    _resumeEpoch++;       // any boot-time resume still waiting now belongs to the past
     clearEditorDraft();   // a new job replaces the previous editing session
     // The punch-in starts OFF for every NEW video (user directive 2026-08-10) -
     // also after a refresh-restored session that had it on.
@@ -3624,6 +3688,13 @@
         : _resumeUploadKey(_upMeta);
       params.set('key', uploadKey);
 
+      // An earlier upload this device abandoned (app killed mid-transfer)
+      // must not spawn a SECOND paid job behind this one - its foreground
+      // service may still be running. Cancel it unless it already spawned
+      // (then it is a real job; leave it).
+      { const prev = loadSavedJob();
+        if (prev && prev.type === 'pending' && prev.key && prev.key !== uploadKey) await _cancelAbandonedPending(prev.key); }
+
       // Pre-register the job (defer=true): quota is checked NOW (fail fast,
       // before any bytes fly), the spawn happens server-side at upload
       // completion. Any registration failure other than the quota gate falls
@@ -3643,7 +3714,7 @@
           throw new Error(body.error || t('err.spawn', { status: 402 }));
         }
       }
-      if (deferred) saveJob('pending', null, { filename: selectedFile.name, key: uploadKey });
+      if (deferred) saveJob('pending', null, { filename: selectedFile.name, key: uploadKey, native: _upMode === 'stream' });
 
       if (_upMode === 'stream') {
         await nativeUpload(nativeUploadDesc, _onUpProgress, uploadKey);
@@ -3694,7 +3765,7 @@
       saveJob('process', call_id, { filename: selectedFile.name, key: uploadKey });
       _setStage('processing');
       const pollUrl = `${API_BASE}/process_poll/${call_id}/?key=${encodeURIComponent(uploadKey)}`;
-      const result = await pollForJSON(pollUrl, 900_000, call_id, _applyProgress);
+      const result = await pollForJSON(pollUrl, PROCESS_POLL_MS, call_id, _applyProgress);
       _stepsDoneProcessing(result.step_times);
       clearSavedJob();
 
@@ -3729,9 +3800,10 @@
       // cancellation, so never render that transient failure before reload.
       if (err.name === 'AbortError' || intentionalStartOver) return;
       console.error('Process error:', err.message);
-      // A network drop doesn't kill the server-side job - keep the saved job
-      // so the Resume banner can reconnect to it on the next visit.
-      if (!_isNetErr(err)) clearSavedJob();
+      // A network drop or a poll deadline doesn't kill the server-side job -
+      // keep the saved job so the next open reconnects to it (a 26-min upscale
+      // used to be dropped at the old 15-min deadline, credit spent).
+      if (!_isNetErr(err) && !err.isTimeout) clearSavedJob();
       if (!isRetry && err.message.includes('Network error')) {
         // GPU warmup retry - keep checklist, just update upload step label
         checkItems.upload.className = 'check-item done';
@@ -3826,7 +3898,7 @@
       currentCallId = call_id;
       saveJob('process', call_id, { filename: selectedFile.name, key: currentUploadKey });
       _setStage('processing');
-      const result = await pollForJSON(`${API_BASE}/process_poll/${call_id}/?key=${encodeURIComponent(currentUploadKey)}`, 900_000, call_id, _applyProgress);
+      const result = await pollForJSON(`${API_BASE}/process_poll/${call_id}/?key=${encodeURIComponent(currentUploadKey)}`, PROCESS_POLL_MS, call_id, _applyProgress);
       _stepsDoneProcessing(result.step_times);
       clearSavedJob();
 
@@ -4515,7 +4587,11 @@
   }
 
   async function pollForJSON(pollUrl, timeoutMs = 900_000, callId = null, onProgress = null) {
-    pollUrl = _withToken(pollUrl);   // SW polls the same URL - token travels with it
+    // The media token in the URL lives 1 h; a job polled longer than that
+    // (a 66-min upload + processing, 2026-08-22) used to 401 and be dropped.
+    // Re-token every round, and re-mint on a 401 before giving up.
+    const baseUrl = pollUrl;
+    pollUrl = _withToken(baseUrl);   // SW polls the same URL - token travels with it
     pollController = new AbortController();
     const signal = pollController.signal;
     const deadline = Date.now() + timeoutMs;
@@ -4532,12 +4608,18 @@
 
     // Page-side poll - calls _resolve/_reject directly, never leaves a dangling promise
     (async () => {
-      let serverRetries = 0;
+      let serverRetries = 0, authRetries = 0;
       const MAX_SERVER_RETRIES = 3;
       while (Date.now() < deadline) {
         try {
           const resp = await fetch(pollUrl, { signal });
           if (resp.status === 200) { _resolve(await resp.json()); return; }
+          if (resp.status === 401 && ++authRetries <= 3) {
+            try { await refreshMediaToken(); } catch (_) {}
+            pollUrl = _withToken(baseUrl);
+            if (currentPollInfo && currentPollInfo.callId === callId) currentPollInfo.pollUrl = pollUrl;
+            continue;
+          }
           if (resp.status === 202) {
             serverRetries = 0;
             if (onProgress) {
@@ -4570,7 +4652,7 @@
           continue;
         }
       }
-      _reject(new Error(t('err.resultTimeout')));
+      _reject(Object.assign(new Error(t('err.resultTimeout')), { isTimeout: true }));
     })();
 
     try {
@@ -4606,6 +4688,21 @@
         }
       });
     });
+  }
+  // A 'pending' record from an earlier session whose upload never spawned:
+  // stop the native service + drop the registration (and the R2 staging)
+  // so it cannot bill a second job later. Spawned = real job = untouched.
+  async function _cancelAbandonedPending(oldKey) {
+    try {
+      const r = await apiFetch(`${API_BASE}/process_pending/?key=${encodeURIComponent(oldKey)}`);
+      if (r.ok) { const d = await r.json().catch(() => ({})); if (d.call_id) return; }
+      else if (r.status !== 404) return;   // unknown state - leave it alone
+    } catch (_) { return; }
+    const nk = activeNativeUploadKey;
+    try { await _cancelActiveNativeUpload(); } catch (_) {}   // also posts /cancel_upload for ITS key
+    if (nk !== oldKey) {
+      apiFetch(`${API_BASE}/cancel_upload/?key=${encodeURIComponent(oldKey)}`, { method: 'POST' }).catch(() => {});
+    }
   }
   // Shared by the bottom "Start over" button AND the file card's X - both
   // (the button is always visible - user directive 2026-09-28: it used to appear
@@ -6420,6 +6517,7 @@
 
   function resetStatus() {
     isUploading = false;
+    _resumeEpoch++;   // whatever a boot resume was reconnecting to, the UI no longer belongs to it
     if (pollController) { pollController.abort(); pollController = null; }
     currentCallId = null;
     clearInterval(uploadTimer);

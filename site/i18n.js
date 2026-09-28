@@ -454,7 +454,7 @@
     'err.server':        { en: 'Server error ({status}): {text}', he: 'שגיאת שרת ({status}): {text}' },
     'err.network':       { en: 'Network error - check your connection and try again.', he: 'שגיאת רשת - בדקו את החיבור ונסו שוב.' },
     'err.uploadTimeout': { en: 'Upload timed out.', he: 'זמן ההעלאה פג.' },
-    'err.resultTimeout': { en: 'Timed out waiting for server result. The job may have failed - check Modal logs.', he: 'תם הזמן בהמתנה לתוצאה מהשרת. ייתכן שהעבודה נכשלה.' },
+    'err.resultTimeout': { en: 'The server is still working on this video. We will notify you when it is ready - you can close the app and come back later.', he: 'השרת עדיין מעבד את הסרטון. נודיע לכם כשהוא מוכן - אפשר לסגור את האפליקציה ולחזור מאוחר יותר.' },
     'err.unknown':       { en: 'Unknown error', he: 'שגיאה לא ידועה' },
     'err.netDropped':    { en: 'The connection dropped {stage}. If processing already started, it is still running on the server - reopen the app and tap Resume.', he: 'החיבור נקטע {stage}. אם העיבוד כבר התחיל, הוא ממשיך לרוץ בשרת - פתחו שוב את האפליקציה והקישו \u05e2\u05dc \"המשך\".' },
     'err.stage.upload':     { en: 'while uploading', he: 'בזמן ההעלאה' },
