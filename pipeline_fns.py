@@ -973,6 +973,31 @@ def _notify_ready(uid, video_key, title, body, kind, upload_key=None):
 # ---------------------------------------------------------------------------
 # Core processing — GPU worker
 # ---------------------------------------------------------------------------
+# DeepFilterNet runs its GRU over the WHOLE recording in one pass, and cuDNN's
+# recurrent kernels reject very long sequences: a 15-min clip died with
+# "cuDNN error: CUDNN_STATUS_NOT_SUPPORTED" (2026-09-28, field report). Long
+# audio is therefore enhanced in overlapping chunks (60 s + 1 s of context on
+# each side); the context margins, where the model has no history, are cut
+# from every chunk's output before the pieces are joined, so the seams carry
+# fully-informed samples. Pure slicing - `run` does the model call, `cat`
+# joins [channels, frames] pieces on the frame axis (torch.cat in production).
+def _enhance_in_chunks(audio, run, sr, cat, chunk_s=60.0, overlap_s=1.0):
+    n = audio.shape[1]
+    chunk = max(1, int(chunk_s * sr))
+    ov = max(0, int(overlap_s * sr))
+    if n <= chunk + ov:
+        return run(audio.contiguous())
+    outs = []
+    start = 0
+    while start < n:
+        end = min(n, start + chunk)
+        a, b = max(0, start - ov), min(n, end + ov)
+        seg = run(audio[:, a:b].contiguous())
+        outs.append(seg[:, start - a: seg.shape[1] - (b - end)])
+        start = end
+    return cat(outs)
+
+
 @app.function(
     gpu="L4",
     # 8 guaranteed cores for the ffmpeg x264 encodes (extract/render/esrgan
@@ -1226,7 +1251,18 @@ def process_video(
         if audio_t.shape[0] > 1:
             audio_t = audio_t.mean(0, keepdim=True)  # force mono
 
-        enhanced = enhance(model, df_state, audio_t)
+        def _run(seg):
+            try:
+                return enhance(model, df_state, seg)
+            except RuntimeError as e:
+                if "cudnn" not in str(e).lower():
+                    raise
+                # cuDNN refused this shape; the plain kernels are slower but
+                # have no such limit. Sticky for the rest of this job.
+                print(f"[enhance] cuDNN refused a {seg.shape[1]}-frame chunk - retrying without cuDNN: {str(e)[:120]}")
+                torch.backends.cudnn.enabled = False
+                return enhance(model, df_state, seg)
+        enhanced = _enhance_in_chunks(audio_t, _run, df_state.sr(), lambda parts: torch.cat(parts, dim=1))
 
         # DeepFilterNet attenuates the signal alongside the noise; restore
         # peak level to match the original so the output isn't too quiet.
@@ -1393,7 +1429,13 @@ def process_video(
             _mark(stage="enhance")
         extract_audio(src, raw_wav)
         if enhance_audio:
-            enhance_deepfilter(raw_wav, clean_wav)
+            try:
+                enhance_deepfilter(raw_wav, clean_wav)
+            except Exception as e:
+                # The enhancer is an optional polish; a failure in it must not
+                # sink a paid job that transcribes and cuts fine without it.
+                print(f"[enhance] DeepFilterNet failed - continuing with the original audio: {repr(e)[:300]}")
+                shutil.copy(raw_wav, clean_wav)
         else:
             shutil.copy(raw_wav, clean_wav)
 
