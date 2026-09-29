@@ -37,10 +37,14 @@ async function pendingRoutes(page, cancels) {
 
 test('an abandoned native upload is never "stalled" by the byte probe, and a new run supersedes it silently', async ({ page }) => {
   await seedPending(page, true);
-  await bootApp(page);
-  await mockAllApis(page);
   const cancels = [];
+  // Every route BEFORE boot: the saved-job resume polls ~50 ms after load, and
+  // a poll answered by mockAllApis' generic /process_pending (a call id) in the
+  // gap before pendingRoutes lands makes the stale record "finish" instead
+  // (CI flake 2026-09-29, reproduced by widening that gap).
+  await mockAllApis(page);
   await pendingRoutes(page, cancels);
+  await bootApp(page);
   await expect(page.locator('#checkUpload')).toHaveClass(/active/);
   await page.waitForTimeout(3500);                       // > 20 polls at the test cadence
   await expect(page.locator('#statusError')).not.toHaveClass(/visible/);
@@ -58,9 +62,9 @@ test('an abandoned native upload is never "stalled" by the byte probe, and a new
 
 test('a web pending record with frozen bytes still surfaces the pick-again error', async ({ page }) => {
   await seedPending(page, false);
-  await bootApp(page);
-  await mockAllApis(page);
+  await mockAllApis(page);          // routes before boot - see the test above
   await pendingRoutes(page, []);
+  await bootApp(page);
   await expect(page.locator('#statusError')).toHaveClass(/visible/, { timeout: 10_000 });
   await expect(page.locator('#statusError')).toContainText('ההעלאה לא הסתיימה');
   expect(await page.evaluate(() => localStorage.getItem('hebpipe_job'))).toBeNull();
