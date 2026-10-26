@@ -1138,10 +1138,9 @@ def _usage_since(quota_store, since_ts: float):
     Backs the daily GPU-spend digest. Each quota key is `{uid}:{call_id}` → ts."""
     n, uids = 0, set()
     try:
-        for k in quota_store.keys():
+        for k, ts in quota_store.items():
             if not isinstance(k, str) or ":" not in k:
                 continue
-            ts = quota_store.get(k)
             if isinstance(ts, (int, float)) and ts >= since_ts:
                 n += 1
                 uids.add(k.split(":", 1)[0])
@@ -1263,14 +1262,10 @@ def _cost_summary(costs_store, since_ts: float):
            "src_secs": 0.0, "broll_jobs": 0, "by_mode": {}, "usd": 0.0,
            "ai_usd": 0.0, "ai_calls": 0, "ai_tokens": 0, "ai_by_kind": {}}
     try:
-        keys = list(costs_store.keys())
+        entries = list(costs_store.items())
     except Exception:
         return out
-    for k in keys:
-        try:
-            rec = costs_store.get(k)
-        except Exception:
-            continue
+    for k, rec in entries:
         if not isinstance(rec, dict):
             continue
         ts = rec.get("ts")

@@ -18,12 +18,15 @@ CPU_RATE = _ns["CPU_USD_PER_SEC"]
 
 
 class _FakeStore:
-    """Stand-in for a modal.Dict - supports .keys() and .get()."""
+    """Stand-in for a modal.Dict - supports .keys(), .items() and .get()."""
     def __init__(self, mapping=None):
         self._map = dict(mapping or {})
 
     def keys(self):
         return list(self._map.keys())
+
+    def items(self):
+        return list(self._map.items())
 
     def get(self, k, default=None):
         return self._map.get(k, default)
@@ -60,7 +63,7 @@ def test_malformed_entries_are_skipped():
 
 def test_an_unreadable_store_returns_the_empty_shape():
     class _Broken:
-        def keys(self):
+        def items(self):
             raise RuntimeError("dict unavailable")
     out = _cost_summary(_Broken(), 0)
     assert out["videos"] == 0 and out["usd"] == 0.0

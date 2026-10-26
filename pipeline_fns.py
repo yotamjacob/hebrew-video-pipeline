@@ -26,6 +26,9 @@ from pipeline_core import (
 # stage). Best-effort: no ADMIN_EMAIL/RESEND_API_KEY just logs.
 # Also carries a growth section (new signups + account total) and a client
 # error count, so one email answers "how did yesterday go" end to end.
+# Every scan here streams .items() — never keys() + get(k): a per-key get is
+# one Dict round trip, and at a few thousand entries that blew the 300s
+# default timeout (2026-10-26). timeout=900 is headroom on top of that.
 # ---------------------------------------------------------------------------
 def _account_digest(store, since: float) -> dict:
     """One scan of the accounts Dict: total accounts, signups in the window,
@@ -35,10 +38,9 @@ def _account_digest(store, since: float) -> dict:
     total = new = 0
     by_src: dict[str, int] = {}
     by_auth: dict[str, int] = {}
-    for k in store.keys():
+    for k, rec in store.items():
         if k.startswith("uid:") or k.startswith("email:"):
             continue
-        rec = store.get(k)
         if not isinstance(rec, dict):
             continue
         total += 1
@@ -118,7 +120,7 @@ def _digest_body_html(count, users, threshold, cost, accounts, errors) -> str:
 
 
 
-@app.function(image=light_image, schedule=modal.Period(days=1),
+@app.function(image=light_image, schedule=modal.Period(days=1), timeout=900,
               secrets=[modal.Secret.from_name("hebpipe-auth"),
                        modal.Secret.from_name("hebpipe-usage")])
 def daily_usage_report() -> dict:

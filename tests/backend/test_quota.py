@@ -20,11 +20,13 @@ _usage_since      = _quota["_usage_since"]
 
 
 class _FakeStore:
-    """Stand-in for a modal.Dict — supports .keys() and .get()."""
+    """Stand-in for a modal.Dict — supports .keys(), .items() and .get()."""
     def __init__(self, keys=None, mapping=None):
         self._map = dict(mapping) if mapping else {k: 0 for k in (keys or [])}
     def keys(self):
         return list(self._map.keys())
+    def items(self):
+        return list(self._map.items())
     def get(self, k, default=None):
         return self._map.get(k, default)
 
