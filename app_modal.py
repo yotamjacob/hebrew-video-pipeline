@@ -251,6 +251,7 @@ def _code_email_html(code: str) -> str:
 from pipeline_fns import process_video, burn_captions_fn, backup_dicts, restore_dicts, list_backups, build_caption_ass
 from broll_fns import analyze_stock_broll, search_stock_clips
 from content_fns import generate_hook_options, generate_caption_options
+from connector_fns import fetch_url_fn, mcp_store, _mcp_handle
 from assembler_fns import analyze_story, render_story, assembler_social_caption, _sanitize_caption_style
 from metricool_fns import (
     schedule_post_fn, oauth_store, _mc_refresh_access_token, _mcp_tool_call,
@@ -571,7 +572,16 @@ def api():
                     tmp_vol.commit()
             except Exception as exc:
                 print(f"[delete] volume sweep failed: {exc!r}")
+            # Claude connector: the key entry is stored by HASH, so it has to be
+            # resolved through the per-uid pointer before that pointer goes.
+            try:
+                _ch = mcp_store.get(f"ukey:{t_uid}")
+                if isinstance(_ch, str):
+                    mcp_store.pop("key:" + _ch)
+            except Exception:
+                pass
             for store, matches in (
+                (mcp_store, lambda k: k == f"ukey:{t_uid}" or k.startswith(f"job:{t_uid}:")),
                 (jobs_store, lambda k: k.startswith(prefix)),
                 (costs_store, lambda k: k.startswith(prefix)),
                 (progress_store, lambda k: k.startswith(prefix)),
@@ -1142,6 +1152,91 @@ def api():
             await send({"type": "http.response.body", "body": b'{"ok":true}'})
             return
 
+        # ── Claude connector: remote MCP server (public; the key IS the login) ──
+        # docs/connector.md. The secret rides in the URL because that is the one
+        # thing a person can paste into Claude's "add custom connector" box.
+        # Stateless Streamable-HTTP: one JSON-RPC message per POST, JSON reply,
+        # no sessions and no server-initiated stream (GET answers 405).
+        if path.startswith("/mcp/"):
+            import os as _os, hashlib as _hl, re as _mre
+            from types import SimpleNamespace as _NS
+            _ckey = path[len("/mcp/"):].strip("/")
+            _crec = (mcp_store.get("key:" + _hl.sha256(_ckey.encode()).hexdigest())
+                     if _mre.fullmatch(r"[A-Za-z0-9_-]{40,64}", _ckey) else None)
+            _cuid = _crec.get("uid") if isinstance(_crec, dict) else None
+            # The uid index goes with the account, so a deleted account's link dies too.
+            if not _cuid or not isinstance(users_store.get(f"uid:{_cuid}"), str):
+                await send_error("Unknown connector link", 404, code="connector_unknown")
+                return
+            if method != "POST":
+                await send({"type": "http.response.start", "status": 405,
+                            "headers": CORS + [(b"allow", b"POST")]})
+                await send({"type": "http.response.body", "body": b""})
+                return
+            try:
+                _msg = json.loads((await _read_body(receive)).decode("utf-8"))
+            except Exception:
+                _pe = json.dumps({"jsonrpc": "2.0", "id": None,
+                                  "error": {"code": -32700, "message": "Parse error"}}).encode()
+                await send({"type": "http.response.start", "status": 400,
+                            "headers": CORS + [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": _pe})
+                return
+            _chost = next((v.decode() for k, v in scope.get("headers", []) if k == b"host"), "")
+
+            async def _loop(m, p, query=None, body=None):
+                """Run one of THIS router's own routes as the key's owner and
+                return (status, parsed_json) - so every tool reuses the real
+                credit / ownership / validation code instead of copying it."""
+                _raw = json.dumps(body).encode() if body is not None else b""
+                _tok = _sign_token(_cuid, _os.environ["AUTH_SECRET"], ttl=300)
+                _sc = dict(scope)
+                _sc.update(
+                    method=m, path=p, raw_path=p.encode(), query_string=(query or "").encode(),
+                    headers=[(b"authorization", b"Bearer " + _tok.encode()),
+                             (b"content-type", b"application/json")]
+                            + [h for h in scope.get("headers", [])
+                               if h[0] not in (b"authorization", b"content-type", b"content-length")])
+                _out = {"status": 500, "body": b""}
+
+                async def _lrecv():
+                    return {"type": "http.request", "body": _raw, "more_body": False}
+
+                async def _lsend(mm):
+                    if mm["type"] == "http.response.start":
+                        _out["status"] = mm["status"]
+                    elif mm["type"] == "http.response.body":
+                        _out["body"] += mm.get("body", b"")
+
+                await app(_sc, _lrecv, _lsend)
+                try:
+                    return _out["status"], json.loads(_out["body"].decode("utf-8") or "null")
+                except Exception:
+                    return _out["status"], None
+
+            def _cpoll(call_id):
+                import modal as _modal
+                return _poll_fn_call(_modal.functions.FunctionCall.from_id(call_id))
+
+            _ctx = _NS(uid=_cuid, uprefix=_user_prefix(_cuid), base_url=f"https://{_chost}",
+                       store=mcp_store, call=_loop, poll=_cpoll,
+                       spawn_fetch=lambda u, d: fetch_url_fn.spawn(u, d).object_id)
+            if isinstance(_msg, list):
+                _replies = [r for r in [await _mcp_handle(m, _ctx) for m in _msg] if r is not None]
+                _reply = _replies or None
+            else:
+                _reply = await _mcp_handle(_msg, _ctx)
+            if _reply is None:     # notifications only - accepted, nothing to say
+                await send({"type": "http.response.start", "status": 202, "headers": CORS})
+                await send({"type": "http.response.body", "body": b""})
+                return
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json"),
+                                           (b"cache-control", b"no-store")]})
+            await send({"type": "http.response.body",
+                        "body": json.dumps(_reply, ensure_ascii=False).encode("utf-8")})
+            return
+
         # ── Session guard — every route below requires a valid token. ──
         # Exceptions: the Metricool OAuth callback (called by Metricool) and
         # /media (fetched by Metricool's ingester; keys are unguessable).
@@ -1552,6 +1647,39 @@ def api():
             await send({"type": "http.response.start", "status": 200,
                         "headers": CORS + [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": body})
+            return
+
+        # ── Claude connector link: status (GET) / create or rotate (POST) / revoke (DELETE) ──
+        # One live link per account. Only its SHA-256 is stored, so the link is
+        # shown exactly once; making a new one kills the previous one.
+        if path in ("/auth/connector-key", "/auth/connector-key/") and method in ("GET", "POST", "DELETE"):
+            import hashlib as _hl, secrets as _sec, time as _time
+            _old = mcp_store.get(f"ukey:{uid}")
+            if method == "GET":
+                _ck = {"exists": isinstance(_old, str)}
+            else:
+                if isinstance(_old, str):
+                    try:
+                        mcp_store.pop("key:" + _old)
+                    except Exception:
+                        pass
+                if method == "DELETE":
+                    try:
+                        mcp_store.pop(f"ukey:{uid}")
+                    except Exception:
+                        pass
+                    _ck = {"ok": True, "exists": False}
+                else:
+                    _k = _sec.token_urlsafe(32)
+                    _h = _hl.sha256(_k.encode()).hexdigest()
+                    mcp_store["key:" + _h] = {"uid": uid, "ts": _time.time()}
+                    mcp_store[f"ukey:{uid}"] = _h
+                    _host = next((v.decode() for k, v in scope.get("headers", []) if k == b"host"), "")
+                    _ck = {"exists": True, "url": f"https://{_host}/mcp/{_k}"}
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": CORS + [(b"content-type", b"application/json"),
+                                           (b"cache-control", b"no-store")]})
+            await send({"type": "http.response.body", "body": json.dumps(_ck).encode()})
             return
 
         # ── Metricool OAuth: start (redirect user to authorize) ──

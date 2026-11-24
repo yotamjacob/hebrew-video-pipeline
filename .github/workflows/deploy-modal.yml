@@ -17,6 +17,7 @@ on:
       - "content_fns.py"
       - "metricool_fns.py"
       - "assembler_fns.py"
+      - "connector_fns.py"
       - "fonts/**"
       - ".github/workflows/deploy-modal.yml"
   workflow_dispatch: {}

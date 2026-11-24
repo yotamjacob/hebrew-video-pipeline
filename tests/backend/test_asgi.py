@@ -834,7 +834,7 @@ class TestAccountDeleteRoute:
 
     def _purge_block(self):
         i = MODAL_SRC.index("def _purge_user_data")
-        return MODAL_SRC[i:i + 4800]
+        return MODAL_SRC[i:i + 5600]   # +800 for the connector-link cleanup (2026-11-24)
 
     def test_requires_an_explicit_confirmation(self):
         block = self._block()
@@ -848,7 +848,8 @@ class TestAccountDeleteRoute:
         block = self._purge_block()
         for store in ("jobs_store", "costs_store", "progress_store",
                       "pending_store", "quota_store", "errors_store",
-                      "calls_store", "fcm_store", "users_store"):
+                      "calls_store", "fcm_store", "users_store",
+                      "mcp_store"):   # Claude connector link + its job state
             assert store in block, store
         # Rendered media on the volume, not just the metadata.
         assert "tmp_vol.commit()" in block

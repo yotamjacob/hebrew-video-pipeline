@@ -86,6 +86,7 @@ image = (
     .add_local_python_source(
         "pipeline_core", "pipeline_fns", "stock_helpers",
         "broll_fns", "content_fns", "metricool_fns", "assembler_fns",
+        "connector_fns",
     )
 )
 
@@ -102,6 +103,7 @@ burn_image = (
     .add_local_python_source(
         "pipeline_core", "pipeline_fns", "stock_helpers",
         "broll_fns", "content_fns", "metricool_fns", "assembler_fns",
+        "connector_fns",
     )
 )
 
@@ -122,6 +124,7 @@ light_image = (
     .add_local_python_source(
         "pipeline_core", "pipeline_fns", "stock_helpers",
         "broll_fns", "content_fns", "metricool_fns", "assembler_fns",
+        "connector_fns",
     )
 )
 
