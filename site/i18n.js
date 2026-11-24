@@ -44,6 +44,7 @@
     'auth.google':     { en: 'Continue with Google', he: 'המשך עם Google' },
     'auth.or':         { en: 'or', he: 'או' },
     'auth.googleFailed': { en: 'Google sign-in did not complete. Please try again.', he: 'ההתחברות עם Google לא הושלמה. נסו שוב.' },
+    'auth.serverDown': { en: "Can't reach the server right now - check your connection and try again in a minute.", he: 'אין חיבור לשרת כרגע - בדקו את החיבור לאינטרנט ונסו שוב בעוד דקה.' },
     'auth.googleNeedTerms': { en: 'Almost there - accept the terms, then continue with Google again.', he: 'עוד רגע - אשרו את התנאים, ואז המשיכו עם Google שוב.' },
     'auth.sendCode':   { en: 'Send a code to verify your email', he: 'שליחת קוד לאימות המייל' },
     'auth.loginEmail': { en: 'Sign in with email', he: 'התחברות עם אימייל' },

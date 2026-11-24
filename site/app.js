@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.60.7';
+  const APP_VERSION = '1.60.8';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -534,7 +534,19 @@
     if (data && data.exists) return t('auth.emailTaken');
     const key = data && _AUTH_ERR_KEYS[data.code];
     if (key) return t(key, { n: (data && data.retry_min) || 1 });
-    return (data && data.error) || t('auth.errStatus', { status });
+    if (data && data.error) return data.error;
+    // A bare 404/5xx (no JSON error) means the API itself is down or not
+    // deployed - say so instead of a meaningless "Error 404".
+    if (status === 404 || status >= 500) return t('auth.serverDown');
+    return t('auth.errStatus', { status });
+  }
+
+  // A thrown fetch error on the login screen. A network-layer TypeError is
+  // what the browser reports both when the user is offline AND when the API
+  // answers without CORS headers (Modal's "invalid function call" 404 when the
+  // app is stopped) - never show the raw "Failed to fetch" (2026-11-24).
+  function _authCatchMsg(e) {
+    return _isNetErr(e) ? t('auth.serverDown') : (e && e.message) || String(e);
   }
 
   function _showAuthStep(step) {
@@ -675,7 +687,7 @@
       const ci2 = document.getElementById('authCode');
       ci2.value = ''; ci2.focus();
     } catch (e) {
-      errEl.textContent = e.message || String(e);
+      errEl.textContent = _authCatchMsg(e);
       errEl.style.display = 'block';
     } finally {
       _btnBusy(btn, false);
@@ -704,7 +716,7 @@
       showApp();
       fetch(API_BASE + '/warmup/', { headers: { 'Authorization': 'Bearer ' + authToken } }).catch(() => {});
     } catch (e) {
-      errEl.textContent = e.message || String(e);
+      errEl.textContent = _authCatchMsg(e);
       errEl.style.display = 'block';
     } finally {
       _btnBusy(btn, false);
@@ -763,6 +775,7 @@
     try { console.error('google sign-in failed:', msg, e); } catch (_) {}
     if (/cancel|closed|popup|dismiss|USER_CANCELED|USER_CANCELLED/i.test(msg)) return;   // backed out - stay quiet
     const errEl = document.getElementById('authError');
+    if (_isNetErr(e)) { errEl.textContent = t('auth.serverDown'); errEl.style.display = 'block'; return; }
     // Surface the raw reason on a detail line so device users (no devtools) can
     // report exactly what Google returned (SHA-1/client-id mismatches show here).
     errEl.innerHTML = _escapeHtml(t('auth.googleFailed')) +

@@ -540,3 +540,25 @@ test('web Google sign-in shows a connecting spinner while the token exchange run
   expect(await page.locator('#gsiButton').evaluate((el) => el.style.display)).toBe('flex');
   await expect(page.locator('#authError')).toBeVisible();
 });
+
+test('API unreachable: email login shows a clear server message, never "Failed to fetch"', async ({ page }) => {
+  await page.route(/\/auth\/request-code/, r => r.abort('failed'));
+  await page.goto('/');
+  await page.click('#authChoiceExisting');
+  await page.fill('#authEmail', 'user@example.com');
+  await page.click('#authSubmitBtn');
+  await expect(page.locator('#authError')).toContainText(/reach the server|אין חיבור לשרת/);
+  await expect(page.locator('#authError')).not.toContainText(/Failed to fetch/i);
+  await expect(page.locator('#authStepCode')).toBeHidden();
+});
+
+test('API not deployed (bare 404): email login shows the server message, not "Error 404"', async ({ page }) => {
+  await page.route(/\/auth\/request-code/, r =>
+    r.fulfill({ status: 404, contentType: 'text/plain', headers: { 'Access-Control-Allow-Origin': '*' },
+                body: 'modal-http: invalid function call' }));
+  await page.goto('/');
+  await page.click('#authChoiceExisting');
+  await page.fill('#authEmail', 'user@example.com');
+  await page.click('#authSubmitBtn');
+  await expect(page.locator('#authError')).toContainText(/reach the server|אין חיבור לשרת/);
+});
