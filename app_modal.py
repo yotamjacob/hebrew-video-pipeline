@@ -2981,6 +2981,14 @@ def api():
                         _sp.run(["ffmpeg", "-y", "-ss", str(t), "-i", str(src),
                                  "-frames:v", "1", str(fr)],
                                 stdout=_sp.DEVNULL, stderr=_sp.PIPE, timeout=60, check=True)
+                        # A seek at/after the last frame exits 0 but writes
+                        # nothing (the player can report a time a hair past the
+                        # cut's real end) - fall back to the final frame instead
+                        # of failing the whole preview with a 500.
+                        if not (fr.exists() and fr.stat().st_size > 0):
+                            _sp.run(["ffmpeg", "-y", "-sseof", "-1", "-i", str(src),
+                                     "-update", "1", str(fr)],
+                                    stdout=_sp.DEVNULL, stderr=_sp.PIPE, timeout=60, check=True)
                         pr = _sp.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
                                       "-show_entries", "stream=width,height", "-of", "json", str(fr)],
                                      capture_output=True, text=True, check=True)
@@ -3029,8 +3037,10 @@ def api():
                                                (b"cache-control", b"no-store")]})
                 await send({"type": "http.response.body", "body": png})
             except Exception as e:
+                # Log the detail, answer generically: str(e) of a failed
+                # subprocess carries the full command line and temp paths.
                 print(f"[preview_frame] ERROR: {e!r}")
-                await send_error(str(e))
+                await send_error("Preview frame failed", 500, code="preview_failed")
             return
 
         # Download a file from the pipeline volume by key
