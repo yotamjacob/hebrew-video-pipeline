@@ -1,0 +1,50 @@
+name: Restore Modal Dicts
+
+# Lists the R2 metadata snapshots, or merges one back into the live Dicts.
+# Manual only. Leave `key` empty to list; set it to restore (dry-run unless
+# `apply` is true). Never deletes keys - restore_dicts merges.
+
+on:
+  workflow_dispatch:
+    inputs:
+      key:
+        description: "Snapshot key (backups/hebpipe-YYYYMMDD-HHMMSS.json). Empty = list snapshots"
+        required: false
+        default: ""
+      which:
+        description: "Comma list of stores (jobs,users,quota,purchases,metricool,costs). Empty = all"
+        required: false
+        default: ""
+      apply:
+        description: "Actually write (false = dry-run report)"
+        type: boolean
+        default: false
+
+jobs:
+  restore:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install modal
+
+      - name: List or restore
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          KEY: ${{ inputs.key }}
+          WHICH: ${{ inputs.which }}
+          APPLY: ${{ inputs.apply }}
+        run: |
+          if [ -z "$KEY" ]; then
+            modal run app_modal.py::list_backups
+          elif [ "$APPLY" = "true" ]; then
+            modal run app_modal.py::restore_dicts --key "$KEY" --which "$WHICH" --apply
+          else
+            modal run app_modal.py::restore_dicts --key "$KEY" --which "$WHICH"
+          fi

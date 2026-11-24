@@ -248,7 +248,7 @@ def _code_email_html(code: str) -> str:
         "If you didn't request this, you can ignore this email.</p>"
         "</div></div>"
     )
-from pipeline_fns import process_video, burn_captions_fn, backup_dicts, restore_dicts, build_caption_ass
+from pipeline_fns import process_video, burn_captions_fn, backup_dicts, restore_dicts, list_backups, build_caption_ass
 from broll_fns import analyze_stock_broll, search_stock_clips
 from content_fns import generate_hook_options, generate_caption_options
 from assembler_fns import analyze_story, render_story, assembler_social_caption, _sanitize_caption_style

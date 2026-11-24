@@ -212,6 +212,20 @@ def backup_dicts() -> dict:
     return {"ok": True, "key": key, "bytes": len(payload), "counts": counts}
 
 @app.function(image=light_image, secrets=[modal.Secret.from_name("hebpipe-backup")])
+def list_backups(limit: int = 10) -> list:
+    """Newest-first list of snapshot keys in the backup bucket, with size + date.
+    Run: modal run app_modal.py::list_backups
+    """
+    import os
+    objs = _s3_client().list_objects_v2(
+        Bucket=os.environ["S3_BUCKET"], Prefix="backups/hebpipe-").get("Contents", [])
+    rows = [{"key": o["Key"], "bytes": o["Size"], "modified": str(o["LastModified"])}
+            for o in sorted(objs, key=lambda x: x["Key"], reverse=True)[:limit]]
+    for r in rows:
+        print(f"[backups] {r['key']}  {r['bytes']} bytes  {r['modified']}")
+    return rows
+
+@app.function(image=light_image, secrets=[modal.Secret.from_name("hebpipe-backup")])
 def restore_dicts(key: str, which: str = "", apply: bool = False) -> dict:
     """Restore Dicts from a snapshot. MERGES snapshot entries into the live Dict
     (never deletes keys added since the snapshot). Dry-run by default.
