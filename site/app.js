@@ -3,7 +3,7 @@
   // Frontend version, shown in every footer. The app loads this site LIVE
   // (remote webview), so bumping this on each deploy is how we confirm the
   // installed app is running the latest push.
-  const APP_VERSION = '1.60.8';
+  const APP_VERSION = '1.60.9';
   // Every fix report to the user ends with this version; they verify the
   // footer tag on-device matches before re-testing (workflow, 2026-07-16).
   window.__APP_VERSION = 'v' + APP_VERSION;
@@ -879,6 +879,9 @@
         cont.style.display = 'flex';
         window.google.accounts.id.renderButton(cont, {
           theme: 'outline', size: 'large', text: 'continue_with', shape: 'pill',
+          // Follow the APP language, not the browser's: a Hebrew UI on an
+          // English-locale device otherwise shows "Continue with Google".
+          locale: (document.documentElement.lang || 'he').slice(0, 2),
         });
       }
     };
@@ -9269,6 +9272,10 @@
       triggerDownload();
       // Success banner (with "Download again") is truthful and usable.
       hasBurnedOnce = true;   // subsequent burns are re-burns
+      // Persist `burned` right away: the draft was last saved before the burn,
+      // so History kept listing this video as "processed, not exported yet"
+      // next to its own export until some later edit re-saved it.
+      saveEditorDraftNow();
       document.getElementById('burnSuccessBanner').style.display = 'flex';
       _maybeShowShare();
       celebrateExport();

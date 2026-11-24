@@ -531,7 +531,11 @@
 <script>
   const API_BASE = 'https://yotamjacob--hebrew-video-pipeline-api.modal.run';
   const CHUNK = 2 * 1024 * 1024;
-  const token = localStorage.getItem('hebpipe_token') || '';
+  // Same lookup as app.js: a login WITHOUT "remember me" keeps the token in
+  // sessionStorage, so reading localStorage alone showed those users as logged out.
+  let _tok = '';
+  try { _tok = localStorage.getItem('hebpipe_token') || sessionStorage.getItem('hebpipe_token') || ''; } catch (_) {}
+  const token = _tok;
   const $ = (id) => document.getElementById(id);
 
   let clips = [], moments = [], mediaToken = '';   // clips: [{key, name}]
@@ -1354,7 +1358,7 @@
   _loadBrand();
   renderStyleSelects();
   _syncStyleEnabled();
-  loadStyleProfiles();
+  if (token) loadStyleProfiles();   // logged out: skip the guaranteed 401
 
   // ── Clips mode: candidate shorts with virality estimates ──
   const RUBRIC = [['hook', 'הוק'], ['retention', 'החזקה'], ['emotion', 'רגש'], ['clarity', 'בהירות'], ['shareability', 'שיתוף']];

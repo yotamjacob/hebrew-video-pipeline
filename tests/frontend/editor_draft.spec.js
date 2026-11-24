@@ -136,3 +136,18 @@ test('a fresh launch does not reopen the last video; History offers it as an unf
   expect(await draft(page)).toBeNull();
   await expect(page.locator('#historyEmpty')).toBeVisible();
 });
+
+test('a finished export stops being an "unfinished edit" at once (no stale History draft row)', async ({ page }) => {
+  // Live e2e 2026-11-24: right after a successful burn, History listed the
+  // video twice - its export AND a "processed, not exported yet" draft - because
+  // the draft's `burned` flag was only written by the NEXT edit or page hide.
+  await runFullUpload(page, { captions: DEFAULT_CAPTIONS });
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));   // flush the pre-burn draft
+  expect((await draft(page)).burned).toBe(false);
+  await page.click('#runBtn');
+  await page.click('#confirmOk');
+  await expect(page.locator('#burnSuccessBanner')).toBeVisible({ timeout: 15_000 });
+  expect((await draft(page)).burned).toBe(true);
+  await page.click('#tabHistory');
+  await expect(page.locator('#historyDraft .history-draft')).toHaveCount(0);
+});

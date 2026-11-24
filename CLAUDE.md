@@ -38,7 +38,7 @@ violation has shipped real bugs before. Update them in place when behavior chang
 | `site/sw.js` | Service worker — background job polling only (no asset caching) |
 | `site/legal.html` | Bilingual privacy+terms, shown in an on-page modal — see `docs/frontend.md` |
 | `site/welcome.html` | Standalone `/welcome` marketing landing page (logo, platform links, live `GET /stats` counter) — see `docs/frontend.md` |
-| `site/vercel.json` | VESTIGIAL — the ROOT `vercel.json` (`outputDirectory: site`) is what deploys actually read; keep in sync (see `docs/frontend.md`). Rewrites: `/welcome` → welcome.html + SPA catch-all |
+| `site/vercel.json` | VESTIGIAL — the ROOT `vercel.json` (`outputDirectory: site`) is what deploys actually read; keep in sync (see `docs/frontend.md`). Rewrites: `/welcome`, `/assembler` only - the SPA catch-all was removed 2026-08-17, unknown paths 404 by design |
 | `capacitor.config.js` | Per-platform Capacitor config. **Android keeps `server.url` (remote frontend); iOS has NO `server.url` and bundles `webDir`** — App Store 4.2. Branches on the CLI argv, never an env var; `scripts/check_ios_config.js` re-asserts it on the copied artifact |
 | `ios/` | Capacitor iOS project (SPM, no CocoaPods). `App/App/NativeBillingPlugin.swift` = StoreKit 2 credit packs. iPhone-only. Sync with `npm run sync:ios` (runs the config guard) |
 | `android/` | Capacitor Android project. `NativeBillingPlugin.java` (Play Billing), `NativeDownloaderPlugin`, `ParallelUploader` — all Android-only; JS guards on plugin existence so iOS degrades |
