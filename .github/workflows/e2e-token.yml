@@ -1,0 +1,37 @@
+name: E2E session
+
+# Mints a 2-hour session for the standing e2e test account (ops_e2e.py) so an
+# automated check can drive the live app. The token is printed only as
+# RSA-OAEP ciphertext for the public key passed in - safe in a public log.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pubkey_b64:
+        description: "base64 of a PEM RSA public key the token is encrypted to"
+        required: true
+      credits:
+        description: "Credits to keep available on the test account (max 5)"
+        required: false
+        default: "3"
+
+jobs:
+  mint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install modal
+
+      - name: Mint encrypted session
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          PUBKEY_B64: ${{ inputs.pubkey_b64 }}
+          CREDITS: ${{ inputs.credits }}
+        run: modal run ops_e2e.py::mint --pubkey-b64 "$PUBKEY_B64" --credits "$CREDITS"
