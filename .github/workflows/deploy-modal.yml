@@ -1,0 +1,68 @@
+name: Deploy Modal
+
+# Deploys the backend (app_modal.py) to Modal production.
+# Runs on every push to main that touches a backend file, or by hand from
+# the Actions tab. Needs two repository secrets, created from the Modal
+# dashboard (Settings > API Tokens): MODAL_TOKEN_ID and MODAL_TOKEN_SECRET.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app_modal.py"
+      - "pipeline_core.py"
+      - "pipeline_fns.py"
+      - "stock_helpers.py"
+      - "broll_fns.py"
+      - "content_fns.py"
+      - "metricool_fns.py"
+      - "assembler_fns.py"
+      - "fonts/**"
+      - ".github/workflows/deploy-modal.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-modal
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: modal deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install test deps + Modal CLI
+        run: pip install pytest pytest-asyncio requests modal
+
+      - name: Backend unit tests (gate)
+        run: |
+          python -m pytest test_stock_helpers.py -q
+          python -m pytest tests/backend/ -q
+
+      - name: Deploy to Modal
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: |
+          if [ -z "$MODAL_TOKEN_ID" ] || [ -z "$MODAL_TOKEN_SECRET" ]; then
+            echo "::error::MODAL_TOKEN_ID / MODAL_TOKEN_SECRET repository secrets are not set"
+            exit 1
+          fi
+          modal deploy app_modal.py
+
+      - name: Smoke-check the live API
+        run: |
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' https://yotamjacob--hebrew-video-pipeline-api.modal.run/stats)
+            echo "GET /stats -> $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "::error::/stats did not answer 200 after deploy"
+          exit 1
