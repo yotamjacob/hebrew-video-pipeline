@@ -13,7 +13,8 @@
   ],
   "rewrites": [
     { "source": "/welcome", "destination": "/welcome.html" },
-    { "source": "/assembler", "destination": "/assembler.html" }
+    { "source": "/assembler", "destination": "/assembler.html" },
+    { "source": "/claude", "destination": "/claude.html" }
   ],
   "headers": [
     {
